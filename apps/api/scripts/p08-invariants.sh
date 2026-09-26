@@ -13,9 +13,13 @@
 #   apps/api/scripts/p08-invariants.sh
 set -uo pipefail
 
-DB="$(find apps/api/.wrangler -name '*.sqlite' -path '*D1DatabaseObject*' ! -name 'metadata.sqlite' | head -1)"
+# The wrangler state lives next to this script's package, so the probe runs the
+# same way whether it is invoked from the repository root (`pnpm --filter ...`)
+# or from inside `apps/api` (a direct `bash scripts/...`).
+API_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DB="$(find "$API_DIR/.wrangler" -name '*.sqlite' -path '*D1DatabaseObject*' ! -name 'metadata.sqlite' 2>/dev/null | head -1)"
 if [[ -z "$DB" ]]; then
-  echo "no local D1 found; run db:migrations:apply:local first" >&2
+  echo "no local D1 found; run pnpm --filter @runlumi/agents-cp-api db:migrations:apply:local first" >&2
   exit 1
 fi
 
