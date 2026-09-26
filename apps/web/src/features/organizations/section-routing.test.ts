@@ -28,6 +28,10 @@ describe("sectionFromPath", () => {
     expect(sectionFromPath(`/org/${SLUG}/automations`)).toBe("automations");
     expect(sectionFromPath(`/org/${SLUG}/webhooks`)).toBe("webhooks");
     expect(sectionFromPath(`/org/${SLUG}/policy`)).toBe("policy");
+    // P08: adoption is a top-level item because F22's tree has no home for it
+    // and it answers the same question as Devices — is this machine using the
+    // organization, and if not, why not.
+    expect(sectionFromPath(`/org/${SLUG}/adoption`)).toBe("adoption");
   });
 
   it("resolves a settings sub-page to its panel", () => {
@@ -157,6 +161,7 @@ describe("pathForSection", () => {
       "tools",
       "usage",
       "devices",
+      "adoption",
       "policy",
       "models",
       "automations",

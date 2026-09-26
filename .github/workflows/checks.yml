@@ -40,3 +40,13 @@ jobs:
 
       - name: Build web app and Worker dry run
         run: pnpm build
+
+      - name: Apply migrations to a local D1
+        run: pnpm --filter @runlumi/agents-cp-api db:migrations:apply:local
+
+      - name: Prove the P08 structural invariants
+        # The P08 probe is a schema check, not an HTTP smoke: it proves the
+        # migration's triggers, CHECK constraints, and partial unique indexes
+        # actually refuse what the domain says they refuse. `pnpm check` cannot
+        # reach that, because it never opens D1.
+        run: pnpm --filter @runlumi/agents-cp-api p08:invariants

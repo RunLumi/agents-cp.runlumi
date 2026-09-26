@@ -20,6 +20,7 @@ pub mod inference;
 pub mod internal;
 pub mod machine_identity;
 pub mod meta;
+pub mod migration;
 pub mod organizations;
 pub mod plugins;
 pub mod projects;

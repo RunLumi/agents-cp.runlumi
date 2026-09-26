@@ -16,6 +16,7 @@ mod devices;
 mod idempotency;
 mod identity;
 mod machine_identity;
+mod migration;
 mod organizations;
 mod outbox;
 mod platform_ops;
@@ -50,6 +51,11 @@ pub use identity::{
     ChallengeRecord, IdentityRecord, IdentityRepository, SessionRecord, SessionSummary, UserRecord,
 };
 pub use machine_identity::*;
+pub use migration::{
+    AdoptionRepository, AdoptionStateRecord, AdvanceStageInput, AutomationImportLimits,
+    MAX_ADOPTION_PAGE_SIZE, MAX_REMEDIATION_PAGE_SIZE, NewAdoptionStateInput, NewRemediationInput,
+    NewStageEventInput, RemediationRecord, ResolveRemediationInput, RollbackInput,
+};
 pub use organizations::{
     InvitationRecord, MembershipRecord, OrganizationRecord, OrganizationRepository,
     OrganizationSummary, TeamRecord,

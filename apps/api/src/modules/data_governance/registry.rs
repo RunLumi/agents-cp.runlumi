@@ -517,6 +517,57 @@ const FINANCIAL_CEILING: RetentionWindow = bounded(FINANCIAL_RECORD_CEILING);
 /// order is meaningful: the deletion planner walks it in this order so a plan
 /// is deterministic and reviewable.
 const DEFINITIONS: &[Definition] = &[
+    // ---------------------------------------------------------------- P08 --
+    // P08 adds four classes and none of them can hold user content. That is the
+    // point of declaring them: F20 requires every persistent data class to state
+    // its export and deletion behavior, and for a migration feature the honest
+    // answer is that the content was never collected. `adoption_stage_event` is
+    // `metadata_only` rather than `included` because a stage/result pair with a
+    // device id is telemetry about a migration, not the migration's substance.
+    Definition {
+        class: "client_compatibility_policy",
+        sensitivity: Sensitivity::Public,
+        owner_scope: OwnerScope::Platform,
+        retention: RetentionWindow::Lifecycle,
+        legal_maximum: RetentionWindow::Lifecycle,
+        export: ExportBehavior::Included,
+        deletion: DeletionBehavior::Tombstone,
+        logging: LoggingRule::MetadataOnly,
+        description: "Supported client protocol and policy-schema ranges, local-only eligibility, and the history-sync switch. Platform data with no tenant content.",
+    },
+    Definition {
+        class: "workspace_adoption_state",
+        sensitivity: Sensitivity::Internal,
+        owner_scope: OwnerScope::Organization,
+        retention: RetentionWindow::Lifecycle,
+        legal_maximum: RetentionWindow::Lifecycle,
+        export: ExportBehavior::MetadataOnly,
+        deletion: DeletionBehavior::Tombstone,
+        logging: LoggingRule::MetadataOnly,
+        description: "Per-workspace adoption stage, ownership, credential mode, and the client's opaque external workspace reference. Never a path, file list, prompt, or credential.",
+    },
+    Definition {
+        class: "adoption_stage_event",
+        sensitivity: Sensitivity::Internal,
+        owner_scope: OwnerScope::Device,
+        retention: bounded(RetentionDuration::from_days_unchecked(180)),
+        legal_maximum: bounded(RetentionDuration::from_days_unchecked(365)),
+        export: ExportBehavior::MetadataOnly,
+        deletion: DeletionBehavior::PhysicalDelete,
+        logging: LoggingRule::MetadataOnly,
+        description: "Stage/result migration telemetry with a closed-vocabulary reason code. The schema has no column that can hold a prompt, a file, or a secret. 180 days.",
+    },
+    Definition {
+        class: "adoption_remediation",
+        sensitivity: Sensitivity::Internal,
+        owner_scope: OwnerScope::Organization,
+        retention: bounded(RetentionDuration::from_days_unchecked(180)),
+        legal_maximum: bounded(RetentionDuration::from_days_unchecked(365)),
+        export: ExportBehavior::MetadataOnly,
+        deletion: DeletionBehavior::Tombstone,
+        logging: LoggingRule::MetadataOnly,
+        description: "Open and resolved remediation state for an adopted workspace: code, remedy, stage, and who resolved it. There is no resolution note. 180 days.",
+    },
     // ---------------------------------------------------------------- P06 --
     Definition {
         class: "automation_definition",
