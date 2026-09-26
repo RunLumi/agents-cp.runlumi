@@ -1,0 +1,125 @@
+{
+  "contract_version": "p08-cg-v1",
+  "phase": "P08",
+  "subject": "Local ZCode/Lumi Agents state to org-aware Lumi Agents adoption",
+  "frozen_by": "docs/implementation/gates/P08-CG.md",
+
+  "client_compatibility": {
+    "supported_protocols": [1],
+    "supported_policy_schema_versions": [1],
+    "min_client_app_version": "0.4.0",
+    "local_only_eligible": true,
+    "history_sync_eligible": false,
+    "note": "local_only_eligible is a disclosure, not an authorization check. A client this control plane cannot evaluate keeps local-only operation unconditionally; what it loses is org policy, org credentials, and org budgets. history_sync_eligible is the F26 stage 5 switch and is off until data-retention controls are mature."
+  },
+
+  "stages": [
+    "local_unmanaged",
+    "account_optional",
+    "device_enrolled",
+    "workspace_bound",
+    "managed_policy",
+    "history_sync"
+  ],
+
+  "stage_rules": {
+    "advance_by": "exactly_one_rank",
+    "backwards": "rollback_only",
+    "rollback_target": "local_unmanaged",
+    "org_ownership_begins_at": "workspace_bound",
+    "history_sync_requires": [
+      "history_sync_eligible",
+      "credential_mode != local_credential"
+    ],
+    "org_managed_stages_require": ["bound_project_id", "bound_device_id"]
+  },
+
+  "ownership_states": ["local_unmanaged", "org_managed"],
+
+  "credential_modes": [
+    "local_credential",
+    "metadata_only",
+    "org_managed_credential"
+  ],
+
+  "telemetry_results": [
+    "started",
+    "completed",
+    "skipped",
+    "failed",
+    "declined",
+    "rolled_back"
+  ],
+
+  "telemetry_fields": [
+    "stage",
+    "result",
+    "reason_code",
+    "protocol_major",
+    "policy_schema_version",
+    "app_version"
+  ],
+
+  "compatibility_reasons": [
+    "client_upgrade_required",
+    "client_protocol_unsupported",
+    "policy_schema_unsupported"
+  ],
+
+  "adoption_error_codes": [
+    "migration_stage_invalid",
+    "history_sync_not_available",
+    "history_sync_requires_managed_credential",
+    "binding_incomplete",
+    "credential_mode_requires_managed",
+    "already_local_unmanaged",
+    "external_reference_invalid",
+    "telemetry_field_unknown",
+    "telemetry_payload_too_large",
+    "automation_import_too_large"
+  ],
+
+  "import_conflict_codes": [
+    "automation_not_available",
+    "automation_limit_reached",
+    "tool_not_permitted",
+    "model_capability_unavailable",
+    "off_peak_not_entitled",
+    "workspace_unbound",
+    "local_credential_not_permitted"
+  ],
+
+  "remediation_codes": [
+    "client_outdated",
+    "protocol_unsupported",
+    "policy_sync_failed",
+    "credential_missing",
+    "capability_unsupported",
+    "workspace_unbound"
+  ],
+
+  "remedies": [
+    "upgrade_client",
+    "reconnect_device",
+    "rebind_workspace",
+    "choose_credential_mode",
+    "review_tool_policy",
+    "dismiss"
+  ],
+
+  "never_uploaded": [
+    "local_api_keys",
+    "historical_prompts",
+    "files",
+    "automations",
+    "mcp_credentials",
+    "workspace_contents"
+  ],
+
+  "new_data_classes": [
+    "client_compatibility_policy",
+    "workspace_adoption_state",
+    "adoption_stage_event",
+    "adoption_remediation"
+  ]
+}

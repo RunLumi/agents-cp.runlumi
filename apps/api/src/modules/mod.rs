@@ -12,6 +12,7 @@ pub mod identity;
 pub mod inference;
 pub mod machine_identity;
 pub mod memberships;
+pub mod migration;
 pub mod organizations;
 pub mod outbox;
 pub mod plugins;
