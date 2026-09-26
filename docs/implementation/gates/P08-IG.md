@@ -1,7 +1,7 @@
 # Integration Gate — P08-IG
 
 - Phase: P08
-- Contract Gate: `p08-cg-v1` (this branch)
+- Contract Gate: `p08-cg-v1` (PR #27)
 - Verdict: **PASS for the control plane; P08 exit is conditional on P08-INT-01**
 - Evidence file: `docs/implementation/evidence/P08-IG-2026-09-26.md`
 
@@ -43,7 +43,8 @@ indexes, or any pre-existing table. The migration is additive: four new tables,
 two new indexes, three triggers, one seed row. The `git diff` of the migration
 contains no `ALTER` and no `DROP`.
 
-- `db:migrations:apply:local` applies 0011–0016 in order against a fresh D1.
+- `db:migrations:apply:local` applies 0011–0019 in order against a fresh D1, P07's
+  `0016`–`0018` included.
 - The adoption record is keyed on the client's own opaque installation and
   workspace identifiers, so an existing workspace is recognised rather than
   appearing new — `find_by_external_reference` and the unique index on
