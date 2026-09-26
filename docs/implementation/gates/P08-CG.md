@@ -63,7 +63,7 @@ a session body has no representation, so there is nothing to sanitize later.
 ## Client compatibility contract
 
 `CompatibilityPolicy` is one row of `client_compatibility_policies`, seeded by
-`0016_p08_migration_adoption.sql` and mirrored by the compiled-in
+`0019_p08_migration_adoption.sql` and mirrored by the compiled-in
 `CompatibilityPolicy::baseline()`. The compiled copy exists so a control plane
 that cannot read its own policy row still answers a local client — an error here
 would push an existing local user off the managed path rather than telling them
@@ -337,7 +337,7 @@ managed operation is actually refused.
 
 ## Persistence
 
-`0016_p08_migration_adoption.sql` adds four tables. The invariants that matter are
+`0019_p08_migration_adoption.sql` adds four tables. The invariants that matter are
 enforced in the database as well as the domain, and `apps/api/scripts/p08-invariants.sh`
 proves it against a real D1 — 17 cases, wired into CI, because `pnpm check` never
 opens D1.

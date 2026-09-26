@@ -1,4 +1,4 @@
--- 0016_p08_migration_adoption.sql — client protocol compatibility registry,
+-- 0019_p08_migration_adoption.sql — client protocol compatibility registry,
 -- per-workspace adoption state, stage/result telemetry, and remediation state.
 --
 -- Forward-only; apply after 0015_p06_baseline_seed.sql.

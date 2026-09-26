@@ -2,7 +2,7 @@
 //!
 //! The tables are `client_compatibility_policies`, `workspace_adoption_states`,
 //! `adoption_stage_events`, and `adoption_remediations`, added by
-//! `0016_p08_migration_adoption.sql`. Every decision this layer's callers need —
+//! `0019_p08_migration_adoption.sql`. Every decision this layer's callers need —
 //! whether a client is compatible, whether a stage may advance, which
 //! remediations are open, whether an automation may be imported — is made by
 //! `modules::migration`, never here. What lives here is the query, the row, and

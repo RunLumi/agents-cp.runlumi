@@ -169,7 +169,7 @@ pub struct CompatibilityPolicy {
 
 impl CompatibilityPolicy {
     /// The frozen baseline. It must agree with the row seeded in
-    /// `0016_p08_migration_adoption.sql`; [`baseline_matches_seed`] proves the
+    /// `0019_p08_migration_adoption.sql`; [`baseline_matches_seed`] proves the
     /// two do not drift, because a compiled-in answer that disagreed with the
     /// stored one would make behaviour depend on whether storage was reachable.
     pub const fn baseline() -> Self {
