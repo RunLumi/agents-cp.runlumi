@@ -77,6 +77,14 @@ const NotificationPreferences = lazy(() =>
   })),
 );
 
+// P08-FE-01/02. Adoption is lazy like every other substantive surface: the
+// initial route chunk must not grow for a section most sessions never open.
+const AdoptionPanel = lazy(() =>
+  import("@/features/adoption/adoption-panel").then((module) => ({
+    default: module.AdoptionPanel,
+  })),
+);
+
 const UsageBudgetsPanel = lazy(() =>
   import("@/features/usage/usage-budgets-panel").then((module) => ({
     default: module.UsageBudgetsPanel,
@@ -112,6 +120,7 @@ type Section =
   | "tools"
   | "usage"
   | "devices"
+  | "adoption"
   | "policy"
   | "models"
   | "automations"
@@ -136,6 +145,10 @@ const sections: { id: Section; label: string; icon: ComponentType<{ className?: 
   // is a scheduled way to start one; the rest are organization configuration.
   { id: "automations", label: "Automations", icon: IconRun },
   { id: "devices", label: "Devices", icon: IconUsers },
+  // P08: adoption lives next to devices because it is the other half of the same
+  // question — "is this machine using the organization, and if not, why not?" —
+  // and F22's tree has no separate home for it.
+  { id: "adoption", label: "Adoption", icon: IconRoute },
   { id: "policy", label: "Policy", icon: IconShieldLock },
   { id: "settings", label: "Settings", icon: IconShieldLock },
 ];
@@ -673,6 +686,15 @@ export function OrgDashboard({ me, onSignOut, onOrganizationsChanged }: OrgDashb
                 ) : null}
                 {section === "devices" ? (
                   <DevicesPanel orgId={load.organization.org_id} currentUserId={me.user.id} />
+                ) : null}
+                {section === "adoption" ? (
+                  <Suspense fallback={<LoadingPanel label="Loading adoption…" />}>
+                    {/* P08: `canManage` is a convenience for the read-only
+                        rendering only. Every adoption mutation re-authorizes
+                        `adoption.manage` server-side, so hiding the button is
+                        a courtesy, not a control. */}
+                    <AdoptionPanel orgId={load.organization.org_id} canManage={canManage} />
+                  </Suspense>
                 ) : null}
                 {section === "policy" ? <PolicyPanel orgId={load.organization.org_id} /> : null}
                 {section === "models" ? (
