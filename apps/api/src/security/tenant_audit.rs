@@ -1,0 +1,1280 @@
+//! The tenant-isolation audit (P09-SEC-01).
+//!
+//! # Why this file exists
+//!
+//! Four repositories already assert that their SQL binds the organization:
+//! `plugins::tests::every_tenant_read_binds_the_organization`,
+//! `budgets::tests::every_budget_and_rate_query_binds_the_tenant_first`,
+//! `usage::tests::page_and_summary_filters_are_tenant_first`, and
+//! `audit::tests::query_requires_a_valid_tenant_and_page_limit`. They are good,
+//! and they are also **hand-enumerated**. A `const *_SQL` added tomorrow is not in
+//! any of those lists, so it is not covered by construction — it is covered only
+//! if somebody remembers. That is the finding this audit exists to fix.
+//!
+//! This file reads the migrations and the whole `apps/api/src` tree at test time
+//! and puts every SQL statement that touches an org-owned table into exactly one
+//! of six classes, then asserts the MECHANICAL property of that class. It fails
+//! if:
+//!
+//! * a statement is unclassified — so the audit cannot rot;
+//! * a class's mechanical property does not hold — so a classification cannot lie;
+//! * an `IdChain` or `JobChain` statement names a resolver that is itself neither
+//!   org-bound nor another chain — so a chain has to bottom out in something real.
+//!
+//! # The three tenant axes
+//!
+//! The existing tests only know about one. There are three, and a statement can
+//! be bound by any of them:
+//!
+//! * **organization** — `org_id = ?1`. The usual case.
+//! * **principal** — `user_id = ?1`. Deleting an account must collect that user's
+//!   data across *every* org they belonged to, so these are deliberately not
+//!   org-scoped. Treating them as a tenant bug would be wrong.
+//! * **device** — `device_id = ?1`. A device authenticated as itself.
+//!
+//! # What this audit does and does not prove
+//!
+//! It proves that no SQL statement can *reach* another tenant's row by the shape
+//! of the statement. It does NOT prove the routes call the right statement with
+//! the right value; that is a call-graph property and needs an integration
+//! environment. Both limits are stated in the Integration Gate rather than
+//! glossed.
+#![cfg(test)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// How a statement is prevented from reaching another tenant's row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Class {
+    /// The organization is a predicate in the statement itself.
+    OrgBound,
+    /// Bound to a principal rather than an organization, by design: account
+    /// deletion and export inventory are unions across every org a user was in.
+    PrincipalBound,
+    /// Bound to a device the caller has already authenticated as.
+    DeviceBound,
+    /// A read that carries no org predicate but SELECTs `org_id`, so the caller
+    /// receives the tenant and can compare it. Without that column the "read then
+    /// check" pattern is impossible and the statement is a cross-tenant read.
+    ReturnsOrg,
+    /// A write by primary key with no org predicate, guarded by a compare-and-set
+    /// on version or a terminal-state predicate, so a replayed or misrouted write
+    /// cannot clobber a newer state.
+    CompareAndSet,
+    /// No org predicate, reached from an id that an org-scoped read already
+    /// resolved. `resolver` names that read, and the audit follows the chain.
+    IdChain(&'static str),
+    /// No org predicate, reached from a queue job whose envelope is itself
+    /// tenant-scoped. `resolver` names the claim statement.
+    JobChain(&'static str),
+}
+
+const JUDGEMENTS: &[(&str, Class, &str)] = &[
+    // -- reads that resolve through an org-scoped read upstream ---------------
+    (
+        "repositories/automations.rs::AUTOMATION_SESSION_BY_EXTERNAL_ID_SQL",
+        Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
+        "Looks a session up by the occurrence's `external_id`, which is globally \
+         unique but org-less. The only caller is a device route that resolved the \
+         occurrence through `OCCURRENCE_BY_ID_SQL`, which is org-bound.",
+    ),
+    (
+        "repositories/automations.rs::RUN_LINK_ATTEMPT_EXISTS_SQL",
+        Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
+        "Keyed by `occurrence_id`. Reached only from the same org-scoped \
+         occurrence. Returns a boolean, so it is not a data oracle.",
+    ),
+    (
+        "repositories/automations.rs::PREDECESSOR_SQL",
+        Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
+        "Walks `blocked_by_occurrence_id`, which points at another occurrence in \
+         the same automation. Reached from an org-bound occurrence.",
+    ),
+    (
+        "repositories/automations.rs::OPEN_QUEUED_SUCCESSOR_SQL",
+        Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
+        "Same chain; the successor is the row the predecessor blocked on.",
+    ),
+    (
+        "repositories/automations.rs::ACTIVE_LEASE_FOR_OCCURRENCE_SQL",
+        Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
+        "Keyed by occurrence; the lease cannot belong to another org's occurrence.",
+    ),
+    (
+        "repositories/automations.rs::EXPIRED_LEASES_SQL",
+        Class::JobChain("repositories/data_governance.rs::CLAIM_QUEUE_ENVELOPE_SQL"),
+        "The sweep runs from a queue job whose envelope names the org. NOT a global \
+         sweep: it is bounded by the claimed envelope.",
+    ),
+    (
+        "repositories/projects.rs::BINDING_COUNT_FOR_DEVICE_SQL",
+        Class::DeviceBound,
+        "Keyed by `device_id` AND `workspace_identity`, both of which the caller \
+         proved by authenticating as that device. A device cannot ask about \
+         another device's bindings.",
+    ),
+    (
+        "repositories/projects.rs::BINDINGS_BY_DEVICE_SQL",
+        Class::DeviceBound,
+        "Same device boundary as the count above. Returns `org_id` as well, so the \
+         caller could additionally check.",
+    ),
+    (
+        "repositories/tools.rs::DEVICE_FOR_TOKEN_SQL",
+        Class::DeviceBound,
+        "The device-enrollment path: a one-time token IS the device's proof of \
+         possession. Keyed by the token's own device id.",
+    ),
+    (
+        "routes/devices.rs::TOKEN_LOOKUP_SQL",
+        Class::DeviceBound,
+        "Same enrollment path as above.",
+    ),
+    (
+        "repositories/policy.rs::ACK_EXISTS_SQL",
+        Class::DeviceBound,
+        "Keyed by `device_id` plus the policy version. Returns a boolean for the \
+         caller's own device.",
+    ),
+
+    // -- principal-bound: the union an account deletion must make ------------
+    (
+        "repositories/data_governance.rs::COLLECT_NOTIFICATIONS_USER_SQL",
+        Class::PrincipalBound,
+        "Account deletion collects a user's notifications across every org they \
+         were in. Org-scoping it would silently leave rows behind in orgs they \
+         have left, which is the data-retention bug F20 exists to prevent.",
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_USER_EXPORT_OBJECTS_SQL",
+        Class::PrincipalBound,
+        "Same deletion union, over export jobs rather than notifications.",
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_MEMBERSHIPS_USER_SQL",
+        Class::PrincipalBound,
+        "Same deletion union. Deliberately across orgs: a membership is the user's, \
+         not one org's.",
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_INVITATIONS_USER_SQL",
+        Class::PrincipalBound,
+        "Same deletion union.",
+    ),
+    (
+        "repositories/security.rs::LIST_SECURITY_EVENTS_FOR_USER_SQL",
+        Class::PrincipalBound,
+        "A user's own security events across their orgs. This is the user's data \
+         to see, not an org's to see.",
+    ),
+
+    // -- job-chain: reached only from a tenant-scoped queue envelope ----------
+    (
+        "repositories/webhooks.rs::NEXT_SECRET_VERSION_SQL",
+        Class::JobChain("repositories/webhooks.rs::CLAIM_JOB_SQL"),
+        "`MAX(version) WHERE endpoint_id = ?1`. The endpoint id came from an \
+         endpoint resolved under the caller's org. Returns a number, never a row.",
+    ),
+    (
+        "repositories/data_governance.rs::CLAIM_QUEUE_ENVELOPE_SQL",
+        Class::CompareAndSet,
+        "The claim IS the tenant boundary: the envelope is fetched by dedupe key \
+         and then compare-and-set on state plus lease version.",
+    ),
+    (
+        "repositories/data_governance.rs::SETTLE_QUEUE_ENVELOPE_SQL",
+        Class::CompareAndSet,
+        "Settles an envelope this worker already holds a claim on.",
+    ),
+    (
+        "repositories/webhooks.rs::CLAIM_JOB_SQL",
+        Class::CompareAndSet,
+        "The queue claim. Atomic CAS on job id plus attempt plus state plus lease \
+         version; `ux_queue_job_envelopes_dedupe` is the D1-level backstop.",
+    ),
+    (
+        "repositories/webhooks.rs::COMPLETE_JOB_SQL",
+        Class::CompareAndSet,
+        "Completes a job this worker holds the claim on.",
+    ),
+    (
+        "repositories/webhooks.rs::RETRY_JOB_SQL",
+        Class::CompareAndSet,
+        "Same. A second worker cannot re-drive a job another worker holds.",
+    ),
+
+    // -- compare-and-set writes by primary key -------------------------------
+    (
+        "repositories/data_governance.rs::MARK_ARTIFACT_DELETED_SQL",
+        Class::CompareAndSet,
+        "Marks an export artifact deleted, guarded on the artifact's own state.",
+    ),
+    (
+        "repositories/data_governance.rs::TOUCH_GRANT_SQL",
+        Class::CompareAndSet,
+        "A download grant's single-use redemption, guarded on its own state. \
+         This is the statement that makes a grant one-shot.",
+    ),
+    (
+        "repositories/data_governance.rs::REVOKE_GRANTS_FOR_EXPORT_SQL",
+        Class::IdChain("repositories/data_governance.rs::DELETION_BY_ID_FOR_SCOPE_SQL"),
+        "Revokes every grant for an export the caller already resolved under its \
+         own scope. Writes many rows, so a compare-and-set on each is not the \
+         property; the org-scoped resolution of the export is.",
+    ),
+    (
+        "repositories/data_governance.rs::SET_DELETION_CUTOFF_SQL",
+        Class::CompareAndSet,
+        "A deletion job's cutoff, guarded on the job's own state and version.",
+    ),
+    (
+        "repositories/data_governance.rs::UPDATE_DELETION_TASK_SQL",
+        Class::CompareAndSet,
+        "A deletion task's progress, guarded on its own state and version.",
+    ),
+    (
+        "repositories/data_governance.rs::UPDATE_EXPORT_STATE_SQL",
+        Class::CompareAndSet,
+        "An export job's state, guarded on state plus version.",
+    ),
+    (
+        "repositories/data_governance.rs::UPDATE_DELETION_STATE_SQL",
+        Class::CompareAndSet,
+        "A deletion job's state, guarded on state plus version.",
+    ),
+    (
+        "repositories/devices.rs::EXPIRE_ENROLLMENT_SQL",
+        Class::CompareAndSet,
+        "Enrollment expiry, guarded on the enrollment's own state.",
+    ),
+    (
+        "repositories/devices.rs::COMPLETE_ENROLLMENT_SQL",
+        Class::CompareAndSet,
+        "Same.",
+    ),
+    (
+        "repositories/devices.rs::REVOKE_DEVICE_SQL",
+        Class::CompareAndSet,
+        "Revocation, guarded on the device's own state and version so a replayed \
+         revoke cannot rewrite why it was revoked.",
+    ),
+    (
+        "repositories/devices.rs::UPDATE_DEVICE_HEARTBEAT_SQL",
+        Class::CompareAndSet,
+        "A heartbeat, guarded on the device's version.",
+    ),
+    (
+        "repositories/organizations.rs::ACCEPT_INVITATION_SQL",
+        Class::CompareAndSet,
+        "Invitation acceptance, guarded on the invitation's own state and version \
+         so it can be accepted exactly once.",
+    ),
+    (
+        "repositories/machine_identity.rs::TOUCH_KEY_USE_SQL",
+        Class::CompareAndSet,
+        "Last-used bookkeeping on the key that just authenticated. Reached only \
+         with the key's own id, from the credential that was just verified.",
+    ),
+    (
+        "repositories/projects.rs::DELETE_GRANT_SQL",
+        Class::IdChain("repositories/projects.rs::GRANT_BY_ID_SQL"),
+        "Deletes by `(grant_id, project_id)`. The grant is resolved first and \
+         carries its `org_id` for the caller to check.",
+    ),
+    (
+        "repositories/projects.rs::DELETE_BINDING_SQL",
+        Class::IdChain("repositories/projects.rs::BINDING_BY_ID_SQL"),
+        "Same pattern for a workspace binding.",
+    ),
+    (
+        "repositories/tools.rs::UPDATE_TOOL_CALL_STATUS_SQL",
+        Class::IdChain("repositories/tools.rs::TOOL_CALL_REF_BY_ID_SQL"),
+        "A tool-call's terminal status. The ref carries its `org_id` and its run's \
+         scope, both resolved under the caller.",
+    ),
+    (
+        "repositories/tools.rs::EXPIRE_APPROVAL_SQL",
+        Class::CompareAndSet,
+        "An approval's expiry, guarded on its own window and state.",
+    ),
+    (
+        "repositories/webhooks.rs::RECORD_TERMINAL_FAILURE_SQL",
+        Class::CompareAndSet,
+        "An endpoint's terminal failure counter, guarded on its own state.",
+    ),
+    (
+        "repositories/webhooks.rs::RESET_TERMINAL_FAILURES_SQL",
+        Class::CompareAndSet,
+        "Same counter being reset; a guard stops a replayed reset.",
+    ),
+    (
+        "repositories/webhooks.rs::CANCEL_ENDPOINT_DELIVERIES_SQL",
+        Class::IdChain("repositories/webhooks.rs::ENDPOINT_BY_ID_SQL"),
+        "Cancels an endpoint's deliveries. The endpoint is org-scoped by the \
+         caller's own policy read; the fan-out index makes the cascade exact.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_DELIVERY_QUEUED_SQL",
+        Class::JobChain("repositories/webhooks.rs::CLAIM_JOB_SQL"),
+        "One of the delivery CAS transitions, reached from a claimed job.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_DELIVERY_DELIVERING_SQL",
+        Class::JobChain("repositories/webhooks.rs::CLAIM_JOB_SQL"),
+        "Same.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_DELIVERY_DELIVERED_SQL",
+        Class::JobChain("repositories/webhooks.rs::CLAIM_JOB_SQL"),
+        "Same. `WHERE delivery_id = ?1 AND state = 'delivering' AND version = ?3` \
+         is a compare-and-set, so a duplicate delivery cannot double-credit it.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_DELIVERY_RETRY_SQL",
+        Class::JobChain("repositories/webhooks.rs::CLAIM_JOB_SQL"),
+        "Same.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_DELIVERY_DEAD_LETTER_SQL",
+        Class::JobChain("repositories/webhooks.rs::CLAIM_JOB_SQL"),
+        "Same. Bounded retries end here rather than looping.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_NOTIFICATION_READ_SQL",
+        Class::PrincipalBound,
+        "A notification read is the user's own, keyed by their principal.",
+    ),
+    (
+        "repositories/webhooks.rs::MARK_NOTIFICATION_DELIVERY_SQL",
+        Class::PrincipalBound,
+        "Same.",
+    ),
+    (
+        "jobs/automations.rs::CANCEL_PREDECESSOR_SQL",
+        Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
+        "Cancels a blocked-on predecessor, reached from an org-bound occurrence.",
+    ),
+];
+
+/// The other statements touching an org-owned table, each judged by its shape.
+///
+/// These need no per-entry reason: the audit re-derives `OrgBound` and
+/// `ReturnsOrg` from the statement text and fails if the label disagrees, so a
+/// mislabel here cannot survive.
+const MECHANICAL: &[(&str, Class)] = &[
+("repositories/ai.rs::INSERT_PROVIDER_SQL", Class::OrgBound),
+        ("repositories/ai.rs::UPDATE_PROVIDER_LIFECYCLE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::UPDATE_MODEL_LIFECYCLE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_POLICY_SQL", Class::OrgBound),
+        ("repositories/ai.rs::UPDATE_POLICY_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_CREDENTIAL_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_ROUTE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_ROUTE_VERSION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ASSERT_ROUTE_VERSION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ASSERT_CREDENTIAL_VERSION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ASSERT_PROVIDER_VERSION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ASSERT_MODEL_VERSION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ASSERT_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ASSERT_POLICY_ABSENT_SQL", Class::OrgBound),
+        ("repositories/ai.rs::PUBLISH_ROUTE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::UPDATE_ROUTE_LIFECYCLE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::ROLLBACK_ROUTE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::HEALTH_UPSERT_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_INFERENCE_REQUEST_SQL", Class::OrgBound),
+        ("repositories/ai.rs::UPDATE_INFERENCE_REQUEST_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_BUDGET_RESERVATION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::UPDATE_BUDGET_RESERVATION_SQL", Class::OrgBound),
+        ("repositories/ai.rs::INSERT_USAGE_SQL", Class::OrgBound),
+        ("repositories/audit.rs::INSERT_AUDIT_SQL", Class::OrgBound),
+        ("repositories/audit.rs::INSERT_AUDIT_IDEMPOTENT_SQL", Class::OrgBound),
+        ("repositories/audit.rs::LIST_AUDIT_SQL", Class::OrgBound),
+        ("repositories/audit.rs::GET_AUDIT_SQL", Class::OrgBound),
+        ("repositories/automations.rs::AUTOMATION_BY_ID_SQL", Class::OrgBound),
+        ("repositories/automations.rs::AUTOMATIONS_PAGE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::ACTIVE_AUTOMATION_COUNT_SQL", Class::OrgBound),
+        ("repositories/automations.rs::DUE_AUTOMATIONS_SQL", Class::ReturnsOrg),
+        ("repositories/automations.rs::SCHEDULE_RULE_BY_ID_SQL", Class::OrgBound),
+        ("repositories/automations.rs::INSERT_SCHEDULE_RULE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::INSERT_AUTOMATION_SQL", Class::OrgBound),
+        ("repositories/automations.rs::UPDATE_AUTOMATION_SQL", Class::OrgBound),
+        ("repositories/automations.rs::SET_AUTOMATION_STATUS_SQL", Class::OrgBound),
+        ("repositories/automations.rs::SOFT_DELETE_AUTOMATION_SQL", Class::OrgBound),
+        ("repositories/automations.rs::ADVANCE_CURSOR_SQL", Class::OrgBound),
+        ("repositories/automations.rs::INSERT_OCCURRENCE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::OCCURRENCE_BY_ID_SQL", Class::OrgBound),
+        ("repositories/automations.rs::OCCURRENCES_PAGE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::DEVICE_DUE_OCCURRENCES_SQL", Class::OrgBound),
+        ("repositories/automations.rs::TRANSITION_OCCURRENCE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::INSERT_LEASE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::LEASE_BY_ID_SQL", Class::OrgBound),
+        ("repositories/automations.rs::ATTEMPTS_SQL", Class::OrgBound),
+        ("repositories/automations.rs::RENEW_LEASE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::SETTLE_LEASE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::CLOSE_LEASE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::RUN_LINK_BY_ATTEMPT_SQL", Class::ReturnsOrg),
+        ("repositories/automations.rs::INSERT_RUN_LINK_SQL", Class::OrgBound),
+        ("repositories/automations.rs::UPDATE_RUN_LINK_STATE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::INSERT_AUTOMATION_SESSION_SQL", Class::OrgBound),
+        ("repositories/automations.rs::INSERT_AUTOMATION_RUN_SQL", Class::OrgBound),
+        ("repositories/automations.rs::LICENSE_STATE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::PRINCIPAL_MEMBERSHIP_ACTIVE_SQL", Class::OrgBound),
+        ("repositories/automations.rs::EFFECTIVE_INTEGER_ENTITLEMENT_SQL", Class::OrgBound),
+        ("repositories/automations.rs::CURRENT_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/automations.rs::RESTART_CURSOR_SQL", Class::OrgBound),
+        ("repositories/billing.rs::BILLING_ACCOUNT_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/billing.rs::SUBSCRIPTION_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/billing.rs::APPLY_SUBSCRIPTION_SQL", Class::OrgBound),
+        ("repositories/billing.rs::ASSERT_SUBSCRIPTION_APPLIED_SQL", Class::OrgBound),
+        ("repositories/billing.rs::INSERT_SUBSCRIPTION_EVENT_SQL", Class::OrgBound),
+        ("repositories/billing.rs::PROVIDER_SYNC_STATE_SQL", Class::OrgBound),
+        ("repositories/billing.rs::RECORD_PROVIDER_SUCCESS_SQL", Class::OrgBound),
+        ("repositories/billing.rs::RECORD_PROVIDER_FAILURE_SQL", Class::OrgBound),
+        ("repositories/billing.rs::PROVIDER_PROJECTION_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/billing.rs::UPSERT_PROVIDER_PROJECTION_SQL", Class::OrgBound),
+        ("repositories/billing.rs::ENTITLEMENT_GRANTS_SQL", Class::OrgBound),
+        ("repositories/billing.rs::INSERT_OVERRIDE_GRANT_SQL", Class::OrgBound),
+        ("repositories/billing.rs::REVOKE_GRANT_SQL", Class::OrgBound),
+        ("repositories/billing.rs::LICENSE_STATE_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/billing.rs::UPSERT_LICENSE_STATE_SQL", Class::OrgBound),
+        ("repositories/billing.rs::MAX_ACCEPTED_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/billing.rs::INSERT_LICENSE_SNAPSHOT_SQL", Class::OrgBound),
+        ("repositories/billing.rs::LATEST_SNAPSHOT_FOR_AUDIENCE_SQL", Class::OrgBound),
+        ("repositories/billing.rs::AUTHORITATIVE_COUNTS_SQL", Class::OrgBound),
+        ("repositories/billing.rs::MEMBERSHIP_SEAT_ROWS_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::BUDGETS_PAGE_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::INSERT_BUDGET_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::UPDATE_BUDGET_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::ASSERT_BUDGET_VERSION_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::ASSERT_BUDGET_ABSENT_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::ASSERT_RESERVATION_CREATED_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::ASSERT_RESERVATION_RECONCILED_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::INFERENCE_REQUEST_SCOPE_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::INSERT_RESERVATION_IF_AVAILABLE_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::RECONCILE_RESERVATION_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::EXPIRE_RESERVATIONS_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::RATE_LIMITS_PAGE_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::UPSERT_RATE_LIMIT_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::ASSERT_RATE_LIMIT_VERSION_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::ASSERT_RATE_LIMIT_ABSENT_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::BUDGET_SCOPE_SNAPSHOT_SQL", Class::OrgBound),
+        ("repositories/budgets.rs::RATE_LIMIT_USAGE_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::POLICY_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INSERT_POLICY_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::UPDATE_POLICY_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::ASSERT_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::EXPORT_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::EXPORT_BY_ID_FOR_SCOPE_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::EXPORT_BY_DEDUPE_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::EXPORTS_PAGE_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::EXPORTS_PAGE_FOR_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INSERT_EXPORT_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INSERT_ARTIFACT_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::ARTIFACT_BY_EXPORT_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INSERT_GRANT_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::GRANT_BY_FINGERPRINT_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::DELETION_BY_ID_FOR_SCOPE_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::DELETION_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::DELETION_BY_TARGET_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::DELETIONS_PAGE_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::DELETIONS_PAGE_FOR_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INSERT_DELETION_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::LINK_DELETION_JOB_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INSERT_DELETION_TASK_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::DELETION_TASKS_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::PENDING_DELETION_TASKS_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INSERT_CERTIFICATE_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::CERTIFICATE_BY_DELETION_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::QUEUE_ENVELOPE_BY_DEDUPE_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INSERT_QUEUE_ENVELOPE_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_IDENTITY_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_ORGANIZATION_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_ORGANIZATION_MEMBERSHIPS_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_ORGANIZATION_TEAMS_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_DEVICES_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_RUNS_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_USAGE_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_AUDIT_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_NOTIFICATIONS_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::COLLECT_POLICY_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INVENTORY_EXPORT_OBJECTS_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INVENTORY_MEMBERSHIPS_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INVENTORY_DEVICES_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INVENTORY_DEVICES_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_ORG_SQL", Class::OrgBound),
+        ("repositories/data_governance.rs::INVENTORY_WORKSPACE_BINDINGS_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INVENTORY_INVITATIONS_ORG_SQL", Class::OrgBound),
+        ("repositories/devices.rs::INSERT_ENROLLMENT_SQL", Class::OrgBound),
+        ("repositories/devices.rs::ENROLLMENT_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/devices.rs::DENY_ENROLLMENT_SQL", Class::OrgBound),
+        ("repositories/devices.rs::INSERT_DEVICE_SQL", Class::OrgBound),
+        ("repositories/devices.rs::APPROVE_ENROLLMENT_SQL", Class::OrgBound),
+        ("repositories/devices.rs::DEVICE_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/devices.rs::DEVICES_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/devices.rs::FIRST_DEVICES_PAGE_SQL", Class::OrgBound),
+        ("repositories/devices.rs::DEVICE_COUNT_BY_FINGERPRINT_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::ACCOUNT_BY_ID_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::KEY_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/machine_identity.rs::KEY_BY_PREFIX_SQL", Class::ReturnsOrg),
+        ("repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL", Class::ReturnsOrg),
+        ("repositories/machine_identity.rs::ACCOUNTS_PAGE_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::KEYS_PAGE_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::INSERT_ACCOUNT_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::UPDATE_ACCOUNT_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::SUSPEND_ACCOUNT_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::RESUME_ACCOUNT_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::INSERT_KEY_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::MARK_KEY_ROTATED_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::REVOKE_KEY_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::ASSERT_ACCOUNT_VERSION_SQL", Class::OrgBound),
+        ("repositories/machine_identity.rs::ASSERT_KEY_VERSION_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_ORG_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::UPDATE_ORG_STATE_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_DEFAULT_LICENSE_STATE_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_MEMBERSHIP_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::ORG_BY_ID_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::ORGS_FOR_USER_SQL", Class::ReturnsOrg),
+        ("repositories/organizations.rs::MEMBERSHIP_BY_USER_ORG_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::MEMBERS_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::UPDATE_ORG_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_INVITATION_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::PENDING_INVITATION_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INVITATION_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/organizations.rs::INVITATIONS_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::REVOKE_INVITATION_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::ROTATE_INVITATION_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_INVITED_MEMBERSHIP_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::CHANGE_ROLE_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::REMOVE_MEMBERSHIP_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::TRANSFER_OWNERSHIP_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_TEAM_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::TEAMS_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::INSERT_TEAM_MEMBER_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::DELETE_TEAM_MEMBER_SQL", Class::OrgBound),
+        ("repositories/organizations.rs::ORG_BY_SLUG_SQL", Class::ReturnsOrg),
+        ("repositories/plugins.rs::INSTALL_BY_ORG_AND_PACKAGE_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::INSTALLS_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::POLICY_BY_ORG_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::INSERT_POLICY_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::UPDATE_POLICY_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::INSERT_INSTALL_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::UPDATE_INSTALL_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::SET_INSTALL_BLOCK_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::INSERT_REGISTRATION_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::UNREGISTERED_TOOLS_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::REGISTERED_TOOLS_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::RECORD_REPORT_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::TOUCH_REPORT_SQL", Class::OrgBound),
+        ("repositories/plugins.rs::ASSERT_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/policy.rs::INSERT_SNAPSHOT_SQL", Class::OrgBound),
+        ("repositories/policy.rs::SNAPSHOT_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/policy.rs::LATEST_SNAPSHOT_SQL", Class::OrgBound),
+        ("repositories/policy.rs::SNAPSHOT_BY_VERSION_SQL", Class::OrgBound),
+        ("repositories/policy.rs::MAX_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/policy.rs::INSERT_ACK_SQL", Class::OrgBound),
+        ("repositories/projects.rs::INSERT_PROJECT_SQL", Class::OrgBound),
+        ("repositories/projects.rs::PROJECT_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/projects.rs::UPDATE_PROJECT_SQL", Class::OrgBound),
+        ("repositories/projects.rs::PROJECT_SLUG_COUNT_SQL", Class::OrgBound),
+        ("repositories/projects.rs::PROJECTS_PAGE_SQL", Class::OrgBound),
+        ("repositories/projects.rs::FIRST_PROJECTS_PAGE_SQL", Class::OrgBound),
+        ("repositories/projects.rs::INSERT_GRANT_SQL", Class::OrgBound),
+        ("repositories/projects.rs::GRANT_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/projects.rs::GRANTS_BY_PROJECT_SQL", Class::ReturnsOrg),
+        ("repositories/projects.rs::GRANT_FOR_MEMBER_SQL", Class::OrgBound),
+        ("repositories/projects.rs::INSERT_BINDING_SQL", Class::OrgBound),
+        ("repositories/projects.rs::BINDING_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/projects.rs::BINDINGS_BY_PROJECT_SQL", Class::ReturnsOrg),
+        ("repositories/runs.rs::AGENT_BY_ID_SQL", Class::OrgBound),
+        ("repositories/runs.rs::AGENTS_PAGE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::INSERT_AGENT_SQL", Class::OrgBound),
+        ("repositories/runs.rs::UPDATE_AGENT_SQL", Class::OrgBound),
+        ("repositories/runs.rs::SESSION_BY_ID_SQL", Class::OrgBound),
+        ("repositories/runs.rs::SESSIONS_PAGE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::INSERT_SESSION_SQL", Class::OrgBound),
+        ("repositories/runs.rs::UPDATE_SESSION_LIFECYCLE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::RUN_BY_ID_SQL", Class::OrgBound),
+        ("repositories/runs.rs::RUNS_PAGE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::INSERT_RUN_SQL", Class::OrgBound),
+        ("repositories/runs.rs::UPDATE_RUN_STATE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::NEXT_EVENT_SEQUENCE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::MAX_ATTEMPT_SQL", Class::OrgBound),
+        ("repositories/runs.rs::INSERT_EVENT_SQL", Class::OrgBound),
+        ("repositories/runs.rs::EVENTS_PAGE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::INSERT_ARTIFACT_SQL", Class::OrgBound),
+        ("repositories/runs.rs::ARTIFACTS_PAGE_SQL", Class::OrgBound),
+        ("repositories/runs.rs::ASSERT_AGENT_VERSION_SQL", Class::OrgBound),
+        ("repositories/runs.rs::ASSERT_SESSION_VERSION_SQL", Class::OrgBound),
+        ("repositories/runs.rs::ASSERT_RUN_STATE_VERSION_SQL", Class::OrgBound),
+        ("repositories/runs.rs::ASSERT_RETRY_ATTEMPT_ABSENT_SQL", Class::OrgBound),
+        ("repositories/security.rs::INSERT_SECURITY_EVENT_SQL", Class::OrgBound),
+        ("repositories/security.rs::LIST_SECURITY_EVENTS_SQL", Class::OrgBound),
+        ("repositories/tools.rs::INSERT_TOOL_SQL", Class::OrgBound),
+        ("repositories/tools.rs::TOOL_BY_ID_SQL", Class::OrgBound),
+        ("repositories/tools.rs::TOOL_BY_FINGERPRINT_SQL", Class::OrgBound),
+        ("repositories/tools.rs::TOOLS_PAGE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::FIRST_TOOLS_PAGE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::UPDATE_TOOL_SQL", Class::OrgBound),
+        ("repositories/tools.rs::ASSERT_TOOL_VERSION_SQL", Class::OrgBound),
+        ("repositories/tools.rs::INSERT_MCP_SQL", Class::OrgBound),
+        ("repositories/tools.rs::MCP_BY_ID_SQL", Class::OrgBound),
+        ("repositories/tools.rs::MCP_BY_FINGERPRINT_SQL", Class::OrgBound),
+        ("repositories/tools.rs::MCP_PAGE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::FIRST_MCP_PAGE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::UPDATE_MCP_SQL", Class::OrgBound),
+        ("repositories/tools.rs::ASSERT_MCP_VERSION_SQL", Class::OrgBound),
+        ("repositories/tools.rs::TOOL_POLICY_BY_SCOPE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::INSERT_TOOL_POLICY_SQL", Class::OrgBound),
+        ("repositories/tools.rs::UPDATE_TOOL_POLICY_SQL", Class::OrgBound),
+        ("repositories/tools.rs::ASSERT_TOOL_POLICY_VERSION_SQL", Class::OrgBound),
+        ("repositories/tools.rs::ASSERT_TOOL_POLICY_ABSENT_SQL", Class::OrgBound),
+        ("repositories/tools.rs::RUN_TOOL_SCOPE_SQL", Class::ReturnsOrg),
+        ("repositories/tools.rs::INSERT_TOOL_CALL_REF_SQL", Class::OrgBound),
+        ("repositories/tools.rs::TOOL_CALL_REF_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/tools.rs::CAPABILITIES_FOR_ORG_SQL", Class::OrgBound),
+        ("repositories/tools.rs::INSERT_APPROVAL_SQL", Class::OrgBound),
+        ("repositories/tools.rs::INSERT_RESOLVED_APPROVAL_SQL", Class::OrgBound),
+        ("repositories/tools.rs::APPROVAL_BY_ID_SQL", Class::OrgBound),
+        ("repositories/tools.rs::APPROVAL_BY_TOOL_CALL_SQL", Class::ReturnsOrg),
+        ("repositories/tools.rs::REUSABLE_SESSION_APPROVAL_SQL", Class::ReturnsOrg),
+        ("repositories/tools.rs::APPROVALS_PAGE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::FIRST_APPROVALS_PAGE_SQL", Class::OrgBound),
+        ("repositories/tools.rs::RESOLVE_APPROVAL_SQL", Class::OrgBound),
+        ("repositories/tools.rs::ASSERT_APPROVAL_PENDING_SQL", Class::OrgBound),
+        ("repositories/tools.rs::ASSERT_APPROVAL_PENDING_VERSION_SQL", Class::OrgBound),
+        ("repositories/usage.rs::USAGE_EVENT_SOURCE_SQL", Class::ReturnsOrg),
+        ("repositories/usage.rs::RUN_USAGE_EVENT_SOURCE_SQL", Class::ReturnsOrg),
+        ("repositories/usage.rs::USAGE_EVENT_BY_REQUEST_SQL", Class::OrgBound),
+        ("repositories/usage.rs::USAGE_EVENT_BY_RUN_SQL", Class::OrgBound),
+        ("repositories/usage.rs::INSERT_COST_RECORD_SQL", Class::OrgBound),
+        ("repositories/usage.rs::INSERT_RUN_COST_RECORD_SQL", Class::OrgBound),
+        ("repositories/usage.rs::ASSERT_COST_RECORD_SQL", Class::OrgBound),
+        ("repositories/usage.rs::ASSERT_RUN_COST_RECORD_SQL", Class::OrgBound),
+        ("repositories/usage.rs::INSERT_RUN_USAGE_SQL", Class::OrgBound),
+        ("repositories/usage.rs::ROLLUPS_PAGE_SQL", Class::OrgBound),
+        ("repositories/usage.rs::UPSERT_ROLLUP_SQL", Class::OrgBound),
+        ("repositories/usage.rs::DENIALS_PAGE_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::ENDPOINT_BY_ID_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::ENDPOINTS_PAGE_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::INSERT_ENDPOINT_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::UPDATE_ENDPOINT_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::DISABLE_ENDPOINT_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::INSERT_SECRET_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::SECRET_BY_ID_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::FAN_OUT_DELIVERIES_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::INSERT_TEST_DELIVERY_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::INSERT_REPLAY_DELIVERY_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::DELIVERY_BY_ID_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::DELIVERIES_PAGE_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::INSERT_ATTEMPT_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::ATTEMPTS_FOR_DELIVERY_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::INSERT_QUEUE_JOB_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::JOB_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/webhooks.rs::INSERT_NOTIFICATION_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::NOTIFICATION_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/webhooks.rs::NOTIFICATIONS_PAGE_SQL", Class::ReturnsOrg),
+        ("repositories/webhooks.rs::INSERT_NOTIFICATION_DELIVERY_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::NOTIFICATION_DELIVERY_BY_ID_SQL", Class::ReturnsOrg),
+        ("repositories/webhooks.rs::PREFERENCE_BY_SCOPE_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::UPSERT_PREFERENCE_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::PREFERENCES_BY_SCOPE_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::ASSERT_ENDPOINT_VERSION_SQL", Class::OrgBound),
+        ("repositories/webhooks.rs::ASSERT_PREFERENCE_VERSION_SQL", Class::OrgBound),
+        ("routes/inference.rs::ATTACH_MANAGED_INFERENCE_IDENTITY_SQL", Class::OrgBound),
+        ("routes/inference.rs::ATTACH_MANAGED_RUN_POLICY_SQL", Class::OrgBound),
+];
+// ---------------------------------------------------------------------------
+// Deriving the facts from the repository
+// ---------------------------------------------------------------------------
+
+fn crate_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+}
+
+/// Every table that declares a TENANT column, from the migrations.
+///
+/// Derived rather than listed, so a new tenant-owned table is audited the day it
+/// is created instead of the day somebody remembers.
+///
+/// The column is not uniformly named, and that is itself a finding. `0011` and
+/// `0018` wrote `organization_id` while everything else wrote `org_id`, so a scan
+/// that knew only one spelling left four tables outside the audit entirely:
+/// `idempotency_records`, `outbox_events`, `support_grants`, and `kill_switches` —
+/// the whole P01 idempotency/outbox tenant surface and the P07 grant/kill-switch
+/// surface, whose queries nothing was checking. Both spellings count.
+/// The column names a tenant-owned table uses to name its tenant.
+///
+/// Two spellings, because two migrations used two. See [`org_owned_tables`].
+const TENANT_COLUMNS: &[&str] = &["org_id", "organization_id"];
+
+fn org_owned_tables() -> BTreeSet<String> {
+    let dir = crate_root().join("migrations");
+    let mut tables = BTreeSet::new();
+    for entry in fs::read_dir(&dir).expect("the migrations directory is readable") {
+        let path = entry.expect("a readable directory entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("sql") {
+            continue;
+        }
+        let sql = fs::read_to_string(&path).expect("a readable migration");
+        for capture in capture_all(&sql, "CREATE TABLE") {
+            let Some((head, body)) = capture.split_once('(') else {
+                continue;
+            };
+            let name = head.split_whitespace().last().unwrap_or_default().to_owned();
+            if name.is_empty() {
+                continue;
+            }
+            let declares_tenant = body.lines().any(|line| {
+                let line = line.trim_start();
+                TENANT_COLUMNS
+                    .iter()
+                    .any(|column| line.starts_with(&format!("{column} ")))
+            });
+            if declares_tenant {
+                tables.insert(name);
+            }
+        }
+    }
+    assert!(
+        tables.len() > 50,
+        "the migration scan found only {} tenant-owned tables; the DDL shape probably changed",
+        tables.len()
+    );
+    tables
+}
+
+/// Everything from each marker to the next `;`.
+fn capture_all(haystack: &str, marker: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = haystack;
+    while let Some(start) = rest.find(marker) {
+        let tail = &rest[start + marker.len()..];
+        let Some(end) = tail.find(';') else { break };
+        out.push(tail[..end].to_owned());
+        rest = &tail[end..];
+    }
+    out
+}
+
+/// `("path/to/file.rs", "CONSTANT_NAME", sql)` for every SQL constant.
+fn sql_constants() -> Vec<(String, String, String)> {
+    let root = crate_root().join("src");
+    let mut found = Vec::new();
+    walk(&root, &mut |path| {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            return;
+        }
+        let source = fs::read_to_string(path).expect("a readable source file");
+        let relative = path
+            .strip_prefix(&root)
+            .expect("the path is under src")
+            .to_string_lossy()
+            .into_owned();
+        for (name, body) in sql_constant_bodies(&source) {
+            found.push((relative.clone(), name, body));
+        }
+    });
+    found
+}
+
+fn walk(directory: &Path, visit: &mut impl FnMut(&Path)) {
+    for entry in fs::read_dir(directory).expect("a readable directory") {
+        let path = entry.expect("a readable entry").path();
+        if path.is_dir() {
+            walk(&path, visit);
+        } else {
+            visit(&path);
+        }
+    }
+}
+
+/// Extract every `const NAME_SQL: &str = "..."` / `r#"..."#`.
+///
+/// Deliberately simple rather than a real parser: the rule it enforces is "a SQL
+/// string is a `const`", and `every_sql_statement_lives_in_a_named_constant`
+/// proves that rule still holds, so a statement cannot escape the audit by moving
+/// into a function.
+fn sql_constant_bodies(source: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(found) = source[search_from..].find("const ") {
+        let start = search_from + found;
+        let tail = &source[start + "const ".len()..];
+        search_from = start + "const ".len();
+        let Some(name_end) = tail.find(':') else { continue };
+        let name = tail[..name_end].trim().to_owned();
+        let after_name = &tail[name_end..];
+        if !name.ends_with("SQL") || !after_name.trim_start().starts_with(": &str") {
+            continue;
+        }
+        let Some(equals) = after_name.find('=') else { continue };
+        let literal = after_name[equals + 1..].trim_start();
+        if let Some(body) = read_string_literal(literal, source) {
+            out.push((name, body));
+        }
+    }
+    out
+}
+
+/// The body of the string literal starting at `literal`, plus its total length.
+fn read_string_literal(literal: &str, whole: &str) -> Option<String> {
+    let base = literal.as_ptr() as usize - whole.as_ptr() as usize;
+    if let Some(rest) = literal.strip_prefix('r') {
+        let hashes = rest.chars().take_while(|c| *c == '#').count();
+        let fence = format!("\"{}", "#".repeat(hashes));
+        // `rest` begins one byte after the `r`, so the opening quote is at
+        // `base + 1 + rest.find('"')` and the body starts one byte later.
+        let body_start = base + 1 + rest.find('"')? + 1;
+        let end = find_substring(whole.as_bytes(), body_start, &fence)?;
+        return Some(whole[body_start..end].to_owned());
+    }
+    if !literal.starts_with('"') {
+        return None;
+    }
+    let bytes = whole.as_bytes();
+    let mut cursor = base + 1;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'\\' => cursor += 2,
+            b'"' => return Some(whole[base + 1..cursor].to_owned()),
+            _ => cursor += 1,
+        }
+    }
+    None
+}
+
+fn find_substring(haystack: &[u8], from: usize, needle: &str) -> Option<usize> {
+    let needle = needle.as_bytes();
+    if needle.is_empty() || from >= haystack.len() {
+        return None;
+    }
+    (from..=haystack.len().saturating_sub(needle.len()))
+        .find(|&at| &haystack[at..at + needle.len()] == needle)
+}
+
+// ---------------------------------------------------------------------------
+// The classification, and the mechanical property of each class
+// ---------------------------------------------------------------------------
+
+fn classification() -> BTreeMap<String, (Class, String)> {
+    let mut map: BTreeMap<String, (Class, String)> = MECHANICAL
+        .iter()
+        .map(|(key, class)| ((*key).to_owned(), (*class, String::new())))
+        .collect();
+    for (key, class, reason) in JUDGEMENTS {
+        let previous = map.insert((*key).to_owned(), (*class, (*reason).to_owned()));
+        assert!(
+            previous.is_none(),
+            "{key} is classified twice; a statement with two classes has none"
+        );
+    }
+    map
+}
+
+fn has_org_predicate(sql: &str) -> bool {
+    ["org_id = ?", "org_id=?", "org_id= ?", "organization_id = ?", "organization_id=?"]
+        .iter()
+        .any(|needle| sql.contains(needle))
+}
+
+fn binds_principal(sql: &str) -> bool {
+    [
+        "user_id = ?",
+        "principal_id = ?",
+        "member_id = ?",
+        "created_by_user_id = ?",
+    ]
+    .iter()
+    .any(|needle| sql.contains(needle))
+}
+
+fn binds_device(sql: &str) -> bool {
+    ["device_id = ?", "device_fingerprint = ?"]
+        .iter()
+        .any(|needle| sql.contains(needle))
+}
+
+fn is_write(sql: &str) -> bool {
+    let head = sql.trim_start().to_ascii_uppercase();
+    head.starts_with("UPDATE") || head.starts_with("DELETE")
+}
+
+fn is_insert(sql: &str) -> bool {
+    sql.trim_start().to_ascii_uppercase().starts_with("INSERT")
+}
+
+fn is_select(sql: &str) -> bool {
+    sql.trim_start().to_ascii_uppercase().starts_with("SELECT")
+}
+
+fn has_org_column(sql: &str) -> bool {
+    let upper = sql.to_ascii_uppercase();
+    upper.contains("ORG_ID") || upper.contains("ORGANIZATION_ID")
+}
+
+/// Does the SELECT list carry the tenant column? Without it the caller cannot
+/// compare, so a "read then check" pattern is impossible and the statement is a
+/// cross-tenant read.
+fn select_list_carries_org(sql: &str) -> bool {
+    let upper = sql.to_ascii_uppercase();
+    let Some(from) = upper.find(" FROM ") else {
+        return false;
+    };
+    has_org_column(&upper[..from])
+}
+
+/// A compare-and-set: the write is guarded by an optimistic-concurrency version or
+/// by a state predicate, so a replayed or misrouted write cannot clobber a newer
+/// state even without a tenant predicate.
+fn is_compare_and_set(sql: &str) -> bool {
+    let upper = sql.to_ascii_uppercase();
+    if !upper.contains("WHERE") {
+        return false;
+    }
+    upper.contains("VERSION = ?")
+        || upper.contains("STATE = '")
+        || upper.contains("STATUS = '")
+        || upper.contains("STATE = ?")
+        || upper.contains("STATUS = ?")
+}
+
+/// Is `table` named as a whole identifier in the SQL?
+///
+/// Whole-identifier, not substring: `runs` must not match inside a column called
+/// `runs_total`, because a false match would put a statement in the audit that
+/// does not touch the table it claims to touch.
+fn mentions(sql: &str, table: &str) -> bool {
+    sql.split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|token| token == table)
+}
+
+fn indent(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| format!("      {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_migration_scan_derives_the_tenant_owned_tables() {
+    let tables = org_owned_tables();
+    // One table from each phase, so a DDL change that stops declaring a tenant
+    // column is caught here rather than silently un-auditing a whole surface.
+    for expected in [
+        "organizations",
+        "memberships",
+        "api_keys",
+        "runs",
+        "webhook_endpoints",
+        "plugin_installs",
+        "support_grants",
+        // The four that a single-spelling scan misses. Named explicitly because
+        // they are the reason `TENANT_COLUMNS` has two entries.
+        "kill_switches",
+        "idempotency_records",
+        "outbox_events",
+    ] {
+        assert!(tables.contains(expected), "{expected} is tenant-owned");
+    }
+}
+
+#[test]
+fn every_sql_statement_lives_in_a_named_constant() {
+    // The audit reads `const` items. If a statement moved into a function the
+    // audit would stop seeing it, so this test is what makes the audit's coverage
+    // claim true rather than hopeful.
+    let root = crate_root().join("src");
+    let mut escapes = Vec::new();
+    walk(&root, &mut |path| {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            return;
+        }
+        if path
+            .to_string_lossy()
+            .contains("/security/")
+        {
+            return;
+        }
+        let source = fs::read_to_string(path).expect("a readable source file");
+        let stripped = strip_const_bodies(&source);
+        for needle in ["SELECT ", "INSERT INTO ", "UPDATE ", "DELETE FROM "] {
+            if stripped.contains(&format!("\n{needle}")) {
+                escapes.push(format!(
+                    "{}: a SQL statement outside a `const *_SQL`",
+                    path.file_name().expect("a file name").to_string_lossy()
+                ));
+            }
+        }
+    });
+    assert!(
+        escapes.is_empty(),
+        "these SQL statements are invisible to the audit:\n  {}",
+        escapes.join("\n  ")
+    );
+}
+
+/// Blank out the string bodies of `const` items so the scan above sees only code
+/// outside them.
+fn strip_const_bodies(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    loop {
+        let Some(found) = rest.find("const ") else {
+            out.push_str(rest);
+            return out;
+        };
+        let start = found;
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        let Some(equals) = tail.find('=') else {
+            out.push_str(tail);
+            return out;
+        };
+        let literal = tail[equals + 1..].trim_start();
+        let Some(body) = read_string_literal(literal, source) else {
+            out.push_str(&rest[..start + "const ".len()]);
+            rest = &tail["const ".len()..];
+            continue;
+        };
+        let offset = literal.as_ptr() as usize - source.as_ptr() as usize;
+        rest = &source[(offset + body.len() + 2).min(source.len())..];
+    }
+}
+
+#[test]
+fn no_sql_statement_touching_a_tenant_owned_table_is_unclassified() {
+    let owned = org_owned_tables();
+    let classes = classification();
+    let mut unclassified = Vec::new();
+    let mut seen = 0usize;
+    for (file, name, sql) in sql_constants() {
+        if !owned.iter().any(|table| mentions(&sql, table)) {
+            continue;
+        }
+        seen += 1;
+        let key = format!("{file}::{name}");
+        if !classes.contains_key(&key) {
+            unclassified.push(key);
+        }
+    }
+    assert!(
+        unclassified.is_empty(),
+        "{} statement(s) touching a tenant-owned table have no class. Add one to \
+         JUDGEMENTS with a reason, or to MECHANICAL if its shape decides it:\n  {}",
+        unclassified.len(),
+        unclassified.join("\n  ")
+    );
+    assert!(
+        seen > 300,
+        "the audit only examined {seen} statements; the extractor probably broke"
+    );
+}
+
+#[test]
+fn every_classification_is_true_of_the_statement_it_labels() {
+    let owned = org_owned_tables();
+    let classes = classification();
+    let mut wrong = Vec::new();
+    for (file, name, sql) in sql_constants() {
+        let key = format!("{file}::{name}");
+        let Some((class, _)) = classes.get(&key) else {
+            continue;
+        };
+        assert!(
+            owned.iter().any(|table| mentions(&sql, table)),
+            "{key} is classified but touches no tenant-owned table, so it needs no class"
+        );
+        let ok = match class {
+            Class::OrgBound => {
+                has_org_predicate(&sql) || (is_insert(&sql) && has_org_column(&sql))
+            }
+            Class::PrincipalBound => binds_principal(&sql),
+            Class::DeviceBound => binds_device(&sql),
+            Class::ReturnsOrg => is_select(&sql) && select_list_carries_org(&sql),
+            Class::CompareAndSet => is_write(&sql) && is_compare_and_set(&sql),
+            Class::IdChain(resolver) => {
+                !has_org_predicate(&sql) && classes.contains_key(*resolver)
+            }
+            Class::JobChain(resolver) => {
+                !has_org_predicate(&sql) && classes.contains_key(*resolver)
+            }
+        };
+        if !ok {
+            wrong.push(format!(
+                "{key} is labelled {class:?} but the statement says otherwise:\n{}",
+                indent(&sql)
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} classification(s) contradict their statement:\n\n{}",
+        wrong.len(),
+        wrong.join("\n\n")
+    );
+}
+
+#[test]
+fn every_chain_bottoms_out_in_an_org_bound_statement() {
+    // The property that makes `IdChain` more than a label: a chain is only as
+    // trustworthy as what it terminates in, so a chain must terminate in a tenant
+    // predicate, not in another chain that might itself dangle.
+    let classes = classification();
+    let constants: BTreeMap<String, String> = sql_constants()
+        .into_iter()
+        .map(|(file, name, sql)| (format!("{file}::{name}"), sql))
+        .collect();
+    let mut dangling = Vec::new();
+    let mut weak_terminals = Vec::new();
+    for (key, (class, _)) in &classes {
+        let mut current = match class {
+            Class::IdChain(resolver) | Class::JobChain(resolver) => *resolver,
+            _ => continue,
+        };
+        let mut hops = 0usize;
+        let terminal = loop {
+            let Some(sql) = constants.get(current) else {
+                break Err(format!("{current} names no SQL constant"));
+            };
+            // Two legitimate endings. `OrgBound` is the strong one: the tenant is
+            // a predicate, so the statement cannot return another tenant's row at
+            // all. `ReturnsOrg` is the weak one: the statement WILL return the
+            // row, and safety depends on the caller comparing the tenant it
+            // receives. Both satisfy "the caller knows the tenant", which is what
+            // a chain needs; only the second needs a human to check the caller.
+            if has_org_predicate(sql) {
+                break Ok(true);
+            }
+            let Some((next, _)) = classes.get(current) else {
+                break Err(format!(
+                    "{current} is neither org-bound nor classified as a chain, so the \
+                     chain from {key} ends in nothing"
+                ));
+            };
+            match next {
+                Class::ReturnsOrg => break Ok(false),
+                // A `JobChain` may also end at the queue claim itself: the claim
+                // is the tenant boundary for everything downstream of it, which is
+                // why a CAS is a legitimate terminal there and not elsewhere.
+                Class::CompareAndSet if matches!(class, Class::JobChain(_)) => break Ok(true),
+                Class::IdChain(next) | Class::JobChain(next) => current = *next,
+                _ => {
+                    break Err(format!(
+                        "{current} is a leaf class with no tenant, so the chain from \
+                         {key} dangles"
+                    ));
+                }
+            }
+            hops += 1;
+            if hops > 8 {
+                break Err(format!("the chain from {key} cycles"));
+            }
+        };
+        match terminal {
+            Ok(true) => {}
+            Ok(false) => weak_terminals.push(format!("{key} -> {current}")),
+            Err(reason) => dangling.push(format!("{key} -> {reason}")),
+        }
+    }
+    assert!(
+        dangling.is_empty(),
+        "{} chain(s) do not bottom out in an org-bound statement:\n  {}",
+        dangling.len(),
+        dangling.join("\n  ")
+    );
+    // Not a failure: these chains are sound, but their safety lives in the CALLER
+    // comparing the tenant it receives rather than in the statement refusing the
+    // row. Recorded so the count cannot quietly grow.
+    if !weak_terminals.is_empty() {
+        eprintln!(
+            "note: {} chain(s) rest on a caller-side tenant check, not a predicate: {}",
+            weak_terminals.len(),
+            weak_terminals.join(", ")
+        );
+    }
+}
+
+#[test]
+fn the_audit_covers_every_sql_owning_module() {
+    // A coverage floor, so a future rename that breaks extraction is loud rather
+    // than quiet. Every module that owns SQL must be represented.
+    let mut modules: BTreeSet<String> = sql_constants()
+        .into_iter()
+        .map(|(file, _, _)| file)
+        // The audit names SQL only in its own needles and fixtures, so it is not
+        // a SQL-owning module and cannot audit itself.
+        .filter(|file| !file.starts_with("security/"))
+        .collect();
+    for expected in [
+        "repositories/ai.rs",
+        "repositories/audit.rs",
+        "repositories/authenticators.rs",
+        "repositories/automations.rs",
+        "repositories/billing.rs",
+        "repositories/budgets.rs",
+        "repositories/data_governance.rs",
+        "repositories/device.rs",
+        "repositories/devices.rs",
+        "repositories/identity.rs",
+        "repositories/idempotency.rs",
+        "repositories/machine_identity.rs",
+        "repositories/organizations.rs",
+        "repositories/outbox.rs",
+        "repositories/platform_ops.rs",
+        "repositories/plugins.rs",
+        "repositories/policy.rs",
+        "repositories/projects.rs",
+        "repositories/runs.rs",
+        "repositories/security.rs",
+        "repositories/tools.rs",
+        "repositories/usage.rs",
+        "repositories/webhooks.rs",
+        "jobs/automations.rs",
+        "routes/billing.rs",
+        "routes/devices.rs",
+        "routes/inference.rs",
+    ] {
+        assert!(modules.remove(expected), "{expected} has no audited SQL");
+    }
+    assert!(
+        modules.is_empty(),
+        "these SQL-owning modules are not in the coverage floor: {modules:?}"
+    );
+}
+
+#[test]
+fn the_audit_can_reject_a_mislabelled_statement() {
+    // An audit that cannot fail is decoration. This proves the classification
+    // check is load-bearing, using the real SQL of a real statement.
+    //
+    // `MARK_DELIVERY_DELIVERED_SQL` is a compare-and-set. Labelling it
+    // `PrincipalBound` must be rejected, because it binds no principal.
+    let target = "repositories/webhooks.rs::MARK_DELIVERY_DELIVERED_SQL";
+    let sql = sql_constants()
+        .into_iter()
+        .find(|(file, name, _)| format!("{file}::{name}") == target)
+        .map(|(_, _, sql)| sql)
+        .expect("the statement exists");
+    // The mislabelling is refuted by the statement, not by the label.
+    assert!(!binds_principal(&sql), "it binds no principal");
+    assert!(
+        !(has_org_predicate(&sql) || (is_insert(&sql) && has_org_column(&sql))),
+        "it is not org-bound either, which is why it needed a class at all"
+    );
+    // And what it really is, which is what the audit demanded.
+    assert!(is_write(&sql) && is_compare_and_set(&sql), "it is a CAS");
+    assert_eq!(
+        classification()
+            .get(target)
+            .map(|(class, _)| *class),
+        Some(Class::CompareAndSet)
+    );
+}

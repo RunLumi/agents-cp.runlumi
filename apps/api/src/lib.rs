@@ -7,6 +7,7 @@ pub mod jobs;
 pub mod modules;
 pub mod repositories;
 mod routes;
+pub mod security;
 
 use crate::adapters::d1::D1Adapter;
 
