@@ -170,6 +170,12 @@ pub enum Permission {
     ServiceAccountsManage,
     PluginsRead,
     PluginsManage,
+    // P08-CG (p08-cg-v1): migration adoption state and remediation. Reading an
+    // adoption record is observation of where a user's own workspaces are, and
+    // changing one is an explicit ownership decision, so the two are separated the
+    // same way every other `*.read`/`*.manage` pair is.
+    AdoptionRead,
+    AdoptionManage,
     Unknown(String),
 }
 
@@ -229,6 +235,8 @@ impl Permission {
             "service_accounts.manage" => Self::ServiceAccountsManage,
             "plugins.read" => Self::PluginsRead,
             "plugins.manage" => Self::PluginsManage,
+            "adoption.read" => Self::AdoptionRead,
+            "adoption.manage" => Self::AdoptionManage,
             _ => Self::Unknown(value.to_owned()),
         }
     }
@@ -288,6 +296,8 @@ impl Permission {
             Self::ServiceAccountsManage => "service_accounts.manage",
             Self::PluginsRead => "plugins.read",
             Self::PluginsManage => "plugins.manage",
+            Self::AdoptionRead => "adoption.read",
+            Self::AdoptionManage => "adoption.manage",
             Self::Unknown(value) => value,
         }
     }
@@ -319,6 +329,7 @@ impl Permission {
                 | Self::NotificationsRead
                 | Self::EntitlementsRead
                 | Self::DataRead
+                | Self::AdoptionRead
         )
     }
 }
@@ -554,6 +565,13 @@ fn role_allows(role: MembershipRole, permission: &Permission) -> bool {
                 | Permission::ServiceAccountsManage
                 | Permission::PluginsRead
                 | Permission::PluginsManage
+                // P08: an admin may bind a workspace and resolve remediation. A
+                // member may SEE where their own workspaces are in the adoption
+                // path, but turning a local workspace into an org-managed one is
+                // an organization-level ownership decision, so it stays with
+                // admins exactly like `projects.manage` does.
+                | Permission::AdoptionRead
+                | Permission::AdoptionManage
         ),
         MembershipRole::Member => matches!(
             permission,
@@ -586,6 +604,7 @@ fn role_allows(role: MembershipRole, permission: &Permission) -> bool {
                 | Permission::NotificationsManage
                 | Permission::EntitlementsRead
                 | Permission::DataRead
+                | Permission::AdoptionRead
                 // P07: a member may see which plugins exist and why a tool is
                 // denied — that is diagnostic value and costs nothing. They may
                 // not install, approve, pin, or block one.
@@ -616,6 +635,7 @@ fn role_allows(role: MembershipRole, permission: &Permission) -> bool {
                 | Permission::NotificationsRead
                 | Permission::EntitlementsRead
                 | Permission::DataRead
+                | Permission::AdoptionRead
                 // P07: `plugins.read` is member-visible because a member can see
                 // which tools exist and why a tool is denied. Nothing else in
                 // this phase is viewer-visible: service-account metadata names

@@ -15,8 +15,8 @@ use crate::{
     routes::{
         account, agents, ai_catalog, approvals, audit, auth, authenticators, automations, billing,
         budgets, data_governance, device_auth, device_runs, devices, foundation_checks,
-        health::health, inference, internal, machine_identity, meta::meta, organizations, plugins,
-        projects, runs, tools, usage, webhooks,
+        health::health, inference, internal, machine_identity, meta::meta, migration,
+        organizations, plugins, projects, runs, tools, usage, webhooks,
     },
 };
 
@@ -845,6 +845,54 @@ pub fn router(env: Env) -> Router {
         .route(
             "/api/v1/internal/support-grants/{grant_id}/revoke",
             post(internal::revoke_grant),
+        )
+        // ------------------------------------------------------------------
+        // P08 migration and adoption. `GET /api/v1/compatibility` is
+        // deliberately outside the org tree and unauthenticated: a local
+        // client that has never signed in must be able to ask what this control
+        // plane supports before deciding whether to create an account at all
+        // (F26 stage 0). It discloses only platform constants and the caller's
+        // own echoed fingerprint, so there is no tenant data behind it to
+        // authorize.
+        //
+        // Everything else hangs off `/orgs/{org_id}/adoption` and re-authorizes
+        // the tenant on each call. No route here accepts a local API key, a
+        // prompt, a file, or an automation body: the credential route records a
+        // *mode*, the telemetry route takes a closed field list, and the
+        // automation route previews a conflict without importing anything.
+        // ------------------------------------------------------------------
+        .route("/api/v1/compatibility", get(migration::compatibility))
+        .route(
+            "/api/v1/orgs/{org_id}/adoption",
+            get(migration::adoption_summary),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/bindings",
+            get(migration::list_bindings).post(migration::record_adoption),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/bindings/{adoption_state_id}",
+            patch(migration::advance_adoption_stage),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/bindings/{adoption_state_id}/rollback",
+            post(migration::rollback_adoption),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/remediations",
+            get(migration::list_remediations),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/remediations/{remediation_id}/resolve",
+            post(migration::resolve_remediation),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/telemetry",
+            post(migration::record_telemetry),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/adoption/automation-imports/preview",
+            post(migration::preview_automation_import),
         );
 
     if is_development {

@@ -47,7 +47,6 @@ CREATE TABLE client_compatibility_policies (
     protocol_major INTEGER NOT NULL CHECK (protocol_major BETWEEN 1 AND 32),
     min_protocol_major INTEGER NOT NULL CHECK (min_protocol_major BETWEEN 1 AND 32),
     max_protocol_major INTEGER NOT NULL CHECK (max_protocol_major BETWEEN 1 AND 32),
-    CHECK (min_protocol_major <= max_protocol_major),
     -- Policy schema compatibility is a separate axis from the client protocol:
     -- a client can speak protocol 1 and still carry a policy snapshot the
     -- control plane can no longer honour.
@@ -57,7 +56,6 @@ CREATE TABLE client_compatibility_policies (
     max_policy_schema_version INTEGER NOT NULL CHECK (
         max_policy_schema_version BETWEEN 1 AND 64
     ),
-    CHECK (min_policy_schema_version <= max_policy_schema_version),
     -- F26 stage 0 is the state a client is in before it has an account. A
     -- control plane that cannot run a local-only client has turned a staged
     -- migration into a forced one, so local-only availability is a recorded
@@ -70,7 +68,12 @@ CREATE TABLE client_compatibility_policies (
     notes TEXT NOT NULL DEFAULT '' CHECK (length(notes) <= 512),
     version INTEGER NOT NULL CHECK (version > 0),
     created_at TEXT NOT NULL CHECK (length(created_at) = 24),
-    UNIQUE (protocol_major, sequence)
+    -- Table-level constraints come last. SQLite does not accept a table
+    -- constraint followed by another column definition, so an ordered range
+    -- check has to live here rather than beside the columns it compares.
+    UNIQUE (protocol_major, sequence),
+    CHECK (min_protocol_major <= max_protocol_major),
+    CHECK (min_policy_schema_version <= max_policy_schema_version)
 );
 
 CREATE INDEX idx_client_compatibility_sequence
@@ -305,13 +308,16 @@ CREATE TABLE adoption_remediations (
     -- how local content would enter the cloud.
     resolved_by_user_id TEXT REFERENCES users (user_id) ON DELETE SET NULL,
     resolved_at TEXT CHECK (resolved_at IS NULL OR length(resolved_at) = 24),
+    version INTEGER NOT NULL CHECK (version > 0),
+    created_at TEXT NOT NULL CHECK (length(created_at) = 24),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) = 24),
+    -- An open row records no resolver and no resolution time; a resolved row
+    -- records a time. A half-resolved row would make "who fixed this"
+    -- unanswerable, so the database refuses it rather than the handler.
     CHECK (
         (state = 'open' AND resolved_at IS NULL AND resolved_by_user_id IS NULL)
         OR (state = 'resolved' AND resolved_at IS NOT NULL)
-    ),
-    version INTEGER NOT NULL CHECK (version > 0),
-    created_at TEXT NOT NULL CHECK (length(created_at) = 24),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) = 24)
+    )
 );
 
 -- At most one OPEN remediation per (state, code). A resolved row keeps its

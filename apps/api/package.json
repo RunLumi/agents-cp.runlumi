@@ -14,7 +14,8 @@
     "smoke:p03": "node scripts/p03-smoke.mjs",
     "smoke:p04": "node scripts/p04-smoke.mjs",
     "smoke:p05": "node scripts/p05-smoke.mjs",
-    "schema:p07": "node scripts/p07-schema-invariants.mjs"
+    "schema:p07": "node scripts/p07-schema-invariants.mjs",
+    "p08:invariants": "bash scripts/p08-invariants.sh"
   },
   "devDependencies": {
     "wrangler": "4.137.0"

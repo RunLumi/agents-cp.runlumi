@@ -505,6 +505,29 @@ pub enum RowOutcome {
 /// not own, so a plan step for them parks with
 /// `deletion_executor_unavailable` instead of silently reporting success.
 pub const DATABASE_ROW_EXECUTORS: &[DatabaseRowExecutor] = &[
+    // P08: all three P08 tenant rows are removed with the organization. They are
+    // listed explicitly rather than relying on `ON DELETE CASCADE` so a deletion
+    // job reports them as executed instead of leaving them in `needs_attention`,
+    // and so an operator can see that unbinding a workspace deletes only Lumi's
+    // copy of the adoption record — never anything on the user's machine.
+    DatabaseRowExecutor {
+        data_class: "workspace_adoption_state",
+        reference_kind: ReferenceKind::DatabaseRow,
+        statement: "DELETE FROM workspace_adoption_states WHERE adoption_state_id = ?1",
+        outcome: RowOutcome::Delete,
+    },
+    DatabaseRowExecutor {
+        data_class: "adoption_remediation",
+        reference_kind: ReferenceKind::DatabaseRow,
+        statement: "DELETE FROM adoption_remediations WHERE remediation_id = ?1",
+        outcome: RowOutcome::Delete,
+    },
+    DatabaseRowExecutor {
+        data_class: "adoption_stage_event",
+        reference_kind: ReferenceKind::DatabaseRow,
+        statement: "DELETE FROM adoption_stage_events WHERE adoption_event_id = ?1",
+        outcome: RowOutcome::Delete,
+    },
     DatabaseRowExecutor {
         data_class: "login_session",
         reference_kind: ReferenceKind::DatabaseRow,
