@@ -47,7 +47,7 @@ tabbed-settings-within-a-section surface:
 
 **No browser render.** No browser was attached to this session, so there is no
 screenshot evidence for desktop, narrow, or keyboard states. The panel is
-verified with `renderToStaticMarkup` against real markup — 76 tests across
+verified with `renderToStaticMarkup` against real markup — 78 tests across
 `api.test.ts`, `helpers.test.ts`, and `render.test.tsx` — which asserts the
 load-bearing copy, the accessibility shape (`aria-busy`, `aria-current="step"`,
 `role="alert"`, `role="status"`), and the absence of any control that could carry
@@ -78,9 +78,9 @@ a section most sessions never open must not cost the sessions that do.
 
 | File | Tests | What it pins |
 |---|---|---|
-| `api.test.ts` | 20 | Allowlist decoders never spread; an unrecognized enum decodes to `null` with its raw value; a missing frozen field fails the response; the stage ladder is the adoption order; the credential modes are in escalation order |
-| `helpers.test.ts` | 34 | A workspace that adopted nothing has no problem; "managed" without a derived problem is healthy; the ladder marks the managed boundary; open remediations sort above resolved in the frozen order; every credential mode's copy says what it does to the key |
-| `render.test.tsx` | 22 | No control that could carry local content exists anywhere; the loading, empty, permission, and error states are announced; the reason code and request id are shown and the server's prose is not; an unrecognized problem offers no action |
+| `api.test.ts` | 24 | Allowlist decoders never spread; an unrecognized enum decodes to `null` with its raw value; a missing frozen field fails the response; the stage ladder is the adoption order; the credential modes are in escalation order |
+| `helpers.test.ts` | 24 | A workspace that adopted nothing has no problem; "managed" without a derived problem is healthy; the ladder marks the managed boundary; open remediations sort above resolved in the frozen order; every credential mode's copy says what it does to the key |
+| `render.test.tsx` | 30 | No control that could carry local content exists anywhere; the loading, empty, permission, and error states are announced; the reason code and request id are shown and the server's prose is not; an unrecognized problem offers no action |
 
 ## Two rules worth keeping
 

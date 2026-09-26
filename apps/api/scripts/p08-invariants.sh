@@ -90,6 +90,26 @@ remediation() {
 
 echo "P08 structural invariants"
 
+# --- reset ----------------------------------------------------------------
+# The probe inserts fixed rows, so it has to be re-runnable: CI runs it once
+# after a fresh migrate, but a developer runs it after every change. Clearing the
+# P08 rows and the seed context first makes a second run mean the same thing as
+# the first, rather than turning every `must_refuse` case green for the wrong
+# reason.
+sqlite3 "$DB" >/dev/null 2>&1 <<SQL
+PRAGMA foreign_keys = OFF;
+DELETE FROM adoption_stage_events WHERE org_id = '$ORG';
+DELETE FROM adoption_remediations WHERE org_id = '$ORG';
+DELETE FROM workspace_adoption_states WHERE org_id = '$ORG';
+DELETE FROM devices WHERE device_id = '$DVC';
+DELETE FROM projects WHERE project_id = '$PRJ';
+DELETE FROM license_states WHERE org_id = '$ORG';
+DELETE FROM organizations WHERE org_id = '$ORG';
+DELETE FROM identities WHERE user_id = '$USR';
+DELETE FROM users WHERE user_id = '$USR';
+PRAGMA foreign_keys = ON;
+SQL
+
 # --- tenant context ------------------------------------------------------
 # A user, an org, a project, and an enrolled device. Nothing here is P08's own
 # doing; the P08 rows are all tenant-scoped references to them. Column names
