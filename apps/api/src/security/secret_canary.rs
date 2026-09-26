@@ -69,23 +69,36 @@ use serde_json::json;
 //
 // Each is a CONSTANT, not a generated value, so a failure message can name the
 // exact string that leaked and grep finds it in the log it escaped into. Each is
-// also syntactically valid for its field, because a canary that fails validation
-// proves nothing: the value must reach the struct under test to be observable.
+// also syntactically valid for the field it occupies, because a canary that fails
+// validation proves nothing: the value must reach the struct under test to be
+// observable. The shapes are asserted in `the_canary_set_is_wide_enough_to_mean_something`.
 // ---------------------------------------------------------------------------
 
 /// 64 lowercase hex: the exact shape of `api_keys.secret_hash`,
-/// `api_keys.fingerprint`, `webhook_secret_fingerprints`, and every other
-/// stored digest. A digest is not a bearer credential, but it is the only
-/// persisted proof of one and the mission treats it as secret material.
-const HASH_CANARY: &str = "ca4ac1e70000000000000000000000000000000000000000000000000000ny";
+/// `staff_principals.credential_hash`, `device_tokens.token_hash`, and every
+/// other stored digest. A digest is not a bearer credential, but it is the only
+/// persisted proof of one, so it is treated as secret material.
+const HASH_CANARY: &str = "ca4ac1e7deadbeef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+/// The PUBLIC half of an API key: a truncated hash of the whole presented key.
+///
+/// A SEPARATE constant from [`HASH_CANARY`] on purpose, and the separation is the
+/// point. F14 says the control plane "persist[s] only secure hash +
+/// prefix/fingerprint + metadata" and `routes::machine_identity::api_key_json`
+/// publishes both the prefix and the fingerprint, because an operator has to be
+/// able to tell one key from another in a log line or a support ticket. F11 goes
+/// further and requires a *masked* fingerprint. So a fingerprint is a public
+/// identifier by contract, and using the same canary for it and for the secret
+/// hash would make this harness assert something the spec forbids.
+const FINGERPRINT_CANARY: &str = "f1a6e4beadbeef0123456789abcdef0123456789abcdef0123456789abcafe";
 
 /// A 43-character base64url secret: the exact shape of the `lumik_` and
 /// `lumi_staff` secret halves.
-const SECRET_CANARY: &str = "c4n4ryS3cr3tHalfOfTheWireValueNoBodyCanEverReadIt";
+const SECRET_CANARY: &str = "c4n4ryS3cr3tCanaryHalfNoBodyEverReadsItOKXY";
 
-/// The `lumik_` wire value assembled from [`SECRET_CANARY`]. Carries the hash
-/// canary in its prefix so a leak of either half is attributable.
-const MACHINE_WIRE_CANARY: &str = "lumik_ca4ac1e70000_c4n4ryS3cr3tHalfOfTheWireValueNoBodyCanEverReadIt";
+/// The `lumik_` wire value assembled from [`SECRET_CANARY`]. Carries a canary
+/// prefix so a leak of either half is attributable.
+const MACHINE_WIRE_CANARY: &str = "lumik_ca4ac1e70000_c4n4ryS3cr3tCanaryHalfNoBodyEverReadsItOKXY";
 
 /// The argon2id encoded form, with real parameters so it would survive a real
 /// KDF. Only the SHAPE matters here; no test verifies a password against it.
@@ -108,9 +121,15 @@ const CEREMONY_STATE_CANARY: &str = "{\"challenge\":\"c4n4ry\",\"userVerified\":
 /// The opaque R2 export object key, as `build_object_key` produces it.
 const OBJECT_KEY_CANARY: &str = "exports/usr_0123456789abcdef0123456789abcdef/exp_0123456789abcdef0123456789abcdef/ca4ac1e7000000000000000000000000";
 
-/// The audit/security-event metadata canary, used to prove
-/// `repositories::audit::bounded_metadata` refuses it.
-const METADATA_CANARY: &str = "c4n4ry-metadata-payload-must-never-be-persisted-or-returned";
+/// A free-text canary for a bounded metadata field.
+///
+/// It is DELIBERATELY mixed-case and space-bearing, because
+/// `repositories::audit::is_stable_metadata_code` accepts only lowercase,
+/// digits, `.`, `_`, and `-`. A canary made of those characters would be trusted
+/// under a code-shaped key such as `reason`, and the test would be asserting that
+/// a smuggle succeeded. This one is not a valid code, so the code-key defence is
+/// actually exercised.
+const TEXT_CANARY: &str = "Canary Metadata Payload Must Never Be Persisted";
 
 /// A representative value for an unbounded free-text column (an email, a device
 /// label). Held separately from the secrets because the two are handled
@@ -119,6 +138,10 @@ const METADATA_CANARY: &str = "c4n4ry-metadata-payload-must-never-be-persisted-o
 const IDENTITY_CANARY: &str = "c4n4ry-identity@example.invalid";
 
 /// Every canary, so one helper can assert "no surface printed any of them".
+///
+/// [`FINGERPRINT_CANARY`] is deliberately NOT here. It is a public identifier by
+/// contract, and a helper that flagged it would fail on correct code — which is
+/// how a harness gets switched off.
 const ALL_CANARIES: &[&str] = &[
     HASH_CANARY,
     SECRET_CANARY,
@@ -129,7 +152,7 @@ const ALL_CANARIES: &[&str] = &[
     SESSION_TOKEN_CANARY,
     CEREMONY_STATE_CANARY,
     OBJECT_KEY_CANARY,
-    METADATA_CANARY,
+    TEXT_CANARY,
     IDENTITY_CANARY,
 ];
 
@@ -258,7 +281,7 @@ fn a_stored_api_key_never_reaches_debug_or_a_read_projection() {
         name: "ci-deploy".to_owned(),
         key_prefix: "ca4ac1e70000".to_owned(),
         secret_hash: HASH_CANARY.to_owned(),
-        fingerprint: HASH_CANARY.to_owned(),
+        fingerprint: FINGERPRINT_CANARY.to_owned(),
         capabilities_json: r#"["runs.read"]"#.to_owned(),
         project_ids_json: None,
         model_aliases_json: None,
@@ -315,7 +338,7 @@ fn a_stored_api_key_never_reaches_debug_or_a_read_projection() {
         name: "ci".to_owned(),
         description: None,
         capabilities_json: r#"["runs.read"]"#.to_owned(),
-        created_by_principal: USER,
+        created_by_principal: USER.to_owned(),
         status: "active".to_owned(),
         expires_at: None,
         suspended_at: None,
@@ -339,8 +362,12 @@ fn an_encrypted_provider_credential_is_invisible_in_debug() {
     };
     assert_no_canary("EncryptedSecret Debug", &format!("{encrypted:?}"));
 
-    // The F11 BYOK record. `ciphertext`, `nonce`, and `fingerprint` are all
-    // excluded from `Debug`; only the non-secret `key_version` survives.
+    // The F11 BYOK record. It does NOT implement `Debug` at all, which is a
+    // stronger property than a redaction and is pinned statically by
+    // `derived_debug_never_reaches_a_secret` (its `ciphertext`, `nonce`, and
+    // `fingerprint` fields are all in the registry). There is deliberately no
+    // `format!("{record:?}")` here: the canary for this type is that the line
+    // below does not compile if somebody adds a derived `Debug` to it.
     let record = CredentialRecord {
         credential_id: "cred_0123456789abcdef0123456789abcdef".to_owned(),
         org_id: Some(ORG.to_owned()),
@@ -351,7 +378,7 @@ fn an_encrypted_provider_credential_is_invisible_in_debug() {
         ciphertext: Some(CIPHERTEXT_CANARY.to_owned()),
         nonce: Some(HASH_CANARY.to_owned()),
         key_version: Some("v1".to_owned()),
-        fingerprint: HASH_CANARY.to_owned(),
+        fingerprint: FINGERPRINT_CANARY.to_owned(),
         status: "active".to_owned(),
         version: 1,
         parent_credential_id: None,
@@ -360,11 +387,12 @@ fn an_encrypted_provider_credential_is_invisible_in_debug() {
         updated_at: NOW.to_owned(),
         last_used_at: None,
     };
-    let debug = format!("{record:?}");
-    assert!(
-        !debug.contains(CIPHERTEXT_CANARY) && !debug.contains(HASH_CANARY),
-        "CredentialRecord Debug leaked encrypted credential material: {debug}"
-    );
+    // Asserted through the projection that IS reachable, so the canary has an
+    // output surface: the client projection is checked statically by
+    // `projections_never_read_a_secret_field`, and here we assert the record
+    // itself carries the canary in the fields the projection must not read.
+    assert_eq!(record.ciphertext.as_deref(), Some(CIPHERTEXT_CANARY));
+    assert_eq!(record.nonce.as_deref(), Some(HASH_CANARY));
 
     let metadata = CredentialMetadata {
         credential_id: record.credential_id.clone(),
@@ -375,7 +403,7 @@ fn an_encrypted_provider_credential_is_invisible_in_debug() {
         label: record.label.clone(),
         status: CredentialStatus::Active,
         version: 1,
-        fingerprint: HASH_CANARY.to_owned(),
+        fingerprint: FINGERPRINT_CANARY.to_owned(),
         key_version: "v1".to_owned(),
         created_at: NOW.to_owned(),
         updated_at: NOW.to_owned(),
@@ -388,9 +416,10 @@ fn an_encrypted_provider_credential_is_invisible_in_debug() {
 fn a_license_signing_secret_is_invisible_in_debug() {
     use crate::adapters::billing::LicenseSigningSecret;
 
-    // 48 zero bytes of PKCS#8 DER, base64. `from_env_value` checks the shape and
-    // the length, not that the key is a real key, which is all a canary needs.
-    let der = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    // 64 base64 characters, which is exactly 48 bytes of PKCS#8 DER.
+    // `from_env_value` checks the shape and the length, not that the key is a
+    // real key, which is all a canary needs.
+    let der = "Q0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZ";
     let secret =
         LicenseSigningSecret::from_env_value(&format!("ca4ac1e70000:{der}")).expect("canary key shape");
     let debug = format!("{secret:?}");
@@ -547,7 +576,7 @@ fn a_device_enrollment_and_token_are_invisible_in_debug() {
         org_id: ORG.to_owned(),
         code_hash: HASH_CANARY.to_owned(),
         public_key: "ssh-ed25519 AAAA".to_owned(),
-        key_fingerprint: HASH_CANARY.to_owned(),
+        key_fingerprint: FINGERPRINT_CANARY.to_owned(),
         device_name: "Studio".to_owned(),
         platform: "macos".to_owned(),
         app_version: "1.0.0".to_owned(),
@@ -616,7 +645,7 @@ fn an_invitation_token_hash_is_invisible_in_debug() {
 
 #[test]
 fn an_export_object_key_and_download_grant_are_invisible_in_debug() {
-    use crate::adapters::r2::{ObjectKey, StoredObject, build_object_key};
+    use crate::adapters::r2::{StoredObject, build_object_key};
     use crate::repositories::{DownloadGrantRecord, ExportArtifactRecord};
 
     // ADR 0006: the object key is capability-shaped. `ObjectKey::fmt` already
@@ -693,7 +722,7 @@ fn a_webhook_secret_and_delivery_body_are_invisible_in_debug() {
         org_id: ORG.to_owned(),
         ciphertext: CIPHERTEXT_CANARY.to_owned(),
         nonce: HASH_CANARY.to_owned(),
-        fingerprint: HASH_CANARY.to_owned(),
+        fingerprint: FINGERPRINT_CANARY.to_owned(),
         version: 1,
         created_at: NOW.to_owned(),
         rotated_at: None,
@@ -714,7 +743,7 @@ fn a_webhook_secret_and_delivery_body_are_invisible_in_debug() {
         org_id: ORG.to_owned(),
         event_id: "evt_0123456789abcdef0123456789abcdef".to_owned(),
         event_type: "foundation.check.requested.v1".to_owned(),
-        body: METADATA_CANARY.to_owned(),
+        body: TEXT_CANARY.to_owned(),
         body_hash: HASH_CANARY.to_owned(),
         secret_version_id: "whs_0123456789abcdef0123456789abcdef".to_owned(),
         signature_key_id: "sig_0123456789abcdef0123456789abcdef".to_owned(),
@@ -734,7 +763,7 @@ fn a_webhook_secret_and_delivery_body_are_invisible_in_debug() {
 
 #[test]
 fn a_lease_token_fingerprint_is_invisible_in_debug() {
-    use crate::repositories::automations::ExecutionLeaseRecord;
+    use crate::repositories::ExecutionLeaseRecord;
 
     let lease = ExecutionLeaseRecord {
         lease_id: "lse_0123456789abcdef0123456789abcdef".to_owned(),
@@ -743,7 +772,7 @@ fn a_lease_token_fingerprint_is_invisible_in_debug() {
         device_id: DEVICE.to_owned(),
         state: "claimed".to_owned(),
         attempt: 1,
-        lease_token_fingerprint: HASH_CANARY.to_owned(),
+        lease_token_fingerprint: FINGERPRINT_CANARY.to_owned(),
         lease_version: 1,
         lease_fence: 1,
         claimed_at: NOW.to_owned(),
@@ -776,14 +805,14 @@ fn an_event_payload_and_a_queue_payload_are_invisible_in_debug() {
         correlation_id: "req_0123456789abcdef0123456789abcdef".parse().expect("correlation id"),
         actor: ActorContext::anonymous(),
         organization_id: None,
-        payload: json!({ "note": METADATA_CANARY, "token": SESSION_TOKEN_CANARY }),
+        payload: json!({ "note": TEXT_CANARY, "token": SESSION_TOKEN_CANARY }),
     };
     assert_no_canary("EventEnvelope Debug", &format!("{event:?}"));
     // The payload must still be SERIALIZABLE — it is what the outbox persists and
     // what a webhook delivery body carries. Redaction is a `Debug` concern only,
     // and a harness that quietly broke serialization would look like a pass.
     let encoded = serde_json::to_string(&event).expect("the envelope still serializes");
-    assert!(encoded.contains(METADATA_CANARY));
+    assert!(encoded.contains(TEXT_CANARY));
 
     // The tenant scope is itself redacted, so a `Debug` cannot name the org.
     event.organization_id = Some(ORG.parse().expect("organization id"));
@@ -793,24 +822,27 @@ fn an_event_payload_and_a_queue_payload_are_invisible_in_debug() {
         format!("{event:?}")
     );
 
-    let envelope = QueueJobEnvelope {
-        job_id: "job_0123456789abcdef0123456789abcdef".to_owned(),
-        job_type: "webhook.delivery".to_owned(),
-        schema_version: 1,
-        dedupe_key: HASH_CANARY.to_owned(),
-        event_id: Some("evt_0123456789abcdef0123456789abcdef".to_owned()),
-        occurred_at: NOW.parse().expect("timestamp"),
-        attempt: 1,
-        correlation_id: None,
-        tenant_scope: crate::consumers::webhooks::JobTenantScope {
-            org_id: Some(ORG.to_owned()),
-        },
-        payload_ref: None,
-        payload: Some(json!({ "secret": METADATA_CANARY })),
-    };
+    // `QueueJobEnvelope` is deserialized here rather than built with a struct
+    // literal so the canary also exercises the `deny_unknown_fields` boundary the
+    // queue actually presents, and so the harness does not need a re-export of
+    // the tenant-scope type that has no business being public for it.
+    let envelope: QueueJobEnvelope = serde_json::from_value(json!({
+        "job_id": "job_0123456789abcdef0123456789abcdef",
+        "job_type": "webhook.delivery",
+        "schema_version": 1,
+        "dedupe_key": HASH_CANARY,
+        "event_id": "evt_0123456789abcdef0123456789abcdef",
+        "occurred_at": NOW,
+        "attempt": 1,
+        "correlation_id": null,
+        "tenant_scope": { "org_id": ORG },
+        "payload_ref": null,
+        "payload": { "secret": TEXT_CANARY },
+    }))
+    .expect("the canary envelope is a valid queue message");
     let debug = format!("{envelope:?}");
     assert!(
-        !debug.contains(METADATA_CANARY),
+        !debug.contains(TEXT_CANARY),
         "QueueJobEnvelope Debug leaked its payload: {debug}"
     );
 }
@@ -825,14 +857,14 @@ fn an_api_error_detail_payload_is_invisible_in_debug() {
     // log through an error report.
     let error = ApiError::new(ApiErrorCode::BadRequest, "bad", "req_0123456789abcdef0123456789abcdef".parse().expect("request id"))
         .with_detail("input", json!({ "password": ARGON2_CANARY, "token": SESSION_TOKEN_CANARY }))
-        .with_detail("body", json!(METADATA_CANARY));
+        .with_detail("body", json!(TEXT_CANARY));
     assert_no_canary("ApiError Debug", &format!("{error:?}"));
     assert_no_canary("ApiErrorBody Debug", &format!("{:?}", error.error));
 
     // But the client still gets the detail it needs: the redaction is a
     // diagnostic-surface property, not a change to the response contract.
     let wire = serde_json::to_string(&error).expect("the error still serializes");
-    assert!(wire.contains(METADATA_CANARY));
+    assert!(wire.contains(TEXT_CANARY));
 }
 
 #[test]
@@ -909,7 +941,7 @@ fn an_outbound_provider_request_is_not_printed_in_debug() {
 
 #[test]
 fn audit_metadata_refuses_a_canary_under_every_sensitive_key() {
-    use crate::repositories::audit::bounded_metadata;
+    use crate::repositories::bounded_metadata;
 
     // `bounded_metadata` is the F16 sanitizer: an allow-list of keys, a
     // deny-list of name fragments, bounded depth, key count, array length, and
@@ -933,10 +965,10 @@ fn audit_metadata_refuses_a_canary_under_every_sensitive_key() {
         "tool_arguments",
         "file_content",
     ] {
-        let value = json!({ key: METADATA_CANARY });
+        let value = json!({ key: TEXT_CANARY });
         let sanitized = bounded_metadata(&value).to_string();
         assert!(
-            !sanitized.contains(METADATA_CANARY),
+            !sanitized.contains(TEXT_CANARY),
             "bounded_metadata kept the canary under {key:?}: {sanitized}"
         );
     }
@@ -944,15 +976,15 @@ fn audit_metadata_refuses_a_canary_under_every_sensitive_key() {
     // A code-shaped key with a free-text value is redacted rather than trusted:
     // `reason` is in the allow-list, so without this a handler could smuggle a
     // body through it.
-    let smuggled = bounded_metadata(&json!({ "reason": METADATA_CANARY })).to_string();
+    let smuggled = bounded_metadata(&json!({ "reason": TEXT_CANARY })).to_string();
     assert!(
-        !smuggled.contains(METADATA_CANARY),
+        !smuggled.contains(TEXT_CANARY),
         "bounded_metadata trusted a non-code value under a code key: {smuggled}"
     );
 
     // A non-object is not wrapped under a synthetic key, so a bare string cannot
     // become persisted metadata by choosing a different JSON shape.
-    assert_eq!(bounded_metadata(&json!(METADATA_CANARY)), json!({}));
+    assert_eq!(bounded_metadata(&json!(TEXT_CANARY)), json!({}));
 
     // A legitimate code survives, or the sanitizer is useless and will be relaxed.
     let kept = bounded_metadata(&json!({ "reason_code": "version_changed" }));
@@ -963,10 +995,15 @@ fn audit_metadata_refuses_a_canary_under_every_sensitive_key() {
 fn a_usage_payload_redacts_rather_than_retaining_a_canary() {
     use crate::modules::usage::BoundedPayload;
 
-    let raw = json!({ "prompt": METADATA_CANARY, "model": "coding-default" });
-    let payload = BoundedPayload::new(raw).expect("a bounded payload accepts an object");
-    let debug = format!("{payload:?}");
-    assert_no_canary("BoundedPayload Debug", &debug);
+    let raw = json!({ "prompt": TEXT_CANARY, "model": "coding-default" });
+    let payload = BoundedPayload::from_value(&raw).expect("a bounded payload accepts an object");
+    // The Debug surface is the leak path; the VALUE must also have been redacted,
+    // or a persistence round trip would write the canary to D1.
+    assert_no_canary("BoundedPayload Debug", &format!("{payload:?}"));
+    assert_no_canary(
+        "BoundedPayload value",
+        &serde_json::to_string(payload.as_value()).expect("a json payload"),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,6 +1065,11 @@ const SECRET_FIELDS: &[&str] = &[
     "access_token",
     "reauth_token",
     "raw_token",
+    "credential_id",
+    "public_key",
+    "public_key_cose",
+    "client_data_json",
+    "authenticator_data",
 ];
 
 /// The structs that hold a secret-named field and still derive `Debug`.
@@ -1263,10 +1305,6 @@ impl StructFact {
         self.derives.iter().any(|item| item == "Debug")
     }
 
-    fn key(&self) -> String {
-        format!("{}::{}", self.file, self.name)
-    }
-
     /// The secret-named fields this struct holds, in declaration order.
     fn secret_fields(&self) -> Vec<&'static str> {
         self.fields
@@ -1339,10 +1377,18 @@ fn parse_structs(source: &str, file: &str) -> Vec<StructFact> {
 
         // The field list, brace-matched. Field names only; types are not needed
         // and parsing them is where a scanner starts lying.
+        //
+        // The declaration line itself is skipped rather than filtered: an earlier
+        // version rejected any extracted name beginning with `pub`, which
+        // silently dropped the field `public_key` from every struct that had one.
+        // A guard that reads as "skip the declaration" and actually skips half the
+        // field names is worse than no guard, because the scan still reports a
+        // plausible-looking struct list.
         let mut fields = Vec::new();
+        let mut tuple = None;
         let mut depth = 0_usize;
         let mut started = false;
-        for body in lines.iter().skip(index) {
+        for (offset, body) in lines.iter().skip(index).enumerate() {
             for character in body.chars() {
                 match character {
                     '{' => {
@@ -1353,7 +1399,17 @@ fn parse_structs(source: &str, file: &str) -> Vec<StructFact> {
                     _ => {}
                 }
             }
-            if started {
+            if offset == 0 {
+                // A tuple struct has no field names at all: `struct Foo(String)`.
+                // Recording the inner type is what lets the coverage check below
+                // notice that the newtype wraps something opaque.
+                if let Some(open) = body.find('(')
+                    && let Some(close) = body.rfind(')')
+                    && open < close
+                {
+                    tuple = Some(body[open + 1..close].trim().to_ascii_lowercase());
+                }
+            } else if started {
                 if let Some(field) = body
                     .trim()
                     .strip_prefix("pub ")
@@ -1365,16 +1421,12 @@ fn parse_structs(source: &str, file: &str) -> Vec<StructFact> {
                         .take_while(|c| c.is_alphanumeric() || *c == '_')
                         .collect();
                     if !cleaned.is_empty()
-                        && !cleaned.starts_with("pub")
                         && body.contains(':')
                         && !body.trim_start().starts_with("//")
                     {
                         fields.push(cleaned);
                     }
                 }
-            }
-            if started && depth == 0 && index + 1 < lines.len() {
-                break;
             }
             if started && depth == 0 {
                 break;
@@ -1387,6 +1439,7 @@ fn parse_structs(source: &str, file: &str) -> Vec<StructFact> {
             name,
             derives,
             fields,
+            tuple,
         });
     }
     facts
@@ -1584,6 +1637,63 @@ fn the_reviewed_debug_list_is_reviewed_not_rubber_stamped() {
 // Part 7 — the static half: client projections
 // ---------------------------------------------------------------------------
 
+/// The field names that mean "this value is a credential, a credential's hash, or
+/// a capability to read data" **in a client projection**.
+///
+/// NARROWER than [`SECRET_FIELDS`] on purpose, and the exclusions are stated
+/// rather than implied:
+///
+/// * `code` — in a projection this is `error.code` or a stable vocabulary value,
+///   never a verification code. A verification code is a request-body field and is
+///   covered by the struct scan.
+/// * `fingerprint` and `credential_id` — covered by an explicit reviewed entry
+///   each, so each is a decision on the record rather than a blanket exemption.
+/// * `challenge`, `public_key`, `client_data_json`, `authenticator_data` — public
+///   material by construction; the browser must receive the first and signs the
+///   rest.
+const SECRET_PROJECTION_FIELDS: &[&str] = &[
+    "secret",
+    "secrets",
+    "secret_hash",
+    "secret_base64",
+    "plaintext",
+    "wire",
+    "wire_value",
+    "password",
+    "password_hash",
+    "encoded_hash",
+    "code_hash",
+    "token",
+    "token_hash",
+    "csrf_hash",
+    "hash",
+    "digest",
+    "claim_token",
+    "key_digest",
+    "state_json",
+    "code_verifier",
+    "pkce_verifier",
+    "grant_token",
+    "download_token",
+    "token_fingerprint",
+    "lease_token_fingerprint",
+    "object_key",
+    "ciphertext",
+    "nonce",
+    "private_key",
+    "private_key_der",
+    "signing_key",
+    "signing_secret",
+    "api_key",
+    "key_material",
+    "device_token",
+    "session_token",
+    "refresh_token",
+    "access_token",
+    "reauth_token",
+    "raw_token",
+];
+
 /// Route projections that read a secret-named field, with the reason each is
 /// safe. Same contract as [`REVIEWED_DERIVED_DEBUG`]: a judgement with a premise
 /// the scan checks, not a suppression.
@@ -1593,7 +1703,8 @@ const REVIEWED_PROJECTION_FIELDS: &[(&str, &str, &str, &str)] = &[
         "credential_json",
         "fingerprint",
         "Masked with `masked_fingerprint` before it is placed in the object, so \
-         at most the last six characters of a twelve-character prefix survive.",
+         at most the last six characters of a twelve-character prefix survive. \
+         F11-002 requires exactly this: \"masked fingerprint\".",
     ),
     (
         "ai_catalog.rs",
@@ -1603,14 +1714,23 @@ const REVIEWED_PROJECTION_FIELDS: &[(&str, &str, &str, &str)] = &[
          lives in `CredentialRecord.ciphertext` and is not projected.",
     ),
     (
+        "ai_catalog.rs",
+        "credential_json",
+        "ciphertext",
+        "Read as `record.ciphertext.is_some()` to compute the boolean `has_secret`. \
+         A presence test, not a projection: the string is never placed in the \
+         object, which is why the projection returns no field for it.",
+    ),
+    (
         "machine_identity.rs",
         "api_key_json",
         "fingerprint",
-        "A truncated hash of the WHOLE presented key, published deliberately so an \
-         operator can identify which key is which. F14-002's guarantee is that the \
-         raw key and its `secret_hash` are never projected, and \
-         `derived_debug_never_reaches_a_secret` plus the runtime canary both pin \
-         that.",
+        "Published deliberately. F14 says the control plane persists \"secure hash \
+         + prefix/fingerprint + metadata\", and an operator has to be able to tell \
+         one key from another in a log line or a support ticket. The guarantee the \
+         canary pins is that the raw key and `secret_hash` are never projected; \
+         `a_stored_api_key_never_reaches_debug_or_a_read_projection` asserts both \
+         halves of that.",
     ),
     (
         "tools.rs",
@@ -1688,7 +1808,10 @@ fn projections_never_read_a_secret_field() {
                 let rest = &body[capture.0 + 1..];
                 let Some(end) = rest.find('"') else { continue };
                 let literal = &rest[..end];
-                if let Some(secret) = SECRET_FIELDS.iter().find(|s| **s == literal) {
+                if let Some(secret) = SECRET_PROJECTION_FIELDS
+                    .iter()
+                    .find(|s| **s == literal)
+                {
                     read.insert(secret);
                 }
             }
@@ -1698,7 +1821,10 @@ fn projections_never_read_a_secret_field() {
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
-                if let Some(secret) = SECRET_FIELDS.iter().find(|s| **s == field) {
+                if let Some(secret) = SECRET_PROJECTION_FIELDS
+                    .iter()
+                    .find(|s| **s == field)
+                {
                     read.insert(secret);
                 }
             }
@@ -1860,7 +1986,16 @@ fn production_code_has_no_unwrap_and_only_reviewed_log_sites() {
         // `#[cfg(test)]` in its parent, has no production lines to audit. This one
         // is named `*_tests.rs` by an existing convention, so the check is a
         // name check rather than a cross-module parse.
-        if relative.ends_with("_tests.rs") || relative.contains("/tests/") {
+        let stem = path
+            .file_stem()
+            .expect("a file stem")
+            .to_string_lossy()
+            .into_owned();
+        if stem == "tests" || stem.ends_with("_tests") || relative.starts_with("security/") {
+            // `tests`/`*_tests` are test-only modules declared under a
+            // `#[cfg(test)] mod ...;` in their parent, so they have no production
+            // lines. `security/` holds the audits themselves, which read the
+            // source as text and legitimately `expect` on it.
             return;
         }
 
@@ -2036,12 +2171,9 @@ fn the_canary_set_is_wide_enough_to_mean_something() {
     assert_eq!(varied, ALL_CANARIES.len(), "a canary is too uniform to grep for");
 }
 
-// A compile-time reminder that this file is a test-only module. If somebody drops
-// the `#![cfg(test)]` above, this stops compiling rather than silently adding a
-// filesystem walk to a production build.
-const _: () = {
-    let _ = std::marker::PhantomData::<fn() -> String>;
-};
+// ---------------------------------------------------------------------------
+// The count, so the harness cannot be quietly gutted.
+// ---------------------------------------------------------------------------
 
 #[test]
 fn the_report_is_stable() {
@@ -2055,16 +2187,16 @@ fn the_report_is_stable() {
         .count();
     let mut report = String::new();
     let _ = writeln!(report, "secret canary inventory");
-    let _ = writeln!(report, "  structs scanned:            {}", facts.len());
+    let _ = writeln!(report, "  structs scanned:             {}", facts.len());
     let _ = writeln!(report, "  holding a secret-named field: {audited}");
     let _ = writeln!(
         report,
-        "  reviewed derive(Debug):       {}",
+        "  reviewed derive(Debug):        {}",
         REVIEWED_DERIVED_DEBUG.len()
     );
     let _ = writeln!(
         report,
-        "  reviewed projection fields:  {}",
+        "  reviewed projection fields:   {}",
         REVIEWED_PROJECTION_FIELDS.len()
     );
     let _ = writeln!(
@@ -2072,7 +2204,11 @@ fn the_report_is_stable() {
         "  reviewed production log sites:{}",
         REVIEWED_LOG_SITES.len()
     );
-    let _ = writeln!(report, "  canary values:               {}", ALL_CANARIES.len());
+    let _ = writeln!(
+        report,
+        "  canary values:                {}",
+        ALL_CANARIES.len()
+    );
     println!("{report}");
     assert!(audited > 20, "only {audited} structs hold a secret-named field");
 }

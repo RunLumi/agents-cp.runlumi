@@ -610,7 +610,12 @@ impl<R: DnsResolver + ?Sized> WebhookDeliveryJobHandler<'_, R> {
         } else if delivery_state == WebhookDeliveryState::DeadLetter {
             statements.push(
                 repository
-                    .record_terminal_failure_statement(&endpoint.endpoint_id, auto_disable, now)
+                    .record_terminal_failure_statement(
+                        &endpoint.endpoint_id,
+                        auto_disable,
+                        now,
+                        endpoint.version,
+                    )
                     .map_err(|_| retryable("webhook_delivery_store_unavailable"))?,
             );
             if auto_disable

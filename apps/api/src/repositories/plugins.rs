@@ -109,6 +109,26 @@ WHERE org_id = ?1
 LIMIT 1
 "#;
 
+/// Packages on BOTH the allow and the block list.
+///
+/// F25-004, and the reason this is a `const` rather than a literal inside
+/// [`PluginGovernanceRepository::policy_conflicts`]: an inline SQL literal is
+/// invisible to the P09 tenant-isolation audit, which reads named constants, so a
+/// query that decides whether an organization has contradicted itself was sitting
+/// outside the thing that checks tenant predicates. Found by
+/// `security::tenant_audit::every_sql_statement_lives_in_a_named_constant`.
+const POLICY_CONFLICTS_SQL: &str = r#"
+SELECT value AS package_id FROM (
+    SELECT j.value AS value
+    FROM plugin_policies p, json_each(p.allowed_packages_json) AS j
+    WHERE p.org_id = ?1
+      AND EXISTS (
+          SELECT 1 FROM json_each(p.blocked_packages_json) AS b WHERE b.value = j.value
+      )
+)
+ORDER BY package_id ASC
+"#;
+
 const INSERT_POLICY_SQL: &str = r#"
 INSERT INTO plugin_policies (
     org_id, publisher_mode, approved_publishers_json, allowed_packages_json,
@@ -563,20 +583,7 @@ impl<'a> PluginGovernanceRepository<'a> {
     /// needs to be told, not silently corrected.
     pub async fn policy_conflicts(&self, org_id: &str) -> worker::Result<Vec<String>> {
         self.database
-            .prepare(
-                r#"
-SELECT value AS package_id FROM (
-    SELECT j.value AS value
-    FROM plugin_policies p, json_each(p.allowed_packages_json) AS j
-    WHERE p.org_id = ?1
-      AND EXISTS (
-          SELECT 1 FROM json_each(p.blocked_packages_json) AS b WHERE b.value = j.value
-      )
-)
-ORDER BY package_id ASC
-"#,
-                &[BindValue::Text(org_id)],
-            )?
+            .prepare(POLICY_CONFLICTS_SQL, &[BindValue::Text(org_id)])?
             .all()
             .await?
             .results::<PolicyConflictRow>()

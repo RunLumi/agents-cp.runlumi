@@ -69,7 +69,24 @@ enum Class {
     /// No org predicate, reached from a queue job whose envelope is itself
     /// tenant-scoped. `resolver` names the claim statement.
     JobChain(&'static str),
+    /// Deliberately crosses tenants: a queue dispatcher, an expiry purge. The only
+    /// statements allowed to do that, and each carries its reason.
+    PlatformSweep,
+    /// A platform table whose tenant column names a SUBJECT rather than the
+    /// caller's scope.
+    ///
+    /// `support_grants.organization_id` is the *customer* a staff principal was
+    /// granted access to, not an organization the caller belongs to, and
+    /// `kill_switches` mixes a global row (NULL) with organization rows. A staff
+    /// principal is not a member of any organization, so "bound the caller's
+    /// tenant" is not a property these tables can have. Their isolation is the
+    /// STAFF boundary instead, which
+    /// [`platform_statements_live_behind_the_staff_boundary`] checks.
+    PlatformScoped,
 }
+
+/// The tables whose tenant column names a subject rather than a caller scope.
+const PLATFORM_TABLES: &[&str] = &["support_grants", "kill_switches"];
 
 const JUDGEMENTS: &[(&str, Class, &str)] = &[
     // -- reads that resolve through an org-scoped read upstream ---------------
@@ -273,9 +290,11 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
     ),
     (
         "repositories/machine_identity.rs::TOUCH_KEY_USE_SQL",
-        Class::CompareAndSet,
-        "Last-used bookkeeping on the key that just authenticated. Reached only \
-         with the key's own id, from the credential that was just verified.",
+        Class::IdChain("repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"),
+        "Last-used bookkeeping, best effort, on the key that JUST authenticated. \
+         Deliberately unguarded: it is advisory telemetry, so a replay rewrites a \
+         timestamp rather than moving money or authority, and a version guard here \
+         would fight every concurrent key mutation for no benefit.",
     ),
     (
         "repositories/projects.rs::DELETE_GRANT_SQL",
@@ -343,18 +362,204 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
     ),
     (
         "repositories/webhooks.rs::MARK_NOTIFICATION_READ_SQL",
-        Class::PrincipalBound,
-        "A notification read is the user's own, keyed by their principal.",
+        Class::CompareAndSet,
+        "A notification's read state, guarded on its own state so a replay is a \
+         no-op rather than a second read receipt.",
     ),
     (
         "repositories/webhooks.rs::MARK_NOTIFICATION_DELIVERY_SQL",
-        Class::PrincipalBound,
-        "Same.",
+        Class::CompareAndSet,
+        "A delivery's state, guarded on its own state AND version, so a duplicate \
+         notification cannot be delivered twice.",
     ),
     (
         "jobs/automations.rs::CANCEL_PREDECESSOR_SQL",
         Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
         "Cancels a blocked-on predecessor, reached from an org-bound occurrence.",
+    ),
+
+    // -- P01 idempotency: the tenant surface a single-spelling scan missed -----
+    (
+        "repositories/idempotency.rs::LOOKUP_ACTIVE_SQL",
+        Class::OrgBound,
+        "Bound on BOTH the principal and the organization, plus the method, path \
+         and key digest. The narrowest lookup in the system.",
+    ),
+    (
+        "repositories/idempotency.rs::CLAIM_SQL",
+        Class::OrgBound,
+        "The upsert that claims a key. `ON CONFLICT` is scoped to the same five \
+         columns the lookup used, so a claim cannot land on another tenant's row.",
+    ),
+    (
+        "repositories/idempotency.rs::COMPLETION_SQL",
+        Class::OrgBound,
+        "Completion is bound to the principal, org, method, path, key digest AND \
+         the request fingerprint, plus `state = 'pending'` and the claim token. \
+         Only the worker holding the claim can complete it.",
+    ),
+    (
+        "repositories/idempotency.rs::RELEASE_CLAIM_SQL",
+        Class::OrgBound,
+        "Releasing a failed claim. Same five columns plus the claim token, so a \
+         second worker cannot release a claim it does not hold.",
+    ),
+    (
+        "repositories/idempotency.rs::ASSERT_CLAIM_SQL",
+        Class::OrgBound,
+        "An assertion row inserted only when the guarded claim does NOT exist. \
+         Writes nothing when the claim is live, which is the property it is for.",
+    ),
+    (
+        "repositories/idempotency.rs::PURGE_EXPIRED_SQL",
+        Class::PlatformSweep,
+        "The one legitimate cross-tenant delete: an expiry purge over records \
+         whose `expires_at` has passed, bounded by `LIMIT ?2` so it cannot lock \
+         the table. An idempotency record past its TTL is dead weight by \
+         definition, and leaving it would grow D1 without bound.",
+    ),
+
+    // -- P01 outbox: tenant-TAGGED, platform-dispatched -----------------------
+    (
+        "repositories/outbox.rs::INSERT_EVENT_SQL",
+        Class::OrgBound,
+        "The event's own `organization_id`, which may be NULL for a platform \
+         event. Tagged, not scoped: the write is the producer's and cannot reach \
+         another tenant's row.",
+    ),
+    (
+        "repositories/outbox.rs::LIST_DUE_SQL",
+        Class::PlatformSweep,
+        "The dispatcher. It MUST cross tenants: one queue serves every \
+         organization, and each row carries the org it belongs to for the handler. \
+         Ordered by `next_attempt_at` and bounded by `LIMIT ?2`.",
+    ),
+    (
+        "repositories/outbox.rs::MARK_QUEUED_SQL",
+        Class::CompareAndSet,
+        "Guarded on `delivery_status` AND `attempt_count`, so two dispatchers \
+         racing the same event queue it once.",
+    ),
+    (
+        "repositories/outbox.rs::RECORD_RETRY_SQL",
+        Class::CompareAndSet,
+        "Guarded on the status the worker observed plus the attempt count, so a \
+         duplicate delivery cannot schedule a second retry.",
+    ),
+    (
+        "repositories/outbox.rs::RECORD_DEAD_LETTER_SQL",
+        Class::CompareAndSet,
+        "Same guard, into the terminal state. Bounded retries end here rather \
+         than looping, and the DLQ is visible rather than silent.",
+    ),
+    (
+        "repositories/outbox.rs::MARK_DELIVERED_SQL",
+        Class::CompareAndSet,
+        "Guarded on the delivery status being one of the two non-terminal values, \
+         so a duplicate cannot deliver, or re-deliver, a settled event.",
+    ),
+    (
+        "repositories/outbox.rs::MARK_DEAD_LETTER_SQL",
+        Class::CompareAndSet,
+        "Same guard, into the terminal state.",
+    ),
+    (
+        "repositories/outbox.rs::GET_RECORD_SQL",
+        Class::ReturnsOrg,
+        "Reads one event by id and returns its `organization_id`, so the caller \
+         receives the tenant and can compare it before showing anything.",
+    ),
+
+    (
+        "repositories/plugins.rs::POLICY_CONFLICTS_SQL",
+        Class::OrgBound,
+        "The F25-004 conflict read, scoped by `p.org_id = ?1`. It was an inline \
+         literal inside the function until the P09 audit flagged it as invisible to \
+         the tenant checks, so it is a named constant now and therefore audited.",
+    ),
+
+    // -- P07 platform operations: the STAFF boundary ---------------------------
+    (
+        "repositories/platform_ops.rs::INSERT_GRANT_SQL",
+        Class::PlatformScoped,
+        "Writes a support grant. The `organization_id` is the customer being \
+         granted access, not the caller's scope.",
+    ),
+    (
+        "repositories/platform_ops.rs::GRANTS_FOR_STAFF_AND_ORG_SQL",
+        Class::PlatformScoped,
+        "Scoped to a staff principal AND the customer org, which together are \
+         the boundary: a support principal's grants for one customer.",
+    ),
+    (
+        "repositories/platform_ops.rs::GRANT_BY_ID_SQL",
+        Class::PlatformScoped,
+        "Reads a grant by id. Reached only from the staff route, and the caller \
+         is a staff principal rather than an org member.",
+    ),
+    (
+        "repositories/platform_ops.rs::GRANTS_PAGE_SQL",
+        Class::PlatformScoped,
+        "The staff list of every grant. Crossing tenants is the point: it is the \
+         platform's own audit surface, behind the staff boundary.",
+    ),
+    (
+        "repositories/platform_ops.rs::REVOKE_GRANT_SQL",
+        Class::PlatformScoped,
+        "Revocation, guarded on the issuing staff principal, the version, and \
+         `revoked_at IS NULL` so a grant cannot be revoked twice or restored.",
+    ),
+    (
+        "repositories/platform_ops.rs::ASSERT_FLAG_VERSION_SQL",
+        Class::OrgBound,
+        "The feature-flag optimistic-concurrency assertion, expressed as an \
+         idempotency claim. It writes `idempotency_records`, which IS tenant \
+         bound; the flag it asserts on is global, which is why the two differ.",
+    ),
+    (
+        "repositories/platform_ops.rs::KILL_SWITCHES_FOR_TARGET_SQL",
+        Class::PlatformScoped,
+        "Matches every ENGAGED switch for a target, across scopes. Ordering puts \
+         the organization-scoped row last, which is what makes the narrow decision \
+         the reported one.",
+    ),
+    (
+        "repositories/platform_ops.rs::KILL_SWITCHES_PAGE_SQL",
+        Class::PlatformScoped,
+        "The staff list of every switch. Global by design: a global switch has a \
+         NULL organization and must still be visible.",
+    ),
+    (
+        "repositories/platform_ops.rs::KILL_SWITCH_BY_ID_SQL",
+        Class::PlatformScoped,
+        "Reads one switch by id, for the staff route that lifts it.",
+    ),
+    (
+        "repositories/platform_ops.rs::INSERT_KILL_SWITCH_SQL",
+        Class::PlatformScoped,
+        "Engaging a switch. A global switch stores NULL for the organization, \
+         which 0018 validates against the scope.",
+    ),
+    (
+        "repositories/platform_ops.rs::LIFT_KILL_SWITCH_SQL",
+        Class::PlatformScoped,
+        "Lifting is guarded on the version AND `state = 'engaged'`, so a lifted \
+         switch cannot be re-engaged in place and a replay is a no-op.",
+    ),
+    (
+        "repositories/platform_ops.rs::ASSERT_KILL_SWITCH_VERSION_SQL",
+        Class::PlatformScoped,
+        "The lift's optimistic-concurrency assertion, as an idempotency claim.",
+    ),
+    (
+        "routes/billing.rs::ASSERT_IDEMPOTENCY_CLAIM_SQL",
+        Class::OrgBound,
+        "Billing's own copy of the claim assertion, bound to the caller's org.",
+    ),
+    (
+        "routes/billing.rs::COMPLETE_IDEMPOTENCY_SQL",
+        Class::OrgBound,
+        "Billing's own completion, bound to the caller's org and the claim token.",
     ),
 ];
 
@@ -502,10 +707,10 @@ const MECHANICAL: &[(&str, Class)] = &[
         ("repositories/data_governance.rs::INVENTORY_EXPORT_OBJECTS_SQL", Class::OrgBound),
         ("repositories/data_governance.rs::INVENTORY_MEMBERSHIPS_ORG_SQL", Class::OrgBound),
         ("repositories/data_governance.rs::INVENTORY_DEVICES_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_DEVICES_USER_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INVENTORY_DEVICES_USER_SQL", Class::PrincipalBound),
+        ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_USER_SQL", Class::PrincipalBound),
         ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_WORKSPACE_BINDINGS_USER_SQL", Class::ReturnsOrg),
+        ("repositories/data_governance.rs::INVENTORY_WORKSPACE_BINDINGS_USER_SQL", Class::PrincipalBound),
         ("repositories/data_governance.rs::INVENTORY_INVITATIONS_ORG_SQL", Class::OrgBound),
         ("repositories/devices.rs::INSERT_ENROLLMENT_SQL", Class::OrgBound),
         ("repositories/devices.rs::ENROLLMENT_BY_ID_SQL", Class::ReturnsOrg),
@@ -892,9 +1097,32 @@ fn binds_principal(sql: &str) -> bool {
 }
 
 fn binds_device(sql: &str) -> bool {
-    ["device_id = ?", "device_fingerprint = ?"]
+    // `token_hash = ?` counts: the enrollment path identifies the device by the
+    // one-time token that proves possession of it, which is the device's own
+    // credential rather than a caller-chosen id.
+    ["device_id = ?", "device_fingerprint = ?", "token_hash = ?"]
         .iter()
         .any(|needle| sql.contains(needle))
+}
+
+/// The byte offset of a standalone SQL keyword, or `None`.
+///
+/// Standalone means surrounded by whitespace, not merely contained: `WHERE` must
+/// not match inside `somewhere`. Matching on `" WHERE "` with a leading space is
+/// what broke this twice, because every statement here puts `WHERE` and `FROM` at
+/// the start of a line.
+fn find_keyword(sql: &str, keyword: &str) -> Option<usize> {
+    let mut at = 0usize;
+    while let Some(found) = sql[at..].find(keyword) {
+        let absolute = at + found;
+        let before = sql[..absolute].chars().next_back();
+        let after = sql[absolute + keyword.len()..].chars().next();
+        if before.is_none_or(char::is_whitespace) && after.is_none_or(char::is_whitespace) {
+            return Some(absolute);
+        }
+        at = absolute + keyword.len();
+    }
+    None
 }
 
 fn is_write(sql: &str) -> bool {
@@ -918,12 +1146,16 @@ fn has_org_column(sql: &str) -> bool {
 /// Does the SELECT list carry the tenant column? Without it the caller cannot
 /// compare, so a "read then check" pattern is impossible and the statement is a
 /// cross-tenant read.
+///
+/// The list is everything before the first standalone `FROM` token. Matching on
+/// `" FROM "` with a leading space is wrong: the SQL in this repository puts
+/// `FROM` on its own line, so there is no space before it, and the check silently
+/// returned false for every multi-line statement.
 fn select_list_carries_org(sql: &str) -> bool {
-    let upper = sql.to_ascii_uppercase();
-    let Some(from) = upper.find(" FROM ") else {
-        return false;
-    };
-    has_org_column(&upper[..from])
+    match find_keyword(&sql.to_ascii_uppercase(), "FROM") {
+        Some(at) => has_org_column(&sql[..at]),
+        None => false,
+    }
 }
 
 /// A compare-and-set: the write is guarded by an optimistic-concurrency version or
@@ -931,14 +1163,27 @@ fn select_list_carries_org(sql: &str) -> bool {
 /// state even without a tenant predicate.
 fn is_compare_and_set(sql: &str) -> bool {
     let upper = sql.to_ascii_uppercase();
-    if !upper.contains("WHERE") {
+    let Some(where_at) = find_keyword(&upper, "WHERE") else {
         return false;
-    }
-    upper.contains("VERSION = ?")
-        || upper.contains("STATE = '")
-        || upper.contains("STATUS = '")
-        || upper.contains("STATE = ?")
-        || upper.contains("STATUS = ?")
+    };
+    let clause = &upper[where_at..];
+    // A guard is any predicate beyond the bare primary key, in any of the forms
+    // this schema actually uses: an optimistic-concurrency version, a state, an
+    // attempt or claim token, or a one-shot precondition such as `IS NULL` or
+    // `> 0`. Requiring a WHERE at all keeps a bare `UPDATE t SET x = 1` out.
+    [
+        "VERSION = ?",
+        "STATE = ",
+        "STATUS = ",
+        "ATTEMPT_COUNT = ?",
+        "CLAIM_TOKEN = ?",
+        "IS NULL",
+        "IS NOT NULL",
+        "> 0",
+        " IN (",
+    ]
+    .iter()
+    .any(|guard| clause.contains(guard))
 }
 
 /// Is `table` named as a whole identifier in the SQL?
@@ -1100,6 +1345,14 @@ fn every_classification_is_true_of_the_statement_it_labels() {
             Class::DeviceBound => binds_device(&sql),
             Class::ReturnsOrg => is_select(&sql) && select_list_carries_org(&sql),
             Class::CompareAndSet => is_write(&sql) && is_compare_and_set(&sql),
+            // A sweep may cross tenants, but only if it is bounded: an unbounded
+            // cross-tenant statement is a table lock waiting for load.
+            Class::PlatformSweep => {
+                !has_org_predicate(&sql) && find_keyword(&sql, "LIMIT").is_some()
+            }
+            Class::PlatformScoped => PLATFORM_TABLES
+                .iter()
+                .any(|table| mentions(&sql, table)),
             Class::IdChain(resolver) => {
                 !has_org_predicate(&sql) && classes.contains_key(*resolver)
             }
@@ -1166,6 +1419,10 @@ fn every_chain_bottoms_out_in_an_org_bound_statement() {
                 // why a CAS is a legitimate terminal there and not elsewhere.
                 Class::CompareAndSet if matches!(class, Class::JobChain(_)) => break Ok(true),
                 Class::IdChain(next) | Class::JobChain(next) => current = *next,
+                // A platform statement has no caller tenant by construction, so a
+                // chain ending there is ending at the staff boundary, which is a
+                // real boundary rather than a gap.
+                Class::PlatformScoped | Class::PlatformSweep => break Ok(true),
                 _ => {
                     break Err(format!(
                         "{current} is a leaf class with no tenant, so the chain from \
@@ -1198,6 +1455,65 @@ fn every_chain_bottoms_out_in_an_org_bound_statement() {
             "note: {} chain(s) rest on a caller-side tenant check, not a predicate: {}",
             weak_terminals.len(),
             weak_terminals.join(", ")
+        );
+    }
+}
+
+/// `PlatformScoped` says "this statement has no caller tenant". The safety of
+/// that claim is the STAFF boundary, so this is the test that makes the class mean
+/// something: a platform table may only be named from the repository and route
+/// modules that sit behind `require_staff`.
+///
+/// It is a module-level check, not a call-graph one, and it is honest about that:
+/// it proves the platform tables are not reachable from a customer repository,
+/// which is where a leak would actually start.
+#[test]
+fn platform_statements_live_behind_the_staff_boundary() {
+    /// The only two modules permitted to name a platform table.
+    const ALLOWED: &[&str] = &["repositories/platform_ops.rs", "routes/internal.rs"];
+    let mut offenders = Vec::new();
+    for (file, name, sql) in sql_constants() {
+        if !PLATFORM_TABLES
+            .iter()
+            .any(|table| mentions(&sql, table))
+        {
+            continue;
+        }
+        if !ALLOWED.contains(&file.as_str()) {
+            offenders.push(format!("{file}::{name}"));
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "a platform table is named outside the staff boundary, so its statements \
+         have no tenant AND no staff check:\n  {}",
+        offenders.join("\n  ")
+    );
+
+    // And the platform route prefix is still the staff one, asserted against the
+    // mounted paths rather than a comment.
+    let internal = fs::read_to_string(crate_root().join("src/routes/internal.rs"))
+        .expect("the internal route module is readable");
+    for (constant, prefix) in [
+        ("FLAG_CREATE_PATH", "/api/v1/internal/"),
+        ("KILL_SWITCH_CREATE_PATH", "/api/v1/internal/"),
+        ("GRANT_CREATE_PATH", "/api/v1/internal/"),
+    ] {
+        let line = internal
+            .lines()
+            .find(|line| line.contains(constant) && line.contains("pub const"))
+            .unwrap_or_else(|| panic!("{constant} is declared"));
+        assert!(
+            line.contains(prefix),
+            "{constant} must stay under {prefix}, or the staff boundary is gone: {line}"
+        );
+    }
+    // And the customer-facing route modules must never mention the staff verbs.
+    for module in ["src/routes/organizations.rs", "src/routes/billing.rs"] {
+        let source = fs::read_to_string(crate_root().join(module)).expect("readable");
+        assert!(
+            !source.contains("require_staff"),
+            "{module} is a customer route and must not hold the staff boundary"
         );
     }
 }
@@ -1253,28 +1569,44 @@ fn the_audit_covers_every_sql_owning_module() {
 #[test]
 fn the_audit_can_reject_a_mislabelled_statement() {
     // An audit that cannot fail is decoration. This proves the classification
-    // check is load-bearing, using the real SQL of a real statement.
+    // check is load-bearing by refuting a mislabelling against the real SQL.
     //
-    // `MARK_DELIVERY_DELIVERED_SQL` is a compare-and-set. Labelling it
-    // `PrincipalBound` must be rejected, because it binds no principal.
-    let target = "repositories/webhooks.rs::MARK_DELIVERY_DELIVERED_SQL";
+    // `TOUCH_KEY_USE_SQL` records last-used on the key that just authenticated. It
+    // is deliberately `IdChain`, not `CompareAndSet` and not `PrincipalBound`, and
+    // the statements say so.
+    let target = "repositories/machine_identity.rs::TOUCH_KEY_USE_SQL";
     let sql = sql_constants()
         .into_iter()
         .find(|(file, name, _)| format!("{file}::{name}") == target)
         .map(|(_, _, sql)| sql)
         .expect("the statement exists");
-    // The mislabelling is refuted by the statement, not by the label.
-    assert!(!binds_principal(&sql), "it binds no principal");
+    // Refutations, each against the statement rather than against a label.
+    assert!(!binds_principal(&sql), "it binds no principal, so not PrincipalBound");
     assert!(
-        !(has_org_predicate(&sql) || (is_insert(&sql) && has_org_column(&sql))),
+        !has_org_predicate(&sql) && !(is_insert(&sql) && has_org_column(&sql)),
         "it is not org-bound either, which is why it needed a class at all"
     );
-    // And what it really is, which is what the audit demanded.
-    assert!(is_write(&sql) && is_compare_and_set(&sql), "it is a CAS");
-    assert_eq!(
-        classification()
-            .get(target)
-            .map(|(class, _)| *class),
-        Some(Class::CompareAndSet)
+    assert!(
+        !is_compare_and_set(&sql),
+        "it is deliberately unguarded, so not CompareAndSet"
     );
+    assert!(is_write(&sql) && !is_select(&sql), "it is a write, by id alone");
+    // And what it really is, which is what the audit demanded.
+    assert_eq!(
+        classification().get(target).map(|(class, _)| *class),
+        Some(Class::IdChain(
+            "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"
+        ))
+    );
+    // The resolver it names is org-bound, so the chain terminates.
+    assert!(has_org_predicate(
+        &sql_constants()
+            .into_iter()
+            .find(|(file, name, _)| {
+                format!("{file}::{name}")
+                    == "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"
+            })
+            .expect("the resolver exists")
+            .2
+    ));
 }
