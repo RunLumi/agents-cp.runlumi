@@ -257,19 +257,47 @@ const CASES = [
     // mutation set and that this campaign did not cover: "bypass one idempotency
     // guard". Found by V00-2026-09-27.
     //
-    // WHAT IT FAULTS. A guard sentinel is a deliberately invalid
-    // `idempotency_records` insert that aborts a D1 batch when a conditional write
-    // matched zero rows. This mutation makes one of them unconditional-never: the
-    // `WHERE NOT EXISTS` that holds the sentinel's row is replaced with `WHERE 0`,
-    // so the sentinel can never insert, so the batch can never abort, so the write
-    // it was protecting is no longer protected.
+    // WHAT IT FAULTS, precisely. `ASSERT_RESERVATION_CREATED_SQL` in
+    // `repositories/budgets.rs` is a guard sentinel: a deliberately invalid
+    // `idempotency_records` insert whose `WHERE NOT EXISTS (… budget_reservations …)`
+    // holds only when the reservation the preceding statement just made did NOT
+    // appear. This mutation replaces that predicate with `WHERE 0`, so the sentinel
+    // can never insert, so the batch can never abort on it, so the assertion
+    // "a reservation I was told exists actually exists" stops being asserted.
     //
-    // This is `ASSERT_RESERVATION_CREATED_SQL` in `repositories/budgets.rs`, the
-    // sentinel behind `budget_reservations`. With it bypassed, replaying the internal
-    // reservation request commits a SECOND hold against the same budget instead of
-    // being refused, so the caller is charged twice and the budget is overspent --
-    // and the batch reports success while doing it.
-    title: "an idempotency guard sentinel is bypassed, so a replayed reservation commits twice",
+    // That assertion is the last line of defence for the internal reservation
+    // endpoint. `routes/budgets.rs` builds the batch as
+    // `[insert, guard, audit]` and commits it through `commit_scoped_mutation`; if
+    // the conditional insert matched zero rows -- budget unavailable, limit reached,
+    // reservation already taken -- nothing else in the batch notices, and the caller
+    // is handed a 201 for a hold that was never taken.
+    //
+    // WHAT P05 ACTUALLY OBSERVES, recorded as measured rather than as predicted.
+    // The failing assertion is `managed run start and correlated inference`,
+    // reporting "internal reservation endpoint replays the managed hold
+    // (status=503 reason=none)". So bypassing the guard does not present as a
+    // duplicate charge here; it presents as a 503, because the batch commits state
+    // the surrounding flow then cannot answer, and the replay of the internal
+    // reservation lands on a record the flow no longer recognises. The exact
+    // propagation was NOT traced step by step, and the honest claim is the narrow
+    // one: the guard is load-bearing, and removing it changes the outcome. The
+    // mechanism is noted here so the next person does not assume a duplicate-charge
+    // scenario that this mutation does not actually produce.
+    //
+    // WHY ONLY P05 CAN CATCH THIS. The sentinel is Rust source, not schema, so
+    // `schema:p07` is blind to it -- the table, its constraints, and its indexes are
+    // all still correct, and `schema:p07` is the gate that normally proves the
+    // storage refuses what the domain says it refuses. A `cargo test` is also blind,
+    // because the sentinel's whole purpose is to abort a D1 BATCH, and no unit test
+    // drives a batch. What sees it is a probe that creates and replays a reservation
+    // over real HTTP against a real Worker.
+    //
+    // This is also the round trip for VFY-004. Before that finding was fixed, the
+    // SAME p05 assertion failed -- with the same `status=503 reason=none` -- because
+    // the guard's abort was being classified as a store outage instead of a
+    // deliberate refusal. So between them the two states pin both halves: the abort
+    // must be RECOGNISED in order to be refused, and refusing it must still WORK.
+    title: "an idempotency guard sentinel is bypassed, so its assertion stops being enforced",
     edits: [
       {
         file: "apps/api/src/repositories/budgets.rs",
@@ -277,20 +305,6 @@ const CASES = [
         replace: "WHERE 0",
       },
     ],
-    // WHY ONLY P05 CAN CATCH THIS. The sentinel is Rust source, not schema, so
-    // `schema:p07` is blind to it: the table, its constraints, and its indexes are
-    // all still correct. A `cargo test` over the repository is also blind, because
-    // the sentinel's whole purpose is to abort a BATCH, and no unit test drives a
-    // D1 batch. What sees it is a probe that replays a reservation over real HTTP
-    // against a real Worker and requires the second attempt to be refused --
-    // `p05-smoke.mjs`, in the case named "internal reservation endpoint replays the
-    // managed hold".
-    //
-    // That case is also the one V00 found failing for the OTHER reason: before
-    // VFY-004 was fixed it reported `status=503 reason=none`, because the guard's
-    // abort was being classified as a store outage. So this case is the round trip
-    // for VFY-004 -- the abort must be recognised in order to be refused, AND
-    // refusing it must still work.
     verifier: ["smoke:p05"],
     expect: "replays the managed hold",
   },

@@ -23,7 +23,7 @@ Where a repair required a durable decision, it is recorded in
 | P05 runtime smoke | **175 pass / 1 fail**, exit 1 | **185 pass / 0 fail**, exit 0 | `GUARD-1`, `VI-IDEM-001` |
 | Passkey ceremony probe (new) | did not exist | **41/41**, exit 0 | `VI-AUTH-001` |
 | Guard-sentinel probe (new) | did not exist | **11/11** across 2 recognised abort texts | `GUARD-1` |
-| Mutation campaign | 9/9 KILLED, minimum set incomplete | **10/10 KILLED**, `tally: {"KILLED":10}`, exit 0 | `VI-TEST-001` |
+| Mutation campaign | 9/9 KILLED, minimum set incomplete | **11/11 KILLED**, `tally: {"KILLED":11}`, exit 0 | `VI-TEST-001` |
 | Worker bundle | `gzip 2393.75 KiB` | `gzip 2395.07 KiB` (**+1.32 KiB**) | budget still within ADR 0004 |
 
 The browser journey went from three failures to zero, and it grew from 23 to 39 checks while
@@ -364,8 +364,28 @@ measured, which is worse than a missing check.
    the process exits explicitly, and a harness fault exits **2** — distinct from **1** for a
    product failure, so a broken probe cannot read as a detected defect.
 
-A fourth, found by the campaign rather than by me: the passkey probe's replay case was passing for
-the **wrong reason**. Replaying an identical assertion is refused with
+**The mutation set is now complete.** `docs/verification/proof-obligations.md` names a minimum
+set; V00 found two entries missing. Both are now present, and both were killed with the verifier's
+own words in the verdict:
+
+| Case | Verifier | Killed by |
+|---|---|---|
+| `VI-AUTH-001` "accept a consumed auth ceremony" | `smoke:passkey` | `FAIL a consumed login ceremony cannot be replayed with a fresh sign counter — status=200`, i.e. under the fault the replay genuinely succeeded |
+| `GUARD-1` "bypass one idempotency guard" | `smoke:p05` | `FAIL managed run start and correlated inference — internal reservation endpoint replays the managed hold (status=503 reason=none)` |
+
+`GUARD-1` is the round trip for VFY-004. Before the fix, that *same* p05 assertion failed with the
+*same* 503 — because the guard's abort was classified as a store outage instead of a deliberate
+refusal. The two states pin both halves: the abort must be **recognised** in order to be refused,
+and refusing it must still **work**.
+
+One thing is recorded as measured rather than as predicted, because the difference matters. The
+`GUARD-1` comment originally claimed the bypassed sentinel would let a duplicate reservation commit
+twice. The observed symptom is a 503, not a double charge, and the exact propagation was not
+traced step by step. The comment now says so. The narrow claim is the one that holds: the guard is
+load-bearing, and removing it changes the outcome.
+
+A fourth verifier defect, found by the campaign rather than by me: the passkey probe's replay case
+was passing for the **wrong reason**. Replaying an identical assertion is refused with
 `passkey_counter_regression` — a property of the credential, not of the ceremony — so a mutation
 that disabled ceremony consumption entirely still left every check green. The replay now advances
 the signature counter, the way a real authenticator does, and asserts the refusal reason

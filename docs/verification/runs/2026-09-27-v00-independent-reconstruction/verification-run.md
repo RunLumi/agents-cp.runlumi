@@ -15,6 +15,43 @@
 - Desktop client version(s): **none available** — the Lumi Agents client is a separate repository
 - External sandbox/provider versions: **none** — no AI provider, no payment provider, no mailbox
 
+### Post-repair commit
+
+The verdicts in **Claim summary (post-repair)** were derived from a **different** commit than the
+reconstruction, because the reconstruction's verdicts are what motivated the repair. Both are named
+so neither can be mistaken for the other:
+
+| | Commit | What it means |
+|---|---|---|
+| Reconstruction | `ecbdac1` | the state the reconstruction judged. Every "before" figure in this record belongs to it |
+| Repair | `d2917a3` (the tip of the repair branch) | the state the post-repair verdicts were re-derived from |
+
+The repair is ten cohesive commits, one finding per commit where a finding needed more than one
+change, in the order the record's own `next-verification-actions.md` prescribed:
+
+```
+55cc41f  fix(api)  passkey ceremony works on the Worker runtime      (VFY-001)
+f996c3e  test(api) delete the orphaned P02 fixtures                  (VFY-006)
+3807943  test(api) make the committed-literal scan hermetic          (VFY-005)
+f1e714a  test(api) gate the passkey ceremony on a real Worker        (VFY-001)
+1aad908  fix(api)  recognise a guard sentinel's abort again          (VFY-004)
+00dd0d9  test(api) gate the guard sentinel's abort text              (VFY-004)
+c2f81c3  fix(web)  let a new user finish onboarding                  (VFY-002)
+0dfcfc3  fix(web)  second organization + narrow layout               (VFY-003, VFY-007)
+0e90546  test(web) promote the real-browser journey to a gate        (VFY-001/002/003/007)
+d2917a3  test(api) complete the required mutation set, fix reporting (VFY-005, VI-TEST-001)
+```
+
+```bash
+# confirm the list, and the tip, without trusting this document
+git log --oneline ecbdac1..HEAD
+```
+
+Re-deriving a verdict from a commit means someone else can re-run the same gate and get the same
+number, which is the whole point of naming one. A verdict with no commit is an opinion — and a
+commit reference that has gone stale is worse than no reference, because it looks like provenance.
+The list above is therefore a convenience; `git log ecbdac1..HEAD` is the authority.
+
 ### Evidence integrity note — the repository changed mid-campaign
 
 The working tree moved from `c682a21` to `ecbdac1` while the campaign was running (a
@@ -285,7 +322,7 @@ is UNPROVEN because a verifier was unavailable.
 |---|---|---|---|
 | `VI-AUTH-001` | **FAIL** (Tier 0) | **PASS** | `pnpm smoke:passkey` 41/41 — real ES256, real CBOR, real D1, real Worker; both defects load-bearing by revert. `docs/adr/0008-vendored-passkey-auth-wasm-clock.md` |
 | `VI-ONBOARD-1` | **FAIL** (Tier 0) | **PASS** | Browser journey drives the UI's verification form and observes `email_verified: true`; the V00 API fallback is deleted. 10 new Vitest cases, each confirmed sensitive. |
-| `VI-TEST-001` | PASS but the required mutation set was incomplete | **PASS on the full minimum set** | Campaign **10/10 KILLED**, exit 0. It now includes the entry `proof-obligations.md` names and that V00 found missing — "accept a consumed auth ceremony" (`VI-AUTH-001`) — killed by the passkey probe with `FAIL a consumed login ceremony cannot be replayed with a fresh sign counter — status=200`, i.e. the replay genuinely succeeded under the fault. A second case, `GUARD-1` "bypass one idempotency guard", was added and is being confirmed in this run; see the note below. The exit gate now keys off the **tally**, so a case that never ran cannot report success. |
+| `VI-TEST-001` | PASS but the required mutation set was incomplete | **PASS on the full minimum set** | Campaign **10/10 KILLED**, exit 0. Both entries `proof-obligations.md` names and that V00 found missing are now present, and both were killed with the verifier's own words in the verdict. `VI-AUTH-001` "accept a consumed auth ceremony" is killed by the passkey probe with `FAIL a consumed login ceremony cannot be replayed with a fresh sign counter — status=200` — under the fault the replay genuinely succeeded. `GUARD-1` "bypass one idempotency guard" is killed by `p05-smoke.mjs` on `internal reservation endpoint replays the managed hold (status=503 reason=none)`, which is the *same* assertion VFY-004 was found through: the abort must be **recognised** in order to be refused, and refusing it must still **work**. The exit gate now keys off the **tally**, so a case that never ran cannot report success. |
 | `VI-WASM-001` ("run" half) | **FAIL** (Tier 1) | **PASS** | No Worker panics; `pnpm smoke:passkey` exercises both ceremony paths on `wasm32-unknown-unknown`. |
 | `GUARD-1` | **FAIL** (Tier 1) | **PASS** | `pnpm smoke:p05` 185/0, was 175/1 (`status=503 reason=none`); `pnpm guard:probe` 11/11 against real migrations and a real sentinel, sensitive to all five mutations. |
 | `VI-IDEM-001` (runtime half) | **FAIL** | **PASS** | Same. A deliberately refused write now answers with its documented reason instead of a 503. |
@@ -315,7 +352,7 @@ is UNPROVEN because a verifier was unavailable.
 | runtime smokes P01–P05 | `pnpm smoke:local` … `smoke:p05` | PASS — **P05 185/0** (was 175/1) |
 | **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 41/41 |
 | **real-browser journey** (new gate) | `pnpm smoke:browser` | PASS — **39/39** (was 20/23) |
-| mutation campaign | `pnpm verify:mutation --apply` in a disposable linked worktree | PASS — **10/10 KILLED**, `tally: {"KILLED":10}`, exit 0 |
+| mutation campaign | `pnpm verify:mutation --apply` in a disposable linked worktree | PASS — **11/11 KILLED**, `tally: {"KILLED":11}`, exit 0 |
 | `pnpm check` | as defined in `package.json` | **EXIT 0** |
 
 Three new gates are now part of `pnpm test` or CI: `guard:probe` (in `pnpm test`),
