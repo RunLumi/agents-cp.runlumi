@@ -204,9 +204,11 @@ Counted from the matrix rows:
 
 ### Tenancy
 - claims: `VI-TEN-001`
-- evidence: `security::tenant_audit` (421 statements, 0 unclassified) + p05-smoke's four
-  cross-tenant HTTP negatives; mutation `WHERE org_id = ?1 AND package_id = ?2` killed
-- verdict: **PASS**, with the audit's own stated limit recorded
+- evidence: `security::tenant_audit` (421 statements, 0 unclassified) + `p05-smoke.mjs` (two
+  org-scoped cross-tenant negatives, both on `runs/{run_id}`) + `p08-tenancy-smoke.mjs` (18 routes,
+  16 proven, 0 leaks, 2 unproven); mutation `WHERE org_id = ?1 AND package_id = ?2` killed
+- verdict: **PASS**, with the limit now *measured* rather than assumed — 85 of the 104 org-scoped
+  routes still have no handler-level evidence (VFY-010)
 
 ### Secrets and policy
 - claims: `VI-SEC-001`, `VI-AUTHZ-001`
@@ -289,6 +291,7 @@ all; the second is only covered at the storage layer (the runtime guard is VFY-0
 | VFY-007 | low | `VI-UX-002` | **closed** | recorded inline in the matrix (Members table clips at 390 px) |
 | VFY-008 | **critical** | `VI-DATA-001` | **closed** | `findings/VFY-008-sql-bind-count-mismatches.md` |
 | VFY-009 | **critical** | `VI-DATA-001` | **partially closed** | `findings/VFY-009-p06-job-queue-has-no-producer.md` |
+| VFY-010 | high | `VI-TEN-001` (evidence limit) | **partially closed** | `findings/VFY-010-cross-tenant-isolation-was-statement-level-only.md` |
 
 VFY-008 and VFY-009 were not in the reconstruction. They were found by doing the one thing
 `next-verification-actions.md` named as the largest remaining in-repo hole: building the runtime
@@ -344,7 +347,7 @@ discharge, and the four closure conditions are each measured rather than asserte
 
 | Condition | Measured |
 |---|---|
-| No Tier-0 claim FAIL or UNPROVEN without a named dependency | **met.** Nine of the ten Tier-0 claims are PASS or externally blocked. The tenth, `VI-DATA-001`, was UNPROVEN with a *missing verifier* rather than a missing dependency; the verifier was built, it found the claim FAIL (VFY-008, VFY-009), both are repaired, and the one leg still UNPROVEN — the R2 write — has its dependency named in `missing-external-proofs.md` §8 and the probe exits **2**, the code for "the harness could not run" |
+| No Tier-0 claim FAIL or UNPROVEN without a named dependency | **met, with `VI-TEN-001` carrying a measured limit.** Nine of the ten Tier-0 claims are PASS or externally blocked; `VI-TEN-001` is PASS with 85 of its 104 org-scoped routes still lacking handler-level evidence (VFY-010), which is a recorded, quantified, in-repo gap rather than an unexamined one. The tenth, `VI-DATA-001`, was UNPROVEN with a *missing verifier* rather than a missing dependency; the verifier was built, it found the claim FAIL (VFY-008, VFY-009), both are repaired, and the one leg still UNPROVEN — the R2 write — has its dependency named in `missing-external-proofs.md` §8 and the probe exits **2**, the code for "the harness could not run" |
 | p05 runtime smoke at zero failures | `pnpm smoke:p05` **185 checks passed; 0 failures; 4 limitations** |
 | Real-browser journey at zero failures | `pnpm smoke:browser` **39/39, exit 0**, run through the exact CI step against a committed tree |
 | The record names the commit the verdicts came from | it does — see "Post-repair commit" |
@@ -448,6 +451,7 @@ getting more dependencies.
 | P08 schema probe | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | PASS — 17/17 |
 | runtime smokes P01–P05 | `pnpm smoke:local` … `smoke:p05` | PASS — **P05 185/0** (was 175/1) |
 | **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 55/55 |
+| **cross-tenant probe** (new gate) | `pnpm smoke:p08` | PASS — **16/18 proven, 0 leaks, 2 unproven**; 85 of 104 org-scoped routes reported as having no handler-level evidence |
 | **SQL bind-count scan** (new gate) | `pnpm schema:bind-count` | PASS — **463/463** statements agree |
 | **P06 data-governance probe** (new gate) | `node apps/api/scripts/p06-data-smoke.mjs` | 26/26 cases hold; **1 leg BLOCKED by the environment** (exit 2) |
 | **real-browser journey** (new gate) | `pnpm smoke:browser` | PASS — **39/39** (was 20/23) |
@@ -480,11 +484,13 @@ so excluded it from the very tally meant to catch it.
 - **`commit_mutation` still discards its batch error.** Any future D1 fault on a mutation route
   will again answer `409 conflict`. What a route should say when its own transaction fails is a
   contract question, not a bug fix, so it is recorded rather than done.
-- **The Tier-0 cross-tenant gap across the P06–P08 routes** (action 5.1) is the largest remaining
-  in-repo hole, now smaller: `p06-data-smoke.mjs` covers the export surface's tenant and
-  permission boundaries, but not the automations, leases, webhooks, notifications, billing,
-  entitlements, service accounts, API keys, plugin governance, support grants, feature flags, or
-  kill switches. It still needs no external dependency.
+- **85 of the 104 org-scoped routes still have no handler-level cross-tenant evidence** (VFY-010,
+  action 5.1). It is now *measured* rather than assumed, and it is larger than the record
+  implied: `p06-data-smoke.mjs` and `p08-tenancy-smoke.mjs` between them prove 19 of them, and
+  reading `p05-smoke.mjs` showed it carries two org-scoped negatives, not the five surfaces the
+  record credited it with. 57 of the 85 take a resource id and need one real resource per surface
+  to substitute; 28 are mutating or id-less actions. This still needs no external dependency and
+  is the largest remaining in-repo hole.
 - **Three new gates are new.** Each has been shown sensitive to a targeted fault, but a gate that
   has never survived its own first real failure has not yet been tested by one. The next campaign
   should expect to tune them.

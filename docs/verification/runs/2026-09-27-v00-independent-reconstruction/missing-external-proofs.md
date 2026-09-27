@@ -141,22 +141,43 @@ measured RTO and RPO, plus a documented rollback/forward-fix for a data-affectin
 
 ---
 
-## 7. Cross-tenant substitution at HTTP for the P06/P07 surfaces (Tier 0, in-repo but not run)
+## 7. Cross-tenant substitution at HTTP, on 85 of the 104 org-scoped routes (Tier 0, in-repo)
 
-This is not external, and it is listed because it is the cheapest missing proof in the whole
-matrix. `p05-smoke.mjs` proves cross-tenant negatives for P02–P05 (device, run, member,
-session, budget). **No runtime probe exists for P06, P07, or P08 routes** — automations,
-leases, webhooks, notifications, billing, entitlements, export/deletion, data policy,
-service accounts, API keys, plugin governance, support grants, feature flags, kill switches,
-or adoption. The tenant-isolation audit covers those *statements*; nothing covers the
-*handlers* that call them, and the audit says so itself.
+This is not external, and it is listed because it is the largest missing proof in the matrix.
 
-**Required evidence.** One smoke that seeds org A and org B, authenticates as A, and
-substitutes B identifiers across every P06/P07/P08 route, asserting a denial that is
-indistinguishable from not-found and that no list/pagination response leaks B's metadata.
+**What the reconstruction recorded, and what turned out to be true.** It said `p05-smoke.mjs`
+"proves cross-tenant negatives for P02–P05 (device, run, member, session, budget)" and that "no
+runtime probe exists for P06, P07, or P08 routes". Reading the script, the first half is wrong:
+`p05-smoke.mjs` asserts two cross-tenant negatives on **one** org-scoped route,
+`runs/{run_id}`, plus a device case on `/api/v1/devices/runs/…`, which is not org-scoped. The
+second half is right and larger than stated — the gap was never P06–P08, it was almost every
+org-scoped route.
 
-**Verdict until then: UNPROVEN at V3** for those surfaces; PASS at V1/V2 through the SQL
-classification.
+**What now exists.** `pnpm smoke:p08` (`apps/api/scripts/p08-tenancy-smoke.mjs`) asks each
+id-less org-scoped route three times — as a member, as a plain member of another organization,
+and as that other organization's owner — and counts a route proven only when the member's own
+call succeeded and both outsiders were refused with `404 resource_not_found`. It proves **16 of
+18**, with 0 leaks; the two skips are billing routes where a fresh organization has no
+subscription and no granted entitlement, so there is nothing to leak and nothing to distinguish.
+
+**What is still missing, exactly.** The router registers **104** org-scoped routes. Nineteen now
+have handler-level evidence. **Eighty-five do not**, and the probe prints the list on every run
+so the number cannot drift from the router:
+
+- **57** take a resource id, so each surface needs one real resource created in org B and then
+  substituted under org A's path — automations, leases, webhooks, deliveries, credentials,
+  routes, model versions, service accounts, adoption bindings, plugins, adoption remediations,
+  exports, deletions, sessions, runs, projects, tools, MCP servers, invitations, members, teams.
+- **28** are mutating or id-less actions this probe does not drive — billing cancel/change/
+  portal-session, plugin install/approve/block/pin, adoption preview/telemetry, plugin reports,
+  ownership transfer, invitations, team mutations, and the platform surfaces.
+
+**Required evidence.** For each of the 57, seed one resource in org B and substitute it under
+org A's path, asserting a denial indistinguishable from not-found and that no list or pagination
+response leaks B's metadata. For the 28, a body the route will accept.
+
+**Verdict until then: UNPROVEN at V3** for those 85 routes; PASS at V1/V2 through the SQL
+classification, which the tenant audit does enforce. See `findings/VFY-010-…md`.
 
 ---
 
