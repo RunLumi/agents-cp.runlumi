@@ -110,7 +110,10 @@ const CASES = [
     replace:
       "BudgetKind::Hard if projected > policy.limit_minor => consider_candidate(\n                &mut best,\n                BudgetDecision::Allow,",
     verifier: ["cargo", "modules::budget_p05"],
-    expect: "HardLimitExceeded",
+    // The kill is `left: Allow, right: Deny` in two tests. Name the test, not the
+    // reason enum: the assertion is on the DECISION, and expecting a symbol that does
+    // not appear in the failure is how a correct kill gets recorded as a wrong one.
+    expect: "soft_limit_notifies_but_hard_and_unavailable_are_closed",
   },
   {
     id: "VI-IDEM-001",
