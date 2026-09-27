@@ -6,6 +6,8 @@ Reconstruct what the completed repository must prove without inheriting implemen
 
 Do not begin with `docs/implementation/gates/**`, handoffs, STATUS, or test counts.
 
+This phase is primarily reconstruction, but if you discover a clear defect in the **verification infrastructure itself** (broken command, stale fixture, non-rerunnable probe, invalid harness setup) and fixing it does not change product requirements, preserve the failure and repair it immediately before continuing.
+
 ## Read first
 
 - `AGENTS.md`
@@ -26,7 +28,8 @@ Do not begin with `docs/implementation/gates/**`, handoffs, STATUS, or test coun
 7. Mark claims requiring real Worker, browser, desktop, or provider environment.
 8. Only now inspect implementation tests/handoffs/gates.
 9. Map evidence without force-fitting.
-10. Verdict each claim PASS/FAIL/UNPROVEN/BLOCKED/N/A.
+10. Repair clear verification-infrastructure defects discovered while building/running the matrix, preserving before/after evidence.
+11. Verdict each claim PASS/FAIL/UNPROVEN/BLOCKED/N/A.
 
 ## For every PASS candidate ask
 
