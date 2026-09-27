@@ -12,6 +12,16 @@ reproduced" section at the bottom.
 
 Verdict vocabulary: PASS · FAIL · UNPROVEN · BLOCKED · NOT_APPLICABLE.
 
+**These are the verdicts as of `ecbdac1`, and they are not the current ones.** This file is the
+reconstruction's record and it is kept intact on purpose, because a repair that overwrites the
+evidence of what it repaired leaves nothing to check the repair against. Where a verdict below was
+later moved, the post-repair verdict and its evidence are in
+[`verification-run.md`](verification-run.md) under "Verdicts that moved"; where a verdict was left
+UNPROVEN, it is still UNPROVEN and the reason is named. In particular `VI-AUTH-001` and
+`VI-ONBOARD-1` read FAIL here and are PASS at `040a6aa`, and `VI-DATA-001` read UNPROVEN here,
+turned out to be FAIL once a verifier existed, and is repaired at `040a6aa` with its R2 leg still
+UNPROVEN.
+
 ---
 
 ## Tier 0 — existential

@@ -324,6 +324,10 @@ outside because `commit_mutation` reports every server-side fault on a mutation 
 
 ## Verdict
 
+> **This is the reconstruction's verdict, at `ecbdac1`.** It is kept as written because it is what
+> motivated the repair. The campaign's closing verdict is [Verdict (post-repair)](#verdict-post-repair)
+> below, derived from `040a6aa`.
+
 **FAIL**
 
 Not because most things are wrong — the storage, tenancy, secret, policy, idempotency and
@@ -332,6 +336,35 @@ claims a release cannot ship without are provably false: **the product's primary
 authentication method returns 500 in the real runtime** (VFY-001) and **no self-service user
 can onboard at all** (VFY-002). `release-gate.md` blocks on "any Tier-0 claim is FAIL" and on
 "auth/recovery has replay/identity-confusion gap"; both are met.
+
+## Verdict (post-repair)
+
+Derived from `040a6aa`. The reconstruction's `FAIL` above is what this campaign was asked to
+discharge, and the four closure conditions are each measured rather than asserted.
+
+| Condition | Measured |
+|---|---|
+| No Tier-0 claim FAIL or UNPROVEN without a named dependency | **met.** Nine of the ten Tier-0 claims are PASS or externally blocked. The tenth, `VI-DATA-001`, was UNPROVEN with a *missing verifier* rather than a missing dependency; the verifier was built, it found the claim FAIL (VFY-008, VFY-009), both are repaired, and the one leg still UNPROVEN — the R2 write — has its dependency named in `missing-external-proofs.md` §8 and the probe exits **2**, the code for "the harness could not run" |
+| p05 runtime smoke at zero failures | `pnpm smoke:p05` **185 checks passed; 0 failures; 4 limitations** |
+| Real-browser journey at zero failures | `pnpm smoke:browser` **39/39, exit 0**, run through the exact CI step against a committed tree |
+| The record names the commit the verdicts came from | it does — see "Post-repair commit" |
+
+**Verdict: the campaign is closed**, with one honest qualification rather than a clean bill of
+health. `VI-DATA-001` is not fully proven: the export request, its durable rows, the tenant
+boundary, the permission boundary and the idempotent replay are proven over real HTTP, and the
+object write and the streamed download are not, because the local queue does not deliver a
+published message body intact. That gap is environmental, is named, and is the first thing a
+staging deploy would settle.
+
+Two further things are recorded rather than fixed, because fixing either is a contract decision
+rather than a bug fix:
+
+- `commit_mutation` still discards its batch error, so a future D1 fault on a mutation route will
+  again answer `409 conflict`. What such a route should say when its own transaction fails is a
+  question for the error model in `docs/specs/f23-…`.
+- Argon2id cost inside the Worker's CPU limit (F01 requirement 4) is still unmeasured.
+
+---
 
 ## What important thing do we still not know?
 
