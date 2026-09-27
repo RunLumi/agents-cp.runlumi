@@ -267,13 +267,23 @@ all; the second is only covered at the storage layer (the runtime guard is VFY-0
 
 | ID | Severity | Claim | Status | Path |
 |---|---|---|---|---|
-| VFY-001 | critical | `VI-AUTH-001`, `VI-WASM-001` | open | `findings/VFY-001-passkey-ceremony-panics-on-worker-runtime.md` |
-| VFY-002 | critical | `VI-ONBOARD-1` | open | `findings/VFY-002-no-email-verification-step-in-web-ui.md` |
-| VFY-003 | high | `ROUTE-2`, `VI-UX-001` (evidence limit) | open | `findings/VFY-003-no-second-organization-path-in-web-ui.md` |
-| VFY-004 | high | `GUARD-1`, `VI-IDEM-001` | open | `findings/VFY-004-guard-sentinel-abort-no-longer-recognized.md` |
+| VFY-001 | critical | `VI-AUTH-001`, `VI-WASM-001` | **closed** | `findings/VFY-001-passkey-ceremony-panics-on-worker-runtime.md` |
+| VFY-002 | critical | `VI-ONBOARD-1` | **closed** | `findings/VFY-002-no-email-verification-step-in-web-ui.md` |
+| VFY-003 | high | `ROUTE-2`, `VI-UX-001` (evidence limit) | **closed** | `findings/VFY-003-no-second-organization-path-in-web-ui.md` |
+| VFY-004 | high | `GUARD-1`, `VI-IDEM-001` | **closed** | `findings/VFY-004-guard-sentinel-abort-no-longer-recognized.md` |
 | VFY-005 | medium | `VI-SEC-001` (verifier) | **closed** | `findings/VFY-005-secret-canary-scan-was-non-hermetic.md` |
 | VFY-006 | low | `VI-CON-001` (verifier) | **closed** | `findings/VFY-006-orphaned-p02-fixtures-contradicted-the-live-contract.md` |
-| VFY-007 | low | `VI-UX-002` | open | recorded inline in the matrix (Members table clips at 390 px) |
+| VFY-007 | low | `VI-UX-002` | **closed** | recorded inline in the matrix (Members table clips at 390 px) |
+| VFY-008 | **critical** | `VI-DATA-001` | **closed** | `findings/VFY-008-sql-bind-count-mismatches.md` |
+| VFY-009 | **critical** | `VI-DATA-001` | **partially closed** | `findings/VFY-009-p06-job-queue-has-no-producer.md` |
+
+VFY-008 and VFY-009 were not in the reconstruction. They were found by doing the one thing
+`next-verification-actions.md` named as the largest remaining in-repo hole: building the runtime
+probe for the P06 data routes, because `VI-DATA-001` was a Tier-0 claim whose only blocker was a
+missing verifier. The claim turned out not to be merely unproven. The export and deletion
+pipeline had never run at all, for two independent reasons, and neither was visible from the
+outside because `commit_mutation` reports every server-side fault on a mutation route as
+`409 conflict`.
 
 ## Unproven claims
 
@@ -369,16 +379,17 @@ getting more dependencies.
 | `ROUTE-2` | **FAIL** (Tier 1) | **PASS** | Browser journey creates two organizations through the UI and the switcher lists both; the V00 API fallback is deleted. |
 | `VI-UX-001` | PASS on an out-of-band state | **PASS on a UI-reachable state** | Same journey. The evidence limit recorded against it is discharged. |
 | `VI-UX-002` | **FAIL** (low) | **PASS** | Containment metric, not document width. Role control measured at 136×44 px inside a 390 px viewport. |
+| `VI-DATA-001` | **UNPROVEN at V3** — "no verifier crosses HTTP → R2" | **FAIL, then repaired; R2 leg still UNPROVEN** | The missing verifier was built (`p06-data-smoke.mjs`, 26 cases). It found two independent critical defects, not a proof gap: `POST /orgs/{id}/exports` returned `409` on **every** request (VFY-008, a bind-count mismatch), and the P06 job queue had no producer, so no job had ever been dispatched (VFY-009). Both repaired; the request now returns `201` with durable rows. The R2 write and the streamed download remain UNPROVEN because the local queue does not deliver a published body intact — see `missing-external-proofs.md` §8. |
 
 ## Baseline (post-repair)
 
 | Check | Command | Result |
 |---|---|---|
-| format | `pnpm format:check` | PASS (176 files) |
+| format | `pnpm format:check` | PASS (178 files) |
 | lint | `pnpm lint` | PASS (0 warnings, 0 errors) |
 | typecheck | `pnpm typecheck` | PASS |
 | web unit | `pnpm --filter @runlumi/agents-cp-web test` | PASS — 48 files, **816 tests** (was 798) |
-| rust unit | `cargo test --workspace` | PASS — **984 lib** (was 980) + 11 integration |
+| rust unit | `cargo test --workspace` | PASS — **988 lib** (was 984; +4 for the P06 job producer) + 11 integration |
 | storage invariants | `pnpm schema:p07` | PASS — 125/125 |
 | secret canary | `pnpm canary:p09` | PASS — 15/15 |
 | NULL-passes-CHECK scan | `pnpm schema:null-check` | PASS |
@@ -391,6 +402,8 @@ getting more dependencies.
 | P08 schema probe | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | PASS — 17/17 |
 | runtime smokes P01–P05 | `pnpm smoke:local` … `smoke:p05` | PASS — **P05 185/0** (was 175/1) |
 | **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 55/55 |
+| **SQL bind-count scan** (new gate) | `pnpm schema:bind-count` | PASS — **463/463** statements agree |
+| **P06 data-governance probe** (new gate) | `node apps/api/scripts/p06-data-smoke.mjs` | 26/26 cases hold; **1 leg BLOCKED by the environment** (exit 2) |
 | **real-browser journey** (new gate) | `pnpm smoke:browser` | PASS — **39/39** (was 20/23) |
 | mutation campaign | `pnpm verify:mutation --apply` in a disposable linked worktree | PASS — **12/12 KILLED**, `tally: {"KILLED":12}`, exit 0 |
 | `pnpm check` | as defined in `package.json` | **EXIT 0** |
@@ -413,8 +426,19 @@ so excluded it from the very tally meant to catch it.
 
 - **`VI-AUTH-001` / F01 requirement 4** — Argon2id cost inside the Worker's CPU limit is still
   unmeasured. The passkey repair does not claim it.
+- **`VI-DATA-001`'s R2 leg** is UNPROVEN, and the reason is environmental rather than a missing
+  verifier: the local queue simulator delivers a published job message without its body, so the
+  object write and the streamed download cannot be exercised here. Everything either side of that
+  — the request, the durable rows, the permission and tenant boundaries — is proven. See
+  `missing-external-proofs.md` §8.
+- **`commit_mutation` still discards its batch error.** Any future D1 fault on a mutation route
+  will again answer `409 conflict`. What a route should say when its own transaction fails is a
+  contract question, not a bug fix, so it is recorded rather than done.
 - **The Tier-0 cross-tenant gap across the P06–P08 routes** (action 5.1) is the largest remaining
-  in-repo hole. It needs no external dependency.
+  in-repo hole, now smaller: `p06-data-smoke.mjs` covers the export surface's tenant and
+  permission boundaries, but not the automations, leases, webhooks, notifications, billing,
+  entitlements, service accounts, API keys, plugin governance, support grants, feature flags, or
+  kill switches. It still needs no external dependency.
 - **Three new gates are new.** Each has been shown sensitive to a targeted fault, but a gate that
   has never survived its own first real failure has not yet been tested by one. The next campaign
   should expect to tune them.

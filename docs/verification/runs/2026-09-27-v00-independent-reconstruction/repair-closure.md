@@ -623,6 +623,62 @@ matcher. Nothing here claims the function performs the match correctly at run ti
 
 ---
 
+## The second round: the Tier-0 claim the campaign said was merely unproven
+
+The closure criteria above are met, and the campaign had been called closed. That was wrong on
+one of its own terms, and the audit that found it is worth recording because of *how* it was found.
+
+The criterion is "no Tier-0 claim may remain FAIL or UNPROVEN-without-named-dependency". Ten
+claims are Tier 0. Nine were PASS or externally blocked. One was not: **`VI-DATA-001`**, and its
+recorded blocker was "no verifier crosses HTTP → R2 for export or deletion" — a *missing verifier*,
+not a missing dependency. It had been filed under the follow-on actions as the largest remaining
+in-repo hole, which is a reasonable place to put work, and it quietly does not satisfy the
+criterion.
+
+So the verifier was built: `apps/api/scripts/p06-data-smoke.mjs`, 26 cases, real HTTP → real
+Worker → real local D1 → real local R2, two real users in two real organizations. It found that
+the claim was not unproven. It was **broken**, for two independent reasons:
+
+- **VFY-008** — `INSERT_QUEUE_ENVELOPE_SQL` bound twelve values for eleven placeholders, so D1
+  rejected it, so *every* P06 job-creating request failed inside its transaction. Five more
+  statements had the same fault; four of them were live, including
+  `PATCH /api/v1/orgs/{org_id}/data-policy` and the three automation lease statements.
+- **VFY-009** — the P06 job queue had a consumer, a handler, and a producer binding, and **no
+  producer**: `env.queue("JOBS_QUEUE")` is called nowhere in the codebase, and no query could even
+  find a due envelope. `JOBS_QUEUE_NAME` was declared in no environment, so the handler's route
+  comparison relied on a fallback that matched production and silently mismatched development.
+
+Both presented to a client as `409 conflict`, because `commit_mutation` discards the batch error
+and maps the resulting `Missing` lookup to a business conflict. That is why 57 domain tests, 125
+storage invariants, a green `pnpm check`, and a passing `p05` smoke all agreed the feature worked.
+
+Two gates came out of it, and both earned their place by being wrong first:
+
+- **`pnpm schema:bind-count`** (`apps/api/scripts/p09-bind-count-scan.mjs`, in `pnpm test`). Its
+  first version reported 18 mismatches of which 12 were fiction, because nine SQL constant names
+  are reused across modules with different arity. Its second version reported **green having
+  examined zero statements**, because a bracket walk compared one character against a
+  three-character string. Both were caught by running it, not by reading it, and both are
+  described in the file so the next reader does not rediscover them.
+- **`p06-data-smoke.mjs`** itself, 26 cases, which also had three defects of its own: it read the
+  error reason from the wrong place in the envelope (`payload.reason` instead of
+  `details.reason`, which made every reason assertion vacuous), it passed an opaque ID as an
+  organization slug, and it called `wrangler r2 object list`, which **does not exist** in this
+  wrangler version.
+
+### What is still unproven, and why that is not a fudge
+
+The export's **R2 leg** — the object write and the streamed download — is UNPROVEN. The producer
+publishes, the handler routes to the jobs queue, the handler receives one message, and the body it
+decodes has no `job_type`, so it acknowledges the message and the job stays `requested`. That is
+message-delivery fidelity in the local simulator, downstream of anything this campaign can change.
+
+The probe reports it as **BLOCKED with the environment named**, and exits 2 — the code that means
+"the harness could not run", as distinct from 1, "a check did not hold". It does not pass the leg,
+and it does not fail the product for it. It is in `missing-external-proofs.md` §8.
+
+---
+
 ## A fourth verifier defect, found in the harness while re-running it
 
 The mutation campaign reported `NOT_A_VALID_MUTATION` for its last three cases — "the mutant did
@@ -677,5 +733,9 @@ Nothing below was silently upgraded. Each keeps a named dependency and stays in
   empty, so no real upstream inference dispatch is possible from here.
 - **Email delivery** — no mailbox.
 - **Production-scale restore** — RTO measured on a local database, not at production volume.
+- **`VI-DATA-001`'s R2 leg** is UNPROVEN for an environmental reason, named in
+  `missing-external-proofs.md` §8. Everything either side of it is proven.
 - **The Tier-0 cross-tenant gap for P06–P08 routes** (action 5.1) is the largest remaining
-  in-repo hole. It needs no external dependency and is the next thing worth building.
+  in-repo hole. It needs no external dependency and is the next thing worth building. It is
+  smaller than it was: `p06-data-smoke.mjs` now covers the export surface's tenant and permission
+  boundaries, which nothing did before.

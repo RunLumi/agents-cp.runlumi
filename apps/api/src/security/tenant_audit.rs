@@ -1162,6 +1162,14 @@ const MECHANICAL: &[(&str, Class)] = &[
         "repositories/data_governance.rs::QUEUE_ENVELOPE_BY_DEDUPE_SQL",
         Class::ReturnsOrg,
     ),
+    // The due-envelope read the P06 job producer dispatches from. It deliberately
+    // crosses tenants -- the cron sweep serves every tenant at once -- so it is a
+    // bounded platform sweep rather than an org-bound read. The LIMIT is what makes
+    // that safe, and the class is what stops it from being unbounded. See VFY-009.
+    (
+        "repositories/data_governance.rs::QUEUE_ENVELOPES_DUE_SQL",
+        Class::PlatformSweep,
+    ),
     (
         "repositories/data_governance.rs::INSERT_QUEUE_ENVELOPE_SQL",
         Class::OrgBound,

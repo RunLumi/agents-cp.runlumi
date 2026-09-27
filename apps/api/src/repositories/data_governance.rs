@@ -74,20 +74,20 @@ INSERT INTO data_governance_policies (
 
 const UPDATE_POLICY_SQL: &str = r#"
 UPDATE data_governance_policies
-SET logging_mode = ?3,
-    class_retention_overrides_json = ?4,
-    legal_hold = ?5,
-    legal_hold_reason = ?6,
-    legal_hold_placed_at = ?7,
-    legal_hold_released_at = ?8,
-    legal_hold_released_by = ?9,
-    backup_lifecycle = ?10,
-    provider_retention_disclosure = ?11,
-    provider_retention_url = ?12,
-    default_export_expiry_seconds = ?13,
+SET logging_mode = ?2,
+    class_retention_overrides_json = ?3,
+    legal_hold = ?4,
+    legal_hold_reason = ?5,
+    legal_hold_placed_at = ?6,
+    legal_hold_released_at = ?7,
+    legal_hold_released_by = ?8,
+    backup_lifecycle = ?9,
+    provider_retention_disclosure = ?10,
+    provider_retention_url = ?11,
+    default_export_expiry_seconds = ?12,
     version = version + 1,
-    updated_at = ?14
-WHERE org_id = ?1 AND project_id IS NULL AND version = ?15
+    updated_at = ?13
+WHERE org_id = ?1 AND project_id IS NULL AND version = ?14
 "#;
 
 const ASSERT_POLICY_VERSION_SQL: &str = r#"
@@ -449,8 +449,26 @@ INSERT INTO queue_job_envelopes (
     payload_ref, state, attempt, lease_version, lease_expires_at,
     next_attempt_at, last_error_code, replay_of_job_id, generation,
     version, created_at, updated_at
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, ?11, 'queued', 1, 0, NULL, ?11, NULL, NULL, 0, 1, ?11, ?11)
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, ?11, 'queued', 1, 0, NULL, ?12, NULL, NULL, 0, 1, ?12, ?12)
 ON CONFLICT DO NOTHING
+"#;
+
+/// Due job envelopes, oldest first.
+///
+/// This query did not exist. `queue_job_envelopes` had an INSERT, a by-dedupe
+/// lookup, a claim, and a settle -- and no way to ask "what is waiting to be
+/// sent?", because nothing sent it. The P06 job queue has a consumer and a handler
+/// and no producer, so an export or deletion job was written, never dispatched, and
+/// never ran in any environment. See VFY-009.
+const QUEUE_ENVELOPES_DUE_SQL: &str = r#"
+SELECT job_id, job_type, schema_version, org_id, subject_type, subject_id,
+       dedupe_key, event_id, request_id, correlation_id, payload_ref,
+       state, attempt, next_attempt_at
+FROM queue_job_envelopes
+WHERE state IN ('queued', 'retry_wait')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
+ORDER BY created_at ASC
+LIMIT ?2
 "#;
 
 const CLAIM_QUEUE_ENVELOPE_SQL: &str = r#"
@@ -819,6 +837,72 @@ impl DeletionJobRecord {
 
     pub fn legal_hold_active(&self) -> bool {
         self.legal_hold != 0
+    }
+}
+
+/// One durable P06 job envelope waiting to be published.
+///
+/// A row read for dispatch only. The handler's own type is
+/// `consumers::DataJobEnvelope`; this is the storage-side view the producer
+/// converts into one.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct QueueEnvelopeDispatchRow {
+    pub job_id: String,
+    pub job_type: String,
+    pub schema_version: i64,
+    pub org_id: Option<String>,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub dedupe_key: String,
+    pub event_id: Option<String>,
+    pub request_id: Option<String>,
+    pub correlation_id: Option<String>,
+    pub payload_ref: Option<String>,
+    pub state: String,
+    pub attempt: i64,
+    pub next_attempt_at: Option<String>,
+}
+
+impl QueueEnvelopeDispatchRow {
+    /// The message the job queue's handler decodes.
+    ///
+    /// The handler reads the subject identifier out of `payload`, not out of
+    /// `payload_ref`, so a message carrying only the reference would decode cleanly
+    /// and then run nothing. `payload_ref` is carried too, because it is the durable
+    /// pointer an operator reads when a job is stuck.
+    pub fn to_message(
+        &self,
+    ) -> Result<crate::consumers::DataJobEnvelope, crate::consumers::DataJobError> {
+        use crate::consumers::{DataJobEnvelope, DataJobError, DataJobPayload, TenantScope};
+        let payload = match self.subject_type.as_str() {
+            "export_job" => DataJobPayload {
+                export_id: Some(self.subject_id.clone()),
+                deletion_id: None,
+            },
+            "deletion_job" => DataJobPayload {
+                export_id: None,
+                deletion_id: Some(self.subject_id.clone()),
+            },
+            // Any other subject type is not a data job. The message would decode
+            // and then run nothing, so it is refused here rather than published.
+            _ => return Err(DataJobError::InvalidEnvelope),
+        };
+        Ok(DataJobEnvelope {
+            job_id: self.job_id.clone(),
+            job_type: self.job_type.clone(),
+            schema_version: u32::try_from(self.schema_version)
+                .map_err(|_| DataJobError::InvalidEnvelope)?,
+            dedupe_key: self.dedupe_key.clone(),
+            event_id: self.event_id.clone(),
+            request_id: self.request_id.clone(),
+            correlation_id: self.correlation_id.clone(),
+            attempt: u32::try_from(self.attempt).unwrap_or(1).max(1),
+            tenant_scope: TenantScope {
+                org_id: self.org_id.clone(),
+            },
+            payload_ref: self.payload_ref.clone(),
+            payload,
+        })
     }
 }
 
@@ -2057,6 +2141,29 @@ impl<'a> DataGovernanceRepository<'a> {
     /// Atomic `queued|retry_wait → running` claim on job id, state, and version.
     /// A crash before this leaves the job retryable; a crash after it is
     /// recovered by lease expiry.
+    /// Envelopes whose `next_attempt_at` has arrived, oldest first.
+    ///
+    /// Bounded on purpose: the dispatcher publishes from this list, and an unbounded
+    /// read on a queue that is not draining is how a sweep turns into a memory
+    /// incident.
+    pub async fn list_due_queue_envelopes(
+        &self,
+        now: &str,
+        limit: i32,
+    ) -> worker::Result<Vec<QueueEnvelopeDispatchRow>> {
+        self.database
+            .prepare(
+                QUEUE_ENVELOPES_DUE_SQL,
+                &[
+                    BindValue::Text(now),
+                    BindValue::Integer(limit.clamp(1, PAGE_LIMIT_MAX * 10)),
+                ],
+            )?
+            .all()
+            .await?
+            .results::<QueueEnvelopeDispatchRow>()
+    }
+
     pub fn claim_queue_envelope_statement(
         &self,
         job_id: &str,
@@ -2550,5 +2657,108 @@ mod tests {
         let before = keys.len();
         keys.dedup();
         assert_eq!(keys.len(), before, "duplicate data class key");
+    }
+
+    // ---------------------------------------------------------------------
+    // VFY-009. The P06 job queue had a consumer and no producer, so an envelope
+    // written by a mutation was never dispatched. The producer added with the fix
+    // is only correct if the message it builds is one the consumer's own
+    // `validate()` accepts -- and the two live in different modules, so nothing else
+    // would notice if they drifted apart again.
+    // ---------------------------------------------------------------------
+
+    fn dispatch_row(subject_type: &str, job_type: &str) -> QueueEnvelopeDispatchRow {
+        QueueEnvelopeDispatchRow {
+            job_id: "job_11111111111111111111111111111111".to_owned(),
+            job_type: job_type.to_owned(),
+            schema_version: 1,
+            org_id: Some("org_22222222222222222222222222222222".to_owned()),
+            subject_type: subject_type.to_owned(),
+            subject_id: "exp_33333333333333333333333333333333".to_owned(),
+            dedupe_key: format!("{job_type}:exp_33333333333333333333333333333333"),
+            event_id: None,
+            request_id: Some("req_x".to_owned()),
+            correlation_id: Some("req_x".to_owned()),
+            payload_ref: Some("d1:export_jobs/exp_3333".to_owned()),
+            state: "queued".to_owned(),
+            attempt: 1,
+            next_attempt_at: Some("2026-09-27T20:00:00.000Z".to_owned()),
+        }
+    }
+
+    #[test]
+    fn an_export_envelope_row_becomes_a_message_the_consumer_accepts() {
+        let message = dispatch_row("export_job", "export.run")
+            .to_message()
+            .expect("valid");
+        // The consumer's own gate, not a re-implementation of it.
+        message
+            .validate()
+            .expect("the producer must send what the consumer accepts");
+        assert_eq!(message.job_type, "export.run");
+        assert_eq!(
+            message.payload.export_id.as_deref(),
+            Some("exp_33333333333333333333333333333333")
+        );
+        assert_eq!(message.payload.deletion_id, None);
+        // The consumer looks the row up by a key it derives from the job type and the
+        // subject id, so any other key would publish a message the consumer then
+        // could not find -- the silent failure this finding was.
+        assert_eq!(
+            message.dedupe_key,
+            crate::consumers::dedupe_key(
+                &message.job_type,
+                message.payload.export_id.as_deref().expect("export id")
+            )
+        );
+    }
+
+    #[test]
+    fn a_deletion_envelope_row_carries_the_deletion_id_not_the_export_id() {
+        let mut row = dispatch_row("deletion_job", "deletion.run");
+        row.subject_id = "del_44444444444444444444444444444444".to_owned();
+        row.dedupe_key = "deletion.run:del_44444444444444444444444444444444".to_owned();
+        let message = row.to_message().expect("valid");
+        message
+            .validate()
+            .expect("the producer must send what the consumer accepts");
+        assert_eq!(
+            message.payload.deletion_id.as_deref(),
+            Some("del_44444444444444444444444444444444")
+        );
+        assert_eq!(message.payload.export_id, None);
+    }
+
+    #[test]
+    fn a_subject_type_that_is_not_a_data_job_is_refused_rather_than_published() {
+        // Publishing it would produce a message that decodes cleanly and then runs
+        // nothing, because `subject_id()` has no arm for it.
+        let row = dispatch_row("webhook_endpoint", "webhook.deliver");
+        assert!(row.to_message().is_err());
+    }
+
+    #[test]
+    fn the_dispatch_row_reads_the_columns_the_due_query_selects() {
+        // A column renamed on either side of this boundary is a runtime failure, not
+        // a compile error, so the names are pinned here.
+        let row: QueueEnvelopeDispatchRow = serde_json::from_value(serde_json::json!({
+            "job_id": "job_1",
+            "job_type": "export.run",
+            "schema_version": 1,
+            "org_id": "org_1",
+            "subject_type": "export_job",
+            "subject_id": "exp_1",
+            "dedupe_key": "export.run:exp_1",
+            "event_id": null,
+            "request_id": "req_1",
+            "correlation_id": "req_1",
+            "payload_ref": "d1:export_jobs/exp_1",
+            "state": "queued",
+            "attempt": 1,
+            "next_attempt_at": null,
+        }))
+        .expect("the due query's column list must match this struct");
+        assert_eq!(row.state, "queued");
+        assert_eq!(row.next_attempt_at, None);
     }
 }

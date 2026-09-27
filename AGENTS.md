@@ -303,6 +303,8 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | the migration's triggers and constraints refuse what the domain says they refuse | a local D1 |
 | `pnpm verify:restore` | a restored database still refuses every invalid write | nothing |
 | `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
+| `pnpm smoke:p06` | the data-governance surface: a real export over HTTP to a real Worker and local D1, its tenant and permission boundaries, and its idempotent replay | a built Worker; **exits 2 here** because the local queue does not deliver a published body, so the R2 leg is BLOCKED |
+| `pnpm schema:bind-count` | every `prepare()` binds as many values as its SQL has placeholders, so D1 cannot reject a statement at execution time | nothing |
 | `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
 | `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
 
@@ -312,6 +314,12 @@ as the repository rather than in the system temp directory, because a run that f
 volume fails its builds and the campaign then reports the mutants as *invalid*, which is a
 misdiagnosis of the machine as a property of the code. Set `$P09_SCRATCH` to move the scratch
 elsewhere.
+
+The default only helps if the **worktree** is on the same volume. A linked worktree under
+`/private/var/folders` puts the scratch there too, and there it failed with every case reported
+`target file(s) not found in the scratch copy` — the copy silently produced nothing, and twelve
+BLOCKED verdicts looked like twelve broken mutants. Put both on the volume that has room, and
+when a run fails on all twelve cases at once, believe the machine before the cases.
 
 It refuses to run outside a linked worktree for the same reason:
 

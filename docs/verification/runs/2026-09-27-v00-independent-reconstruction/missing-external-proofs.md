@@ -157,3 +157,28 @@ indistinguishable from not-found and that no list/pagination response leaks B's 
 
 **Verdict until then: UNPROVEN at V3** for those surfaces; PASS at V1/V2 through the SQL
 classification.
+
+---
+
+## 8. The P06 export's R2 leg — the local queue does not deliver a published body (Tier 0, partially in-repo)
+
+`VI-DATA-001` needed a verifier that crosses HTTP → R2. That verifier now exists
+(`apps/api/scripts/p06-data-smoke.mjs`) and it did its job: it found two critical defects
+(VFY-008, VFY-009) that no other evidence could see. Both are fixed.
+
+What it still cannot decide is the object write itself, and the reason is environmental:
+
+- The producer publishes. The Worker log shows `QUEUE lumi-agents-jobs-development 1/1`.
+- The handler routes correctly. Its own routing line reports `p06_queue_routed:jobs`.
+- The handler receives one message — `batch.messages()` returns length 1.
+- The body it decodes carries **no `job_type`**, so it acknowledges the message and the job stays
+  `requested` forever.
+
+So the failure is in message *delivery fidelity* in the local simulator, downstream of the code
+this campaign can change. Establishing whether that is a simulator artifact or a real defect needs
+an environment whose queue round-trips a published message — a staging deploy, or a producer that
+sends a string body rather than a `serde_json::Value`.
+
+**Verdict until then: UNPROVEN** for FR-F20-004's artifact half and FR-F20-007's storage
+traversal. PASS for everything either side: the request, the durable job and envelope rows, the
+tenant boundary, the permission boundary, and the idempotent replay.

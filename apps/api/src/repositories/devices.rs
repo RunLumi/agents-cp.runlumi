@@ -406,7 +406,6 @@ impl<'a> DeviceRepository<'a> {
             &[
                 BindValue::Text(&enrollment.enrollment_id),
                 BindValue::Text(device_id),
-                BindValue::Text(approved_by_user_id),
                 BindValue::Text(now_text),
             ],
         )?;

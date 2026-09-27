@@ -8,6 +8,13 @@
     "ENVIRONMENT": "production",
     "OUTBOX_DLQ_NAME": "lumi-agents-outbox-dlq",
     "JOBS_DLQ_NAME": "lumi-agents-jobs-dlq",
+    // The job handler routes on this name, so it has to be the queue this
+    // environment actually binds. It was declared nowhere, and the code's
+    // fallback to "lumi-agents-jobs" matched production by luck while
+    // silently mismatching development -- where every P06 job message was
+    // handed to the P01 outbox consumer, decoded as a business event, rejected,
+    // and acknowledged. See VFY-009.
+    "JOBS_QUEUE_NAME": "lumi-agents-jobs",
   },
   "d1_databases": [
     {
@@ -86,6 +93,7 @@
         "ENVIRONMENT": "development",
         "OUTBOX_DLQ_NAME": "lumi-agents-outbox-development-dlq",
         "JOBS_DLQ_NAME": "lumi-agents-jobs-development-dlq",
+        "JOBS_QUEUE_NAME": "lumi-agents-jobs-development",
       },
       "d1_databases": [
         {
@@ -154,6 +162,7 @@
         "ENVIRONMENT": "production",
         "OUTBOX_DLQ_NAME": "lumi-agents-outbox-dlq",
         "JOBS_DLQ_NAME": "lumi-agents-jobs-dlq",
+        "JOBS_QUEUE_NAME": "lumi-agents-jobs",
       },
       "d1_databases": [
         {
