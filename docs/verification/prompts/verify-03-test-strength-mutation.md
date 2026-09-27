@@ -4,7 +4,7 @@
 
 Determine whether the suite detects dangerous regressions rather than merely passing current code.
 
-A green suite is baseline, not conclusion.
+A green suite is baseline, not conclusion. If a meaningful mutant survives, **strengthen the verifier immediately, confirm the mutant is killed, revert the mutant, and continue**.
 
 ## Preconditions
 
@@ -58,13 +58,22 @@ Each expected verifier must fail.
 
 ## Surviving mutants
 
-A meaningful survivor is a finding. Classify why:
+A meaningful survivor is a finding **and normally an immediate repair task**. Classify why:
 
 - uncovered claim;
 - weak assertion;
 - mock made invariant true;
 - response asserted but side effect ignored;
 - equivalent mutant.
+
+Then:
+
+1. preserve the survivor evidence;
+2. strengthen/add the smallest behavior-level verifier that should catch the fault;
+3. re-run the mutant and confirm failure for the intended reason;
+4. revert the mutant;
+5. run the strengthened verifier against the real implementation and broader affected gate;
+6. record the verifier repair and continue.
 
 Do not optimize for a mutation percentage.
 
