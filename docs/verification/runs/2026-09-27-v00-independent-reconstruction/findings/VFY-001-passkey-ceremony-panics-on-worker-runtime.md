@@ -245,7 +245,7 @@ panics.
 | 1 | compiles for `wasm32-unknown-unknown` | PASS |
 | 2 | Worker dry-run/build succeeds | PASS — `gzip: 2395.07 KiB` |
 | 3 | **registration + assertion verify end-to-end with server-side ceremony state** | **PASS — requirement 3, previously never run, now discharged** |
-| 4 | password KDF fits real Worker CPU/memory | **UNPROVEN — unchanged.** No Argon2id cost measurement inside the Worker's CPU limit exists. This repair does not claim it; it stays in `missing-external-proofs.md`. |
+| 4 | password KDF fits real Worker CPU/memory | **UNPROVEN — unchanged.** No Argon2id cost measurement inside the Worker's CPU limit exists. This repair does not claim it. It is an **in-repo** gap recorded in `../next-verification-actions.md`, not in `../missing-external-proofs.md`, because it needs no external dependency — only someone to run Argon2id at the configured parameters inside the Worker and record the number. |
 | 5 | bundle/performance impact acceptable | PASS — `+1.32 KiB` gzip on a 2393.75 KiB baseline, because `js-sys` was already in the graph via `wasm-bindgen`/`worker` |
 
 ### Gated

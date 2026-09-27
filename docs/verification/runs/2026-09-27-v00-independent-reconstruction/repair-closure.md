@@ -71,7 +71,7 @@ version, checked against the crates.io API on 2026-09-27.
 | 1 | compiles for `wasm32-unknown-unknown` | PASS | `cargo check --workspace --target wasm32-unknown-unknown` |
 | 2 | Worker dry-run/build succeeds | PASS | `pnpm build` → `Total Upload: 9453.62 KiB / gzip: 2395.07 KiB` |
 | 3 | **registration + assertion verify end-to-end with server-side ceremony state** | **PASS** | `pnpm smoke:passkey` — 41/41, real ES256, real CBOR, real D1, real Worker |
-| 4 | password KDF fits real Worker CPU/memory | **UNPROVEN — unchanged** | no Argon2id cost measurement inside the Worker CPU limit exists. Named in `missing-external-proofs.md`. This repair does not claim it. |
+| 4 | password KDF fits real Worker CPU/memory | **UNPROVEN — unchanged** | no Argon2id cost measurement inside the Worker CPU limit exists. Recorded in [`next-verification-actions.md`](next-verification-actions.md) — an **in-repo** gap, not an external dependency. This repair does not claim it. |
 | 5 | bundle impact acceptable | PASS | `gzip` +1.32 KiB on a 2393.75 KiB baseline; ADR 0004 sets no Worker ceiling and the figure is now recorded in CI |
 
 **Proof 3, in detail.** `apps/api/scripts/p02-passkey-smoke.mjs` builds a real P-256 key with
@@ -399,7 +399,10 @@ Nothing below was silently upgraded. Each keeps a named dependency and stays in
 [`missing-external-proofs.md`](missing-external-proofs.md).
 
 - **`VI-AUTH-001` / F01 requirement 4** — Argon2id cost inside the Worker's CPU limit. Never
-  measured. This repair does not claim it.
+  measured; this repair does not claim it. It is recorded in
+  [`next-verification-actions.md`](next-verification-actions.md) under F01's five-check table, not in
+  `missing-external-proofs.md`, because it needs no external dependency — it needs someone to run
+  Argon2id at the configured parameters inside the Worker and record the number.
 - **`VI-MIG-002`, `VI-CON-002`** — need the `RunLumi/LumiAgents` client repository.
 - **`VI-OBS-001` V5 half** — needs a staging deploy and protected-content log inspection.
 - **AI provider and payment sandbox claims** — need live providers. `LUMI_PROVIDER_ALLOWLIST` is

@@ -318,9 +318,20 @@ only where a named verifier produced named evidence for it.
 | 2 | 3 (+1 partial) | 0 | 1 | 0 | 0 | 4 |
 | 3 | measured, not claimed | — | 3 | — | 3 | — |
 
-**No Tier-0 or Tier-1 claim remains FAIL.** Every claim that remains UNPROVEN has a named
-dependency and appears in [`missing-external-proofs.md`](missing-external-proofs.md); none of them
-is UNPROVEN because a verifier was unavailable.
+**No Tier-0 or Tier-1 claim remains FAIL.** The two Tier-0 claims that remain UNPROVEN are named,
+and neither is UNPROVEN because a verifier was unavailable — in both cases a verifier exists and
+has simply not been written:
+
+| Claim | Why UNPROVEN | Where the gap is recorded |
+|---|---|---|
+| `VI-DATA-001` | no probe drives an export job through HTTP → R2 → download, or a deletion job to object absence. ADR 0006 requires the **object** check, not just the D1 metadata, and nothing does it | [`next-verification-actions.md`](next-verification-actions.md) action 5.2 — **in-repo**, no external dependency needed |
+| `VI-MIG-002` | the consumer is a separate repository. The control plane cannot certify its own client | [`missing-external-proofs.md`](missing-external-proofs.md) — needs `RunLumi/LumiAgents` |
+
+The Tier-1 UNPROVEN claims (4) divide the same way: `VI-BUD-002` concurrency, `VI-INF-002`
+rollback, `VI-REL-001` transport faults, and `VI-MIG-001`'s upgrade leg are all in-repo gaps in
+actions 5.1–5.6; `VI-CON-002` needs the client repository. This distinction is the point — "we could
+not check" and "nobody has written the check" are different states, and only one of them is closed by
+getting more dependencies.
 
 ## Verdicts that moved, and the evidence that moved them
 
