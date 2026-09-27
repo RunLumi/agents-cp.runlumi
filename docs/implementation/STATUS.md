@@ -157,7 +157,7 @@ P05 Contract Gate `p05-cg-v1` is frozen at `b5a5ea8`; no dependent packet may re
 | P06-FE-02     | merged | Webhook/notification UI; 116 tests. Section registered                                           |
 | P06-FE-03     | merged | Billing/entitlement UI; 70 tests. Section registered                                             |
 | P06-FE-04     | merged | Data/retention/export/delete UI; 109 tests. Section registered                                   |
-| P06-INT-01    | merged | LumiAgents lease/fence seam on `feat/p06-automation-lease`; 81 tests                             |
+| P06-INT-01    | merged | `RunLumi/LumiAgents` PR #30 (`2b9a041`): lease/fence seam, 46 tests (14 + 14 + 7 + 11)           |
 | P06-INT-02    | merged | Licensing snapshot embedded in the existing `/devices/policy`                                    |
 | P06-QA-01     | done   | All six Integration Gate claims mapped to named evidence                                         |
 
@@ -221,7 +221,11 @@ The one place the client work changed a shared contract is
 `HttpClientMethod`, which grew `PATCH` because `p08-cg-v1` froze the stage
 advance as `PATCH`; `DELETE` is still absent, since nothing unbinds by deletion.
 
-## Environment defect the next agent must fix
+## Environment defect: `/Volumes/SSD` cannot create a set of filenames
+
+**`git pull` cannot fix this, and neither can a re-clone into the same
+directory.** Git has the content; the filesystem refuses the write. Do not spend
+a cycle on fetch/reset/refetch before reading this.
 
 `/Volumes/SSD/agents-cp.runlumi_app` is **not a usable checkout**:
 
@@ -236,10 +240,66 @@ advance as `PATCH`; `DELETE` is still absent, since nothing unbinds by deletion.
 3. A phantom ref `refs/remotes/origin/impl/p06-contract-gate` holds a zero sha,
    which makes `git fetch` fail outright even though `git push` succeeds.
 
-P08 was therefore developed in a clean clone on the root volume with the missing
-blob re-hashed from the worktree copy and the unreachable reflog entries expired.
-Recovery that leaves the primary checkout healthy — a fresh `git clone`, or a
-`git fetch --refetch` once the phantom ref is gone — should be its own change.
+### The refusal is name-specific, and it is a volume-level defect
+
+Measured, not inferred:
+
+| Probe | Result |
+|---|---|
+| `git cat-file -e HEAD:LICENSE` | **blob present** — git has the content |
+| `git checkout -- LICENSE` | `unable to create file LICENSE: No such file or directory` |
+| `touch LICENSE` | `ENOENT`, **not** `EACCES` |
+| `touch LICENCE`, `license.txt` in the same directory | OK |
+| `touch docs/adr/LICENSE`, `apps/api/LICENSE` | OK |
+| create → delete → re-create a fresh name in the same directory | OK |
+| `/Volumes/SSD/.probe`, `~`, `/tmp` | OK |
+
+So the volume is writable and the directories are fine; a **contiguous
+alphabetical range of filenames** is refused. `touch` returning `ENOENT` rather
+than `EACCES` is the signature of a corrupted directory index.
+
+**The same defect is in the Lumi Agents checkout.** `/Volumes/SSD/LumiAgents`
+cannot recreate 190 deleted tracked files under
+`packages/web/public/material-icons/` — `folder-contract` through
+`folder-markdown` — so `git checkout -- .` cannot restore them. That is also why
+`rsync` aborted mid-run on large files there.
+
+### Remedy
+
+1. **Run `Disk Utility → First Aid` on `/Volumes/SSD`.** This is the actual fix
+   and the only thing that unblocks the 190 icons and the 8 files. It is
+   non-destructive.
+2. **Until then, work on the root volume.** A clean clone at `~/lumi-work/p08`
+   is proven working: all eight files present, clean tree, in sync with
+   `origin/main`, and the adoption suite runs (78/78 in 394 ms).
+3. **Then** restore the Lumi Agents icons with `git checkout -- .`, and fix the
+   control-plane checkout's `origin` (it points at
+   `RunLumi/agents-cp.runlumi.app.git`, a spelling that now 404s; the repository
+   is `RunLumi/agents-cp.runlumi`) and drop the phantom ref.
+
+P08 was developed in a clean clone on the root volume with the missing blob
+re-hashed from the worktree copy and the unreachable reflog entries expired.
+
+### P06-INT-01's write surface points at the damaged volume
+
+`packets/P06-INT-01.md` and `P06-INT-02.md` declare
+`/Volumes/SSD/LumiAgents/apps/zcode-cli/packages/{contracts,shared,core,bootstrap}/src/**`
+as their write surface. That work landed as `RunLumi/LumiAgents` PR #30 from a
+root-volume clone, and **those paths are still recorded as the designated write
+surface**. An agent following the packet literally would write into a volume
+that drops a contiguous range of paths, and the loss would be silent — `git
+status` would simply not show the files. Update the write surface to the
+root-volume clone, or annotate it, before the next INT packet is picked up.
+
+### Lumi Agents `main` has a red `dco` job, and it is not ours
+
+The post-merge `dco` check fails on every merge. The single offending commit is
+`9dc43d63a5` (Lumi Agents PR #29, 2026-09-25), authored by
+`978862+streamentry@users.noreply.github.com` but carrying
+`Signed-off-by: OpenCode Agent <opencode@local>`. The sign-off does not cover the
+author, and the only sanctioned fix is a retrospective attestation authored by
+that same email. `scripts/check-dco.mjs` refuses a proxy signature by design, so
+this needs the repository owner.
 
 ## P09 packet status
 
