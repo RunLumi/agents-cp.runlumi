@@ -18,7 +18,27 @@ This is not:
 - duplicating every implementation test;
 - permission to rewrite requirements until code passes.
 
-Verification seeks the **cheapest independent evidence capable of falsifying the claim**.
+Verification seeks the **cheapest independent evidence capable of falsifying the claim**, then fixes falsified behavior and proves the repair before moving on.
+
+## Default execution loop
+
+Every campaign follows this loop unless a stop condition applies:
+
+```text
+derive claim
+→ run falsifier
+→ PASS: preserve evidence and continue
+→ FAIL: preserve reproducer and evidence
+       → diagnose root cause
+       → fix the smallest coherent cause
+       → add/strengthen regression proof
+       → re-run reproducer
+       → re-run affected claims
+       → continue
+→ UNPROVEN/BLOCKED: record the exact missing dependency and continue where safe
+```
+
+Verification and repair remain logically separable so an agent cannot erase the original failure, weaken the verifier, or silently rewrite the requirement. They do **not** need to be separate agent sessions.
 
 ## Verification graph
 
@@ -177,7 +197,7 @@ Prioritize:
 - adoption privacy;
 - deletion authorization.
 
-A meaningful survivor is a verification finding.
+A meaningful survivor is a verification finding. The verifier should normally strengthen the test/probe immediately, re-run the mutant until it is killed, preserve the before/after evidence, then continue the campaign.
 
 ## Campaign V05 — operational proof
 
@@ -209,7 +229,7 @@ Unavailable external evidence => **UNPROVEN**, not a fabricated mock PASS.
 
 Use `release-gate.md`.
 
-Release verdict derives from proof obligations, not test count.
+Before declaring FAIL because of a repairable repository defect, reproduce it, fix it, and re-run the affected verification. Release verdict derives from the **post-repair evidence state**, not from the number of defects found along the way or total test count.
 
 ## Frequency
 
