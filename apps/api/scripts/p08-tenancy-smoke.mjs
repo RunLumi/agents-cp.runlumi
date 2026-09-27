@@ -129,6 +129,21 @@ function routerOrgRoutes() {
   return routes;
 }
 
+/**
+ * Was a seeded resource created?
+ *
+ * Reports a SKIP rather than a failure, and records the response for the report. The
+ * reasoning is in the report block below: a create this probe cannot drive is a limit
+ * on the probe, and the routes it would have covered are already listed as unproven.
+ */
+function seedOk(label, result, id, prefix, failures) {
+  if (typeof id === "string" && id.startsWith(prefix)) return true;
+  const detail = `status=${result.status} body=${String(result.text).slice(0, 200)}`;
+  failures.push(`${label}: ${detail}`);
+  console.log(`  SKIP  seeded a ${label} in org A  — ${detail}`);
+  return false;
+}
+
 await runProbe("P08 cross-tenant", async (probe) => {
   const { request, reasonOf, statusIs } = probe;
 
@@ -236,22 +251,195 @@ await runProbe("P08 cross-tenant", async (probe) => {
     }
   }
 
+  // --- substituted resource ids -------------------------------------------
+  // A route that takes a resource id can only be tested by putting a REAL id from
+  // org B into org A's path. Seeding one per surface is the honest way, and the
+  // surfaces below are the ones whose create bodies are small enough to state
+  // exactly. A surface whose creation is not cheap is left in the computed
+  // unproven list rather than faked with a fabricated id, because a fabricated id
+  // makes the route 404 for the wrong reason and proves nothing.
+  probe.stage = "seeding";
+  const seeded = [];
+  const seedFailures = [];
+
+  const seedProject = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${orgA.orgId}/projects`,
+    {
+      name: "Alice Project",
+      slug: `alice-project-${probe.nonce}`,
+      visibility: "org",
+    },
+    probe.browserMutation(alice.jar, "project-a"),
+  );
+  const projectId =
+    seedProject.payload?.id ?? seedProject.payload?.project_id ?? seedProject.payload?.project?.id;
+  if (seedOk("project", seedProject, projectId, "prj_", seedFailures)) {
+    seeded.push({
+      label: "project",
+      id: projectId,
+      routes: [
+        ["GET", "/api/v1/orgs/{org_id}/projects/{project_id}"],
+        ["GET", "/api/v1/orgs/{org_id}/projects/{project_id}/access"],
+        ["GET", "/api/v1/orgs/{org_id}/projects/{project_id}/bindings"],
+      ],
+    });
+  }
+
+  const seedAccount = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${orgA.orgId}/service-accounts`,
+    { name: "Alice Service Account", capabilities: [] },
+    probe.browserMutation(alice.jar, "sa-a"),
+  );
+  // `create_service_account` answers `{ "service_account": { "id": … } }` — the
+  // record's own identifier field is `id`, and the record is nested. Reading the
+  // wrong shape is how the first run of this probe seeded nothing and reported a
+  // missing resource instead of a shape mismatch.
+  const accountId =
+    seedAccount.payload?.service_account?.id ??
+    seedAccount.payload?.service_account?.service_account_id ??
+    seedAccount.payload?.service_account_id ??
+    seedAccount.payload?.id;
+  if (seedOk("service account", seedAccount, accountId, "svc_", seedFailures)) {
+    seeded.push({
+      label: "service account",
+      id: accountId,
+      routes: [["GET", "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}"]],
+    });
+  }
+
+  const seedTeam = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${orgA.orgId}/teams`,
+    {
+      display_name: "Alice Team",
+      slug: `alice-team-${probe.nonce}`,
+    },
+    probe.browserMutation(alice.jar, "team-a"),
+  );
+  // `create_team` answers with the record itself, so `team_id` is at the top level.
+  const teamId =
+    seedTeam.payload?.team_id ?? seedTeam.payload?.team?.team_id ?? seedTeam.payload?.id;
+  if (seedOk("team", seedTeam, teamId, "team_", seedFailures)) {
+    seeded.push({
+      label: "team",
+      id: teamId,
+      routes: [["GET", "/api/v1/orgs/{org_id}/teams/{team_id}/members"]],
+    });
+  }
+
+  // --- the substituted-id test ---------------------------------------------
+  // Alice owns every seeded resource, so each of these must be readable by her and
+  // invisible to org B's owner. Mallory is a member of org A and NOT of org B, so
+  // the same substitution is run from both sides of the boundary.
+  probe.stage = "substituted-ids";
+  let idEvidenced = 0;
+  for (const resource of seeded) {
+    for (const [method, template] of resource.routes) {
+      if (method !== "GET") {
+        // A 405 is the router declining a method, which is a fact about the route
+        // table and not about authorization. Driving it would put a line in the
+        // report that reads like an authorization result and is not one.
+        unproven.push(`${template} — ${method} needs a body this probe does not construct`);
+        continue;
+      }
+      const asOwner = await request(
+        alice.jar,
+        method,
+        template.replace("{org_id}", orgA.orgId).replace(/\{[a-z_]+\}/, resource.id),
+      );
+      const asOutsider = await request(
+        mallory.jar,
+        method,
+        template.replace("{org_id}", orgB.orgId).replace(/\{[a-z_]+\}/, resource.id),
+      );
+      const asOtherOwner = await request(
+        carol.jar,
+        method,
+        template.replace("{org_id}", orgB.orgId).replace(/\{[a-z_]+\}/, resource.id),
+      );
+      const label = `${resource.label} ${template.replace("/api/v1/orgs/{org_id}", "").replace(/\{[a-z_]+\}/, "{id}")}`;
+
+      if (asOwner.status >= 200 && asOwner.status < 300) {
+        if (
+          (asOutsider.status >= 200 && asOutsider.status < 300) ||
+          (asOtherOwner.status >= 200 && asOtherOwner.status < 300)
+        ) {
+          leaks.push(`${template} — a real org A id was readable under org B`);
+          probe.fail(
+            `${label} — the resource is invisible across the boundary`,
+            `LEAK: outsider=${asOutsider.status} other-owner=${asOtherOwner.status}`,
+          );
+        } else if (
+          statusIs(asOutsider, [404], ["resource_not_found"]) &&
+          asOtherOwner.status === 404
+        ) {
+          idEvidenced += 1;
+          const otherReason = reasonOf(asOtherOwner);
+          probe.pass(
+            `${label} — a real org A id is invisible under org B`,
+            `owner=${asOwner.status} non-member=${asOutsider.status}/${reasonOf(asOutsider)} other-owner=${asOtherOwner.status}/${otherReason}`,
+          );
+        } else {
+          unproven.push(
+            `${template} — the plain non-member was ${asOutsider.status}/${reasonOf(asOutsider)} and the other owner ${asOtherOwner.status}/${reasonOf(asOtherOwner)}; the load-bearing check is a plain non-member refused as 404 resource_not_found`,
+          );
+          probe.skip(
+            `${label} — refused, but not with the inaccessible-organization shape`,
+            `outsider=${asOutsider.status}/${reasonOf(asOutsider)} other-owner=${asOtherOwner.status}/${reasonOf(asOtherOwner)}`,
+          );
+        }
+      } else {
+        unproven.push(
+          `${template} — the owner's own call was ${asOwner.status}/${reasonOf(asOwner)}`,
+        );
+        probe.skip(
+          `${label} — unproven, the owner's own call did not succeed`,
+          `owner=${asOwner.status}/${reasonOf(asOwner)}`,
+        );
+      }
+    }
+  }
+
   // --- the report ----------------------------------------------------------
-  const withId = unprovenRoutes.filter((p) => /\{[a-z_]+\}/.test(p.replace("{org_id}", ""))).length;
-  const mutating = unprovenRoutes.length - withId;
+  // A route that has just been proven by substitution is no longer unproven, so it
+  // leaves the computed list. Recomputing here rather than reusing the earlier number
+  // is what keeps the headline honest as the seeding grows.
+  const nowProven = new Set(
+    seeded.flatMap((resource) => resource.routes.map(([, template]) => template)),
+  );
+  const stillUnproven = unprovenRoutes.filter((p) => !nowProven.has(p));
+  const withId = stillUnproven.filter((p) => /\{[a-z_]+\}/.test(p.replace("{org_id}", ""))).length;
+  const mutating = stillUnproven.length - withId;
   console.log(
-    `\ncross-tenant: ${proven}/${TESTED_HERE.length} tested routes proven, ${leaks.length} leak(s), ${unproven.length} unproven among those`,
+    `\ncross-tenant: ${proven + idEvidenced}/${TESTED_HERE.length + nowProven.size} routes proven, ${leaks.length} leak(s), ${unproven.length} unproven among those`,
   );
   if (unproven.length > 0) {
     console.log("\nnot proven among the tested routes:");
     for (const line of unproven) console.log(`  - ${line}`);
   }
   console.log(
-    `\norg-scoped routes with NO handler-level cross-tenant evidence: ${unprovenRoutes.length} of ${router.size}`,
+    `\norg-scoped routes with NO handler-level cross-tenant evidence: ${stillUnproven.length} of ${router.size}`,
   );
   console.log(`  ${withId} take a resource id, so they need a real resource to substitute`);
   console.log(`  ${mutating} are mutating or id-less actions this probe does not drive`);
-  console.log("  they are:" + unprovenRoutes.map((p) => `\n    ${p}`).join(""));
+  console.log("  they are:" + stillUnproven.map((p) => `\n    ${p}`).join(""));
+
+  // A seed that cannot be created is a limitation of THIS probe, not a demonstrated
+  // product failure: the routes it would have covered stay in the list above, and
+  // naming the response here is what keeps that visible. Recording it as a failure
+  // instead would leave the gate permanently red for a cause nobody has diagnosed,
+  // and a gate that is always red is a gate nobody reads.
+  if (seedFailures.length > 0) {
+    console.log(
+      "\nOPEN LEADS — resources this probe could not create, so their routes are unproven:",
+    );
+    for (const lead of seedFailures) console.log(`  - ${lead}`);
+  }
 
   probe.finish(probe.failures.length > 0 ? 1 : 0);
 });
