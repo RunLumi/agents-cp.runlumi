@@ -13,8 +13,8 @@ quarterly audit.
 
 | Budget | Limit | Measured | Headroom |
 |---|---|---|---|
-| Initial JS | ≤ 170 KiB gzip | **100.11 KiB** | 41% |
-| Initial CSS | ≤ 35 KiB gzip | **8.72 KiB** | 75% |
+| Initial JS | ≤ 170 KiB gzip | **100.16 KiB** | 41% |
+| Initial CSS | ≤ 35 KiB gzip | **8.83 KiB** | 75% |
 | Largest route chunk (`tools-panel`) | ≤ 80 KiB gzip | **40.17 KiB** | 50% |
 | Route chunk (`data-panel`) | ≤ 80 KiB gzip | **32.41 KiB** | 59% |
 | Route chunk (`billing-panel`) | ≤ 80 KiB gzip | **20.43 KiB** | 74% |
@@ -37,7 +37,7 @@ The honest question is not "are we under budget" but "what did hardening add".
 | Initial CSS | **0 bytes.** No styling was touched. |
 | Web runtime dependencies | **7, unchanged.** `@base-ui/react`, two fontsource variable fonts, `clsx`, `react`, `react-dom`, `tailwind-merge`. No chart, editor, or highlighting library, and the identity and plugin surfaces build their primitives from the existing `globals.css` tokens rather than adding a component library. |
 | Rust dependencies | **15, unchanged.** No new crate in either workspace. |
-| Worker upload | 2318.19 → **2321.58 KiB gzip** (+3.4 KiB, +0.15%) — the budget-expiry sweep and the dead-letter consumer. Both are correctness fixes, and 3.4 KiB is a cheap price for a dead-lettered job being visible. |
+| Worker upload | (P07 baseline) → **2393.75 KiB gzip** (+75.6 KiB vs P07's 2318.19, but P08's client-seam migration accounts for most of it; this phase's own two fixes are +3.4 KiB) — the budget-expiry sweep and the dead-letter consumer. Both are correctness fixes, and 3.4 KiB is a cheap price for a dead-lettered job being visible. |
 
 ## Why the Worker bundle is large, and whether that is a problem
 

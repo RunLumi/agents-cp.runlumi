@@ -99,6 +99,10 @@ const REVIEWED_COOKIE_READERS = [
   "apps/web/src/features/webhooks/api.ts",
   "apps/web/src/features/tools/helpers.ts",
   "apps/web/src/features/identity/api.ts",
+  // P08. Reads `lumi_csrf` and echoes it as `X-CSRF-Token` on unsafe methods —
+  // the double-submit pattern, which requires reading a cookie the SPA cannot
+  // avoid. Same shape as the seven above; a read, never a write.
+  "apps/web/src/features/adoption/api.ts",
 ];
 
 /**

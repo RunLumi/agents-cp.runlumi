@@ -19,12 +19,11 @@ plain PASS.
 | P05 runs/tools/usage | Run state machine, tool policy, budgets, usage | PASS |
 | P06 automations/events/billing/data | 22 routes, merged job queue, 72-class data registry | PASS |
 | P07 enterprise/admin/plugins | 22 routes, 3 actor types, plugin governance, staff boundary | PASS |
+| P08 migration/adoption | Adoption domain, nine routes, `0019`; the client seam landed in `RunLumi/LumiAgents` PR #31 | PASS |
 
-**P08 is not built** and is not required for a P0 gate. The server-side seams for it
-(`/plugin-reports`, `/machine/whoami`) exist and are tested; no LumiAgents repository
-was touched. See `known-limitations.md`.
+**P08 closed while this phase was in flight** (PRs #27–#29), so it is in the numbers above. P09 rebased onto it, and the rebase is what produced the sharpest evidence in this document — see the gate.
 
-**934 Rust tests · 11 egress-corpus tests · 720 web tests · 97 storage invariants ·
+**979 Rust tests · 11 egress-corpus tests · 798 web tests · 97 storage invariants ·
 14 secret canaries.** `pnpm check` exits 0.
 
 ## Gate B — Security: no known critical/high issue
@@ -71,8 +70,8 @@ follow-up.**
 
 | Budget | Limit | Measured | |
 |---|---|---|---|
-| Initial JS | 170 KiB gzip | **100.11 KiB** | PASS |
-| Initial CSS | 35 KiB gzip | **8.72 KiB** | PASS |
+| Initial JS | 170 KiB gzip | **100.16 KiB** | PASS |
+| Initial CSS | 35 KiB gzip | **8.83 KiB** | PASS |
 | Largest route chunk | 80 KiB gzip | **40.17 KiB** | PASS |
 | P07 chunks | 80 KiB gzip | 16.55 / 16.71 KiB | PASS |
 

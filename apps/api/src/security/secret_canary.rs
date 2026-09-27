@@ -1396,6 +1396,35 @@ const REVIEWED_DERIVED_DEBUG: &[(&str, &str, &str)] = &[
          not a credential; the name-based scan cannot see the type, which is the \
          one limitation this list exists to absorb.",
     ),
+    // -- P08 migration adoption ------------------------------------------------
+    //
+    // `code` is in `SECRET_FIELDS` because it is a real secret name here: the
+    // login and identity request DTOs above carry a one-time verification code in
+    // a field called exactly `code`. So the name is right to be a secret name, and
+    // these three are the name-based scan's known blind spot rather than a leak.
+    (
+        "modules/migration/adoption.rs",
+        "Remediation",
+        "`code` is a `RemediationCode`, a closed vocabulary of WHAT TO DO about an \
+         adopted workspace — an unbound project, an unrecognised client. It is a \
+         diagnostic, not a credential, and the type makes the distinction invisible \
+         to a name-based scan. There is deliberately no resolution note on a \
+         remediation, so there is no free-text field either.",
+    ),
+    (
+        "repositories/migration.rs",
+        "RemediationRow",
+        "The stored `code` column, which the schema CHECK-constrains to the same \
+         closed vocabulary. `remedy` is a second closed enum. Neither is derived \
+         from a credential and neither is attacker-controlled text.",
+    ),
+    (
+        "repositories/migration.rs",
+        "RemediationRecord",
+        "The projection of the row above, keeping the stored string plus its parsed \
+         form so a code a future version writes still renders as data. Bounded, \
+         enumerated, and not a secret.",
+    ),
 ];
 
 fn crate_src() -> PathBuf {

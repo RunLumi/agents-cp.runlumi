@@ -502,6 +502,124 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
          literal inside the function until the P09 audit flagged it as invisible to \
          the tenant checks, so it is a named constant now and therefore audited.",
     ),
+    // -- P08 migration adoption -------------------------------------------------
+    //
+    // P08 landed after this audit existed, and these 19 statements were flagged
+    // unclassified on the first rebase. That is the audit working: a phase that
+    // merges without it inherits an unaudited tenant surface, and "the audit was
+    // not running" is indistinguishable from "the queries are fine".
+    (
+        "repositories/migration.rs::SELECT_ADOPTION_SQL",
+        Class::OrgBound,
+        "One adoption row by id AND `org_id`. The id is the caller's own; the org \
+         is asserted anyway, so a substituted id returns nothing rather than \
+         another tenant's row.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_ADOPTION_BY_EXTERNAL_SQL",
+        Class::OrgBound,
+        "The (external installation, workspace key) pair scoped to one org, so two \
+         organizations adopting the same local installation cannot collide.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_ADOPTION_PAGE_SQL",
+        Class::OrgBound,
+        "The org's adoption list, bounded. Small by nature — one row per adopted \
+         workspace — which is why it needs a ceiling and not a cursor.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_STAGE_COUNTS_SQL",
+        Class::OrgBound,
+        "Stage histogram for one org. Returns counts, never content.",
+    ),
+    (
+        "repositories/migration.rs::INSERT_ADOPTION_SQL",
+        Class::OrgBound,
+        "The insert binds the org. `client_compatibility_policy` is the platform-\
+         scoped exception and is not written here.",
+    ),
+    (
+        "repositories/migration.rs::UPDATE_ADOPTION_STAGE_SQL",
+        Class::OrgBound,
+        "A stage advance, guarded on `org_id` AND `version`. The version guard is \
+         what makes a wizard resumed from a cached screen lose rather than \
+         overwrite a newer decision.",
+    ),
+    (
+        "repositories/migration.rs::UPDATE_ADOPTION_ROLLBACK_SQL",
+        Class::OrgBound,
+        "A rollback, guarded the same way. Increments `reversion_count`, so \
+         flip-flopping is visible rather than silent.",
+    ),
+    (
+        "repositories/migration.rs::GUARD_SQL",
+        Class::OrgBound,
+        "The optimistic-concurrency assertion, expressed as an idempotency claim. \
+         Writes nothing when a newer version exists, which is the property.",
+    ),
+    (
+        "repositories/migration.rs::INSERT_EVENT_SQL",
+        Class::OrgBound,
+        "A stage event, bound to the org it happened in. The only adoption write \
+         whose owner scope is a device, and it still carries the org.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_EVENTS_SQL",
+        Class::OrgBound,
+        "Stage events for one org, grouped. `result_code` and `stage` only — the \
+         schema has no column that could hold local content.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_REMEDIATIONS_SQL",
+        Class::OrgBound,
+        "Remediations for one org, bounded, open ones first.",
+    ),
+    (
+        "repositories/migration.rs::INSERT_REMEDIATION_SQL",
+        Class::OrgBound,
+        "A remediation, bound to the org. Carries a code and a remedy and no \
+         resolution note by design.",
+    ),
+    (
+        "repositories/migration.rs::RESOLVE_REMEDIATION_SQL",
+        Class::OrgBound,
+        "Resolution, guarded on `org_id`, `state = 'open'` AND `version`, so a \
+         remediation is resolved exactly once.",
+    ),
+    (
+        "repositories/migration.rs::GUARD_REMEDIATION_OPEN_SQL",
+        Class::OrgBound,
+        "The remediation claim, as an idempotency row. Same shape as `GUARD_SQL`.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_AUTOMATION_COUNT_SQL",
+        Class::OrgBound,
+        "Counts the org's active automations, for a pre-import check.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_LICENSE_STATE_SQL",
+        Class::OrgBound,
+        "The org's license state, for a pre-import check. Same read the \
+         entitlement evaluator makes.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_BOOLEAN_GRANT_SQL",
+        Class::OrgBound,
+        "An entitlement grant scoped to the org AND to `revoked_at IS NULL` AND \
+         unexpired, so a revoked grant cannot be read as held.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_COUNT_GRANT_SQL",
+        Class::OrgBound,
+        "The counting form of the same predicate. Seat counts are read for an \
+         import plan, so it must agree with the boolean exactly.",
+    ),
+    (
+        "repositories/migration.rs::SELECT_ORG_TOOL_POLICY_SQL",
+        Class::OrgBound,
+        "The org-wide tool policy (`project_id IS NULL`), for a pre-import \
+         check. Project-scoped policies are read separately.",
+    ),
     // -- P07 platform operations: the STAFF boundary ---------------------------
     (
         "repositories/platform_ops.rs::INSERT_GRANT_SQL",
@@ -2400,6 +2518,7 @@ fn the_audit_covers_every_sql_owning_module() {
         "repositories/identity.rs",
         "repositories/idempotency.rs",
         "repositories/machine_identity.rs",
+        "repositories/migration.rs",
         "repositories/organizations.rs",
         "repositories/outbox.rs",
         "repositories/platform_ops.rs",

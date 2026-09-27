@@ -163,14 +163,49 @@ behavior changed and no Change Request is needed** — but the boundary is argua
 it is argued here rather than buried: the alternative was leaving a cross-language
 contract unpinned after defect #1.
 
+## What the rebase proved
+
+P08 merged into `main` while this phase was in flight, so the branch was rebased
+onto it. The rebase is the single most persuasive piece of evidence in this gate,
+and it is worth stating exactly what happened.
+
+**P08 landed without any of these audits, so its surface was unaudited. All five
+audits flagged it, immediately, on the first run after the rebase:**
+
+| What the audit found | Why it matters |
+|---|---|
+| 19 unclassified SQL statements in `repositories/migration.rs` | The whole P08 adoption tenant surface — read, write, guard, and idempotency claim — was unclassified. Not unsafe; **unexamined**, which is different and worse |
+| A new SQL-owning module outside the coverage floor | The coverage floor existed precisely to notice this |
+| 4 new data classes missing from the retention map | P08 added adoption remediation, stage events, workspace adoption state, and the client-compatibility policy |
+| A new migration missing from the schema map | `0019`, plus its tables, indexes, and 3 triggers |
+| A web module reading a cookie off the reviewed-reader list | P08's adoption client reads `lumi_csrf` for double-submit — safe, but it should have had to be *reviewed* to be allowed to |
+
+Every one of these is a phase shipping correctly and still inheriting an unaudited
+surface, because the audit did not exist when it shipped. That is the honest limit
+of this work: **an audit only covers what lands after it.** The standing
+recommendation is that the P09 audits are a merge requirement, not a phase artifact,
+so the next phase cannot repeat this.
+
+Classifying the 19 was mechanical rather than investigative — every one is
+org-bound, with a version or state guard on the writes — and the two classes of
+secret-named field were false positives worth explaining rather than suppressing:
+
+- P08's `Remediation.code` is a **diagnostic** code ("unbound project"), not a
+  credential. The name `code` IS a real secret name here, because the login and
+  identity request DTOs carry a one-time verification code in a field called
+  exactly `code`. So the detector is right and the scan is blind to the type. The
+  three structs were added to the reviewed list **with their reasoning**, rather
+  than `code` being dropped from the secret names — weakening the detector to make
+  a false positive go away is how a canary stops working.
+
 ## Performance
 
 Measured, and `pnpm build` is in CI so a regression is a red build.
 
 | Budget | Limit | Measured |
 |---|---|---|
-| Initial JS | 170 KiB gzip | **100.11 KiB** |
-| Initial CSS | 35 KiB gzip | **8.72 KiB** |
+| Initial JS | 170 KiB gzip | **100.16 KiB** |
+| Initial CSS | 35 KiB gzip | **8.83 KiB** |
 | Largest route chunk | 80 KiB gzip | **40.17 KiB** |
 | P07 chunks | 80 KiB gzip | 16.55 / 16.71 KiB |
 
@@ -187,7 +222,7 @@ gate is qualified rather than passed outright.
 
 | Gate | Verdict | Note |
 |---|---|---|
-| A — Functional | **PASS** | All P0 phases. 934 Rust + 11 corpus + 720 web tests |
+| A — Functional | **PASS** | All P0 phases, including P08 which merged mid-phase. 979 Rust + 11 corpus + 798 web tests |
 | B — Security | **PASS** | Eleven defects found and fixed; all five release-bar categories have named evidence |
 | C — Performance | **PASS on budgets, INCOMPLETE on field metrics** | The one qualified gate |
 | D — Operations | **PASS, after fixing two failures this phase found** | DLQ invisibility and the leaked hold |

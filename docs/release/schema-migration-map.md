@@ -3,7 +3,7 @@
 Generated from `apps/api/migrations/`. `security::release_docs` asserts this file
 names every migration in apply order, so it cannot fall behind the schema.
 
-**18 migrations · 107 tables · 190 indexes · 66 triggers.**
+**19 migrations · 111 tables · 200 indexes · 69 triggers.**
 
 ## Why the trigger count is the headline
 
@@ -11,7 +11,7 @@ An invariant enforced only in application code is one code path away from being
 bypassed by a migration, a script, a console session, or a future packet. A trigger
 is the only thing that still holds when nobody remembers the Rust.
 
-That is what the 66 triggers are for, and why the schema harness
+That is what the 69 triggers are for, and why the schema harness
 (`apps/api/scripts/p07-schema-invariants.mjs`) asserts each one is **rejected by
 the database** rather than by a code path. The shape of those invariants:
 
@@ -34,7 +34,7 @@ the database** rather than by a code path. The shape of those invariants:
 
 No migration from P02 onward alters a table created by an earlier phase; they
 create new ones. Rolling back a release therefore means rolling back the
-**Worker**, not the database. `0016`–`0018` add only new tables, so dropping them
+**Worker**, not the database. `0016`–`0019` add only new tables, so dropping them
 is safe and no pre-P07 data is at risk.
 
 The consequence worth stating rather than hiding: a rollback leaves the newer
@@ -74,3 +74,4 @@ explicitly so the gap cannot reopen unnoticed.
 | `0016_p07_machine_identity.sql` | 2 | 5 | 12 | Machine identity: service accounts and API keys. **12 triggers:** every terminal-state invariant is enforced by the DATABASE, not only by Rust. |
 | `0017_p07_plugin_governance.sql` | 7 | 10 | 14 | Plugin governance: publishers, packages, versions, policies, installs, tool registrations, quarantines. **14 triggers.** |
 | `0018_p07_platform_operations.sql` | 4 | 8 | 14 | Platform operations: staff principals, support grants, feature flags, kill switches. **14 triggers.** `organization_id` here is the CUSTOMER a staff principal acts on, not a caller scope. |
+| `0019_p08_migration_adoption.sql` | 4 | 10 | 3 | Migration adoption: workspace adoption state, stage events, remediation, and the published client-compatibility policy. `client_compatibility_policy` is the only class whose owner scope is Platform and whose sensitivity is Public. |

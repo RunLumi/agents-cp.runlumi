@@ -123,6 +123,33 @@ nothing reasons about, which is why the count is asserted and not merely observe
 | `secret` | Secret | Organization | `lifecycle` | Never | CryptoErase | None |
 | `operational_log` | Confidential | Platform | `baseline OperationalLog` | Never | PhysicalDelete | MetadataOnly |
 
+## P08 adoption classes
+
+Added by P08, which landed after this table was first generated — the drift test
+caught it on the first rebase, which is the only evidence that works.
+
+Two of these break a pattern the other 81 classes follow, and both are deliberate:
+
+- **`adoption_remediation` and `adoption_stage_event` are the only classes with an
+  explicit bounded window** (180 days) rather than a baseline or a lifecycle, and
+  the only ones with a *legal maximum below a year* (365). A migration remediation
+  that is neither resolved nor abandoned should not live forever, so it expires.
+- **`adoption_stage_event` is the only class deleted physically** rather than
+  tombstoned. A stage event is a transition with no content to preserve and no
+  referential role, so a tombstone would be a row that survives only to say
+  something was once deleted.
+
+`client_compatibility_policy` is the only class whose owner scope is **Platform**
+and whose sensitivity is **Public** — it is the published answer to "can this client
+talk to this control plane", so it must be readable and it is not tenant data.
+
+| Class | Sensitivity | Owner | Default retention | Export | Deletion | Logging |
+|---|---|---|---|---|---|---|
+| `adoption_remediation` | Internal | Organization | `bounded 180 days` (legal max 365) | MetadataOnly | Tombstone | MetadataOnly |
+| `adoption_stage_event` | Internal | Device | `bounded 180 days` (legal max 365) | MetadataOnly | **PhysicalDelete** | MetadataOnly |
+| `client_compatibility_policy` | Public | Platform | `lifecycle` | Included | Tombstone | MetadataOnly |
+| `workspace_adoption_state` | Internal | Organization | `lifecycle` | MetadataOnly | Tombstone | MetadataOnly |
+
 ## What this does not decide
 
 - **Upstream retention.** A BYOK credential does not imply zero retention at the
