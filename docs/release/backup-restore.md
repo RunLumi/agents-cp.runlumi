@@ -1,16 +1,95 @@
 # Backup and restore guide
 
-## The honest position first
+## The measured position
 
-**No automated backup-and-restore rehearsal has been performed.** There is no
-exported dump in this repository, no measured RPO, and no measured RTO. This document
-describes what a rehearsal would consist of and what the design guarantees and does
-not — it does not claim a number nobody measured. A launch deadline is not
-mitigation, and an invented RPO is worse than an absent one, because it is believed.
+**A rehearsal has now been run, and it passes.** `pnpm verify:restore` builds a
+populated D1 through `wrangler`, exports it with `wrangler d1 export`, restores the
+dump into an empty database, and verifies the result. The script is
+`apps/api/scripts/p09-restore-rehearsal.mjs`, it is re-runnable, and it is
+non-destructive: it moves your local D1 state aside and puts it back, which is tested.
 
-**Recommended posture for first release: do not launch until a rehearsal has been
-run and this section has been replaced with measured numbers.** The design below is
-what makes that rehearsal likely to succeed; it is not a substitute for it.
+| Step | Measured over 8 runs |
+|---|---|
+| export | 2.0 – 3.2 s (195 KiB dump) |
+| restore | 157 – 677 ms |
+| verify | 151 – 417 ms |
+| **RTO, recovery path** | **2.4 – 4.2 s, median ≈ 2.9 s** |
+| whole rehearsal, including building the fixture | 9 – 14 s |
+
+One cold run took 11.3 s, which is why the range is stated rather than a single figure.
+
+**What dominates the RTO is tooling startup, not the data.** Export is the largest step
+because `wrangler d1 export` starts a workerd process, and at 195 KiB the actual dump
+work is trivial. The restore is pure `sqlite3` replay and is the only step that will
+grow with database size — so on a production-shaped export the shape of this table
+inverts, and the extrapolation to per-megabyte cost is the restore's, not the export's.
+
+**These are not a production RTO, and the script says so in its own output.** The
+database measured is 195 KiB with two organizations. Every figure scales with size, and
+the restore step scales worst because it replays a text dump. What the rehearsal
+establishes is that **the path works and roughly what it costs per megabyte** — which
+is a real measurement, and is not the same claim as a production RTO.
+
+**RPO.** A logical export is a consistent point-in-time image, so nothing inside the
+snapshot is lost: 0 rows. The recoverable-loss window is the *interval between exports*,
+which is an operational decision, not a platform limit. D1 Time Travel is a separate
+mechanism and was **not** exercised here.
+
+## Why the verification step is the whole point
+
+The obvious rehearsal migrates a database, exports it, restores it, and compares row
+counts. That version proves almost nothing, because the failure that matters is a
+restore that **loads but whose triggers are missing** — a database that accepts a
+revoked credential being reactivated, because the trigger that refused it did not come
+back with the data. Every row is present, `integrity_check` says `ok`, and the counts
+match. Only an invariant suite can see it.
+
+So the verification step is the 125 storage invariants run against the **restored**
+file, using `P07_SCHEMA_DB` to make the harness skip migrations and the seed. That mode
+exists because of this line: every number the harness had ever produced came from the
+freshly-migrated path, which is structurally incapable of detecting a lossy restore.
+
+The rehearsal also asserts the failure directly, as a sequence, because the invariant
+is about what happens *after* a revoke:
+
+```
+revoke the seeded API key with a reason   -> accepted   (legal)
+then blank the reason                     -> refused    (the trigger survived)
+```
+
+## The rehearsal proves it can fail
+
+A verification step that has only ever printed PASS has not shown that it can fail —
+which is the confusion this repository spent two phases removing from its other
+verifiers. So step 6 of the script drops a trigger from a **copy** of the restored
+file and requires the suite to notice:
+
+```
+PASS  a restore missing a trigger is DETECTED
+      suite reported 123/125; failing: revoking a key without a reason is refused,
+      a blocked install without a reason is refused
+```
+
+The damaged copy has every row, a clean `integrity_check`, and matching row counts. It
+is not a database you could serve, and the suite says so. This runs **by default**;
+`--no-fault-injection` skips it, and nothing should.
+
+## How the script stays honest
+
+Four bugs in this rehearsal were reporting success while measuring nothing, and each is
+worth recording because each is the same shape as a bug found earlier in the phase:
+
+- `--emit-db` printed the destination path and wrote to the throwaway workdir file, so
+  it "succeeded" while producing a **zero-byte database**. A mode that reports success
+  and produces nothing is worse than a mode that fails.
+- The restore verdict tested the whole matched line against `^\d+/\d+$`, which a
+  **passing** run fails — so a correct restore was reported as a failed rehearsal. A
+  verdict check that inverts on success is worse than no verdict check.
+- The verify timer started *after* verification, reporting `verify 0 ms`. A fabricated
+  timing in the one document whose value is that its numbers are real.
+- The first version used the default `.wrangler/state`, so a second run inherited the
+  first run's rows and died on `UNIQUE constraint failed: users.email`. A rehearsal you
+  can only run once, in a clean checkout, is not one you can rely on.
 
 ## What backs up, and what it costs
 
@@ -46,85 +125,54 @@ append-only.
 4. **The idempotency table is bounded by TTL** and its sweep exists, so a restored
    snapshot does not carry an unbounded replay window.
 
-## The rehearsal
-
-Run this against a **production-shaped copy**, never production.
-
-### Preconditions
-
-- A D1 export from the live database (or Time Travel).
-- A scratch D1 database with the same name shape.
-- A scratch Worker deployment with `ENVIRONMENT` **not** `production`, so
-  `allow_local_provider_endpoints` stays off and the egress allowlist still applies.
-- The R2 bucket: do **not** copy it. Artifacts are 35-day-ephemeral; restoring a
-  stale artifact bucket is worse than having none, because a download grant that
-  resolves to a missing key must fail closed, and a stale bucket makes that harder
-  to test.
-
-### Procedure
+## Running it
 
 ```bash
-# 1. Establish the baseline you are measuring against.
-NOW_BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-# 2. Export D1.
-wrangler d1 export lumi-agents-control-plane --remote --output backup.sql
-
-# 3. Apply the SAME migrations to the scratch database, in order.
-for m in apps/api/migrations/*.sql; do
-  echo "applying $m"
-  sqlite3 scratch.db < "$m"
-done
-
-# 4. Load the snapshot.
-sqlite3 scratch.db < backup.sql
-
-# 5. Verify the invariants still hold. This is the real test: a restored database
-#    that violates a terminal-state trigger is a database you cannot serve.
-node apps/api/scripts/p07-schema-invariants.mjs
+pnpm verify:restore              # the whole thing, ~12 s
+pnpm verify:restore -- --keep    # leave the dump and the restored file for inspection
 ```
 
-The last step is the one that matters and the one most likely to be skipped. It
-proves **97 behaviours are refused by the restored database**, not just by the code
-that wrote it. A restore that loads but whose triggers are missing is the failure
-mode this catches.
+It needs `wrangler` (a devDependency of `apps/api`) and nothing else — no Cloudflare
+account, no remote database. Everything runs against `--local`.
 
-### What to record
+What it does, in order:
 
-| Metric | How |
+1. `wrangler d1 migrations apply DB --local` — all 20 migrations, through wrangler.
+2. `wrangler d1 execute DB --local --file seed.sql` — the harness's own fixture, handed
+   over as SQL so the rehearsal's data and its verification cannot drift apart.
+3. `wrangler d1 export DB --local --output backup.sql` — the real export path.
+4. `sqlite3 restored.db < backup.sql` — restore into an empty database.
+5. Six checks, then the fault injection.
+
+The checks:
+
+| Check | What it catches |
 |---|---|
-| **RPO** | `NOW_BEFORE` minus the newest `occurred_at` in `outbox_events`. This is the real data loss window. |
-| **RTO — export** | Wall time of the `d1 export`. |
-| **RTO — restore** | Wall time of apply + load. |
-| **RTO — verify** | Wall time of the invariant run. It is part of recovery, not a luxury. |
-| **RTO — total** | The sum. This is the number to put in an SLA, and it is the number nobody has. |
-| **Integrity** | 97/97 invariants. Anything less is a failed restore. |
+| the restored database carries its schema | a dump that lost DDL |
+| `PRAGMA integrity_check` is clean | a truncated or corrupt dump |
+| `PRAGMA foreign_key_check` is empty | orphans the restore introduced |
+| every table has the same row count as the live source | rows silently dropped |
+| **the 125 invariants pass against the restored file** | **a trigger that did not come back** |
+| a revoked key's reason cannot be blanked | the same, asserted directly |
 
-### Verify the invariants that matter most
+The row-count comparison is against the **live source**, read from the local D1 file,
+not against a remembered number — so a seed change cannot make it quietly wrong. (It
+reads the file for counting only; wrangler still builds the database and still performs
+the export, which is the part that has to match production.)
 
-```sql
--- A revoked credential must still be revoked, with its reason.
-SELECT COUNT(*) FROM api_keys
- WHERE status = 'revoked' AND (revoke_reason IS NULL OR revoke_reason = '');
--- Expected: 0. A non-zero result means the restore lost a trigger.
+### What is still unmeasured
 
--- A lifted kill switch must still be lifted.
-SELECT COUNT(*) FROM kill_switches
- WHERE state = 'lifted' AND lift_reason IS NULL;
--- Expected: 0.
+The rehearsal fills in the numbers that were placeholders. These remain open, and each
+says what it would take:
 
--- A revoked grant must still be revoked, with its reason.
-SELECT COUNT(*) FROM support_grants
- WHERE revoked_at IS NOT NULL AND (revoke_reason IS NULL OR revoke_reason = '');
--- Expected: 0.
-
--- A cost record must be immutable. If this UPDATE succeeds, the triggers are gone.
--- Run it inside a transaction you roll back.
-BEGIN;
-  UPDATE usage_events SET estimated_cost_minor = 0 WHERE rowid = (SELECT MIN(rowid) FROM usage_events);
-ROLLBACK;
--- Expected: the UPDATE must FAIL.
-```
+| Still unknown | Why | What it would take |
+|---|---|---|
+| **Production RTO** | The measured database is 195 KiB. Timings scale with size, and the restore scales worst. | Re-run against a production-shaped export, or extrapolate per MB and say that is what you did |
+| **Export interval, and therefore real RPO** | An operational decision, not a platform property | Pick a cadence, and note that RPO equals it |
+| **D1 Time Travel** | A separate mechanism from a logical export, not exercised here | A `--remote` Time Travel restore into a scratch database |
+| **`wrangler d1 export --remote`** | Needs a Cloudflare account and a real database | One run against a non-production remote D1 |
+| **R2 restore** | Deliberately excluded; artifacts are 35-day-ephemeral and a stale bucket is worse than none | A bucket-level restore, once there is a bucket worth restoring |
+| **Restore under load** | The export is a consistent snapshot, but its effect on production latency is unmeasured | A staging run with traffic |
 
 ## Restore order, if the database is restored but the Worker is not
 
@@ -157,14 +205,15 @@ copy of the row survives anywhere, and it should not be represented as such.
 
 ## Known gaps in this document
 
-- **No measured RPO or RTO.** See the top of this file. This is the single largest
-  operational gap in the P09 evidence.
-- **No rehearsal has been run.** The procedure above is written to be run, not
-  reported as having been run.
+- **The RTO is for a 195 KiB database, not production.** Stated at the top and printed
+  by the script itself. Re-run against a production-shaped export before quoting a
+  number to anyone.
+- **Time Travel and `--remote` export are unexercised.** Both need a Cloudflare
+  account. The logical-export path is proven; the platform's own point-in-time
+  mechanism is not.
 - **R2 restore is not covered.** Deliberately — artifacts are 35-day-ephemeral, and a
   stale artifact bucket is worse than none. The failure mode (a grant whose key is
   absent) is asserted to fail closed in the R2 failure-injection tests, but a
   bucket-level restore has not been rehearsed.
-- **D1 Time Travel retention is not asserted here.** It is a platform property and
-  changes; confirm it against the account's actual configuration rather than
-  assuming Cloudflare's default.
+- **The fixture is two organizations.** The invariants are what prove the restore, not
+  the row count, but a larger dataset would also exercise the export's own limits.

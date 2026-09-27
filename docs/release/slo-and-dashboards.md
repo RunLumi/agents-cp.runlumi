@@ -178,7 +178,7 @@ publishing an SLO you have never measured is how you end up paging on noise.
 | Money correctness | **100%** | A wrong charge is a customer incident and is immutable by design. There is no acceptable rate |
 | Queue lag (p99) | < 60s | The cron is every minute, so a minute is the natural quantum |
 | Dead-letter rate | < 0.1% of jobs | Anything higher is a product problem, not an infra one |
-| Restore time | **Unknown** | Not proposed, because no rehearsal has been run. See `backup-restore.md` |
+| Restore time | **2.4–4.2 s for 195 KiB** (median ≈2.9 s) | Measured by `pnpm verify:restore` over 8 runs. Dominated by tooling startup at this size; scales with database size. See `backup-restore.md` before quoting it as an SLO |
 
 The two 100% rows are deliberately not 99.9%. They are the two places where "almost"
 is not a category — and both are enforced structurally rather than by monitoring:

@@ -23,7 +23,8 @@
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm rust:check",
     "ui:add": "pnpm --filter @runlumi/agents-cp-web ui:add",
     "schema:null-check": "node apps/api/scripts/p09-null-check-scan.mjs",
-    "verify:mutation": "node apps/api/scripts/p09-mutation-campaign.mjs"
+    "verify:mutation": "node apps/api/scripts/p09-mutation-campaign.mjs",
+    "verify:restore": "node apps/api/scripts/p09-restore-rehearsal.mjs"
   },
   "devDependencies": {
     "oxfmt": "0.70.0",

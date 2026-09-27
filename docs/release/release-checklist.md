@@ -133,10 +133,17 @@ Worker died an hour ago".
 | Provider kill switch | Disabling a provider or narrowing its route; `LUMI_PROVIDER_ALLOWLIST` is operator-owned, exact-host, empty by default | `core/egress.rs` + the corpus |
 | Client compatibility window | Additive-within-`v1`; the app and API ship together; decoders are allowlists | `compatibility-matrix.md` |
 
-**The rollback that was not tested:** a real restore rehearsal. `backup-restore.md`
-describes the procedure and states plainly that no RPO or RTO has been measured. The
-design makes a restore likely to succeed — FK cascades, latched terminal states,
-append-only cost records — but a design argument is not a rehearsal.
+**The restore rehearsal has now been run** (`pnpm verify:restore`), which is what this
+gate was missing. The load-bearing check is not the row counts: it is the 125 storage
+invariants run against the **restored** file, because the failure that matters is a
+restore that loads but whose triggers are missing — every row present, `integrity_check`
+clean, counts matching, and a database that will accept a revoked credential being
+reactivated. The script proves it can detect that by dropping a trigger from a copy and
+requiring the suite to fail (123/125).
+
+Still unexercised, and named in `backup-restore.md`: production-scale timings, D1 Time
+Travel, `d1 export --remote`, and R2. All four need a Cloudflare account or a
+production-shaped dataset.
 
 ## Rollout
 
@@ -153,13 +160,13 @@ append-only cost records — but a design argument is not a rehearsal.
 5. **Roll back** on any unexplained error-rate step. It is a version rollback, not a
    migration reversal.
 
-## The follow-ups, named
+## The follow-ups
 
-Not release-blocking, and each with an owner-shaped next action.
+**#1 is done** — see the table. The rest are not release-blocking, and each has an owner-shaped next action.
 
 | # | Follow-up | Why it is not blocking |
 |---|---|---|
-| 1 | **Backup/restore rehearsal.** No measured RPO or RTO. | The design is sound and the invariant harness is the verification step; what is missing is the run, not the mechanism. **Do this first.** |
+| 1 | ~~**Backup/restore rehearsal.**~~ **DONE.** `pnpm verify:restore` runs it: export 2.0–3.2 s, restore 157–677 ms, verify 151–417 ms, RTO 2.4–4.2 s (median ≈2.9 s) for a 195 KiB database. Six checks, and step 6 drops a trigger from a copy of the restored file and requires the suite to notice (123/125, detected). | Closed. The numbers are **not** a production RTO and the script says so in its own output — they establish the path works and roughly what it costs per MB. Time Travel and `--remote` export still need an account. |
 | 2 | **A browser pass** over every surface at desktop and narrow widths, with focus and async states. P06, P07, and P09 all carry this. | Async states are unit-tested and a keyboard trap was found and fixed; nothing is *believed* broken. |
 | 3 | **Staging deploy** to measure LCP/INP/CLS, Worker p50/p95, D1 latency, TTFT, and fallback latency. | The bundle budgets are measured and gated; the field metrics are unknown, not regressed. |
 | 4 | **A metrics pipeline** — `logpush`, alerts on the eight stable codes, a dashboard for the eight queries in `slo-and-dashboards.md`. | Every query an operator needs runs today against D1. What is missing is a place to look at them. |
