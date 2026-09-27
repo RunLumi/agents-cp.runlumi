@@ -102,7 +102,8 @@ const MACHINE_WIRE_CANARY: &str = "lumik_ca4ac1e70000_c4n4ryS3cr3tCanaryHalfNoBo
 
 /// The argon2id encoded form, with real parameters so it would survive a real
 /// KDF. Only the SHAPE matters here; no test verifies a password against it.
-const ARGON2_CANARY: &str = "$argon2id$v=19$m=65536,t=3,p=4$c2Fub3J5c2FsdA$Y2FuYXJ5Q2FuYXJ5Q2FuYXJ5Q2FuYXJ5Q2FuYXJ5Q2E";
+const ARGON2_CANARY: &str =
+    "$argon2id$v=19$m=65536,t=3,p=4$c2Fub3J5c2FsdA$Y2FuYXJ5Q2FuYXJ5Q2FuYXJ5Q2FuYXJ5Q2FuYXJ5Q2E";
 
 /// An OpenAI/Anthropic-shaped provider credential. The provider adapter adds it
 /// to an outbound header, so the canary asserts it never reaches a rendering.
@@ -198,7 +199,10 @@ fn the_canary_detector_itself_detects() {
     );
     // And the negative form, so the positive control above is not the only thing
     // keeping the helper honest.
-    assert_no_canary("a clean rendering", "ApiKeyRecord { key_prefix: \"0123456789ab\" }");
+    assert_no_canary(
+        "a clean rendering",
+        "ApiKeyRecord { key_prefix: \"0123456789ab\" }",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +211,7 @@ fn the_canary_detector_itself_detects() {
 
 #[test]
 fn a_machine_credential_is_invisible_in_debug_and_display() {
-    use crate::core::{MachineKey, MachineKeyMaterial, MachineActor};
+    use crate::core::{MachineActor, MachineKey, MachineKeyMaterial};
 
     // The parsed wire form. `parse` is the only constructor, so a canary that
     // survives it is a canary that really reached the type.
@@ -330,7 +334,10 @@ fn a_stored_api_key_never_reaches_debug_or_a_read_projection() {
         .iter()
         .filter(|(_, value)| value.as_str() == Some(MACHINE_WIRE_CANARY))
         .count();
-    assert_eq!(secret_values, 1, "the secret appears under more than one field");
+    assert_eq!(
+        secret_values, 1,
+        "the secret appears under more than one field"
+    );
 
     let account = ServiceAccountRecord {
         service_account_id: ACCOUNT.to_owned(),
@@ -420,8 +427,8 @@ fn a_license_signing_secret_is_invisible_in_debug() {
     // `from_env_value` checks the shape and the length, not that the key is a
     // real key, which is all a canary needs.
     let der = "Q0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZQ0FOQVJZ";
-    let secret =
-        LicenseSigningSecret::from_env_value(&format!("ca4ac1e70000:{der}")).expect("canary key shape");
+    let secret = LicenseSigningSecret::from_env_value(&format!("ca4ac1e70000:{der}"))
+        .expect("canary key shape");
     let debug = format!("{secret:?}");
     assert_no_canary("LicenseSigningSecret Debug", &debug);
     // The advertised key id is public metadata: a client needs it to pick a
@@ -456,7 +463,10 @@ fn a_stored_password_hash_is_invisible_in_debug() {
     );
     // The KDF COST parameters are not secret and an operator diagnosing a login
     // failure needs them, so they must survive the redaction.
-    assert!(debug.contains("65536"), "the redaction became total: {debug}");
+    assert!(
+        debug.contains("65536"),
+        "the redaction became total: {debug}"
+    );
 
     let credential = PasswordCredential {
         user_id: USER.to_owned(),
@@ -653,7 +663,10 @@ fn an_export_object_key_and_download_grant_are_invisible_in_debug() {
     // has to redact for itself.
     let key = build_object_key(USER, "exp_0123456789abcdef0123456789abcdef", HASH_CANARY)
         .expect("the canary object key is a valid shape");
-    assert!(key.as_str().contains(HASH_CANARY), "the canary really built");
+    assert!(
+        key.as_str().contains(HASH_CANARY),
+        "the canary really built"
+    );
     assert_no_canary("ObjectKey Debug", &format!("{key:?}"));
     // `Display` is the bucket-API call and is deliberately not redacted, so the
     // canary asserts the *Debug* surface only. Asserting Display here would fail
@@ -664,12 +677,15 @@ fn an_export_object_key_and_download_grant_are_invisible_in_debug() {
         key: OBJECT_KEY_CANARY.to_owned(),
         size_bytes: 4_096,
         etag: "9f".repeat(32),
-        sha256_hex: Some(HASH_CANARY.to_owned()),
+        // R2's integrity digest of the stored bytes. Published in
+        // `ArtifactHead` for the same reason, so it is deliberately not a canary:
+        // the canary below tests the KEY, which is the capability.
+        sha256_hex: Some("7d1e".repeat(16)),
     };
     let debug = format!("{stored:?}");
     assert!(
-        !debug.contains(HASH_CANARY),
-        "StoredObject Debug leaked the object key or its digest: {debug}"
+        !debug.contains(OBJECT_KEY_CANARY),
+        "StoredObject Debug leaked the R2 object key: {debug}"
     );
 
     let artifact = ExportArtifactRecord {
@@ -680,7 +696,7 @@ fn an_export_object_key_and_download_grant_are_invisible_in_debug() {
         bucket_name: "lumi-exports".to_owned(),
         content_type: "application/zip".to_owned(),
         size_bytes: Some(4_096),
-        checksum_sha256: Some(HASH_CANARY.to_owned()),
+        checksum_sha256: Some("5a2b".repeat(16)),
         created_at: NOW.to_owned(),
         expires_at: LATER.to_owned(),
         deleted_at: None,
@@ -744,7 +760,11 @@ fn a_webhook_secret_and_delivery_body_are_invisible_in_debug() {
         event_id: "evt_0123456789abcdef0123456789abcdef".to_owned(),
         event_type: "foundation.check.requested.v1".to_owned(),
         body: TEXT_CANARY.to_owned(),
-        body_hash: HASH_CANARY.to_owned(),
+        // A digest of the metadata-only delivery body, not a credential: it is
+        // how two deliveries are told apart, and `WebhookDeliveryRecord::fmt`
+        // publishes it deliberately. Deliberately NOT a canary, so the canary
+        // below tests the body rather than the digest.
+        body_hash: "3b8f".repeat(16),
         secret_version_id: "whs_0123456789abcdef0123456789abcdef".to_owned(),
         signature_key_id: "sig_0123456789abcdef0123456789abcdef".to_owned(),
         state: "pending".to_owned(),
@@ -798,11 +818,17 @@ fn an_event_payload_and_a_queue_payload_are_invisible_in_debug() {
     use crate::core::{ActorContext, EventEnvelope, EventType};
 
     let mut event = EventEnvelope {
-        event_id: "evt_0123456789abcdef0123456789abcdef".parse().expect("event id"),
+        event_id: "evt_0123456789abcdef0123456789abcdef"
+            .parse()
+            .expect("event id"),
         event_type: EventType::new("foundation.check.requested.v1").expect("event type"),
         occurred_at: NOW.parse().expect("timestamp"),
-        request_id: "req_0123456789abcdef0123456789abcdef".parse().expect("request id"),
-        correlation_id: "req_0123456789abcdef0123456789abcdef".parse().expect("correlation id"),
+        request_id: "req_0123456789abcdef0123456789abcdef"
+            .parse()
+            .expect("request id"),
+        correlation_id: "req_0123456789abcdef0123456789abcdef"
+            .parse()
+            .expect("correlation id"),
         actor: ActorContext::anonymous(),
         organization_id: None,
         payload: json!({ "note": TEXT_CANARY, "token": SESSION_TOKEN_CANARY }),
@@ -816,10 +842,10 @@ fn an_event_payload_and_a_queue_payload_are_invisible_in_debug() {
 
     // The tenant scope is itself redacted, so a `Debug` cannot name the org.
     event.organization_id = Some(ORG.parse().expect("organization id"));
+    let debug = format!("{event:?}");
     assert!(
-        !format!("{event:?}").contains(ORG),
-        "EventEnvelope Debug named the organization: {}",
-        format!("{event:?}")
+        !debug.contains(ORG),
+        "EventEnvelope Debug named the organization: {debug}"
     );
 
     // `QueueJobEnvelope` is deserialized here rather than built with a struct
@@ -855,9 +881,18 @@ fn an_api_error_detail_payload_is_invisible_in_debug() {
     // in the error surface that can hold anything a handler chose to put there.
     // The `Debug` redaction is what stops a rejected request body from reaching a
     // log through an error report.
-    let error = ApiError::new(ApiErrorCode::BadRequest, "bad", "req_0123456789abcdef0123456789abcdef".parse().expect("request id"))
-        .with_detail("input", json!({ "password": ARGON2_CANARY, "token": SESSION_TOKEN_CANARY }))
-        .with_detail("body", json!(TEXT_CANARY));
+    let error = ApiError::new(
+        ApiErrorCode::BadRequest,
+        "bad",
+        "req_0123456789abcdef0123456789abcdef"
+            .parse()
+            .expect("request id"),
+    )
+    .with_detail(
+        "input",
+        json!({ "password": ARGON2_CANARY, "token": SESSION_TOKEN_CANARY }),
+    )
+    .with_detail("body", json!(TEXT_CANARY));
     assert_no_canary("ApiError Debug", &format!("{error:?}"));
     assert_no_canary("ApiErrorBody Debug", &format!("{:?}", error.error));
 
@@ -906,7 +941,11 @@ fn a_provider_upstream_body_is_never_echoed() {
     let source = fs::read_to_string(crate_src().join("adapters").join("providers.rs"))
         .expect("a readable provider adapter source file");
     let production = without_test_regions(&source);
-    for forbidden in ["fn build_request", "struct OutboundRequest", "credential: Option<String>"] {
+    for forbidden in [
+        "fn build_request",
+        "struct OutboundRequest",
+        "credential: Option<String>",
+    ] {
         assert!(
             !production.contains(forbidden),
             "the provider adapter grew {forbidden:?}, which could retain a credential"
@@ -1072,55 +1111,141 @@ const SECRET_FIELDS: &[&str] = &[
     "authenticator_data",
 ];
 
+/// Why a transport DTO holding a secret may keep `derive(Debug)`.
+///
+/// One explanation, referenced by the entries below rather than restated
+/// fifteen times, because fifteen restatements drift apart and a drifted
+/// explanation is worse than none.
+///
+/// A request body reaches `Debug` only if some code formats it. Axum does not: a
+/// `Json<T>` rejection becomes a framework response whose body
+/// (`Failed to deserialize the JSON body into the target type: ...`) is REPLACED
+/// by `http::middleware::request_boundary` with the stable `{ "error": ... }`
+/// envelope, and `routes::errors::for_status` builds that envelope from a fixed
+/// table of codes and messages. `http::middleware`'s own test
+/// `route_and_method_failures_are_normalized_without_leaking_framework_text`
+/// pins the replacement, and it asserts that a handler's
+/// `"secret diagnostic text"` does not survive — so a serde message that quoted a
+/// submitted password cannot reach a client, a proxy log, or an operator.
+///
+/// A response envelope carrying a secret is a different case and is NOT covered by
+/// the argument above: the value is in the body by contract, because the endpoint
+/// exists to return it, exactly once. Those entries say so individually.
+const TRANSPORT_DTO: &str = "axum transport DTO, never formatted. See TRANSPORT_DTO above.";
+
 /// The structs that hold a secret-named field and still derive `Debug`.
 ///
-/// Every entry is a transport DTO — an axum request body, a response envelope,
-/// or a catalog metadata type — that is never formatted, plus a reason. The list
-/// is the *reviewed* set: adding to it is a decision, and the count is asserted
-/// so it cannot grow quietly.
+/// Every entry is a transport DTO, a public-material type, or a bounded code
+/// newtype, and every entry has a reason. The list is the *reviewed* set: adding
+/// to it is a decision, and [`derived_debug_never_reaches_a_secret`] asserts the
+/// count and checks every entry for rot.
 const REVIEWED_DERIVED_DEBUG: &[(&str, &str, &str)] = &[
+    // -- axum request bodies ---------------------------------------------------
+    ("routes/auth.rs", "VerifyRequest", TRANSPORT_DTO),
+    ("routes/auth.rs", "LoginCompleteRequest", TRANSPORT_DTO),
+    ("routes/auth.rs", "LinkIdentityRequest", TRANSPORT_DTO),
+    ("routes/auth.rs", "LinkIdentityStartRequest", TRANSPORT_DTO),
     (
         "routes/authenticators.rs",
         "PasswordSignupRequest",
-        "axum request body. Never formatted: the request boundary replaces every \
-         framework rejection body with the stable error envelope, so a serde \
-         message containing the value cannot reach a client or a log.",
+        TRANSPORT_DTO,
     ),
     (
         "routes/authenticators.rs",
         "PasswordLoginRequest",
-        "axum request body. See PasswordSignupRequest.",
+        TRANSPORT_DTO,
     ),
     (
         "routes/authenticators.rs",
         "PasswordResetRequest",
-        "axum request body. Carries both a recovery code and a new password.",
+        "axum transport DTO, never formatted. Carries BOTH a recovery code and a \
+         new password, so it is the single most sensitive body in the API — see \
+         TRANSPORT_DTO above for why that is nonetheless not a `Debug`.",
     ),
     (
         "routes/authenticators.rs",
         "PasswordAccountRequest",
-        "axum request body. See PasswordSignupRequest.",
+        TRANSPORT_DTO,
     ),
     (
         "routes/authenticators.rs",
         "ReauthPasswordRequest",
-        "axum request body. See PasswordSignupRequest.",
+        TRANSPORT_DTO,
+    ),
+    (
+        "routes/authenticators.rs",
+        "ReauthCredentialRequest",
+        TRANSPORT_DTO,
+    ),
+    (
+        "routes/authenticators.rs",
+        "PasskeyAddStartRequest",
+        TRANSPORT_DTO,
+    ),
+    (
+        "routes/authenticators.rs",
+        "PasskeyLabelRequest",
+        TRANSPORT_DTO,
+    ),
+    (
+        "routes/authenticators.rs",
+        "PasskeyCompleteRequest",
+        "axum transport DTO. `credential` is a WebAuthn `RegistrationResponse`: \
+         attestation material the browser signs and the platform verifies. Public \
+         by construction.",
+    ),
+    (
+        "routes/authenticators.rs",
+        "PasskeyLoginCompleteRequest",
+        "axum transport DTO. `credential` is a WebAuthn `AuthenticationResponse`. \
+         Public by construction.",
     ),
     (
         "routes/organizations.rs",
         "AcceptInviteRequest",
-        "axum request body carrying the invitation token.",
+        "axum transport DTO carrying the invitation token.",
+    ),
+    (
+        "routes/organizations.rs",
+        "TransferOwnershipRequest",
+        "axum transport DTO carrying a one-time reauthentication grant token.",
+    ),
+    (
+        "routes/organizations.rs",
+        "LifecycleRequest",
+        "axum transport DTO carrying a one-time reauthentication grant token.",
+    ),
+    (
+        "routes/billing.rs",
+        "PortalSessionRequestBody",
+        "axum transport DTO carrying a one-time reauthentication grant token.",
     ),
     (
         "routes/data_governance.rs",
         "DownloadRequest",
-        "axum request body carrying an export download grant token.",
+        "axum transport DTO carrying an export download grant token.",
+    ),
+    (
+        "routes/data_governance.rs",
+        "CreatePersonalExportRequest",
+        "axum transport DTO carrying a one-time reauthentication grant token.",
+    ),
+    (
+        "routes/data_governance.rs",
+        "CreatePersonalDeletionRequest",
+        "axum transport DTO carrying a one-time reauthentication grant token.",
+    ),
+    (
+        "routes/data_governance.rs",
+        "CancelPersonalDeletionRequest",
+        "axum transport DTO carrying a one-time reauthentication grant token.",
     ),
     (
         "routes/device_auth.rs",
         "ExchangeDeviceRequest",
-        "axum request body carrying the PKCE code verifier.",
+        "axum transport DTO carrying the PKCE code verifier.",
     ),
+    // -- response envelopes: the value is the payload --------------------------
     (
         "routes/account.rs",
         "ReauthResponse",
@@ -1144,6 +1269,23 @@ const REVIEWED_DERIVED_DEBUG: &[(&str, &str, &str)] = &[
         "NonceResponse",
         "Response envelope. The nonce is the anti-replay value this endpoint \
          exists to return.",
+    ),
+    (
+        "routes/authenticators.rs",
+        "CeremonyStartResponse",
+        "Response envelope carrying the WebAuthn CHALLENGE, which the browser must \
+         receive in order to sign it.",
+    ),
+    // -- public material -------------------------------------------------------
+    (
+        "adapters/webauthn.rs",
+        "RegistrationOptions",
+        "Challenge options the browser must receive, keyed by the ceremony id.",
+    ),
+    (
+        "adapters/webauthn.rs",
+        "AuthenticationOptions",
+        "Challenge options the browser must receive, keyed by the ceremony id.",
     ),
     (
         "adapters/webauthn.rs",
@@ -1190,16 +1332,8 @@ const REVIEWED_DERIVED_DEBUG: &[(&str, &str, &str)] = &[
         "ToolListEntry",
         "Client projection of ToolDefinition. See modules/tool_policy.rs.",
     ),
-    (
-        "routes/tools.rs",
-        "CreateToolRequest",
-        "axum request body carrying a tool content fingerprint.",
-    ),
-    (
-        "routes/tools.rs",
-        "UpdateToolRequest",
-        "axum request body carrying a tool content fingerprint.",
-    ),
+    ("routes/tools.rs", "CreateToolRequest", TRANSPORT_DTO),
+    ("routes/tools.rs", "UpdateToolRequest", TRANSPORT_DTO),
     (
         "modules/credentials.rs",
         "CredentialHandle",
@@ -1251,23 +1385,16 @@ const REVIEWED_DERIVED_DEBUG: &[(&str, &str, &str)] = &[
     (
         "routes/devices.rs",
         "BeginEnrollmentRequest",
-        "axum request body carrying a device PUBLIC key.",
+        "axum transport DTO carrying a device PUBLIC key.",
     ),
+    // -- bounded code vocabularies ---------------------------------------------
     (
-        "routes/authenticators.rs",
-        "CeremonyStartResponse",
-        "Response envelope carrying the WebAuthn CHALLENGE, which the browser \
-         must receive in order to sign it.",
-    ),
-    (
-        "adapters/webauthn.rs",
-        "RegistrationOptions",
-        "Challenge options the browser must receive.",
-    ),
-    (
-        "adapters/webauthn.rs",
-        "AuthenticationOptions",
-        "Challenge options the browser must receive.",
+        "modules/outbox/consumer.rs",
+        "HandlerFailure",
+        "`code` is a `FailureCode`, a newtype whose constructor rejects anything \
+         outside a stable snake_case vocabulary. It is an error classification, \
+         not a credential; the name-based scan cannot see the type, which is the \
+         one limitation this list exists to absorb.",
     ),
 ];
 
@@ -1298,11 +1425,21 @@ struct StructFact {
     name: String,
     derives: Vec<String>,
     fields: Vec<String>,
+    /// For a tuple struct, the single inner type, lowercased. `None` for a
+    /// struct with named fields.
+    tuple: Option<String>,
 }
 
 impl StructFact {
     fn derives_debug(&self) -> bool {
         self.derives.iter().any(|item| item == "Debug")
+    }
+
+    /// A newtype wrapping an opaque `String`: there is no field NAME for
+    /// [`SECRET_FIELDS`] to match, so a name-based scan is blind to it. This is
+    /// why [`every_opaque_string_newtype_is_accounted_for`] exists.
+    fn is_opaque_string_newtype(&self) -> bool {
+        matches!(self.tuple.as_deref(), Some("string"))
     }
 
     /// The secret-named fields this struct holds, in declaration order.
@@ -1409,23 +1546,20 @@ fn parse_structs(source: &str, file: &str) -> Vec<StructFact> {
                 {
                     tuple = Some(body[open + 1..close].trim().to_ascii_lowercase());
                 }
-            } else if started {
-                if let Some(field) = body
+            } else if started
+                && let Some(field) = body
                     .trim()
                     .strip_prefix("pub ")
                     .and_then(|rest| rest.split(':').next())
                     .or_else(|| body.trim().split(':').next())
+            {
+                let cleaned: String = field
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !cleaned.is_empty() && body.contains(':') && !body.trim_start().starts_with("//")
                 {
-                    let cleaned: String = field
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
-                    if !cleaned.is_empty()
-                        && body.contains(':')
-                        && !body.trim_start().starts_with("//")
-                    {
-                        fields.push(cleaned);
-                    }
+                    fields.push(cleaned);
                 }
             }
             if started && depth == 0 {
@@ -1452,13 +1586,21 @@ fn every_struct() -> Vec<StructFact> {
         if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
             return;
         }
-        let source = fs::read_to_string(path).expect("a readable source file");
-        let relative = path
+        let relative_path = path
             .strip_prefix(&root)
             .expect("the path is under src")
             .to_string_lossy()
             .replace('\\', "/");
-        facts.extend(parse_structs(&source, &relative));
+        if relative_path.starts_with("security/") {
+            // The audit modules hold SYNTHETIC source as string literals — a
+            // planted `struct ... { encoded_hash: String }` is a test fixture, not
+            // a type. Scanning them would report the fixture as an offence and
+            // would be impossible to satisfy. They are also `#![cfg(test)]`, so
+            // they hold no production type worth auditing.
+            return;
+        }
+        let source = fs::read_to_string(path).expect("a readable source file");
+        facts.extend(parse_structs(&source, &relative_path));
     });
     facts
 }
@@ -1485,11 +1627,18 @@ pub struct PlantedHarmlessRecord {
 }
 "#;
     let facts = parse_structs(planted, "planted.rs");
-    assert_eq!(facts.len(), 2, "the scanner stopped seeing structs: {facts:?}");
+    assert_eq!(
+        facts.len(),
+        2,
+        "the scanner stopped seeing structs: {facts:?}"
+    );
 
     let secret = &facts[0];
     assert_eq!(secret.name, "PlantedSecretRecord");
-    assert!(secret.derives_debug(), "the scanner stopped reading derives");
+    assert!(
+        secret.derives_debug(),
+        "the scanner stopped reading derives"
+    );
     assert_eq!(
         secret.secret_fields(),
         vec!["encoded_hash"],
@@ -1518,7 +1667,13 @@ fn the_field_registry_still_catches_a_planted_name() {
         SECRET_FIELDS.len(),
         "the registry has a duplicate, so one name is counted twice"
     );
-    for expected in ["secret_hash", "encoded_hash", "token_hash", "fingerprint", "object_key"] {
+    for expected in [
+        "secret_hash",
+        "encoded_hash",
+        "token_hash",
+        "fingerprint",
+        "object_key",
+    ] {
         assert!(
             SECRET_FIELDS.contains(&expected),
             "{expected} left the registry, which is the one list that must not shrink"
@@ -1586,9 +1741,9 @@ fn derived_debug_never_reaches_a_secret() {
             .find(|fact| fact.file == *file && fact.name == *name)
         {
             None => stale.push(format!("{file}::{name} no longer exists")),
-            Some(fact) if !fact.derives_debug() => {
-                stale.push(format!("{file}::{name} no longer derives Debug; delete the entry"))
-            }
+            Some(fact) if !fact.derives_debug() => stale.push(format!(
+                "{file}::{name} no longer derives Debug; delete the entry"
+            )),
             Some(fact) if fact.secret_fields().is_empty() => stale.push(format!(
                 "{file}::{name} no longer holds a secret-named field; delete the entry"
             )),
@@ -1611,11 +1766,112 @@ fn derived_debug_never_reaches_a_secret() {
     );
 }
 
+/// The `struct Name(String)` newtypes, split by what the inner `String` holds.
+///
+/// A newtype over a `String` has no field NAME, so [`SECRET_FIELDS`] cannot see
+/// it at all — which makes these the types a name-based scan is most likely to
+/// miss, and they include the most dangerous ones in the workspace
+/// (`MachineKey`-adjacent digests, the idempotency key, the pagination cursor).
+///
+/// Each entry therefore has to be classified, and every `Secret` or `Personal`
+/// entry additionally has to be named in a runtime canary above. That is the
+/// compensating check for the blind spot, and it is mechanical: this test reads
+/// this file's own source and asserts the name appears.
+const REVIEWED_STRING_NEWTYPES: &[(&str, &str, &str)] = &[
+    ("adapters/r2/artifacts.rs", "ObjectKey", "Secret"),
+    ("core/timestamp.rs", "Timestamp", "Public"),
+    ("core/pagination.rs", "Cursor", "Secret"),
+    ("core/event.rs", "EventType", "Public"),
+    ("core/idempotency.rs", "IdempotencyKey", "Secret"),
+    ("core/idempotency.rs", "IdempotencyKeyDigest", "Secret"),
+    ("core/idempotency.rs", "RequestFingerprint", "Secret"),
+    ("core/identifiers.rs", "ResourceId", "Public"),
+    ("core/identifiers.rs", "ActorId", "Public"),
+    ("core/identifiers.rs", "CorrelationId", "Public"),
+    (
+        "repositories/idempotency.rs",
+        "IdempotencyClaimToken",
+        "Secret",
+    ),
+    ("modules/identity.rs", "NormalizedEmail", "Personal"),
+    ("modules/outbox/types.rs", "FailureCode", "Public"),
+    ("modules/entitlements/keys.rs", "EntitlementKey", "Public"),
+    ("modules/automations/schedule.rs", "TimezoneId", "Public"),
+    ("modules/data_governance/registry.rs", "DataClass", "Public"),
+    (
+        "modules/p07_fixture_tests.rs",
+        "OrganizationIdLike",
+        "TestOnly",
+    ),
+];
+
+#[test]
+fn every_opaque_string_newtype_is_accounted_for() {
+    let facts = every_struct();
+    let found: BTreeSet<(&str, &str)> = facts
+        .iter()
+        .filter(|fact| fact.is_opaque_string_newtype())
+        .map(|fact| (fact.file.as_str(), fact.name.as_str()))
+        .collect();
+    assert!(
+        found.len() > 10,
+        "only {} opaque String newtypes were found; the tuple-struct parse probably broke",
+        found.len()
+    );
+
+    let reviewed: BTreeSet<(&str, &str)> = REVIEWED_STRING_NEWTYPES
+        .iter()
+        .map(|(file, name, _)| (*file, *name))
+        .collect();
+
+    let mut problems = Vec::new();
+    for key in &found {
+        if !reviewed.contains(key) {
+            problems.push(format!(
+                "{}::{} is an opaque String newtype and is not classified",
+                key.0, key.1
+            ));
+        }
+    }
+    for (file, name, kind) in REVIEWED_STRING_NEWTYPES {
+        if !found.contains(&(file, name)) {
+            problems.push(format!("{file}::{name} is gone; delete the classification"));
+        }
+        if !matches!(*kind, "Secret" | "Personal" | "Public" | "TestOnly") {
+            problems.push(format!(
+                "{file}::{name} has an unknown classification {kind:?}"
+            ));
+        }
+    }
+
+    // The compensating check for the blind spot: a newtype holding something
+    // secret MUST be exercised by a runtime canary, because a name-based scan
+    // cannot do it. Reading this file's own source makes the requirement
+    // mechanical — adding a secret newtype without a canary fails here.
+    let canary_source = fs::read_to_string(crate_src().join("security").join("secret_canary.rs"))
+        .expect("this file is readable");
+    for (file, name, kind) in REVIEWED_STRING_NEWTYPES {
+        if !matches!(*kind, "Secret" | "Personal") {
+            continue;
+        }
+        if !canary_source.contains(name) {
+            problems.push(format!(
+                "{file}::{name} holds {kind} material and has no runtime canary in \
+                 this file; a name-based scan cannot cover it"
+            ));
+        }
+    }
+
+    assert!(
+        problems.is_empty(),
+        "{} opaque-String newtype problem(s):\n  {}",
+        problems.len(),
+        problems.join("\n  ")
+    );
+}
+
 #[test]
 fn the_reviewed_debug_list_is_reviewed_not_rubber_stamped() {
-    // Every reviewed entry is a transport DTO or a public-material type. If more
-    // than half the list were store records the list would be a way to normalise
-    // the bug rather than a record of reviewed decisions, so pin the split.
     let store_prefixes = ["repositories/", "adapters/d1", "consumers/"];
     let store_records = REVIEWED_DERIVED_DEBUG
         .iter()
@@ -1808,10 +2064,7 @@ fn projections_never_read_a_secret_field() {
                 let rest = &body[capture.0 + 1..];
                 let Some(end) = rest.find('"') else { continue };
                 let literal = &rest[..end];
-                if let Some(secret) = SECRET_PROJECTION_FIELDS
-                    .iter()
-                    .find(|s| **s == literal)
-                {
+                if let Some(secret) = SECRET_PROJECTION_FIELDS.iter().find(|s| **s == literal) {
                     read.insert(secret);
                 }
             }
@@ -1821,10 +2074,7 @@ fn projections_never_read_a_secret_field() {
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
-                if let Some(secret) = SECRET_PROJECTION_FIELDS
-                    .iter()
-                    .find(|s| **s == field)
-                {
+                if let Some(secret) = SECRET_PROJECTION_FIELDS.iter().find(|s| **s == field) {
                     read.insert(secret);
                 }
             }
@@ -2007,6 +2257,9 @@ fn production_code_has_no_unwrap_and_only_reviewed_log_sites() {
                 .strip_prefix("pub fn ")
                 .or_else(|| trimmed.strip_prefix("pub(crate) fn "))
                 .or_else(|| trimmed.strip_prefix("fn "))
+                .or_else(|| trimmed.strip_prefix("pub async fn "))
+                .or_else(|| trimmed.strip_prefix("pub(crate) async fn "))
+                .or_else(|| trimmed.strip_prefix("async fn "))
             {
                 let name: String = rest
                     .chars()
@@ -2140,18 +2393,28 @@ fn the_canary_set_is_wide_enough_to_mean_something() {
         ALL_CANARIES.len()
     );
     let unique: BTreeSet<&&str> = ALL_CANARIES.iter().collect();
-    assert_eq!(unique.len(), ALL_CANARIES.len(), "the canary set has a duplicate");
+    assert_eq!(
+        unique.len(),
+        ALL_CANARIES.len(),
+        "the canary set has a duplicate"
+    );
 
     // The two shapes that matter most, asserted explicitly because a canary of
     // the wrong shape proves nothing: a 64-hex digest and a 43-char base64url
     // secret.
     assert_eq!(HASH_CANARY.len(), 64, "the hash canary drifted off 64 hex");
     assert!(
-        HASH_CANARY.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+        HASH_CANARY
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
         "the hash canary is not lowercase hex, so it could not have reached a \
          64-hex column"
     );
-    assert_eq!(SECRET_CANARY.len(), 43, "the secret canary drifted off 43 chars");
+    assert_eq!(
+        SECRET_CANARY.len(),
+        43,
+        "the secret canary drifted off 43 chars"
+    );
     assert!(
         SECRET_CANARY
             .bytes()
@@ -2168,7 +2431,11 @@ fn the_canary_set_is_wide_enough_to_mean_something() {
             varied += 1;
         }
     }
-    assert_eq!(varied, ALL_CANARIES.len(), "a canary is too uniform to grep for");
+    assert_eq!(
+        varied,
+        ALL_CANARIES.len(),
+        "a canary is too uniform to grep for"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2210,5 +2477,8 @@ fn the_report_is_stable() {
         ALL_CANARIES.len()
     );
     println!("{report}");
-    assert!(audited > 20, "only {audited} structs hold a secret-named field");
+    assert!(
+        audited > 20,
+        "only {audited} structs hold a secret-named field"
+    );
 }

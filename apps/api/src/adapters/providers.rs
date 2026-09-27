@@ -5,13 +5,13 @@
 //! only while constructing the trusted outbound request.
 
 use std::fmt;
-use std::net::IpAddr;
 
 use futures_util::{StreamExt, stream, stream::LocalBoxStream};
 use serde_json::{Value, json};
 use wasm_bindgen::JsValue;
 use worker::{AbortSignal, Fetch, Headers, Method, Request, RequestInit, RequestRedirect};
 
+use crate::core::{is_blocked_address, is_dns_name, is_reserved_host_name, parse_ip_literal};
 use crate::modules::inference::{
     AdapterError, AdapterErrorKind, InferenceMessage, InferenceRequest, MessageRole,
     ProviderStreamEvent, SseDecoder, normalize_adapter_error,
@@ -223,19 +223,27 @@ pub fn translate_anthropic_request(
 /// Validate a server-controlled endpoint before any outbound fetch. The
 /// allowlist is exact-host matching; wildcard or caller-provided URLs are not
 /// supported.
+///
+/// The host is read with the same WHATWG parser the transport uses, not with a
+/// hand-rolled split on `://`. That is the whole point: WHATWG parsing folds the
+/// historical IPv4 spellings (`127.1`, `0177.0.0.1`, `0x7f.0.0.1`,
+/// `2130706433`, `017700000001`) into a dotted quad, percent-decodes and
+/// lowercases the host, and punycodes IDN. A substring split sees
+/// `0177.0.0.1`, decides it is not an address, and lets a range check pass a
+/// host the connection then resolves to `127.0.0.1`.
+///
+/// The allowlist is the primary control — it is operator-owned configuration
+/// (`LUMI_PROVIDER_ALLOWLIST`), not request input, and an empty allowlist
+/// refuses every endpoint. The range and reserved-name checks are an
+/// independent second layer, so they have to be right on their own: an
+/// operator who allowlists a host must not thereby also open loopback.
 pub fn validate_endpoint_url(
     endpoint: &str,
     allowlist: &[String],
     allow_local_development: bool,
 ) -> Result<(), SsrfError> {
     let endpoint = endpoint.trim();
-    if endpoint.is_empty()
-        || endpoint.len() > 2048
-        || endpoint.chars().any(char::is_control)
-        || endpoint.contains('?')
-        || endpoint.contains('#')
-        || endpoint.contains('@')
-    {
+    if endpoint.is_empty() || endpoint.len() > 2048 || endpoint.chars().any(char::is_control) {
         return Err(SsrfError::InvalidUrl);
     }
     if endpoint.starts_with("mock://") {
@@ -252,58 +260,63 @@ pub fn validate_endpoint_url(
             Err(SsrfError::SchemeNotAllowed)
         };
     }
-    let Some((scheme, remainder)) = endpoint.split_once("://") else {
-        return Err(SsrfError::InvalidUrl);
-    };
-    if scheme != "https" && !(allow_local_development && scheme == "http") {
+    let parsed = url::Url::parse(endpoint).map_err(|_| SsrfError::InvalidUrl)?;
+    if parsed.scheme() != "https" && !(allow_local_development && parsed.scheme() == "http") {
         return Err(SsrfError::SchemeNotAllowed);
     }
-    let authority = remainder.split('/').next().unwrap_or_default();
-    let host = if let Some(end) = authority.strip_prefix('[') {
-        end.split(']')
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or(SsrfError::InvalidUrl)?
-    } else {
-        authority
-            .split_once(':')
-            .map_or(authority, |(host, _port)| host)
-    };
-    if host.is_empty()
-        || host.chars().any(char::is_whitespace)
-        || host.contains('[')
-        || host.contains(']')
-    {
+    // Userinfo in a base URL is either a leaked credential or an attempt to
+    // move the real host into the userinfo field. The parsed authority is the
+    // only one that counts, so this is checked structurally rather than by
+    // searching the string for `@`.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(SsrfError::CredentialsNotAllowed);
+    }
+    // A provider base URL carries a path, never a query or a fragment. Either
+    // would be silently dropped from the request URL that gets built later.
+    if parsed.query().is_some() || parsed.fragment().is_some() {
         return Err(SsrfError::InvalidUrl);
     }
-    let lower = host.trim_end_matches('.').to_ascii_lowercase();
-    let private_ip = lower.parse::<IpAddr>().is_ok_and(|address| match address {
-        IpAddr::V4(value) => {
-            value.is_private()
-                || value.is_loopback()
-                || value.is_link_local()
-                || value.is_unspecified()
-                || value.octets()[0] == 100 && (64..=127).contains(&value.octets()[1])
+    // The brackets come off here rather than inside `parse_ip_literal` because
+    // they are a URL-authority detail, not a property of an address: leaving
+    // them on would make every IPv6 literal read as a malformed name, and the
+    // IPv6 half of the range table would be unreachable.
+    let serialized = parsed
+        .host_str()
+        .ok_or(SsrfError::InvalidUrl)?
+        .trim_end_matches('.');
+    let host = serialized
+        .strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(serialized)
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return Err(SsrfError::InvalidUrl);
+    }
+    // `host` is the serialized host, so the range table reads it correctly for
+    // both families — including `[::ffff:127.0.0.1]`, which carries a loopback
+    // in its low 32 bits and is not itself a loopback address.
+    match parse_ip_literal(&host) {
+        Some(address) => {
+            if is_blocked_address(&address) && !allow_local_development {
+                return Err(SsrfError::PrivateDestination);
+            }
         }
-        IpAddr::V6(value) => {
-            value.is_loopback()
-                || value.is_unspecified()
-                || (value.segments()[0] & 0xfe00) == 0xfc00
-                || (value.segments()[0] & 0xffc0) == 0xfe80
+        None => {
+            if is_reserved_host_name(&host) && !allow_local_development {
+                return Err(SsrfError::PrivateDestination);
+            }
+            // A host that is neither a literal nor a syntactically valid name is
+            // not a destination this platform can dial. Refusing it here keeps
+            // the two fetch guards agreeing, and it means an allowlist entry can
+            // never authorize a spelling no resolver would answer.
+            if !is_dns_name(&host) {
+                return Err(SsrfError::InvalidUrl);
+            }
         }
-    });
-    if (lower == "localhost"
-        || lower.ends_with(".localhost")
-        || lower.ends_with(".local")
-        || lower.ends_with(".internal")
-        || private_ip)
-        && !allow_local_development
-    {
-        return Err(SsrfError::PrivateDestination);
     }
     if !allowlist
         .iter()
-        .any(|allowed| allowed.eq_ignore_ascii_case(&lower))
+        .any(|allowed| allowed.eq_ignore_ascii_case(&host))
     {
         return Err(SsrfError::HostNotAllowlisted);
     }
@@ -751,6 +764,42 @@ mod tests {
         assert!(text.starts_with("data: "));
         let done = translate_anthropic_event("data: {\"type\":\"message_stop\"}").unwrap();
         assert_eq!(done, b"data: [DONE]\n\n");
+    }
+
+    /// P09-SEC-02 canary: the mid-stream error path.
+    ///
+    /// A provider can answer `200 OK` and then emit an `error` event three frames
+    /// later, so there is no status code to normalize and nothing on the way in
+    /// to drop the body. The translation is the only place the provider's own
+    /// message can be discarded, and a provider is known to echo the request —
+    /// including the `x-api-key` header it rejected — back in its error text.
+    /// That is why the canary lives here rather than in the central harness:
+    /// `translate_anthropic_event` is private to this module, and widening its
+    /// visibility to reach it from a test would be a production change made for
+    /// test convenience.
+    #[test]
+    fn anthropic_stream_error_never_echoes_the_provider_message() {
+        const PROVIDER_KEY: &str = "sk-p09canaryAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let rendered = translate_anthropic_event(&format!(
+            "data: {{\"type\":\"error\",\"error\":{{\"type\":\"authentication_error\",\
+             \"message\":\"invalid x-api-key {PROVIDER_KEY}\"}}}}"
+        ))
+        .expect("an error event still yields a normalized frame");
+        let rendered = String::from_utf8(rendered).expect("the frame is utf-8");
+        assert!(
+            !rendered.contains(PROVIDER_KEY),
+            "the stream error path echoed the provider's message: {rendered}"
+        );
+        assert!(
+            rendered.contains("upstream_invalid_response"),
+            "the error frame must still be a stable code, not silence: {rendered}"
+        );
+        // A well-formed error event carries no other field that could smuggle the
+        // provider's text through, so the whole frame is a fixed shape.
+        let parsed: serde_json::Value =
+            serde_json::from_str(rendered.trim_start_matches("data: ")).expect("a json frame");
+        assert_eq!(parsed["error"]["code"], "upstream_invalid_response");
+        assert!(parsed["error"].get("message").is_none());
     }
 
     #[test]

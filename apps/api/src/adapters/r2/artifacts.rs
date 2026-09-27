@@ -197,13 +197,31 @@ impl fmt::Debug for PutArtifact<'_> {
 }
 
 /// What a successful `put` produced.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// `key` is the opaque R2 object key as a bare `String` rather than an
+/// [`ObjectKey`], so the redaction [`ObjectKey::fmt`] performs is bypassed by
+/// construction. This record therefore carries its own `Debug` that redacts the
+/// key for the same reason ADR 0006 treats the key as capability-shaped: a log
+/// line that prints it is a shortcut to the object that does not need the
+/// download route's re-authorization.
+#[derive(Clone, PartialEq, Eq)]
 pub struct StoredObject {
     pub key: String,
     pub size_bytes: u64,
     pub etag: String,
     /// R2's own SHA-256 of the stored bytes, when the platform reported one.
     pub sha256_hex: Option<String>,
+}
+
+impl fmt::Debug for StoredObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoredObject")
+            .field("key", &"[redacted]")
+            .field("size_bytes", &self.size_bytes)
+            .field("etag", &self.etag)
+            .field("sha256_hex", &self.sha256_hex)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Object metadata for `head`. The key is intentionally absent: callers already

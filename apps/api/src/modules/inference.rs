@@ -166,6 +166,25 @@ pub struct AdapterStreamState {
     pub buffer_bytes: usize,
 }
 
+impl AdapterStreamState {
+    /// Whether an ended provider response may be recorded as a completion.
+    ///
+    /// `done` is set only by the protocol's terminal marker, `data: [DONE]`,
+    /// which every adapter normalizes to (`message_stop` becomes `[DONE]` in
+    /// the Anthropic adapter). A body that ends without it was cut short by a
+    /// disconnect or an upstream fault, so whatever the decoder could flush is
+    /// partial output, not a finished answer.
+    ///
+    /// This is the commitment gate, and it is deliberately stricter than "we
+    /// emitted some text": recording a truncated stream as a completion would
+    /// report a cut-short run as succeeded and would let the caller commit a
+    /// budget reservation for output that never arrived. A malformed body has
+    /// already failed the response outright, so it never qualifies either.
+    pub const fn may_complete(&self) -> bool {
+        self.done && !self.invalid_response
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SseDecoder {
     buffer: String,

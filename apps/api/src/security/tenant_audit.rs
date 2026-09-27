@@ -32,6 +32,14 @@
 //!   org-scoped. Treating them as a tenant bug would be wrong.
 //! * **device** — `device_id = ?1`. A device authenticated as itself.
 //!
+//! And there is a fifth thing that is not a tenant axis at all: **the credential
+//! itself**. `KEY_BY_PREFIX_SQL` and `KEY_BY_PREFIX_WITH_ACCOUNT_SQL` have no org
+//! predicate and must not — a key is looked up by the 12-hex prefix derived from
+//! 32 bytes of CSPRNG entropy, and the secret half is then verified in constant
+//! time. A caller cannot select another tenant's prefix, because they cannot
+//! choose one. That is the boundary for the two statements that hang off it, and it
+//! is recorded as a chain terminal rather than left looking like a hole.
+//!
 //! # What this audit does and does not prove
 //!
 //! It proves that no SQL statement can *reach* another tenant's row by the shape
@@ -83,6 +91,21 @@ enum Class {
     /// STAFF boundary instead, which
     /// [`platform_statements_live_behind_the_staff_boundary`] checks.
     PlatformScoped,
+}
+
+/// The credential lookups that are a chain terminal in their own right.
+///
+/// A key is found by a 12-hex prefix taken from 32 CSPRNG bytes, and the presented
+/// secret is then compared in constant time. There is nothing for a caller to
+/// tamper with, so "bound the caller's tenant" is the wrong property and demanding
+/// it would be demanding a bug.
+const CREDENTIAL_LOOKUPS: &[&str] = &[
+    "repositories/machine_identity.rs::KEY_BY_PREFIX_SQL",
+    "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL",
+];
+
+fn is_credential_lookup(key: &str) -> bool {
+    CREDENTIAL_LOOKUPS.contains(&key)
 }
 
 /// The tables whose tenant column names a subject rather than a caller scope.
@@ -155,7 +178,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
         "Keyed by `device_id` plus the policy version. Returns a boolean for the \
          caller's own device.",
     ),
-
     // -- principal-bound: the union an account deletion must make ------------
     (
         "repositories/data_governance.rs::COLLECT_NOTIFICATIONS_USER_SQL",
@@ -186,7 +208,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
         "A user's own security events across their orgs. This is the user's data \
          to see, not an org's to see.",
     ),
-
     // -- job-chain: reached only from a tenant-scoped queue envelope ----------
     (
         "repositories/webhooks.rs::NEXT_SECRET_VERSION_SQL",
@@ -221,7 +242,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
         Class::CompareAndSet,
         "Same. A second worker cannot re-drive a job another worker holds.",
     ),
-
     // -- compare-and-set writes by primary key -------------------------------
     (
         "repositories/data_governance.rs::MARK_ARTIFACT_DELETED_SQL",
@@ -377,7 +397,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
         Class::IdChain("repositories/automations.rs::OCCURRENCE_BY_ID_SQL"),
         "Cancels a blocked-on predecessor, reached from an org-bound occurrence.",
     ),
-
     // -- P01 idempotency: the tenant surface a single-spelling scan missed -----
     (
         "repositories/idempotency.rs::LOOKUP_ACTIVE_SQL",
@@ -418,7 +437,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
          the table. An idempotency record past its TTL is dead weight by \
          definition, and leaving it would grow D1 without bound.",
     ),
-
     // -- P01 outbox: tenant-TAGGED, platform-dispatched -----------------------
     (
         "repositories/outbox.rs::INSERT_EVENT_SQL",
@@ -469,7 +487,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
         "Reads one event by id and returns its `organization_id`, so the caller \
          receives the tenant and can compare it before showing anything.",
     ),
-
     (
         "repositories/plugins.rs::POLICY_CONFLICTS_SQL",
         Class::OrgBound,
@@ -477,7 +494,6 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
          literal inside the function until the P09 audit flagged it as invisible to \
          the tenant checks, so it is a named constant now and therefore audited.",
     ),
-
     // -- P07 platform operations: the STAFF boundary ---------------------------
     (
         "repositories/platform_ops.rs::INSERT_GRANT_SQL",
@@ -569,327 +585,1149 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
 /// `ReturnsOrg` from the statement text and fails if the label disagrees, so a
 /// mislabel here cannot survive.
 const MECHANICAL: &[(&str, Class)] = &[
-("repositories/ai.rs::INSERT_PROVIDER_SQL", Class::OrgBound),
-        ("repositories/ai.rs::UPDATE_PROVIDER_LIFECYCLE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::UPDATE_MODEL_LIFECYCLE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_POLICY_SQL", Class::OrgBound),
-        ("repositories/ai.rs::UPDATE_POLICY_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_CREDENTIAL_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_ROUTE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_ROUTE_VERSION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ASSERT_ROUTE_VERSION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ASSERT_CREDENTIAL_VERSION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ASSERT_PROVIDER_VERSION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ASSERT_MODEL_VERSION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ASSERT_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ASSERT_POLICY_ABSENT_SQL", Class::OrgBound),
-        ("repositories/ai.rs::PUBLISH_ROUTE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::UPDATE_ROUTE_LIFECYCLE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::ROLLBACK_ROUTE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::HEALTH_UPSERT_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_INFERENCE_REQUEST_SQL", Class::OrgBound),
-        ("repositories/ai.rs::UPDATE_INFERENCE_REQUEST_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_BUDGET_RESERVATION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::UPDATE_BUDGET_RESERVATION_SQL", Class::OrgBound),
-        ("repositories/ai.rs::INSERT_USAGE_SQL", Class::OrgBound),
-        ("repositories/audit.rs::INSERT_AUDIT_SQL", Class::OrgBound),
-        ("repositories/audit.rs::INSERT_AUDIT_IDEMPOTENT_SQL", Class::OrgBound),
-        ("repositories/audit.rs::LIST_AUDIT_SQL", Class::OrgBound),
-        ("repositories/audit.rs::GET_AUDIT_SQL", Class::OrgBound),
-        ("repositories/automations.rs::AUTOMATION_BY_ID_SQL", Class::OrgBound),
-        ("repositories/automations.rs::AUTOMATIONS_PAGE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::ACTIVE_AUTOMATION_COUNT_SQL", Class::OrgBound),
-        ("repositories/automations.rs::DUE_AUTOMATIONS_SQL", Class::ReturnsOrg),
-        ("repositories/automations.rs::SCHEDULE_RULE_BY_ID_SQL", Class::OrgBound),
-        ("repositories/automations.rs::INSERT_SCHEDULE_RULE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::INSERT_AUTOMATION_SQL", Class::OrgBound),
-        ("repositories/automations.rs::UPDATE_AUTOMATION_SQL", Class::OrgBound),
-        ("repositories/automations.rs::SET_AUTOMATION_STATUS_SQL", Class::OrgBound),
-        ("repositories/automations.rs::SOFT_DELETE_AUTOMATION_SQL", Class::OrgBound),
-        ("repositories/automations.rs::ADVANCE_CURSOR_SQL", Class::OrgBound),
-        ("repositories/automations.rs::INSERT_OCCURRENCE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::OCCURRENCE_BY_ID_SQL", Class::OrgBound),
-        ("repositories/automations.rs::OCCURRENCES_PAGE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::DEVICE_DUE_OCCURRENCES_SQL", Class::OrgBound),
-        ("repositories/automations.rs::TRANSITION_OCCURRENCE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::INSERT_LEASE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::LEASE_BY_ID_SQL", Class::OrgBound),
-        ("repositories/automations.rs::ATTEMPTS_SQL", Class::OrgBound),
-        ("repositories/automations.rs::RENEW_LEASE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::SETTLE_LEASE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::CLOSE_LEASE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::RUN_LINK_BY_ATTEMPT_SQL", Class::ReturnsOrg),
-        ("repositories/automations.rs::INSERT_RUN_LINK_SQL", Class::OrgBound),
-        ("repositories/automations.rs::UPDATE_RUN_LINK_STATE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::INSERT_AUTOMATION_SESSION_SQL", Class::OrgBound),
-        ("repositories/automations.rs::INSERT_AUTOMATION_RUN_SQL", Class::OrgBound),
-        ("repositories/automations.rs::LICENSE_STATE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::PRINCIPAL_MEMBERSHIP_ACTIVE_SQL", Class::OrgBound),
-        ("repositories/automations.rs::EFFECTIVE_INTEGER_ENTITLEMENT_SQL", Class::OrgBound),
-        ("repositories/automations.rs::CURRENT_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/automations.rs::RESTART_CURSOR_SQL", Class::OrgBound),
-        ("repositories/billing.rs::BILLING_ACCOUNT_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/billing.rs::SUBSCRIPTION_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/billing.rs::APPLY_SUBSCRIPTION_SQL", Class::OrgBound),
-        ("repositories/billing.rs::ASSERT_SUBSCRIPTION_APPLIED_SQL", Class::OrgBound),
-        ("repositories/billing.rs::INSERT_SUBSCRIPTION_EVENT_SQL", Class::OrgBound),
-        ("repositories/billing.rs::PROVIDER_SYNC_STATE_SQL", Class::OrgBound),
-        ("repositories/billing.rs::RECORD_PROVIDER_SUCCESS_SQL", Class::OrgBound),
-        ("repositories/billing.rs::RECORD_PROVIDER_FAILURE_SQL", Class::OrgBound),
-        ("repositories/billing.rs::PROVIDER_PROJECTION_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/billing.rs::UPSERT_PROVIDER_PROJECTION_SQL", Class::OrgBound),
-        ("repositories/billing.rs::ENTITLEMENT_GRANTS_SQL", Class::OrgBound),
-        ("repositories/billing.rs::INSERT_OVERRIDE_GRANT_SQL", Class::OrgBound),
-        ("repositories/billing.rs::REVOKE_GRANT_SQL", Class::OrgBound),
-        ("repositories/billing.rs::LICENSE_STATE_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/billing.rs::UPSERT_LICENSE_STATE_SQL", Class::OrgBound),
-        ("repositories/billing.rs::MAX_ACCEPTED_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/billing.rs::INSERT_LICENSE_SNAPSHOT_SQL", Class::OrgBound),
-        ("repositories/billing.rs::LATEST_SNAPSHOT_FOR_AUDIENCE_SQL", Class::OrgBound),
-        ("repositories/billing.rs::AUTHORITATIVE_COUNTS_SQL", Class::OrgBound),
-        ("repositories/billing.rs::MEMBERSHIP_SEAT_ROWS_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::BUDGETS_PAGE_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::INSERT_BUDGET_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::UPDATE_BUDGET_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::ASSERT_BUDGET_VERSION_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::ASSERT_BUDGET_ABSENT_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::ASSERT_RESERVATION_CREATED_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::ASSERT_RESERVATION_RECONCILED_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::INFERENCE_REQUEST_SCOPE_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::INSERT_RESERVATION_IF_AVAILABLE_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::RECONCILE_RESERVATION_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::EXPIRE_RESERVATIONS_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::RATE_LIMITS_PAGE_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::UPSERT_RATE_LIMIT_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::ASSERT_RATE_LIMIT_VERSION_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::ASSERT_RATE_LIMIT_ABSENT_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::BUDGET_SCOPE_SNAPSHOT_SQL", Class::OrgBound),
-        ("repositories/budgets.rs::RATE_LIMIT_USAGE_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::POLICY_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INSERT_POLICY_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::UPDATE_POLICY_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::ASSERT_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::EXPORT_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::EXPORT_BY_ID_FOR_SCOPE_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::EXPORT_BY_DEDUPE_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::EXPORTS_PAGE_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::EXPORTS_PAGE_FOR_USER_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::INSERT_EXPORT_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INSERT_ARTIFACT_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::ARTIFACT_BY_EXPORT_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::INSERT_GRANT_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::GRANT_BY_FINGERPRINT_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::DELETION_BY_ID_FOR_SCOPE_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::DELETION_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::DELETION_BY_TARGET_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::DELETIONS_PAGE_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::DELETIONS_PAGE_FOR_USER_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::INSERT_DELETION_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::LINK_DELETION_JOB_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INSERT_DELETION_TASK_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::DELETION_TASKS_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::PENDING_DELETION_TASKS_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::INSERT_CERTIFICATE_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::CERTIFICATE_BY_DELETION_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::QUEUE_ENVELOPE_BY_DEDUPE_SQL", Class::ReturnsOrg),
-        ("repositories/data_governance.rs::INSERT_QUEUE_ENVELOPE_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_IDENTITY_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_ORGANIZATION_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_ORGANIZATION_MEMBERSHIPS_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_ORGANIZATION_TEAMS_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_DEVICES_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_RUNS_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_USAGE_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_AUDIT_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_NOTIFICATIONS_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::COLLECT_POLICY_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_EXPORT_OBJECTS_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_MEMBERSHIPS_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_DEVICES_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_DEVICES_USER_SQL", Class::PrincipalBound),
-        ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_USER_SQL", Class::PrincipalBound),
-        ("repositories/data_governance.rs::INVENTORY_ENROLLMENTS_ORG_SQL", Class::OrgBound),
-        ("repositories/data_governance.rs::INVENTORY_WORKSPACE_BINDINGS_USER_SQL", Class::PrincipalBound),
-        ("repositories/data_governance.rs::INVENTORY_INVITATIONS_ORG_SQL", Class::OrgBound),
-        ("repositories/devices.rs::INSERT_ENROLLMENT_SQL", Class::OrgBound),
-        ("repositories/devices.rs::ENROLLMENT_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/devices.rs::DENY_ENROLLMENT_SQL", Class::OrgBound),
-        ("repositories/devices.rs::INSERT_DEVICE_SQL", Class::OrgBound),
-        ("repositories/devices.rs::APPROVE_ENROLLMENT_SQL", Class::OrgBound),
-        ("repositories/devices.rs::DEVICE_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/devices.rs::DEVICES_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/devices.rs::FIRST_DEVICES_PAGE_SQL", Class::OrgBound),
-        ("repositories/devices.rs::DEVICE_COUNT_BY_FINGERPRINT_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::ACCOUNT_BY_ID_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::KEY_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/machine_identity.rs::KEY_BY_PREFIX_SQL", Class::ReturnsOrg),
-        ("repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL", Class::ReturnsOrg),
-        ("repositories/machine_identity.rs::ACCOUNTS_PAGE_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::KEYS_PAGE_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::INSERT_ACCOUNT_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::UPDATE_ACCOUNT_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::SUSPEND_ACCOUNT_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::RESUME_ACCOUNT_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::INSERT_KEY_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::MARK_KEY_ROTATED_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::REVOKE_KEY_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::ASSERT_ACCOUNT_VERSION_SQL", Class::OrgBound),
-        ("repositories/machine_identity.rs::ASSERT_KEY_VERSION_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_ORG_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::UPDATE_ORG_STATE_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_DEFAULT_LICENSE_STATE_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_MEMBERSHIP_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::ORG_BY_ID_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::ORGS_FOR_USER_SQL", Class::ReturnsOrg),
-        ("repositories/organizations.rs::MEMBERSHIP_BY_USER_ORG_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::MEMBERS_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::UPDATE_ORG_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_INVITATION_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::PENDING_INVITATION_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INVITATION_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/organizations.rs::INVITATIONS_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::REVOKE_INVITATION_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::ROTATE_INVITATION_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_INVITED_MEMBERSHIP_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::CHANGE_ROLE_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::REMOVE_MEMBERSHIP_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::TRANSFER_OWNERSHIP_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_TEAM_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::TEAMS_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::INSERT_TEAM_MEMBER_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::DELETE_TEAM_MEMBER_SQL", Class::OrgBound),
-        ("repositories/organizations.rs::ORG_BY_SLUG_SQL", Class::ReturnsOrg),
-        ("repositories/plugins.rs::INSTALL_BY_ORG_AND_PACKAGE_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::INSTALLS_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::POLICY_BY_ORG_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::INSERT_POLICY_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::UPDATE_POLICY_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::INSERT_INSTALL_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::UPDATE_INSTALL_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::SET_INSTALL_BLOCK_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::INSERT_REGISTRATION_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::UNREGISTERED_TOOLS_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::REGISTERED_TOOLS_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::RECORD_REPORT_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::TOUCH_REPORT_SQL", Class::OrgBound),
-        ("repositories/plugins.rs::ASSERT_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/policy.rs::INSERT_SNAPSHOT_SQL", Class::OrgBound),
-        ("repositories/policy.rs::SNAPSHOT_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/policy.rs::LATEST_SNAPSHOT_SQL", Class::OrgBound),
-        ("repositories/policy.rs::SNAPSHOT_BY_VERSION_SQL", Class::OrgBound),
-        ("repositories/policy.rs::MAX_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/policy.rs::INSERT_ACK_SQL", Class::OrgBound),
-        ("repositories/projects.rs::INSERT_PROJECT_SQL", Class::OrgBound),
-        ("repositories/projects.rs::PROJECT_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/projects.rs::UPDATE_PROJECT_SQL", Class::OrgBound),
-        ("repositories/projects.rs::PROJECT_SLUG_COUNT_SQL", Class::OrgBound),
-        ("repositories/projects.rs::PROJECTS_PAGE_SQL", Class::OrgBound),
-        ("repositories/projects.rs::FIRST_PROJECTS_PAGE_SQL", Class::OrgBound),
-        ("repositories/projects.rs::INSERT_GRANT_SQL", Class::OrgBound),
-        ("repositories/projects.rs::GRANT_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/projects.rs::GRANTS_BY_PROJECT_SQL", Class::ReturnsOrg),
-        ("repositories/projects.rs::GRANT_FOR_MEMBER_SQL", Class::OrgBound),
-        ("repositories/projects.rs::INSERT_BINDING_SQL", Class::OrgBound),
-        ("repositories/projects.rs::BINDING_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/projects.rs::BINDINGS_BY_PROJECT_SQL", Class::ReturnsOrg),
-        ("repositories/runs.rs::AGENT_BY_ID_SQL", Class::OrgBound),
-        ("repositories/runs.rs::AGENTS_PAGE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::INSERT_AGENT_SQL", Class::OrgBound),
-        ("repositories/runs.rs::UPDATE_AGENT_SQL", Class::OrgBound),
-        ("repositories/runs.rs::SESSION_BY_ID_SQL", Class::OrgBound),
-        ("repositories/runs.rs::SESSIONS_PAGE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::INSERT_SESSION_SQL", Class::OrgBound),
-        ("repositories/runs.rs::UPDATE_SESSION_LIFECYCLE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::RUN_BY_ID_SQL", Class::OrgBound),
-        ("repositories/runs.rs::RUNS_PAGE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::INSERT_RUN_SQL", Class::OrgBound),
-        ("repositories/runs.rs::UPDATE_RUN_STATE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::NEXT_EVENT_SEQUENCE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::MAX_ATTEMPT_SQL", Class::OrgBound),
-        ("repositories/runs.rs::INSERT_EVENT_SQL", Class::OrgBound),
-        ("repositories/runs.rs::EVENTS_PAGE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::INSERT_ARTIFACT_SQL", Class::OrgBound),
-        ("repositories/runs.rs::ARTIFACTS_PAGE_SQL", Class::OrgBound),
-        ("repositories/runs.rs::ASSERT_AGENT_VERSION_SQL", Class::OrgBound),
-        ("repositories/runs.rs::ASSERT_SESSION_VERSION_SQL", Class::OrgBound),
-        ("repositories/runs.rs::ASSERT_RUN_STATE_VERSION_SQL", Class::OrgBound),
-        ("repositories/runs.rs::ASSERT_RETRY_ATTEMPT_ABSENT_SQL", Class::OrgBound),
-        ("repositories/security.rs::INSERT_SECURITY_EVENT_SQL", Class::OrgBound),
-        ("repositories/security.rs::LIST_SECURITY_EVENTS_SQL", Class::OrgBound),
-        ("repositories/tools.rs::INSERT_TOOL_SQL", Class::OrgBound),
-        ("repositories/tools.rs::TOOL_BY_ID_SQL", Class::OrgBound),
-        ("repositories/tools.rs::TOOL_BY_FINGERPRINT_SQL", Class::OrgBound),
-        ("repositories/tools.rs::TOOLS_PAGE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::FIRST_TOOLS_PAGE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::UPDATE_TOOL_SQL", Class::OrgBound),
-        ("repositories/tools.rs::ASSERT_TOOL_VERSION_SQL", Class::OrgBound),
-        ("repositories/tools.rs::INSERT_MCP_SQL", Class::OrgBound),
-        ("repositories/tools.rs::MCP_BY_ID_SQL", Class::OrgBound),
-        ("repositories/tools.rs::MCP_BY_FINGERPRINT_SQL", Class::OrgBound),
-        ("repositories/tools.rs::MCP_PAGE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::FIRST_MCP_PAGE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::UPDATE_MCP_SQL", Class::OrgBound),
-        ("repositories/tools.rs::ASSERT_MCP_VERSION_SQL", Class::OrgBound),
-        ("repositories/tools.rs::TOOL_POLICY_BY_SCOPE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::INSERT_TOOL_POLICY_SQL", Class::OrgBound),
-        ("repositories/tools.rs::UPDATE_TOOL_POLICY_SQL", Class::OrgBound),
-        ("repositories/tools.rs::ASSERT_TOOL_POLICY_VERSION_SQL", Class::OrgBound),
-        ("repositories/tools.rs::ASSERT_TOOL_POLICY_ABSENT_SQL", Class::OrgBound),
-        ("repositories/tools.rs::RUN_TOOL_SCOPE_SQL", Class::ReturnsOrg),
-        ("repositories/tools.rs::INSERT_TOOL_CALL_REF_SQL", Class::OrgBound),
-        ("repositories/tools.rs::TOOL_CALL_REF_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/tools.rs::CAPABILITIES_FOR_ORG_SQL", Class::OrgBound),
-        ("repositories/tools.rs::INSERT_APPROVAL_SQL", Class::OrgBound),
-        ("repositories/tools.rs::INSERT_RESOLVED_APPROVAL_SQL", Class::OrgBound),
-        ("repositories/tools.rs::APPROVAL_BY_ID_SQL", Class::OrgBound),
-        ("repositories/tools.rs::APPROVAL_BY_TOOL_CALL_SQL", Class::ReturnsOrg),
-        ("repositories/tools.rs::REUSABLE_SESSION_APPROVAL_SQL", Class::ReturnsOrg),
-        ("repositories/tools.rs::APPROVALS_PAGE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::FIRST_APPROVALS_PAGE_SQL", Class::OrgBound),
-        ("repositories/tools.rs::RESOLVE_APPROVAL_SQL", Class::OrgBound),
-        ("repositories/tools.rs::ASSERT_APPROVAL_PENDING_SQL", Class::OrgBound),
-        ("repositories/tools.rs::ASSERT_APPROVAL_PENDING_VERSION_SQL", Class::OrgBound),
-        ("repositories/usage.rs::USAGE_EVENT_SOURCE_SQL", Class::ReturnsOrg),
-        ("repositories/usage.rs::RUN_USAGE_EVENT_SOURCE_SQL", Class::ReturnsOrg),
-        ("repositories/usage.rs::USAGE_EVENT_BY_REQUEST_SQL", Class::OrgBound),
-        ("repositories/usage.rs::USAGE_EVENT_BY_RUN_SQL", Class::OrgBound),
-        ("repositories/usage.rs::INSERT_COST_RECORD_SQL", Class::OrgBound),
-        ("repositories/usage.rs::INSERT_RUN_COST_RECORD_SQL", Class::OrgBound),
-        ("repositories/usage.rs::ASSERT_COST_RECORD_SQL", Class::OrgBound),
-        ("repositories/usage.rs::ASSERT_RUN_COST_RECORD_SQL", Class::OrgBound),
-        ("repositories/usage.rs::INSERT_RUN_USAGE_SQL", Class::OrgBound),
-        ("repositories/usage.rs::ROLLUPS_PAGE_SQL", Class::OrgBound),
-        ("repositories/usage.rs::UPSERT_ROLLUP_SQL", Class::OrgBound),
-        ("repositories/usage.rs::DENIALS_PAGE_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::ENDPOINT_BY_ID_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::ENDPOINTS_PAGE_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::INSERT_ENDPOINT_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::UPDATE_ENDPOINT_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::DISABLE_ENDPOINT_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::INSERT_SECRET_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::SECRET_BY_ID_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::FAN_OUT_DELIVERIES_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::INSERT_TEST_DELIVERY_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::INSERT_REPLAY_DELIVERY_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::DELIVERY_BY_ID_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::DELIVERIES_PAGE_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::INSERT_ATTEMPT_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::ATTEMPTS_FOR_DELIVERY_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::INSERT_QUEUE_JOB_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::JOB_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/webhooks.rs::INSERT_NOTIFICATION_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::NOTIFICATION_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/webhooks.rs::NOTIFICATIONS_PAGE_SQL", Class::ReturnsOrg),
-        ("repositories/webhooks.rs::INSERT_NOTIFICATION_DELIVERY_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::NOTIFICATION_DELIVERY_BY_ID_SQL", Class::ReturnsOrg),
-        ("repositories/webhooks.rs::PREFERENCE_BY_SCOPE_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::UPSERT_PREFERENCE_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::PREFERENCES_BY_SCOPE_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::ASSERT_ENDPOINT_VERSION_SQL", Class::OrgBound),
-        ("repositories/webhooks.rs::ASSERT_PREFERENCE_VERSION_SQL", Class::OrgBound),
-        ("routes/inference.rs::ATTACH_MANAGED_INFERENCE_IDENTITY_SQL", Class::OrgBound),
-        ("routes/inference.rs::ATTACH_MANAGED_RUN_POLICY_SQL", Class::OrgBound),
+    ("repositories/ai.rs::INSERT_PROVIDER_SQL", Class::OrgBound),
+    (
+        "repositories/ai.rs::UPDATE_PROVIDER_LIFECYCLE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::UPDATE_MODEL_LIFECYCLE_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/ai.rs::INSERT_POLICY_SQL", Class::OrgBound),
+    ("repositories/ai.rs::UPDATE_POLICY_SQL", Class::OrgBound),
+    ("repositories/ai.rs::INSERT_CREDENTIAL_SQL", Class::OrgBound),
+    ("repositories/ai.rs::INSERT_ROUTE_SQL", Class::OrgBound),
+    (
+        "repositories/ai.rs::INSERT_ROUTE_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::ASSERT_ROUTE_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::ASSERT_CREDENTIAL_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::ASSERT_PROVIDER_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::ASSERT_MODEL_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::ASSERT_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::ASSERT_POLICY_ABSENT_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/ai.rs::PUBLISH_ROUTE_SQL", Class::OrgBound),
+    (
+        "repositories/ai.rs::UPDATE_ROUTE_LIFECYCLE_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/ai.rs::ROLLBACK_ROUTE_SQL", Class::OrgBound),
+    ("repositories/ai.rs::HEALTH_UPSERT_SQL", Class::OrgBound),
+    (
+        "repositories/ai.rs::INSERT_INFERENCE_REQUEST_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::UPDATE_INFERENCE_REQUEST_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::INSERT_BUDGET_RESERVATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/ai.rs::UPDATE_BUDGET_RESERVATION_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/ai.rs::INSERT_USAGE_SQL", Class::OrgBound),
+    ("repositories/audit.rs::INSERT_AUDIT_SQL", Class::OrgBound),
+    (
+        "repositories/audit.rs::INSERT_AUDIT_IDEMPOTENT_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/audit.rs::LIST_AUDIT_SQL", Class::OrgBound),
+    ("repositories/audit.rs::GET_AUDIT_SQL", Class::OrgBound),
+    (
+        "repositories/automations.rs::AUTOMATION_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::AUTOMATIONS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::ACTIVE_AUTOMATION_COUNT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::DUE_AUTOMATIONS_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/automations.rs::SCHEDULE_RULE_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_SCHEDULE_RULE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_AUTOMATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::UPDATE_AUTOMATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::SET_AUTOMATION_STATUS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::SOFT_DELETE_AUTOMATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::ADVANCE_CURSOR_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_OCCURRENCE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::OCCURRENCE_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::OCCURRENCES_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::DEVICE_DUE_OCCURRENCES_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::TRANSITION_OCCURRENCE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_LEASE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::LEASE_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/automations.rs::ATTEMPTS_SQL", Class::OrgBound),
+    (
+        "repositories/automations.rs::RENEW_LEASE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::SETTLE_LEASE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::CLOSE_LEASE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::RUN_LINK_BY_ATTEMPT_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/automations.rs::INSERT_RUN_LINK_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::UPDATE_RUN_LINK_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_AUTOMATION_SESSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_AUTOMATION_RUN_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::LICENSE_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::PRINCIPAL_MEMBERSHIP_ACTIVE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::EFFECTIVE_INTEGER_ENTITLEMENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::CURRENT_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::RESTART_CURSOR_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::BILLING_ACCOUNT_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::SUBSCRIPTION_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::APPLY_SUBSCRIPTION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::ASSERT_SUBSCRIPTION_APPLIED_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::INSERT_SUBSCRIPTION_EVENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::PROVIDER_SYNC_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::RECORD_PROVIDER_SUCCESS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::RECORD_PROVIDER_FAILURE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::PROVIDER_PROJECTION_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::UPSERT_PROVIDER_PROJECTION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::ENTITLEMENT_GRANTS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::INSERT_OVERRIDE_GRANT_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/billing.rs::REVOKE_GRANT_SQL", Class::OrgBound),
+    (
+        "repositories/billing.rs::LICENSE_STATE_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::UPSERT_LICENSE_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::MAX_ACCEPTED_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::INSERT_LICENSE_SNAPSHOT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::LATEST_SNAPSHOT_FOR_AUDIENCE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::AUTHORITATIVE_COUNTS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/billing.rs::MEMBERSHIP_SEAT_ROWS_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/budgets.rs::BUDGETS_PAGE_SQL", Class::OrgBound),
+    (
+        "repositories/budgets.rs::INSERT_BUDGET_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::UPDATE_BUDGET_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::ASSERT_BUDGET_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::ASSERT_BUDGET_ABSENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::ASSERT_RESERVATION_CREATED_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::ASSERT_RESERVATION_RECONCILED_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::INFERENCE_REQUEST_SCOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::INSERT_RESERVATION_IF_AVAILABLE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::RECONCILE_RESERVATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::EXPIRE_RESERVATIONS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::RATE_LIMITS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::UPSERT_RATE_LIMIT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::ASSERT_RATE_LIMIT_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::ASSERT_RATE_LIMIT_ABSENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::BUDGET_SCOPE_SNAPSHOT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/budgets.rs::RATE_LIMIT_USAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::POLICY_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::UPDATE_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::ASSERT_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::EXPORT_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::EXPORT_BY_ID_FOR_SCOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::EXPORT_BY_DEDUPE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::EXPORTS_PAGE_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::EXPORTS_PAGE_FOR_USER_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_EXPORT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_ARTIFACT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::ARTIFACT_BY_EXPORT_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_GRANT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::GRANT_BY_FINGERPRINT_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::DELETION_BY_ID_FOR_SCOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::DELETION_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::DELETION_BY_TARGET_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::DELETIONS_PAGE_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::DELETIONS_PAGE_FOR_USER_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_DELETION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::LINK_DELETION_JOB_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_DELETION_TASK_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::DELETION_TASKS_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::PENDING_DELETION_TASKS_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_CERTIFICATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::CERTIFICATE_BY_DELETION_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::QUEUE_ENVELOPE_BY_DEDUPE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/data_governance.rs::INSERT_QUEUE_ENVELOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_IDENTITY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_ORGANIZATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_ORGANIZATION_MEMBERSHIPS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_ORGANIZATION_TEAMS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_DEVICES_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_RUNS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_USAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_AUDIT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_NOTIFICATIONS_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::COLLECT_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_EXPORT_OBJECTS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_MEMBERSHIPS_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_DEVICES_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_DEVICES_USER_SQL",
+        Class::PrincipalBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_ENROLLMENTS_USER_SQL",
+        Class::PrincipalBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_ENROLLMENTS_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_WORKSPACE_BINDINGS_USER_SQL",
+        Class::PrincipalBound,
+    ),
+    (
+        "repositories/data_governance.rs::INVENTORY_INVITATIONS_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::INSERT_ENROLLMENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::ENROLLMENT_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/devices.rs::DENY_ENROLLMENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::INSERT_DEVICE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::APPROVE_ENROLLMENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::DEVICE_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/devices.rs::DEVICES_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::FIRST_DEVICES_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::DEVICE_COUNT_BY_FINGERPRINT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::ACCOUNT_BY_ID_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::KEY_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/machine_identity.rs::KEY_BY_PREFIX_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/machine_identity.rs::ACCOUNTS_PAGE_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::KEYS_PAGE_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::INSERT_ACCOUNT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::UPDATE_ACCOUNT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::SUSPEND_ACCOUNT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::RESUME_ACCOUNT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::INSERT_KEY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::MARK_KEY_ROTATED_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::REVOKE_KEY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::ASSERT_ACCOUNT_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/machine_identity.rs::ASSERT_KEY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::UPDATE_ORG_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_DEFAULT_LICENSE_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_MEMBERSHIP_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::ORG_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::ORGS_FOR_USER_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/organizations.rs::MEMBERSHIP_BY_USER_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::MEMBERS_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::UPDATE_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_INVITATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::PENDING_INVITATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INVITATION_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/organizations.rs::INVITATIONS_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::REVOKE_INVITATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::ROTATE_INVITATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_INVITED_MEMBERSHIP_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::CHANGE_ROLE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::REMOVE_MEMBERSHIP_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::TRANSFER_OWNERSHIP_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_TEAM_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::TEAMS_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::INSERT_TEAM_MEMBER_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::DELETE_TEAM_MEMBER_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/organizations.rs::ORG_BY_SLUG_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/plugins.rs::INSTALL_BY_ORG_AND_PACKAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::INSTALLS_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::POLICY_BY_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::INSERT_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::UPDATE_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::INSERT_INSTALL_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::UPDATE_INSTALL_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::SET_INSTALL_BLOCK_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::INSERT_REGISTRATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::UNREGISTERED_TOOLS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::REGISTERED_TOOLS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/plugins.rs::RECORD_REPORT_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/plugins.rs::TOUCH_REPORT_SQL", Class::OrgBound),
+    (
+        "repositories/plugins.rs::ASSERT_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/policy.rs::INSERT_SNAPSHOT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/policy.rs::SNAPSHOT_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/policy.rs::LATEST_SNAPSHOT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/policy.rs::SNAPSHOT_BY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/policy.rs::MAX_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/policy.rs::INSERT_ACK_SQL", Class::OrgBound),
+    (
+        "repositories/projects.rs::INSERT_PROJECT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::PROJECT_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/projects.rs::UPDATE_PROJECT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::PROJECT_SLUG_COUNT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::PROJECTS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::FIRST_PROJECTS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::INSERT_GRANT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::GRANT_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/projects.rs::GRANTS_BY_PROJECT_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/projects.rs::GRANT_FOR_MEMBER_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::INSERT_BINDING_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/projects.rs::BINDING_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/projects.rs::BINDINGS_BY_PROJECT_SQL",
+        Class::ReturnsOrg,
+    ),
+    ("repositories/runs.rs::AGENT_BY_ID_SQL", Class::OrgBound),
+    ("repositories/runs.rs::AGENTS_PAGE_SQL", Class::OrgBound),
+    ("repositories/runs.rs::INSERT_AGENT_SQL", Class::OrgBound),
+    ("repositories/runs.rs::UPDATE_AGENT_SQL", Class::OrgBound),
+    ("repositories/runs.rs::SESSION_BY_ID_SQL", Class::OrgBound),
+    ("repositories/runs.rs::SESSIONS_PAGE_SQL", Class::OrgBound),
+    ("repositories/runs.rs::INSERT_SESSION_SQL", Class::OrgBound),
+    (
+        "repositories/runs.rs::UPDATE_SESSION_LIFECYCLE_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/runs.rs::RUN_BY_ID_SQL", Class::OrgBound),
+    ("repositories/runs.rs::RUNS_PAGE_SQL", Class::OrgBound),
+    ("repositories/runs.rs::INSERT_RUN_SQL", Class::OrgBound),
+    (
+        "repositories/runs.rs::UPDATE_RUN_STATE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/runs.rs::NEXT_EVENT_SEQUENCE_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/runs.rs::MAX_ATTEMPT_SQL", Class::OrgBound),
+    ("repositories/runs.rs::INSERT_EVENT_SQL", Class::OrgBound),
+    ("repositories/runs.rs::EVENTS_PAGE_SQL", Class::OrgBound),
+    ("repositories/runs.rs::INSERT_ARTIFACT_SQL", Class::OrgBound),
+    ("repositories/runs.rs::ARTIFACTS_PAGE_SQL", Class::OrgBound),
+    (
+        "repositories/runs.rs::ASSERT_AGENT_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/runs.rs::ASSERT_SESSION_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/runs.rs::ASSERT_RUN_STATE_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/runs.rs::ASSERT_RETRY_ATTEMPT_ABSENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/security.rs::INSERT_SECURITY_EVENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/security.rs::LIST_SECURITY_EVENTS_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/tools.rs::INSERT_TOOL_SQL", Class::OrgBound),
+    ("repositories/tools.rs::TOOL_BY_ID_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::TOOL_BY_FINGERPRINT_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/tools.rs::TOOLS_PAGE_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::FIRST_TOOLS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/tools.rs::UPDATE_TOOL_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/tools.rs::INSERT_MCP_SQL", Class::OrgBound),
+    ("repositories/tools.rs::MCP_BY_ID_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::MCP_BY_FINGERPRINT_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/tools.rs::MCP_PAGE_SQL", Class::OrgBound),
+    ("repositories/tools.rs::FIRST_MCP_PAGE_SQL", Class::OrgBound),
+    ("repositories/tools.rs::UPDATE_MCP_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::ASSERT_MCP_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::TOOL_POLICY_BY_SCOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::INSERT_TOOL_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::UPDATE_TOOL_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_POLICY_ABSENT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::RUN_TOOL_SCOPE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/tools.rs::INSERT_TOOL_CALL_REF_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::TOOL_CALL_REF_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/tools.rs::CAPABILITIES_FOR_ORG_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::INSERT_APPROVAL_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::INSERT_RESOLVED_APPROVAL_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/tools.rs::APPROVAL_BY_ID_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::APPROVAL_BY_TOOL_CALL_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/tools.rs::REUSABLE_SESSION_APPROVAL_SQL",
+        Class::ReturnsOrg,
+    ),
+    ("repositories/tools.rs::APPROVALS_PAGE_SQL", Class::OrgBound),
+    (
+        "repositories/tools.rs::FIRST_APPROVALS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::RESOLVE_APPROVAL_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_APPROVAL_PENDING_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_APPROVAL_PENDING_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::USAGE_EVENT_SOURCE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/usage.rs::RUN_USAGE_EVENT_SOURCE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/usage.rs::USAGE_EVENT_BY_REQUEST_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::USAGE_EVENT_BY_RUN_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::INSERT_COST_RECORD_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::INSERT_RUN_COST_RECORD_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::ASSERT_COST_RECORD_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::ASSERT_RUN_COST_RECORD_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/usage.rs::INSERT_RUN_USAGE_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/usage.rs::ROLLUPS_PAGE_SQL", Class::OrgBound),
+    ("repositories/usage.rs::UPSERT_ROLLUP_SQL", Class::OrgBound),
+    ("repositories/usage.rs::DENIALS_PAGE_SQL", Class::OrgBound),
+    (
+        "repositories/webhooks.rs::ENDPOINT_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::ENDPOINTS_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_ENDPOINT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::UPDATE_ENDPOINT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::DISABLE_ENDPOINT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_SECRET_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::SECRET_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::FAN_OUT_DELIVERIES_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_TEST_DELIVERY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_REPLAY_DELIVERY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::DELIVERY_BY_ID_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::DELIVERIES_PAGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_ATTEMPT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::ATTEMPTS_FOR_DELIVERY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_QUEUE_JOB_SQL",
+        Class::OrgBound,
+    ),
+    ("repositories/webhooks.rs::JOB_BY_ID_SQL", Class::ReturnsOrg),
+    (
+        "repositories/webhooks.rs::INSERT_NOTIFICATION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::NOTIFICATION_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/webhooks.rs::NOTIFICATIONS_PAGE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/webhooks.rs::INSERT_NOTIFICATION_DELIVERY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::NOTIFICATION_DELIVERY_BY_ID_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/webhooks.rs::PREFERENCE_BY_SCOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::UPSERT_PREFERENCE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::PREFERENCES_BY_SCOPE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::ASSERT_ENDPOINT_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/webhooks.rs::ASSERT_PREFERENCE_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "routes/inference.rs::ATTACH_MANAGED_INFERENCE_IDENTITY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "routes/inference.rs::ATTACH_MANAGED_RUN_POLICY_SQL",
+        Class::OrgBound,
+    ),
 ];
 // ---------------------------------------------------------------------------
 // Deriving the facts from the repository
@@ -928,7 +1766,11 @@ fn org_owned_tables() -> BTreeSet<String> {
             let Some((head, body)) = capture.split_once('(') else {
                 continue;
             };
-            let name = head.split_whitespace().last().unwrap_or_default().to_owned();
+            let name = head
+                .split_whitespace()
+                .last()
+                .unwrap_or_default()
+                .to_owned();
             if name.is_empty() {
                 continue;
             }
@@ -1009,13 +1851,17 @@ fn sql_constant_bodies(source: &str) -> Vec<(String, String)> {
         let start = search_from + found;
         let tail = &source[start + "const ".len()..];
         search_from = start + "const ".len();
-        let Some(name_end) = tail.find(':') else { continue };
+        let Some(name_end) = tail.find(':') else {
+            continue;
+        };
         let name = tail[..name_end].trim().to_owned();
         let after_name = &tail[name_end..];
         if !name.ends_with("SQL") || !after_name.trim_start().starts_with(": &str") {
             continue;
         }
-        let Some(equals) = after_name.find('=') else { continue };
+        let Some(equals) = after_name.find('=') else {
+            continue;
+        };
         let literal = after_name[equals + 1..].trim_start();
         if let Some(body) = read_string_literal(literal, source) {
             out.push((name, body));
@@ -1080,9 +1926,15 @@ fn classification() -> BTreeMap<String, (Class, String)> {
 }
 
 fn has_org_predicate(sql: &str) -> bool {
-    ["org_id = ?", "org_id=?", "org_id= ?", "organization_id = ?", "organization_id=?"]
-        .iter()
-        .any(|needle| sql.contains(needle))
+    [
+        "org_id = ?",
+        "org_id=?",
+        "org_id= ?",
+        "organization_id = ?",
+        "organization_id=?",
+    ]
+    .iter()
+    .any(|needle| sql.contains(needle))
 }
 
 fn binds_principal(sql: &str) -> bool {
@@ -1242,10 +2094,7 @@ fn every_sql_statement_lives_in_a_named_constant() {
         if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
             return;
         }
-        if path
-            .to_string_lossy()
-            .contains("/security/")
-        {
+        if path.to_string_lossy().contains("/security/") {
             return;
         }
         let source = fs::read_to_string(path).expect("a readable source file");
@@ -1338,9 +2187,7 @@ fn every_classification_is_true_of_the_statement_it_labels() {
             "{key} is classified but touches no tenant-owned table, so it needs no class"
         );
         let ok = match class {
-            Class::OrgBound => {
-                has_org_predicate(&sql) || (is_insert(&sql) && has_org_column(&sql))
-            }
+            Class::OrgBound => has_org_predicate(&sql) || (is_insert(&sql) && has_org_column(&sql)),
             Class::PrincipalBound => binds_principal(&sql),
             Class::DeviceBound => binds_device(&sql),
             Class::ReturnsOrg => is_select(&sql) && select_list_carries_org(&sql),
@@ -1350,12 +2197,8 @@ fn every_classification_is_true_of_the_statement_it_labels() {
             Class::PlatformSweep => {
                 !has_org_predicate(&sql) && find_keyword(&sql, "LIMIT").is_some()
             }
-            Class::PlatformScoped => PLATFORM_TABLES
-                .iter()
-                .any(|table| mentions(&sql, table)),
-            Class::IdChain(resolver) => {
-                !has_org_predicate(&sql) && classes.contains_key(*resolver)
-            }
+            Class::PlatformScoped => PLATFORM_TABLES.iter().any(|table| mentions(&sql, table)),
+            Class::IdChain(resolver) => !has_org_predicate(&sql) && classes.contains_key(*resolver),
             Class::JobChain(resolver) => {
                 !has_org_predicate(&sql) && classes.contains_key(*resolver)
             }
@@ -1406,7 +2249,17 @@ fn every_chain_bottoms_out_in_an_org_bound_statement() {
             if has_org_predicate(sql) {
                 break Ok(true);
             }
+            // Reached only with the credential that just authenticated.
+            if is_credential_lookup(current) {
+                break Ok(true);
+            }
             let Some((next, _)) = classes.get(current) else {
+                // A credential lookup is a real terminal, not a hole: see the
+                // module note. It is reached only after the presented secret was
+                // verified, so the caller cannot have chosen which row it names.
+                if is_credential_lookup(current) {
+                    break Ok(true);
+                }
                 break Err(format!(
                     "{current} is neither org-bound nor classified as a chain, so the \
                      chain from {key} ends in nothing"
@@ -1473,10 +2326,7 @@ fn platform_statements_live_behind_the_staff_boundary() {
     const ALLOWED: &[&str] = &["repositories/platform_ops.rs", "routes/internal.rs"];
     let mut offenders = Vec::new();
     for (file, name, sql) in sql_constants() {
-        if !PLATFORM_TABLES
-            .iter()
-            .any(|table| mentions(&sql, table))
-        {
+        if !PLATFORM_TABLES.iter().any(|table| mentions(&sql, table)) {
             continue;
         }
         if !ALLOWED.contains(&file.as_str()) {
@@ -1581,7 +2431,10 @@ fn the_audit_can_reject_a_mislabelled_statement() {
         .map(|(_, _, sql)| sql)
         .expect("the statement exists");
     // Refutations, each against the statement rather than against a label.
-    assert!(!binds_principal(&sql), "it binds no principal, so not PrincipalBound");
+    assert!(
+        !binds_principal(&sql),
+        "it binds no principal, so not PrincipalBound"
+    );
     assert!(
         !has_org_predicate(&sql) && !(is_insert(&sql) && has_org_column(&sql)),
         "it is not org-bound either, which is why it needed a class at all"
@@ -1590,7 +2443,10 @@ fn the_audit_can_reject_a_mislabelled_statement() {
         !is_compare_and_set(&sql),
         "it is deliberately unguarded, so not CompareAndSet"
     );
-    assert!(is_write(&sql) && !is_select(&sql), "it is a write, by id alone");
+    assert!(
+        is_write(&sql) && !is_select(&sql),
+        "it is a write, by id alone"
+    );
     // And what it really is, which is what the audit demanded.
     assert_eq!(
         classification().get(target).map(|(class, _)| *class),
@@ -1598,15 +2454,32 @@ fn the_audit_can_reject_a_mislabelled_statement() {
             "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"
         ))
     );
-    // The resolver it names is org-bound, so the chain terminates.
-    assert!(has_org_predicate(
-        &sql_constants()
-            .into_iter()
-            .find(|(file, name, _)| {
-                format!("{file}::{name}")
-                    == "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"
-            })
-            .expect("the resolver exists")
-            .2
-    ));
+    // The resolver it names has NO org predicate, and must not: a key is looked up
+    // by a CSPRNG-derived prefix and the secret half is verified in constant time,
+    // so there is nothing for a caller to tamper with. Asserted so the exemption
+    // stays a decision rather than a drift.
+    let resolver = sql_constants()
+        .into_iter()
+        .find(|(file, name, _)| {
+            format!("{file}::{name}")
+                == "repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"
+        })
+        .expect("the resolver exists")
+        .2;
+    assert!(
+        !has_org_predicate(&resolver),
+        "the credential lookup is a boundary by possession, not by predicate"
+    );
+    assert!(
+        resolver.contains("k.key_prefix = ?1"),
+        "it looks up by prefix"
+    );
+    assert!(
+        resolver.contains("secret_hash"),
+        "and returns the hash it verifies against"
+    );
+    assert!(
+        is_credential_lookup("repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"),
+        "so the exemption is recorded rather than assumed"
+    );
 }

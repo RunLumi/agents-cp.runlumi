@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use worker::d1::D1PreparedStatement;
 
@@ -157,7 +159,22 @@ SET attempts = attempts + 1
 WHERE challenge_id = ?1 AND status = 'pending' AND attempts < 10
 "#;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+// P09-SEC-02: every record in this file that holds authentication material gets a
+// HAND-WRITTEN `Debug` rather than `derive(Debug)`.
+//
+// The bar is set by the domain twins in `modules::authenticators`, which already
+// redact `state_json`, `encoded_hash`, `credential_id`, and `public_key_cose`.
+// These repository records are the values that actually carry the stored argon2id
+// hash, the WebAuthn verifier state, and the recovery-code hash, so a derived
+// `Debug` here would put the exact values the domain layer refuses to print one
+// layer away. A derived `Debug` is a panic message, an `unwrap()` error, a test
+// failure, and a log line away from production.
+
+/// A WebAuthn ceremony. `state_json` is the opaque verifier state and `email` is
+/// a login identity, so both are excluded. Every `Debug` below finishes
+/// non-exhaustive, so a column added later cannot start printing without a
+/// deliberate edit here.
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CeremonyRecord {
     pub ceremony_id: String,
     pub kind: String,
@@ -174,7 +191,136 @@ pub struct CeremonyRecord {
     pub created_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+impl fmt::Debug for CeremonyRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CeremonyRecord")
+            .field("ceremony_id", &self.ceremony_id)
+            .field("kind", &self.kind)
+            .field("user_id", &self.user_id)
+            .field("pending_user_id", &self.pending_user_id)
+            .field("email", &self.email.as_ref().map(|_| "[redacted]"))
+            .field("display_name", &self.display_name)
+            .field("session_id", &self.session_id)
+            .field("state_json", &"[redacted]")
+            .field("status", &self.status)
+            .field("attempts", &self.attempts)
+            .field("expires_at", &self.expires_at)
+            .field("consumed_at", &self.consumed_at)
+            .field("created_at", &self.created_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A stored passkey. `credential_id` is the WebAuthn lookup handle and
+/// `public_key_cose` is public verification material, but the domain twin
+/// `modules::authenticators::PasskeyCredential` redacts both. A repository
+/// record that is more permissive than the value it produces is exactly how that
+/// redaction gets undone one refactor later.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PasskeyRecord {
+    pub passkey_id: String,
+    pub user_id: String,
+    pub credential_id: String,
+    pub public_key_cose: String,
+    pub sign_count: i64,
+    pub transports: Vec<String>,
+    pub backup_eligible: Option<bool>,
+    pub backup_state: Option<bool>,
+    pub label: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
+impl fmt::Debug for PasskeyRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PasskeyRecord")
+            .field("passkey_id", &self.passkey_id)
+            .field("user_id", &self.user_id)
+            .field("credential_id", &"[redacted]")
+            .field("public_key_cose", &"[public-material-redacted]")
+            .field("sign_count", &self.sign_count)
+            .field("transports", &self.transports)
+            .field("backup_eligible", &self.backup_eligible)
+            .field("backup_state", &self.backup_state)
+            .field("label", &self.label)
+            .field("created_at", &self.created_at)
+            .field("last_used_at", &self.last_used_at)
+            .field("revoked_at", &self.revoked_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A stored password credential. `encoded_hash` is the argon2id KDF result: not
+/// the password, but enough to mount an offline guessing attack, so it is
+/// treated as the secret it is. Mirrors
+/// `modules::authenticators::PasswordCredential`.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PasswordRecord {
+    pub user_id: String,
+    pub encoded_hash: String,
+    pub algorithm: String,
+    pub memory_kib: i64,
+    pub time_cost: i64,
+    pub parallelism: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl fmt::Debug for PasswordRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PasswordRecord")
+            .field("user_id", &self.user_id)
+            .field("encoded_hash", &"[redacted]")
+            .field("algorithm", &self.algorithm)
+            .field("memory_kib", &self.memory_kib)
+            .field("time_cost", &self.time_cost)
+            .field("parallelism", &self.parallelism)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A password-recovery challenge. `code_hash` is the only thing standing between a
+/// leaked log line and an account takeover, and `email` names whose account it
+/// would take over.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct RecoveryRecord {
+    pub challenge_id: String,
+    pub user_id: Option<String>,
+    pub email: String,
+    pub code_hash: String,
+    pub status: String,
+    pub attempts: i64,
+    pub expires_at: String,
+    pub consumed_at: Option<String>,
+    pub created_at: String,
+}
+
+impl fmt::Debug for RecoveryRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecoveryRecord")
+            .field("challenge_id", &self.challenge_id)
+            .field("user_id", &self.user_id)
+            .field("email", &"[redacted]")
+            .field("code_hash", &"[redacted]")
+            .field("status", &self.status)
+            .field("attempts", &self.attempts)
+            .field("expires_at", &self.expires_at)
+            .field("consumed_at", &self.consumed_at)
+            .field("created_at", &self.created_at)
+            .finish_non_exhaustive()
+    }
+}
+
+// The four `*Row` types below are D1 deserialization targets and nothing else:
+// `serde` constructs them, `TryFrom` consumes them, and they are dropped. They get
+// no `Debug` at all, which is the choice `repositories::identity` already makes
+// for its `SessionRow` and `PasswordRow`. A private row type that cannot be
+// printed cannot leak when somebody adds a `dbg!` in a hurry.
+
+#[derive(Deserialize)]
 struct CeremonyRow {
     ceremony_id: String,
     kind: String,
@@ -191,23 +337,7 @@ struct CeremonyRow {
     created_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PasskeyRecord {
-    pub passkey_id: String,
-    pub user_id: String,
-    pub credential_id: String,
-    pub public_key_cose: String,
-    pub sign_count: i64,
-    pub transports: Vec<String>,
-    pub backup_eligible: Option<bool>,
-    pub backup_state: Option<bool>,
-    pub label: String,
-    pub created_at: String,
-    pub last_used_at: Option<String>,
-    pub revoked_at: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Deserialize)]
 struct PasskeyRow {
     passkey_id: String,
     user_id: String,
@@ -223,19 +353,7 @@ struct PasskeyRow {
     revoked_at: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PasswordRecord {
-    pub user_id: String,
-    pub encoded_hash: String,
-    pub algorithm: String,
-    pub memory_kib: i64,
-    pub time_cost: i64,
-    pub parallelism: i64,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Deserialize)]
 struct PasswordRow {
     user_id: String,
     encoded_hash: String,
@@ -247,20 +365,7 @@ struct PasswordRow {
     updated_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct RecoveryRecord {
-    pub challenge_id: String,
-    pub user_id: Option<String>,
-    pub email: String,
-    pub code_hash: String,
-    pub status: String,
-    pub attempts: i64,
-    pub expires_at: String,
-    pub consumed_at: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RecoveryRow {
     challenge_id: String,
     user_id: Option<String>,

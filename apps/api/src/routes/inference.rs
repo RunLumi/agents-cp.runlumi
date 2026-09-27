@@ -3173,8 +3173,17 @@ fn make_stream(
                 state.ended = true;
                 state.metadata.total_latency_ms = Some(elapsed_ms(state.metadata.started_at_ms));
                 let remaining = state.decoder.finish(&mut state.adapter_state);
-                let mut output = render_events(&mut state, remaining, true);
-                if state.failed {
+                // One terminal decision for the whole response. `may_complete`
+                // is false for a malformed body and for a body that ended
+                // without the protocol's terminal marker, so a stream that was
+                // cut short is never recorded as a completion and never emits
+                // one either. The flushed tail is still rendered so the caller
+                // keeps what arrived, and the reservation is released rather
+                // than committed, which is the same treatment a timeout or a
+                // cancellation already gets.
+                let completed = state.adapter_state.may_complete();
+                let mut output = render_events(&mut state, remaining, completed);
+                if !completed {
                     let _ = finalize_request_once(
                         state.database.as_ref(),
                         &state.context,
@@ -3187,7 +3196,9 @@ fn make_stream(
                         &state.finalized,
                     )
                     .await;
-                    if output.is_empty() {
+                    // A decoded invalid response already emitted its own error
+                    // event; a truncated tail did not, so it is emitted here.
+                    if !state.failed {
                         output.extend(render_error(&state, "upstream_invalid_response"));
                     }
                     return Some((Ok(output), state));

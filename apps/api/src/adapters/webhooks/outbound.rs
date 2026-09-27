@@ -20,12 +20,18 @@
 //! would leave the frozen vector unverified by CI.
 
 use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 
 use wasm_bindgen::JsValue;
 use worker::{Fetch, Headers, Method, Request, RequestInit, RequestRedirect};
 
 use crate::core::Timestamp;
+// The blocked-destination table is shared, not local. Provider, MCP, webhook,
+// and plugin egress all have to agree on it, and a per-call-site copy is how
+// `::ffff:127.0.0.1` ends up refused on one surface and treated as an ordinary
+// hostname on another. `core::egress` owns it; `core` re-exports the four
+// primitives so there is exactly one path to each.
+use crate::core::{is_blocked_address, is_dns_name, is_reserved_host_name, parse_ip_literal};
 
 /// Signature scheme version frozen by P06-CG.
 pub const SIGNATURE_VERSION: &str = "v1";
@@ -172,23 +178,38 @@ pub fn validate_endpoint_url(raw: &str) -> Result<ValidatedEndpoint, SsrfRejecti
         .port_or_known_default()
         .filter(|port| ALLOWED_PORTS.contains(port))
         .ok_or(SsrfRejection::UrlBlocked)?;
-    let host = parsed
+    // `host` is the SERIALIZED host, so WHATWG parsing has already folded the
+    // historical IPv4 spellings (`127.1`, `0177.0.0.1`, `2130706433`) into a
+    // dotted quad and percent-decoded the host. Reading the range table from
+    // that value — rather than from the caller's spelling — is what makes this
+    // check agree with the connection the transport is about to make.
+    //
+    // The brackets come off here rather than inside `parse_ip_literal` because
+    // they are a URL-authority detail, not a property of an address. Leaving
+    // them on would make every IPv6 literal read as a malformed name, which
+    // refuses the right hosts for the wrong reason and leaves the IPv6 half of
+    // the table unreachable.
+    let serialized = parsed
         .host_str()
         .ok_or(SsrfRejection::EndpointInvalid)?
-        .trim_end_matches('.')
+        .trim_end_matches('.');
+    let host = serialized
+        .strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(serialized)
         .to_ascii_lowercase();
     if host.is_empty() || host.len() > 253 {
         return Err(SsrfRejection::EndpointInvalid);
     }
-
-    let ip_literal = match host.parse::<IpAddr>() {
-        Ok(address) => {
+    let literal = parse_ip_literal(&host);
+    let ip_literal = match literal {
+        Some(address) => {
             if is_blocked_address(&address) {
                 return Err(SsrfRejection::UrlBlocked);
             }
             true
         }
-        Err(_) => {
+        None => {
             if !is_dns_name(&host) || is_reserved_host_name(&host) {
                 return Err(SsrfRejection::UrlBlocked);
             }
@@ -196,12 +217,17 @@ pub fn validate_endpoint_url(raw: &str) -> Result<ValidatedEndpoint, SsrfRejecti
         }
     };
 
-    let mut url = String::with_capacity(trimmed.len());
+    // Reconstruct from the canonical host rather than echoing the caller's
+    // spelling, so the URL that is fetched is provably the one that was
+    // checked. An IPv6 literal needs its brackets back to stay parseable.
+    let authority = match literal {
+        Some(IpAddr::V6(_)) => format!("[{host}]"),
+        _ => host.clone(),
+    };
+    let mut url = String::with_capacity(trimmed.len() + 2);
     url.push_str("https://");
-    if port == 443 {
-        url.push_str(&host);
-    } else {
-        url.push_str(&host);
+    url.push_str(&authority);
+    if port != 443 {
         url.push(':');
         url.push_str(&port.to_string());
     }
@@ -237,93 +263,6 @@ pub fn validate_resolved_addresses(
         return Err(SsrfRejection::UrlBlocked);
     }
     Ok(())
-}
-
-/// True for loopback, unspecified, link-local, private, CGNAT, multicast,
-/// documentation, benchmarking, and cloud-metadata destinations.
-pub fn is_blocked_address(address: &IpAddr) -> bool {
-    match address {
-        IpAddr::V4(value) => is_blocked_v4(*value),
-        IpAddr::V6(value) => is_blocked_v6(*value),
-    }
-}
-
-fn is_blocked_v4(value: Ipv4Addr) -> bool {
-    let [a, b, ..] = value.octets();
-    value.is_unspecified()
-        || value.is_loopback()
-        || value.is_private()
-        || value.is_link_local()
-        || value.is_multicast()
-        || value.is_broadcast()
-        || value.is_documentation()
-        || (a == 0) // "this network"
-        || (a == 100 && (64..=127).contains(&b)) // carrier-grade NAT
-        || (a == 192 && b == 0 && value.octets()[2] == 0) // IETF protocol assignments
-        || (a == 192 && b == 88 && value.octets()[2] == 99) // 6to4 relay anycast
-        || (a == 198 && (b == 18 || b == 19)) // benchmarking
-        || (a == 198 && b == 51 && value.octets()[2] == 100) // TEST-NET-2
-        || (a == 203 && b == 0 && value.octets()[2] == 113) // TEST-NET-3
-        || a >= 240 // reserved, including 255.255.255.255
-}
-
-fn is_blocked_v6(value: Ipv6Addr) -> bool {
-    if value.is_loopback() || value.is_unspecified() || value.is_multicast() {
-        return true;
-    }
-    let segments = value.segments();
-    // Unique-local (fc00::/7) and link-local (fe80::/10).
-    if (segments[0] & 0xfe00) == 0xfc00 || (segments[0] & 0xffc0) == 0xfe80 {
-        return true;
-    }
-    // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible (::/96): re-check the
-    // embedded IPv4 address so a mapped loopback cannot bypass the IPv4 rules.
-    if let Some(embedded) = embedded_v4(value) {
-        return is_blocked_v4(embedded);
-    }
-    // Documentation (2001:db8::/32), 6to4 (2002::/16), and Teredo (2001::/32)
-    // carry an embedded IPv4 destination or are not globally routable.
-    (segments[0] == 0x2001 && segments[1] == 0x0db8)
-        || segments[0] == 0x2002
-        || segments[0] == 0x2001
-}
-
-fn embedded_v4(value: Ipv6Addr) -> Option<Ipv4Addr> {
-    let segments = value.segments();
-    if segments[..5] == [0, 0, 0, 0, 0] && matches!(segments[5], 0 | 0xffff) {
-        let octets = value.octets();
-        return Some(Ipv4Addr::new(
-            octets[12], octets[13], octets[14], octets[15],
-        ));
-    }
-    None
-}
-
-fn is_dns_name(host: &str) -> bool {
-    !host.starts_with('.')
-        && !host.ends_with('.')
-        && !host.contains("..")
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        })
-}
-
-/// Split-horizon and loopback names are rejected outright: a resolver cannot be
-/// trusted to map them to a public address.
-fn is_reserved_host_name(host: &str) -> bool {
-    host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
-        || host.ends_with(".home.arpa")
-        || host.ends_with(".in-addr.arpa")
-        || host.ends_with(".onion")
 }
 
 /// Build the exact signed string: `timestamp + "." + event_id + "." + body`.
@@ -1092,6 +1031,94 @@ mod tests {
                 "accepted {value}"
             );
         }
+    }
+
+    /// An IPv6 host arrives from the URL parser bracketed, so a range check
+    /// fed the raw `host_str()` never fires on IPv6 at all. This is the case
+    /// that was wrong: `host.parse::<IpAddr>()` failed on `[::1]`, the literal
+    /// branch was skipped, and the address was rejected by the DNS-name
+    /// syntax check instead — for the right answer and the wrong reason, with
+    /// the whole `is_blocked_v6` table unreachable. A public literal was
+    /// refused for the same reason.
+    #[test]
+    fn an_ipv6_literal_is_range_checked_rather_than_treated_as_a_name() {
+        // Still refused, now by the table and for the stated reason.
+        for value in [
+            "https://[::1]/hook",
+            "https://[::]/hook",
+            "https://[fe80::1]/hook",
+            "https://[fc00::1]/hook",
+            "https://[::ffff:127.0.0.1]/hook",
+            "https://[::ffff:169.254.169.254]/hook",
+        ] {
+            assert_eq!(
+                validate_endpoint_url(value).unwrap_err(),
+                SsrfRejection::UrlBlocked,
+                "accepted {value}"
+            );
+        }
+        // A globally routable literal is usable, and the URL that comes back is
+        // still parseable, which means the brackets have to be restored. An
+        // endpoint URL of `https://2606:4700::1111/hook` would not be.
+        let endpoint = validate_endpoint_url("https://[2606:4700::1111]/hook").unwrap();
+        assert!(endpoint.is_ip_literal());
+        assert_eq!(endpoint.host(), "2606:4700::1111");
+        assert_eq!(endpoint.port(), 443);
+        assert_eq!(endpoint.url(), "https://[2606:4700::1111]/hook");
+        let reparsed = url::Url::parse(endpoint.url()).expect("the rebuilt URL parses");
+        assert_eq!(reparsed.host_str(), Some("[2606:4700::1111]"));
+        // A literal is not resolved, so there is no name to look up.
+        assert!(
+            validate_endpoint_url("https://[2606:4700::1111]:8443/hook")
+                .unwrap()
+                .url()
+                .ends_with(":8443/hook")
+        );
+    }
+
+    /// The alternate IPv4 spellings are folded by URL parsing, so the range
+    /// check reads a dotted quad. A guard that read the caller's spelling would
+    /// call every one of these a hostname.
+    #[test]
+    fn the_alternate_ipv4_spellings_are_folded_before_the_range_check() {
+        for value in [
+            "https://127.1/hook",
+            "https://0177.0.0.1/hook",
+            "https://0x7f.0.0.1/hook",
+            "https://2130706433/hook",
+            "https://017700000001/hook",
+            "https://127.0.0.1./hook",
+        ] {
+            assert_eq!(
+                validate_endpoint_url(value).unwrap_err(),
+                SsrfRejection::UrlBlocked,
+                "accepted {value}"
+            );
+        }
+    }
+
+    /// The URL that is fetched has to be the one that was checked, built from
+    /// the canonical host rather than echoed from the caller.
+    #[test]
+    fn the_rebuilt_url_is_canonical_rather_than_the_callers_spelling() {
+        assert_eq!(
+            validate_endpoint_url("  HTTPS://Hooks.Example.COM:443/hook?a=1  ")
+                .unwrap()
+                .url(),
+            "https://hooks.example.com/hook?a=1"
+        );
+        assert_eq!(
+            validate_endpoint_url("https://hooks.example.com./hook")
+                .unwrap()
+                .url(),
+            "https://hooks.example.com/hook"
+        );
+        assert_eq!(
+            validate_endpoint_url("https://hooks.example.com")
+                .unwrap()
+                .url(),
+            "https://hooks.example.com/"
+        );
     }
 
     #[test]
