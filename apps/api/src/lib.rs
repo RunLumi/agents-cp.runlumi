@@ -38,6 +38,17 @@ async fn queue(batch: MessageBatch<serde_json::Value>, env: Env, _ctx: Context) 
     if batch.queue() == p06_jobs_queue_name(&env) {
         return consume_p06_jobs(&batch, &env).await;
     }
+    // The jobs dead-letter queue is consumed too, and it is the ONLY path by
+    // which a job that exhausted its retries becomes visible in Lumi. It is
+    // checked before the outbox, because a job envelope decoded as a business
+    // event is undecodable and would be acknowledged as an invalid message —
+    // which is exactly what used to happen: `JOBS_DLQ_NAME` was declared in
+    // `wrangler.jsonc` with a consumer attached, and nothing in Rust ever read
+    // it. A poison `webhook.deliver` or `export.run` therefore vanished, and
+    // `consumers::dead_letter_statement` had no callers at all.
+    if batch.queue() == p06_jobs_dlq_name(&env) {
+        return consume_p06_dead_letters(&batch, &env).await;
+    }
     consume_p01_outbox(&batch, &env).await
 }
 
@@ -45,6 +56,90 @@ fn p06_jobs_queue_name(env: &Env) -> String {
     env.var("JOBS_QUEUE_NAME")
         .map(|value| value.to_string())
         .unwrap_or_else(|_| "lumi-agents-jobs".to_owned())
+}
+
+fn p06_jobs_dlq_name(env: &Env) -> String {
+    env.var("JOBS_DLQ_NAME")
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "lumi-agents-jobs-dlq".to_owned())
+}
+
+/// Record every dead-lettered job durably, THEN acknowledge.
+///
+/// The order is the whole point. `ack()` first would make the message disappear
+/// with nothing recorded, and a redelivery of an already-recorded job must be a
+/// no-op rather than a second terminal transition, so the write is guarded on the
+/// row's own lease version.
+async fn consume_p06_dead_letters(
+    batch: &MessageBatch<serde_json::Value>,
+    env: &Env,
+) -> Result<()> {
+    use worker::MessageExt;
+
+    let database = D1Adapter::new(env.d1("DB")?);
+    let now = jobs::now_utc().map_err(|_| Error::RustError("worker clock unavailable".into()))?;
+    let Ok(messages) = batch.messages() else {
+        batch.retry_all();
+        return Ok(());
+    };
+    for message in messages {
+        let body: &serde_json::Value = message.body();
+        let Ok(envelope) = serde_json::from_value::<consumers::QueueJobEnvelope>(body.clone())
+        else {
+            // A body that is not a job envelope has no job row to mark, so there
+            // is nothing to record. Acknowledged rather than redelivered forever
+            // against a queue that can never accept it.
+            console_error!("p06_job_dead_lettered:queue_job_envelope_invalid");
+            message.ack();
+            continue;
+        };
+        let repository = repositories::WebhookRepository::new(&database);
+        let record = match repository.find_job(&envelope.job_id).await {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                // The row is gone (a completed deletion, say). Nothing to mark.
+                message.ack();
+                continue;
+            }
+            Err(_) => {
+                // The store is unavailable. Retried rather than acknowledged, or
+                // the failure would become permanent precisely when the system is
+                // already unhealthy.
+                message.retry();
+                continue;
+            }
+        };
+        // An unrecognised stored state is treated as NOT terminal, so an unknown
+        // value is marked rather than silently treated as already settled.
+        if repositories::QueueJobState::parse(&record.state)
+            .is_some_and(|state| state.is_terminal())
+        {
+            // Already settled. A duplicate dead-letter delivery must not rewrite
+            // why the job stopped.
+            message.ack();
+            continue;
+        }
+        let statement = match consumers::automations::dead_letter_statement(
+            &database,
+            &envelope.job_id,
+            record.lease_version,
+            "queue_dead_lettered",
+            &now,
+        ) {
+            Ok(statement) => statement,
+            Err(_) => {
+                message.retry();
+                continue;
+            }
+        };
+        match database.batch(vec![statement]).await {
+            Ok(_) => message.ack(),
+            // Not acknowledged on failure: the whole point of this consumer is
+            // that a failure here is visible rather than lost.
+            Err(_) => message.retry(),
+        }
+    }
+    Ok(())
 }
 
 async fn consume_p01_outbox(batch: &MessageBatch<serde_json::Value>, env: &Env) -> Result<()> {
@@ -232,9 +327,45 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     // missed tick loses no work and a late tick does not double-dispatch — the
     // occurrence uniqueness constraint and the single-active-lease constraint
     // are what make a repeated sweep safe.
-    if run_automation_sweeps(env).await.is_err() {
+    if run_automation_sweeps(env.clone()).await.is_err() {
         console_error!("automation_sweep_failed");
     }
+    // Budget holds that outlived their request. Not a spend control — admission
+    // already ignores an expired hold — but the only way a hold reaches a
+    // terminal state after a Worker dies between the insert and the finalize.
+    // Without it, `status = 'reserved'` accumulates rows that no operator query
+    // can distinguish from live spend.
+    if run_budget_expiry_sweep(env).await.is_err() {
+        console_error!("budget_expiry_sweep_failed");
+    }
+}
+
+/// Bounded per-tick budget-expiry sweep.
+///
+/// Bounded twice over: at most `BUDGET_EXPIRY_SWEEP_LIMIT` organizations, and at
+/// most the same number of holds per organization. The second bound is what stops
+/// one tenant with a large backlog from making the tick expensive, and the first
+/// keeps the whole sweep inside the Worker's CPU budget. A missed tick loses
+/// nothing: the rows are already past their expiry, so they stop counting against
+/// the budget whether or not this runs.
+async fn run_budget_expiry_sweep(env: Env) -> Result<()> {
+    let database = D1Adapter::new(env.d1("DB")?);
+    let now = jobs::now_utc().map_err(|_| Error::RustError("worker clock unavailable".into()))?;
+    let repository = repositories::BudgetRepository::new(&database);
+    let orgs = repository
+        .orgs_with_expired_reservations(now.as_str(), BUDGET_EXPIRY_SWEEP_LIMIT)
+        .await
+        .map_err(|_| Error::RustError("budget_expiry_sweep_unavailable".into()))?;
+    for org_id in orgs {
+        let statement = repository
+            .expire_reservations_statement(&org_id, now.as_str(), BUDGET_EXPIRY_SWEEP_LIMIT)
+            .map_err(|_| Error::RustError("budget_expiry_statement_unavailable".into()))?;
+        database
+            .batch(vec![statement])
+            .await
+            .map_err(|_| Error::RustError("budget_expiry_sweep_write_failed".into()))?;
+    }
+    Ok(())
 }
 
 async fn run_automation_sweeps(env: Env) -> Result<()> {
@@ -254,6 +385,11 @@ async fn run_automation_sweeps(env: Env) -> Result<()> {
 /// on a busy tenant; the sweep is re-entrant, so the remainder is picked up on
 /// the next tick.
 const AUTOMATION_SWEEP_LIMIT: i32 = 50;
+
+/// Bounded per-tick batch for the budget-expiry sweep, in organizations and in
+/// holds per organization. The same order of magnitude as the automation sweeps,
+/// which are the existing precedent for "one tick must stay cheap".
+const BUDGET_EXPIRY_SWEEP_LIMIT: i32 = 50;
 
 async fn run_scheduled_sweep(env: Env) -> Result<()> {
     let database = D1Adapter::new(env.d1("DB")?);

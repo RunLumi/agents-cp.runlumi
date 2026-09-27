@@ -399,6 +399,14 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
     ),
     // -- P01 idempotency: the tenant surface a single-spelling scan missed -----
     (
+        "repositories/budgets.rs::ORGS_WITH_EXPIRED_RESERVATIONS_SQL",
+        Class::PlatformSweep,
+        "The platform expiry sweep. It MUST cross tenants: it asks which \
+         organizations hold expired reservations so each can be swept. It returns \
+         organization IDs and no other data, and it is bounded by `LIMIT ?2` so \
+         one tenant's backlog cannot make the tick expensive.",
+    ),
+    (
         "repositories/idempotency.rs::LOOKUP_ACTIVE_SQL",
         Class::OrgBound,
         "Bound on BOTH the principal and the organization, plus the method, path \
@@ -2481,5 +2489,114 @@ fn the_audit_can_reject_a_mislabelled_statement() {
     assert!(
         is_credential_lookup("repositories/machine_identity.rs::KEY_BY_PREFIX_WITH_ACCOUNT_SQL"),
         "so the exemption is recorded rather than assumed"
+    );
+}
+
+/// The P09 failure-injection pass found that the jobs dead-letter queue was
+/// declared, attached to a consumer, and never read. A poison job that exhausted
+/// its retries was acknowledged as an undecodable message and vanished, and
+/// `consumers::automations::dead_letter_statement` had zero callers — so FR-F21-009
+/// ("dead-letter state must be observable and replayable where safe") was not
+/// satisfied and only the Cloudflare dashboard showed the failure.
+///
+/// These are structural, because the queue branch needs a live `Env` to run. They
+/// assert the thing a future edit would break: the branch exists, it is ordered
+/// before the outbox, and the statement it writes is terminal.
+#[test]
+fn the_jobs_dead_letter_queue_is_consumed_before_the_outbox() {
+    let lib = fs::read_to_string(crate_root().join("src/lib.rs")).expect("lib.rs is readable");
+    let queue_branch = lib
+        .find("async fn queue(")
+        .expect("the queue entry point exists");
+    let body = &lib[queue_branch..];
+    let body = &body[..body.find("\nasync fn").unwrap_or(body.len())];
+
+    let dlq = body.find("p06_jobs_dlq_name(&env)").unwrap_or_else(|| {
+        panic!("the jobs DLQ is not routed at all; it was declared and never read")
+    });
+    let outbox = body
+        .find("consume_p01_outbox(&batch, &env)")
+        .expect("the outbox branch exists");
+    assert!(
+        dlq < outbox,
+        "the DLQ check must precede the outbox: a job envelope decoded as a \\
+         business event is undecodable and would be acknowledged as invalid"
+    );
+    // And the primary jobs queue is still routed, and still first: it carries the
+    // live traffic and must not be short-circuited by the dead-letter name.
+    let jobs = body
+        .find("p06_jobs_queue_name(&env)")
+        .expect("the primary jobs queue is routed");
+    assert!(jobs < dlq, "the live jobs queue is checked first");
+
+    // The routing order is settled above; this is the CONSUMER's contract, and it
+    // lives in a different function. The write is terminal and guarded on the
+    // row's own lease version, so a duplicate dead-letter delivery cannot rewrite
+    // why a job stopped.
+    let consumer = lib
+        .split("async fn consume_p06_dead_letters(")
+        .nth(1)
+        .unwrap_or_else(|| panic!("the dead-letter consumer does not exist"))
+        .split("\nasync fn")
+        .next()
+        .expect("the consumer body");
+    let write = consumer.find("dead_letter_statement(").unwrap_or_else(|| {
+        panic!("the DLQ consumer must record the row durably before acknowledging")
+    });
+    // Acknowledged only after the durable write, never before: acking first would
+    // make the message disappear with nothing recorded, which is the exact bug
+    // this consumer exists to fix.
+    assert!(
+        consumer[write..].contains(".ack()"),
+        "record first, then acknowledge"
+    );
+    assert!(
+        consumer[write..].contains("batch("),
+        "the terminal write must be a durable batch, not a best-effort call"
+    );
+    // A store failure must redeliver, never acknowledge, or the failure becomes
+    // permanent precisely when the system is already unhealthy.
+    assert!(
+        consumer.contains("message.retry()"),
+        "an unavailable store must be retried, not acknowledged"
+    );
+    let consumers = fs::read_to_string(crate_root().join("src/consumers/automations.rs"))
+        .expect("the automations consumer is readable");
+    assert!(
+        consumers.contains("QueueJobState::DeadLetter"),
+        "the recorded state must be terminal"
+    );
+}
+
+/// The budget-expiry sweep had a written, bounded, index-backed statement and no
+/// caller. A Worker killed between the reservation insert and `finalize_request`
+/// left the row `reserved` forever. Not a spend leak — admission already filters
+/// live holds by `expires_at > now` — but the row never reached a terminal state,
+/// no `budget.reconciled` event fired, and an operator summing
+/// `status = 'reserved'` saw a phantom hold that would never clear.
+#[test]
+fn an_expired_budget_hold_is_swept_to_a_terminal_state() {
+    let budgets = fs::read_to_string(crate_root().join("src/repositories/budgets.rs"))
+        .expect("the budget repository is readable");
+    assert!(
+        budgets.contains("ORGS_WITH_EXPIRED_RESERVATIONS_SQL"),
+        "the sweep needs a bounded way to find the organizations to sweep"
+    );
+    // Bounded twice: organizations, then holds per organization. One tenant's
+    // backlog must not make the tick expensive for everyone.
+    assert!(budgets.contains("LIMIT ?2"), "the org lookup is bounded");
+    assert!(
+        budgets.contains("EXPIRE_RESERVATIONS_SQL") && budgets.contains("LIMIT ?3"),
+        "the per-organization expiry is bounded"
+    );
+    // And the scheduled handler actually calls it.
+    let lib = fs::read_to_string(crate_root().join("src/lib.rs")).expect("lib.rs is readable");
+    assert!(
+        lib.contains("run_budget_expiry_sweep(env)"),
+        "the expiry sweep is never scheduled"
+    );
+    assert!(
+        lib.contains("budget_expiry_sweep_failed"),
+        "and its failure must be a stable signal, not a silent one"
     );
 }
