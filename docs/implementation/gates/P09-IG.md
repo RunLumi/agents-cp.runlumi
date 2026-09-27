@@ -198,6 +198,78 @@ secret-named field were false positives worth explaining rather than suppressing
   than `code` being dropped from the secret names — weakening the detector to make
   a false positive go away is how a canary stops working.
 
+## Independent verification (VI-TEST-001)
+
+`docs/verification/contracts/core-invariants-v1.yaml` requires, for every Tier-0
+invariant, that a named mutation be **killed by the verifier that is supposed to
+defend it, for the intended reason**. That is a different and harder claim than "the
+tests pass", and this phase's original gate did not make it.
+
+`apps/api/scripts/p09-mutation-campaign.mjs` makes it. Each case injects one
+representative fault, checks the mutant **compiles** (a mutation that does not build
+has killed nothing), runs every named verifier, and then requires that a verifier
+died *and* that the failure names the invariant.
+
+```bash
+git worktree add /tmp/p09-verify HEAD      # it refuses to run in a main checkout
+cd /tmp/p09-verify && node apps/api/scripts/p09-mutation-campaign.mjs --apply
+```
+
+**8/8 killed, each for a reason a reader can see.** The script is deliberately not
+in `pnpm test`: it rebuilds the crate per case and mutates code on purpose.
+
+### What it found
+
+| # | Found by | What it was |
+|---|---|---|
+| 1 | VI-IDEM-001 **survived** | `grep -c idempotency` on the storage harness returned **0**. The retry-safety substrate had no database-level proof, while the gate claimed 97 invariants. |
+| 2 | writing the missing probes | A `completed` idempotency record could exist with **no response at all**: `BETWEEN` on a NULL column is NULL, `0 OR NULL` is NULL, and a SQLite `CHECK` fails only on a definite false. Migration `0020` closes it. |
+| 3 | VI-MIG-001 **survived** | **18 of the 125 storage invariants were false passes.** Their setup re-inserted a row the seed already held, so the case reported "rejected" before reaching the statement it named. The runner now checks the setup and fails loudly. |
+| 4 | reading each verdict | Three campaign cases were killing for the wrong reason — a string arm, an unreachable branch, and two expectations naming symbols that never appear in the failure. |
+
+Items 1–3 are defects in the *verification*, which is worse than a defect in the
+implementation: a wrong number that looks right is trusted, and a gate that passes
+for the wrong reason is worse than no gate.
+
+### Verdicts for the Tier-0 invariants
+
+| Invariant | Verdict | Evidence |
+|---|---|---|
+| VI-TEN-001 cross-tenant | **PASS** | 421 statements classified; two org-predicate mutations both killed by `tenant_audit` |
+| VI-AUTHZ-001 server-side authority | **PASS** | the `is_human_only` gate disabled → killed by `machine_identity` |
+| VI-INF-001 stream safety | **PASS** | `may_complete()` forced true → killed by the failure-injection suite |
+| VI-SEC-001 no secret exposure | **PASS** | a projection made to return `secret_hash` → killed by the canary |
+| VI-IDEM-001 no duplicate side effects | **PASS** | the `0020` trigger neutralised → killed by the storage harness |
+| VI-MIG-001 invariant-bearing constraints | **PASS** | a terminal-state trigger's `WHEN` neutralised → killed by the storage harness |
+| VI-AUTH-001 ceremony replay | **UNPROVEN** | no mutation case; the P02 suite asserts consumption but was not adversarially tested at V4 |
+| VI-AUTH-002 revocation mid-request | **UNPROVEN** | failure-injection covers revocation, but not by mutation |
+| VI-BUD-001 denial before dispatch | **PARTIAL** | "a hard denial is enforced at all" is **PASS** (killed). The contract's actual mutation — *moving the decision after dispatch* — is **UNPROVEN**: a string-replace harness cannot move a call site honestly, and a mutation that reshuffles code then fails to compile proves nothing. |
+| VI-MIG-002 local-only adoption | **BLOCKED** | `external_proof_required: true`; needs a real LumiAgents host |
+| VI-CON-002 released client compatibility | **BLOCKED** | `external_proof_required: true` |
+| VI-UX-001 / VI-UX-002 / VI-OBS-001 | **BLOCKED** | need a browser and a deployed environment |
+
+**Three PASS, one PARTIAL, three UNPROVEN, five BLOCKED.** The UNPROVEN and BLOCKED
+rows are the honest shape of this phase: the mechanical gates are strong, and the
+claims that need a browser, a deployed environment, or a second repository are not
+something more testing in this repository can establish.
+
+### The lesson, stated once
+
+Every false pass in this campaign had the same shape: **a probe that could not tell
+"the database refused" from "my fixture was invalid"** —
+
+- the idempotency duplicate inserted once inside a rolled-back savepoint;
+- a `created_at` column on `outbox_events` that does not exist;
+- 18 cases whose setup collided with the seed;
+- a budget mutation that edited a doc comment;
+- a trigger mutation that left an orphaned body, so the migration failed to *parse*
+  rather than the invariant failing to be *enforced*.
+
+None of them were red. All of them were counted. A verifier that cannot distinguish
+a real refusal from its own mistake is worse than no verifier, because it looks like
+coverage — which is why the harness now checks its own setup, and why the campaign
+checks what a failing verifier *said* and not merely that it failed.
+
 ## Performance
 
 Measured, and `pnpm build` is in CI so a regression is a red build.

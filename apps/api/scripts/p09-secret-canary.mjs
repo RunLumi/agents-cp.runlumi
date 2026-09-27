@@ -483,19 +483,29 @@ check("the Rust half of the canary harness is registered in the crate", () => {
 check("both halves are wired into pnpm test", () => {
   const problems = [];
   const pkg = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-  if (
-    pkg.scripts?.test !==
-    "pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09"
-  ) {
-    problems.push(`the root test script is not wired: ${pkg.scripts?.test}`);
+  // Each required step is asserted SEPARATELY, not as one exact string.
+  //
+  // The first version of this case compared `scripts.test` to a whole literal, so
+  // wiring a fourth legitimate gate into `pnpm test` broke it. The check was
+  // asserting the shape of the command line rather than the property it exists for,
+  // and it would have resisted every future gate anyone added. Listing the steps it
+  // actually needs keeps the same coverage and stops being a tripwire.
+  const required = [
+    ["cargo test --workspace", "the Rust canaries"],
+    ["schema:p07", "the storage invariants"],
+    ["canary:p09", "this half of the secret canary"],
+    ["schema:null-check", "the NULL-passes-CHECK scan"],
+  ];
+  for (const [step, what] of required) {
+    if (!String(pkg.scripts?.test).includes(step)) {
+      problems.push(`the root test script no longer runs ${what} (missing "${step}")`);
+    }
   }
   if (pkg.scripts?.["canary:p09"] !== "node apps/api/scripts/p09-secret-canary.mjs") {
     problems.push("the canary:p09 script is not the one this file implements");
   }
-  // The Rust half runs through `cargo test --workspace`; assert the script is
-  // there too, because a future refactor could drop one half and keep the other.
-  if (!String(pkg.scripts?.test).includes("cargo test --workspace")) {
-    problems.push("the root test script no longer runs the Rust canaries");
+  if (pkg.scripts?.["schema:null-check"] !== "node apps/api/scripts/p09-null-check-scan.mjs") {
+    problems.push("the schema:null-check script is not the one that implements it");
   }
   return problems.length ? problems.join("\n  ") : null;
 });

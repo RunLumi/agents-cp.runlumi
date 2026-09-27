@@ -66,6 +66,11 @@ const PACKAGE = "pkg_0123456789abcdef0123456789abcdef";
 const PACKAGE_OTHER = "pkg_ffffffffffffffffffffffffffffffff";
 const VERSION_ONE = "1.0.0";
 const VERSION_TWO = "1.1.0";
+// The seed holds VERSION_ONE and VERSION_TWO, so any case that needs a version
+// of its own must use this one. A duplicate-version case cannot reuse a seeded
+// version, because then its FIRST insert is already the duplicate and the case
+// proves nothing about the second.
+const VERSION_THREE = "3.0.0";
 const MANIFEST = JSON.stringify({
   tools: ["pkg_read"],
   mcp_servers: [],
@@ -194,6 +199,453 @@ try {
        reason, engaged_by_staff_principal_id, engaged_at, expires_at, state, version, created_at, updated_at)
      VALUES ('${sid}', '${klass}', '${ref}', '${scope}', ${orgId ?? "NULL"}, 'incident 42',
        '${STAFF}', '${NOW}', ${expiresAt ?? "NULL"}, ${state ?? "'engaged'"}, 1, '${NOW}', '${NOW}')`;
+
+  // ===================== 0001 — idempotency and outbox =====================
+  //
+  // These were MISSING until the P09 verification campaign (VI-IDEM-001) mutated
+  // the `ON CONFLICT` clause of the idempotency upsert and all 97 invariants still
+  // passed. `grep -c idempotency` on the harness returned 0: the entire retry-safety
+  // substrate — the thing that makes every mutating route safe to retry — had no
+  // database-level proof at all, while the harness's own header claimed 33
+  // invariants "from 0016" and the release schema map listed 0001 as covered.
+  //
+  // A verifier that cannot see the most load-bearing table in the system is not
+  // coverage. These cases are the ones that matter most precisely because they were
+  // absent.
+  const idem = (
+    principal,
+    org,
+    method,
+    path,
+    digest,
+    fingerprint,
+    state,
+    status,
+    body,
+    claim,
+    expiresAt,
+  ) =>
+    `INSERT INTO idempotency_records (principal_id, organization_id, method, path, key_digest,
+       request_fingerprint, state, response_status, response_body, expires_at, claim_token)
+     VALUES ('${principal}', '${org}', '${method}', '${path}', '${digest}', '${fingerprint}',
+       '${state}', ${status}, ${body}, ${expiresAt ?? `'${FUTURE}'`}, ${claim})`;
+  const CLAIM = `'claim-0123456789abcdef'`;
+  const IDEM = {
+    principal: "usr_0123456789abcdef0123456789abcdef",
+    path: "/api/v1/orgs/org_0123456789abcdef0123456789abcdef/things",
+    digest: "sha256:key0123456789abcdef",
+  };
+
+  // Without a control that MUST succeed, every "rejected" below would be
+  // indistinguishable from a broken fixture.
+  expect(
+    "control: a pending idempotency claim is accepted",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req1",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+  expect(
+    "control: a completed idempotency record is accepted",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG,
+      "PUT",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req2",
+      "completed",
+      "200",
+      "'{}'",
+      "NULL",
+    ),
+  );
+
+  // The one that matters: the same key twice is ONE record. This is the entire
+  // mechanism by which a retried mutation does not apply twice.
+  //
+  // BOTH inserts are in this one case, and they have to be. Every case runs inside
+  // a rolled-back SAVEPOINT, so a lone insert is always the FIRST one and the
+  // uniqueness constraint never fires. The first version of this case asserted a
+  // single insert and passed for the wrong reason, which is failure mode 1 wearing
+  // a new hat.
+  expect("a duplicate idempotency key is refused", "rejected", [
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req3",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req3",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  ]);
+  // ...and the uniqueness is scoped, so two orgs and two principals can each hold
+  // the same key. A UNIQUE that was one column too narrow would refuse a legitimate
+  // concurrent request, which is a different and quieter failure.
+  expect(
+    "the same key for another organization is a different record",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG_OTHER,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req4",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+  expect(
+    "the same key for another principal is a different record",
+    "accepted",
+    idem(
+      "usr_ffffffffffffffffffffffffffffffff",
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req5",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+  expect(
+    "the same key on another method is a different record",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG,
+      "DELETE",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req6",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+
+  // State and its payload are one invariant. A `pending` row carrying a response,
+  // or a `completed` row with no status, is a claim that lies about what happened.
+  // Each of these is an UPDATE, so the row has to exist in the SAME case. A
+  // statement against a row a previous case rolled back touches nothing, reports
+  // "accepted", and proves nothing — which is exactly what the first version of
+  // these cases did.
+  const seedPending = (n) =>
+    idem(
+      IDEM.principal,
+      ORG,
+      "HEAD",
+      IDEM.path,
+      `sha256:head${n}`,
+      "sha256:reqh",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    );
+  for (const [label, statement] of [
+    [
+      "a pending record carrying a response status is refused",
+      "UPDATE idempotency_records SET response_status = 200 WHERE principal_id = '%s' AND method = 'HEAD' AND state = 'pending'",
+    ],
+    [
+      "a pending record carrying a response body is refused",
+      "UPDATE idempotency_records SET response_body = '{}' WHERE principal_id = '%s' AND method = 'HEAD' AND state = 'pending'",
+    ],
+    [
+      "a pending record with no claim token is refused",
+      "UPDATE idempotency_records SET claim_token = NULL WHERE principal_id = '%s' AND method = 'HEAD' AND state = 'pending'",
+    ],
+  ]) {
+    expect(label, "rejected", [seedPending(1), statement.replace("%s", IDEM.principal)]);
+  }
+  // The one that the table's own CHECK could NOT say, and the reason migration
+  // 0020 exists. Before 0020 this row was ACCEPTED: `response_status BETWEEN 200 AND
+  // 299` on a NULL column is NULL, the branch OR is `0 OR NULL` = NULL, and a
+  // SQLite CHECK fails only on a definite false. Probed, not inferred: status 200
+  // accepted, status 500 rejected, status NULL accepted.
+  expect(
+    "a completed record with NO status is refused (migration 0020: a CHECK cannot express this)",
+    "rejected",
+    idem(
+      IDEM.principal,
+      ORG,
+      "PATCH",
+      IDEM.path,
+      "sha256:reqnull",
+      "sha256:reqn",
+      "completed",
+      "NULL",
+      "'{}'",
+      "NULL",
+    ),
+  );
+  // ...and the mirror, which the pending branch could say but which is now guarded
+  // explicitly so a future edit to the CHECK cannot open the other half.
+  expect(
+    "a pending record with no claim token is refused on INSERT (migration 0020)",
+    "rejected",
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      "sha256:reqnoc",
+      "sha256:reqnc",
+      "pending",
+      "NULL",
+      "NULL",
+      "NULL",
+    ),
+  );
+
+  for (const [label, state, status, body, claim] of [
+    ["a completed record with no status is refused", "completed", "NULL", "'{}'", "NULL"],
+    ["a completed record with a non-2xx status is refused", "completed", "500", "'{}'", "NULL"],
+    [
+      "a completed record with a non-JSON body is refused",
+      "completed",
+      "200",
+      "'not json'",
+      "NULL",
+    ],
+    [
+      "a completed record still holding its claim token is refused",
+      "completed",
+      "200",
+      "'{}'",
+      CLAIM,
+    ],
+    ["an unknown state is refused", "in_progress", "NULL", "NULL", CLAIM],
+    ["a lower-case method is refused", "pending", "NULL", "NULL", CLAIM],
+  ]) {
+    expect(
+      label,
+      "rejected",
+      idem(
+        IDEM.principal,
+        ORG,
+        label === "a lower-case method is refused" ? "post" : "PATCH",
+        IDEM.path,
+        "sha256:reqbad",
+        "sha256:reqb",
+        state,
+        status,
+        body,
+        claim,
+      ),
+    );
+  }
+  for (const [label, pathValue] of [["a relative path is refused", "api/v1/things"]]) {
+    expect(
+      label,
+      "rejected",
+      idem(
+        IDEM.principal,
+        ORG,
+        "POST",
+        pathValue,
+        "sha256:reqpath",
+        "sha256:reqp",
+        "pending",
+        "NULL",
+        "NULL",
+        CLAIM,
+      ),
+    );
+  }
+  expect(
+    "a malformed expiry is refused",
+    "rejected",
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      "sha256:reqexp",
+      "sha256:reqe",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+      "'2026-10-26'",
+    ),
+  );
+  expect(
+    "an empty principal is refused",
+    "rejected",
+    idem(
+      "",
+      ORG,
+      "POST",
+      IDEM.path,
+      "sha256:reqprin",
+      "sha256:reqpr",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+
+  // The outbox. An event is delivered at-least-once, so the event id is the
+  // dedupe key and it must be the SAME id inside the envelope as outside it —
+  // otherwise a consumer reading the envelope and a dispatcher reading the column
+  // disagree about which event this is.
+  // `outbox_events` has no created_at/updated_at. It has queued_at/delivered_at,
+  // which are the interesting ones anyway: queued_at is when the dispatcher handed
+  // the event to the queue, and delivered_at is when the queue confirmed it. The
+  // first version of this helper invented two columns, which is failure mode 1
+  // again \u2014 a typo that reports "the database rejected a well-formed row" and
+  // sends you hunting for a schema bug that does not exist.
+  const outbox = (eventId, type, org, envelope, status, attempts, occurredAt = NOW) =>
+    `INSERT INTO outbox_events (event_id, event_type, occurred_at, request_id, correlation_id,
+       organization_id, envelope_json, delivery_status, attempt_count, next_attempt_at)
+     VALUES ('${eventId}', '${type}', '${occurredAt}', 'req_0123456789abcdef0123456789abcdef',
+       'trace-1', '${org}', ${envelope}, '${status}', ${attempts}, '${NOW}')`;
+  // Returns a QUOTED SQL literal, so the template above must not quote it again.
+  const envelopeFor = (eventId, type) => `'{"event_id":"${eventId}","event_type":"${type}"}'`;
+
+  expect(
+    "control: a well-formed pending outbox event is accepted",
+    "accepted",
+    outbox(
+      "evt_0123456789abcdef0123456789abcdef",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.created"),
+      "pending",
+      0,
+    ),
+  );
+  // Both inserts in ONE case. Every case runs in a rolled-back SAVEPOINT, so a lone
+  // insert is always the first and the PRIMARY KEY never fires. The same trap
+  // caught the idempotency duplicate above.
+  expect("a duplicate event id is refused", "rejected", [
+    outbox(
+      "evt_0123456789abcdef0123456789abcdef",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.created"),
+      "pending",
+      0,
+    ),
+    outbox(
+      "evt_0123456789abcdef0123456789abcdef",
+      "thing.deleted",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.deleted"),
+      "pending",
+      0,
+    ),
+  ]);
+  // The two that make the envelope and the row one fact rather than two.
+  expect(
+    "an envelope naming a DIFFERENT event id than its row is refused",
+    "rejected",
+    outbox(
+      "evt_ffffffffffffffffffffffffffffffff",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.created"),
+      "pending",
+      0,
+    ),
+  );
+  expect(
+    "an envelope naming a DIFFERENT event type than its row is refused",
+    "rejected",
+    outbox(
+      "evt_fffffffffffffffffffffffffffffffe",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_fffffffffffffffffffffffffffffffe", "thing.deleted"),
+      "pending",
+      0,
+    ),
+  );
+  for (const [label, sql] of [
+    [
+      "a non-JSON envelope is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffd",
+        "thing.created",
+        ORG,
+        "'not json'",
+        "pending",
+        0,
+      ),
+    ],
+    [
+      "an unknown delivery status is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffc",
+        "thing.created",
+        ORG,
+        envelopeFor("evt_fffffffffffffffffffffffffffffffc", "thing.created"),
+        "in_flight",
+        0,
+      ),
+    ],
+    [
+      "a negative attempt count is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffb",
+        "thing.created",
+        ORG,
+        envelopeFor("evt_fffffffffffffffffffffffffffffffb", "thing.created"),
+        "pending",
+        -1,
+      ),
+    ],
+    [
+      "a malformed occurred_at is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffa",
+        "thing.created",
+        ORG,
+        envelopeFor("evt_fffffffffffffffffffffffffffffffa", "thing.created"),
+        "pending",
+        0,
+        "2026-09-26",
+      ),
+    ],
+  ]) {
+    expect(label, "rejected", sql);
+  }
 
   // ============================ 0016 — machine identity ====================
 
@@ -368,30 +820,23 @@ try {
 
   // -- F25-001 stable identity, and an immutable published version ------------
   expect("a published version cannot be re-pointed at another package", "rejected", [
-    pluginVersion(id("pvr_", 901), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     `UPDATE plugin_versions SET package_id = '${PACKAGE_OTHER}' WHERE version = '${VERSION_ONE}'`,
   ]);
   expect("a published version's manifest cannot be edited in place", "rejected", [
-    pluginVersion(id("pvr_", 902), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     `UPDATE plugin_versions SET manifest_json = '${MANIFEST.replace('"none"', '"computer_use"')}' WHERE version = '${VERSION_ONE}'`,
   ]);
   expect("a published version's digest cannot be swapped", "rejected", [
-    pluginVersion(id("pvr_", 903), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     `UPDATE plugin_versions SET content_digest = '${DIGEST_TWO}' WHERE version = '${VERSION_ONE}'`,
   ]);
   expect("a duplicate package/version is refused", "rejected", [
-    pluginVersion(id("pvr_", 904), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
-    pluginVersion(id("pvr_", 905), PACKAGE, VERSION_ONE, DIGEST_TWO, MANIFEST),
+    pluginVersion(id("pvr_", 904), PACKAGE, VERSION_THREE, DIGEST, MANIFEST),
+    pluginVersion(id("pvr_", 905), PACKAGE, VERSION_THREE, DIGEST_TWO, MANIFEST),
   ]);
   expect("a wildcard in a manifest is refused", "rejected", [
-    publisher(PUBLISHER, "Lumi", 1),
-    pluginPackage(PACKAGE, "Pack Reader", PUBLISHER),
-    pluginVersion(id("pvr_", 906), PACKAGE, VERSION_ONE, DIGEST, MANIFEST_WILDCARD),
+    pluginVersion(id("pvr_", 906), PACKAGE, VERSION_THREE, DIGEST, MANIFEST_WILDCARD),
   ]);
   expect("an incomplete manifest is refused", "rejected", [
-    publisher(PUBLISHER, "Lumi", 1),
-    pluginPackage(PACKAGE, "Pack Reader", PUBLISHER),
-    pluginVersion(id("pvr_", 907), PACKAGE, VERSION_ONE, DIGEST, MANIFEST_INCOMPLETE),
+    pluginVersion(id("pvr_", 907), PACKAGE, VERSION_THREE, DIGEST, MANIFEST_INCOMPLETE),
   ]);
 
   // -- F25-004 org policy ----------------------------------------------------
@@ -419,13 +864,17 @@ try {
 
   // -- F25-003 and one review state per package ------------------------------
   expect("a pending_review install without a reason is refused", "rejected", [
-    pluginVersion(id("pvr_", 910), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     pluginInstall(id("pil_", 910), PACKAGE, VERSION_ONE, "pending_review", "NULL"),
   ]);
+  // The SEEDED install, moved to blocked with no reason -- the same shape as the
+  // control below, which is the point: the only difference between the case and its
+  // control is the reason, so the reason is what the trigger is enforcing.
+  //
+  // This used to insert its own install first, which collided with the seeded
+  // (ORG, PACKAGE) row, so the case reported "rejected" whether or not the trigger
+  // existed. It is the case mutation VI-MIG-001 was aimed at.
   expect("a blocked install without a reason is refused", "rejected", [
-    pluginVersion(id("pvr_", 911), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
-    pluginInstall(id("pil_", 911), PACKAGE, VERSION_ONE, "approved", "NULL"),
-    `UPDATE plugin_installs SET review_state = 'blocked' WHERE install_id = '${id("pil_", 911)}'`,
+    `UPDATE plugin_installs SET review_state = 'blocked' WHERE install_id = '${id("pil_", 1)}'`,
   ]);
   // The seeded install is the row to move: the UNIQUE `(org_id, package_id)` index
   // means there is exactly one review state per package per org, so a second row
@@ -433,15 +882,14 @@ try {
   expect("control: a blocked install WITH a reason is accepted", "accepted", [
     `UPDATE plugin_installs SET review_state = 'blocked', blocked_reason = 'untrusted publisher' WHERE install_id = '${id("pil_", 1)}'`,
   ]);
+  // The seed already installs (ORG, PACKAGE), so ONE more install for that package
+  // IS the duplicate. The four-line setup this replaced re-inserted the seeded
+  // version, the seeded second version, and the seeded install, and was rejected at
+  // the first line.
   expect("a second install row for one package in one org is refused", "rejected", [
-    pluginVersion(id("pvr_", 913), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
-    pluginVersion(id("pvr_", 914), PACKAGE, VERSION_TWO, DIGEST_TWO, MANIFEST),
     pluginInstall(id("pil_", 913), PACKAGE, VERSION_ONE, "approved"),
-    pluginInstall(id("pil_", 914), PACKAGE, VERSION_TWO, "approved"),
   ]);
   expect("an install of a version nobody published is refused", "rejected", [
-    publisher(PUBLISHER, "Lumi", 1),
-    pluginPackage(PACKAGE, "Pack Reader", PUBLISHER),
     pluginInstall(id("pil_", 915), PACKAGE, "9.9.9", "approved"),
   ]);
 
@@ -555,36 +1003,30 @@ try {
 
   // -- F25-007 and F13 default deny ------------------------------------------
   expect("registering a tool the manifest does not declare is refused", "rejected", [
-    pluginVersion(id("pvr_", 920), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     registration(id("ptr_", 920), PACKAGE, VERSION_ONE, "not_declared"),
   ]);
   expect("control: registering a declared tool is accepted", "accepted", [
     registration(id("ptr_", 921), PACKAGE, VERSION_TWO, "pkg_read"),
   ]);
   expect("the same tool cannot be registered twice for one org", "rejected", [
-    pluginVersion(id("pvr_", 922), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     registration(id("ptr_", 922), PACKAGE, VERSION_ONE, "pkg_read"),
     registration(id("ptr_", 923), PACKAGE, VERSION_ONE, "pkg_read"),
   ]);
 
   // -- F25-008 quarantine ----------------------------------------------------
   expect("a quarantine cannot be deleted", "rejected", [
-    pluginVersion(id("pvr_", 930), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 930), VERSION_ONE),
     `DELETE FROM plugin_quarantines WHERE quarantine_id = '${id("pqr_", 930)}'`,
   ]);
   expect("two active quarantines for one version are refused", "rejected", [
-    pluginVersion(id("pvr_", 931), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 931), VERSION_ONE),
     quarantine(id("pqr_", 932), VERSION_ONE),
   ]);
   expect("lifting a quarantine without a reason is refused", "rejected", [
-    pluginVersion(id("pvr_", 933), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 933), VERSION_ONE),
     `UPDATE plugin_quarantines SET lifted_at = '${NOW}' WHERE quarantine_id = '${id("pqr_", 933)}'`,
   ]);
   expect("a lifted quarantine cannot be re-engaged in place", "rejected", [
-    pluginVersion(id("pvr_", 934), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 934), VERSION_ONE, `'${NOW}'`),
     `UPDATE plugin_quarantines SET lifted_at = NULL WHERE quarantine_id = '${id("pqr_", 934)}'`,
   ]);
@@ -617,25 +1059,29 @@ try {
   );
 
   // -- F24-001 a named identity, not a shared account ------------------------
+  // The seed's staff principal already holds prefix 0123456789abcdef, so the FIRST
+  // insert here used to be the duplicate rather than the second. Both cases now put
+  // the collision on the statement under test, which is the whole point of a
+  // two-insert case.
   expect("two staff principals cannot share a credential prefix", "rejected", [
     staff(
       "stf_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "a@internal.example",
       "support",
-      "0123456789abcdef",
+      "aaaabbbbccccdddd",
       HASH,
     ),
-    staff(STAFF_OTHER, "b@internal.example", "security", "0123456789abcdef", HASH),
+    staff(STAFF_OTHER, "b@internal.example", "security", "aaaabbbbccccdddd", HASH),
   ]);
   expect("two staff principals cannot share an email", "rejected", [
     staff(
       "stf_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "a@internal.example",
       "support",
-      "0123456789abcdef",
+      "aaaabbbbccccdddd",
       HASH,
     ),
-    staff(STAFF_OTHER, "a@internal.example", "security", "ffffffffffffffff", HASH),
+    staff(STAFF_OTHER, "a@internal.example", "security", "eeeeffff00001111", HASH),
   ]);
   expect(
     "a staff credential hash must be 64 lowercase hex",
@@ -824,6 +1270,42 @@ try {
   let passed = 0;
   const failures = [];
   for (const testCase of cases) {
+    // A "rejected" case is only evidence if the statements BEFORE the one under
+    // test are themselves accepted.
+    //
+    // Without this, a case whose SETUP is invalid reports "rejected" and passes,
+    // having proved nothing about the invariant it names. 15 of the 125 cases were
+    // exactly that: each inserted a plugin version at `(PACKAGE, '1.0.0')`, which
+    // the seed already holds, so `ux_plugin_versions_package_version` rejected the
+    // first statement and the case passed whether or not the trigger it names
+    // existed. Found by mutation VI-MIG-001 surviving, not by reading.
+    //
+    // So the runner checks the prefix, and reports a case whose setup is broken as a
+    // FAILURE with the setup's own error, which is the only message that points at
+    // the real problem. This is the third instance of the same lesson in this file:
+    // a probe that cannot tell "the database refused" from "my fixture was invalid"
+    // is worse than no probe, because it looks like coverage.
+    if (testCase.want === "rejected" && testCase.statements.length > 1) {
+      db.exec("SAVEPOINT prefix");
+      let prefixError = null;
+      try {
+        for (const statement of testCase.statements.slice(0, -1)) {
+          db.prepare(statement).run();
+        }
+      } catch (error) {
+        prefixError = error.message;
+      }
+      db.exec("ROLLBACK TO prefix");
+      db.exec("RELEASE prefix");
+      if (prefixError) {
+        failures.push(testCase.label);
+        console.log(`  FAIL  ${testCase.label}`);
+        console.log(
+          `        the SETUP is invalid, so this case would pass for any reason: ${prefixError}`,
+        );
+        continue;
+      }
+    }
     db.exec("SAVEPOINT probe");
     let actual = "accepted";
     let detail = "";

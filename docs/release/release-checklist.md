@@ -23,8 +23,15 @@ plain PASS.
 
 **P08 closed while this phase was in flight** (PRs #27–#29), so it is in the numbers above. P09 rebased onto it, and the rebase is what produced the sharpest evidence in this document — see the gate.
 
-**979 Rust tests · 11 egress-corpus tests · 798 web tests · 97 storage invariants ·
+**979 Rust tests · 11 egress-corpus tests · 798 web tests · 125 storage invariants ·
 14 secret canaries.** `pnpm check` exits 0.
+
+**8/8 mutations killed.** The Tier-0 contract requires a named fault to be killed by
+the verifier that defends it, *for the intended reason*. That is a stronger claim
+than "the tests pass", and it found four things — including that **18 of the 125
+storage invariants were false passes** whose setup re-inserted a row the seed already
+held, so they reported "rejected" without reaching the statement they named. The
+runner now validates its own setup. See `gates/P09-IG.md`.
 
 ## Gate B — Security: no known critical/high issue
 
@@ -41,6 +48,9 @@ each is closed by a test that fails if the property regresses.
 | The provider URL validator read a different host than the transport dialled (`0177.0.0.1` → `127.0.0.1`) | Medium (defence-in-depth; the allowlist held) | Fixed |
 | The webhook IPv6 range table was unreachable dead code | Low (right answer, wrong reason) | Fixed |
 | `RECORD_TERMINAL_FAILURE_SQL` had no compare-and-set, so a replay could double-count and auto-disable a recovered endpoint | Medium (availability) | Fixed |
+| A `completed` idempotency record could exist with **no response**: `BETWEEN` on a NULL column is NULL, and a SQLite `CHECK` fails only on a definite false | **High** (retry safety — a retry gets a NULL status) | Fixed by migration `0020`, 4 triggers |
+| The storage harness had **zero** cases for `idempotency_records` — the retry-safety substrate was unproven while the gate claimed coverage | High (verification) | Fixed, 28 cases added |
+| **18 of 125** storage invariants were false passes: setup collided with the seed, so the verdict was independent of the invariant | High (verification) | Fixed, and the runner now checks its own setup |
 | The jobs dead-letter queue was declared and never read — a poisoned job vanished | High (F21-009 failing outright) | Fixed |
 | Four P07 permissions were in `Permission` but not `role_allows`, so only Owner had them | Medium (authorization) | Fixed in P07 |
 | `block` wrote its reason only to the audit event, leaving `blocked_reason` empty | Medium (the fact an operator needs) | Fixed in P07 |
@@ -57,6 +67,9 @@ each is closed by a test that fails if the property regresses.
   registration row, so there is no path where an un-registered tool runs.
 - **Irrecoverable data loss** — `usage_events` has no UPDATE and no DELETE trigger.
   A cost record cannot be rewritten, by anyone, including a migration.
+- **Retry safety** — a `completed` idempotency record must carry a 2xx status. This one
+  was *not* holding: SQLite's three-valued logic let the row exist with no response at
+  all. Migration `0020`, and the mutation that removes the trigger is killed.
 
 **Residual, accepted:** the plugin declaration filter accepts 41 inputs the fetch
 guards refuse, and `security_events.metadata` is unsanitized. Both are documented in
@@ -154,6 +167,9 @@ Not release-blocking, and each with an owner-shaped next action.
 | 6 | **A Change Request** for the plugin declaration filter, and one for the
 `security_events` metadata allow-list. | Both are frozen-contract-adjacent and both are documented with the risk. |
 | 7 | **D1-specific integration tests** via `wrangler dev --local`: real CAS refusal, real unique-index rejection, and the dead-letter branch end to end. | Every one of those properties is proven at the statement level; a D1 `PreparedStatement` cannot be constructed on the host. |
+| 8 | **VI-BUD-001's ordering half.** "A hard denial is enforced *at all*" is proven by mutation. "The denial happens *before* dispatch*" is **UNPROVEN**: a string-replace harness cannot move a call site honestly. | The decision is proven to be right; only its position in the sequence is unproven, and the sequence is readable in `routes/inference.rs`. |
+| 9 | **Adversarial mutation for VI-AUTH-001, VI-AUTH-002** — ceremony replay and revocation mid-request. | Both have assertions; neither has been attacked at V4. |
+| 10 | **Make the P09 audits a merge requirement** rather than a phase artifact. | P08 landed without them and all five flagged it immediately. An audit only covers what lands after it. |
 
 ## The honest summary
 
