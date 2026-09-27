@@ -983,9 +983,14 @@ impl std::error::Error for AutomationStoreError {}
 
 /// A guard statement aborts a D1 batch by violating a table constraint, so the
 /// batch error text is the only signal that a write was refused on purpose.
+///
+/// Delegates to the single definition in `core::idempotency`. This function used
+/// to carry its own copy of the matcher, and V00-2026-09-27 (VFY-004) showed what
+/// two copies cost: a migration changed the abort text, one copy would have been
+/// fixed and the other forgotten. There is now one place to change, and the
+/// sentinel-text list it reads is documented there.
 pub fn is_guard_violation(error: &worker::Error) -> bool {
-    let detail = format!("{error:?}");
-    detail.contains("NOT NULL") || detail.contains("constraint")
+    crate::core::is_guard_abort(&format!("{error:?}"))
 }
 
 // -----------------------------------------------------------------------------

@@ -217,7 +217,10 @@ pub(crate) async fn commit_scoped_mutation(
         .await;
     match result {
         Ok(_) => Ok(ScopedMutationCommit::Committed),
-        Err(error) if is_guard_violation(&error) => Ok(ScopedMutationCommit::Guarded),
+        // One shared recogniser: see `core::idempotency::GUARD_ABORT_TEXTS`.
+        Err(error) if crate::core::is_guard_abort(&format!("{error:?}")) => {
+            Ok(ScopedMutationCommit::Guarded)
+        }
         Err(_) => {
             let repository = IdempotencyRepository::new(database);
             let lookup = repository
@@ -245,13 +248,6 @@ pub(crate) async fn commit_scoped_mutation(
             }
         }
     }
-}
-
-/// A guard statement aborts a D1 batch by violating a table constraint, so the
-/// batch error text is the only signal that the write was refused on purpose.
-fn is_guard_violation(error: &worker::Error) -> bool {
-    let detail = format!("{error:?}");
-    detail.contains("NOT NULL") || detail.contains("constraint")
 }
 
 fn not_found(context: &RequestContext, reason: &str) -> ApiError {
