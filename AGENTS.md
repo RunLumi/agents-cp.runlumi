@@ -327,7 +327,7 @@ proof, and each proof is rerunnable:
 
 | Gate | Sensitivity proof |
 |---|---|
-| `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/34) |
+| `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/34 against 41/41). The denominators are smaller because the probe returns early once a core step fails, so the later checks are never reached rather than passing |
 | `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected |
 | `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
 | `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |

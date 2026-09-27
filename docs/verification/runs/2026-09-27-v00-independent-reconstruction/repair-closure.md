@@ -157,13 +157,26 @@ require user presence, because those are authenticator properties outside the co
 boundary. The genuine CTAP2 half is `apps/web/scripts/browser-probe.mjs`, which registers a real
 `WebAuthn.addVirtualAuthenticator` over CDP. The two are complementary halves of one claim.
 
-**Both patches are load-bearing, proven by reverting each:**
+**Both patches are load-bearing, proven by reverting each** (all three states re-measured
+2026-09-28 against the final probe):
 
 | Reverted | Probe result | Failure reported |
 |---|---|---|
 | `now_secs` → `SystemTime` | 5/7 | `registration ceremony start … status=500` |
 | `verify_es256` → DER only | 33/34 | `a correct assertion signs in … reason=passkey_signature_invalid` |
 | neither (both applied) | 41/41 | — |
+
+**Why the denominators are 7 and 34, and not 41.** The probe returns early once a core step fails,
+so under a revert the later checks never run and are not counted. A reader comparing `41/41` with
+`33/34` could reasonably conclude that seven checks had disappeared; they were never reached. The
+same holds for `5/7`: the ceremony cannot start, so nothing downstream of it executes.
+
+Worth recording because checking it changed nothing. The figures were first measured when the probe
+had 34 checks, and it has since grown to 41, so a stale number looked likely enough to be worth
+re-deriving. Re-measuring all three states reproduced `41/41`, `5/7`, and `33/34` exactly: the
+denominators move with the early return, not with the probe's size. The suspicion was unfounded and
+the recorded numbers were left alone, because changing a correct record to match an expectation is
+its own kind of drift.
 
 **Original reproducer, unchanged.** `evidence/vfy001-repro.sh` reported
 `status=500` on both ceremony-start endpoints. After the repair the same script's endpoints
