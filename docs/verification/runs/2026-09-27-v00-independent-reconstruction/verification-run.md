@@ -26,17 +26,24 @@ so neither can be mistaken for the other:
 | Reconstruction | `ecbdac1` | the state the reconstruction judged. Every "before" figure in this record belongs to it |
 | Repair | `ece860b` | the state the five product-repair verdicts were re-derived from |
 | Repair, guard recognition | `70ff568` | the state the guard-probe and mutation-campaign verdicts were re-derived from |
+| Repair, P06 data governance | `040a6aa` | the state the `VI-DATA-001` verdict, the bind-count gate, and the P06 probe's numbers were re-derived from |
 
 A commit is named rather than the branch tip deliberately: a record cannot name the commit that
-contains itself, because writing that name creates a newer commit. The two repair commits exist
-because the campaign's own reconstruction produced more than one round of obligations. `70ff568` adds
-`GUARD-2`, which closes the one repair deliverable `ece860b` had left open — VFY-004 asked for "a
-D1-boundary regression probe **plus a mutation case**", and the probe existed while the case did
-not. So the verdict set has two homes: the five product repairs at `ece860b`, and the guard
-recognition and campaign verdicts at `70ff568`. A commit reference that has gone stale is worse than
-none, because it looks like provenance.
+contains itself, because writing that name creates a newer commit. The three repair commits exist
+because the campaign's own reconstruction produced more than one round of obligations, and
+because auditing its closure criterion literally found a Tier-0 claim the earlier rounds had
+assumed was merely unproven:
 
-The repair is 22 cohesive commits, one finding per commit where a finding needed more than one
+- `ece860b` — the five product repairs.
+- `70ff568` — `GUARD-2`, which closed the one repair deliverable `ece860b` had left open: VFY-004
+  asked for "a D1-boundary regression probe **plus a mutation case**", and the probe existed while
+  the case did not.
+- `040a6aa` — VFY-008 and VFY-009, found by building the verifier `VI-DATA-001` said was missing,
+  and the two gates that came out of it.
+
+A commit reference that has gone stale is worse than none, because it looks like provenance.
+
+The repair is 23 cohesive commits, one finding per commit where a finding needed more than one
 change, in the order the record's own `next-verification-actions.md` prescribed. The first ten are
 the product repairs and the gates they needed:
 
@@ -69,6 +76,7 @@ fbc730e  test(web)  prove the browser gate can fail, and fix the three ways it c
 2079581  docs(verification) re-measure against the 55-check probe and correct the figures
 40e6b1d  fix(api)   stop the mutation campaign mistaking a full disk for a bad mutant
 70ff568  test(api)  add VFY-004's mutation case, and the probe check it exposed missing
+040a6aa  fix(api)   the P06 export and deletion pipeline never worked — two causes
 ```
 
 ```bash
@@ -80,6 +88,11 @@ Re-deriving a verdict from a commit means someone else can re-run the same gate 
 number, which is the whole point of naming one. A verdict with no commit is an opinion — and a
 commit reference that has gone stale is worse than no reference, because it looks like provenance.
 The list above is therefore a convenience; `git log ecbdac1..HEAD` is the authority.
+
+It is also necessarily short by the commits that edit this record. Naming a commit creates a newer
+one, so the list can never contain the commit that last corrected it — the same reason the branch
+tip is not named. The last entry is therefore always the newest commit this record had seen when it
+was last written, and `git log` is what settles it.
 
 ### Evidence integrity note — the repository changed mid-campaign
 
