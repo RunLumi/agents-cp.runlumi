@@ -1,0 +1,32 @@
+# VFY-010 sensitivity: p08-tenancy-smoke.mjs against a deliberate tenancy fault
+
+## Fault injected (temporary, reverted)
+
+In apps/api/src/routes/authorization.rs, authorize_org stopped consulting the membership
+table: a principal with no membership in the organization was given a synthetic
+owner membership instead of the 404 the product uses. That is precisely the defect
+VI-TEN-001 exists to detect.
+
+## Result with the fault
+
+cross-tenant: 1/18 tested routes proven, 15 leak(s), 2 unproven among those
+FAIL lines: 15
+
+### Sample of what leaked
+
+  FAIL  ai_catalog /catalog — a plain member of another org is refused  — LEAK: status=200 body={"aliases":[{"alias":"coding-default","alias_id":"mal_00000000000000000000000000000001","created_at":"2026-09-24T00:00:00.000Z","description":"Stable default coding route.","display_name":"Coding defa
+  FAIL  ai_catalog /credentials — a plain member of another org is refused  — LEAK: status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  FAIL  ai_catalog /routes — a plain member of another org is refused  — LEAK: status=200 body={"items":[],"next_cursor":null,"has_more":false}
+
+## Result on the real code
+
+cross-tenant: 16/18 tested routes proven, 0 leak(s), 2 unproven among those
+FAIL lines: 0
+
+## Why this matters for reading the number
+
+16/18 proven with 0 leaks is only evidence because the probe reports 15 leaks and
+exits 1 under the fault. One route stayed green under it (data_governance
+/deletions, whose 404 comes from a second guard), which is why the figure is 15 and
+not 18 -- a probe that caught all of them would be worth less than one that
+catches them for the right reason.

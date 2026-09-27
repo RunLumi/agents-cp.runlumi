@@ -304,9 +304,17 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm verify:restore` | a restored database still refuses every invalid write | nothing |
 | `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
 | `pnpm smoke:p06` | the data-governance surface: a real export over HTTP to a real Worker and local D1, its tenant and permission boundaries, and its idempotent replay | a built Worker; **exits 2 here** because the local queue does not deliver a published body, so the R2 leg is BLOCKED |
+| `pnpm smoke:p08` | the cross-tenant boundary on the org-scoped routes the earlier gates never reached: a plain member of another organization, and that organization's owner, are both refused | a built Worker |
 | `pnpm schema:bind-count` | every `prepare()` binds as many values as its SQL has placeholders, so D1 cannot reject a statement at execution time | nothing |
 | `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
 | `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
+
+`smoke:p08` asks every route **three** times — as a member, as a plain member of another
+organization, and as that other organization's owner — because a handler that skipped the
+membership check and then found nothing returns the same 404 a correct handler does, and a
+two-call test cannot tell the two apart. It also reads `app.rs` and reports how many org-scoped
+routes still have **no** handler-level evidence, so a route added to the router moves that number
+instead of quietly inheriting the last one's.
 
 `verify:mutation` is the only command here that deliberately breaks code. It needs roughly **2.4 GB
 of scratch space per case**, built under `target/mutation-scratch` — deliberately on the same volume
