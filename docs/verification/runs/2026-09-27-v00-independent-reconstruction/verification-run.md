@@ -337,7 +337,7 @@ getting more dependencies.
 
 | Claim | Was | Now | Evidence |
 |---|---|---|---|
-| `VI-AUTH-001` | **FAIL** (Tier 0) | **PASS** | `pnpm smoke:passkey` 41/41 — real ES256, real CBOR, real D1, real Worker; both defects load-bearing by revert. `docs/adr/0008-vendored-passkey-auth-wasm-clock.md` |
+| `VI-AUTH-001` | **FAIL** (Tier 0) | **PASS** | `pnpm smoke:passkey` 55/55 — real ES256, real CBOR, real D1, real Worker; both defects load-bearing by revert. `docs/adr/0008-vendored-passkey-auth-wasm-clock.md` |
 | `VI-ONBOARD-1` | **FAIL** (Tier 0) | **PASS** | Browser journey drives the UI's verification form and observes `email_verified: true`; the V00 API fallback is deleted. 10 new Vitest cases, each confirmed sensitive. |
 | `VI-TEST-001` | PASS but the required mutation set was incomplete | **PASS on the full minimum set** | Campaign **10/10 KILLED**, exit 0. Both entries `proof-obligations.md` names and that V00 found missing are now present, and both were killed with the verifier's own words in the verdict. `VI-AUTH-001` "accept a consumed auth ceremony" is killed by the passkey probe with `FAIL a consumed login ceremony cannot be replayed with a fresh sign counter — status=200` — under the fault the replay genuinely succeeded. `GUARD-1` "bypass one idempotency guard" is killed by `p05-smoke.mjs` on `internal reservation endpoint replays the managed hold (status=503 reason=none)`, which is the *same* assertion VFY-004 was found through: the abort must be **recognised** in order to be refused, and refusing it must still **work**. The exit gate now keys off the **tally**, so a case that never ran cannot report success. |
 | `VI-WASM-001` ("run" half) | **FAIL** (Tier 1) | **PASS** | No Worker panics; `pnpm smoke:passkey` exercises both ceremony paths on `wasm32-unknown-unknown`. |
@@ -367,7 +367,7 @@ getting more dependencies.
 | restore rehearsal | `pnpm verify:restore` | PASS — 6/6 |
 | P08 schema probe | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | PASS — 17/17 |
 | runtime smokes P01–P05 | `pnpm smoke:local` … `smoke:p05` | PASS — **P05 185/0** (was 175/1) |
-| **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 41/41 |
+| **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 55/55 |
 | **real-browser journey** (new gate) | `pnpm smoke:browser` | PASS — **39/39** (was 20/23) |
 | mutation campaign | `pnpm verify:mutation --apply` in a disposable linked worktree | PASS — **11/11 KILLED**, `tally: {"KILLED":11}`, exit 0 |
 | `pnpm check` | as defined in `package.json` | **EXIT 0** |

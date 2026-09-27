@@ -214,7 +214,7 @@ short-circuits on `created_at == 0` and `routes/authenticators.rs::ensure_pendin
 `expires_at` and the ceremony `kind` from D1, which is what makes the application the authority
 for expiry.
 
-### Verifier: `apps/api/scripts/p02-passkey-smoke.mjs`, 41/41
+### Verifier: `apps/api/scripts/p02-passkey-smoke.mjs`, 55/55
 
 Self-contained — fresh local D1, its own development Worker, removed on exit. Real P-256 keys from
 `node:crypto`, real CBOR, real ES256 verification inside the Worker. 41 checks covering: ceremony
@@ -228,8 +228,8 @@ enrolment; corrupted signature; unknown credential; user-handle substitution; re
 | Reverted | Result | Failure reported |
 |---|---|---|
 | `now_secs` → `SystemTime` | 5/7 | `registration ceremony start … status=500` |
-| `verify_es256` → DER only | 33/34 | `a correct assertion signs in … reason=passkey_signature_invalid` |
-| neither (both applied) | 41/41 | — |
+| `verify_es256` → DER only | 33/35 | `a correct assertion signs in … reason=passkey_signature_invalid` |
+| neither (both applied) | 55/55 | — |
 
 ### Original reproducer, unchanged
 

@@ -21,7 +21,7 @@ Where a repair required a durable decision, it is recorded in
 |---|---|---|---|
 | Real-browser journey | **20/23**, 3 FAIL (old probe) | **39/39**, 0 FAIL, exit 0 — and **12 named failures** against the pre-repair product, so it is proven able to fail | `VI-AUTH-001`, `VI-ONBOARD-1`, `VI-UX-001`, `VI-UX-002`, `ROUTE-2` |
 | P05 runtime smoke | **175 pass / 1 fail**, exit 1 | **185 pass / 0 fail**, exit 0 | `GUARD-1`, `VI-IDEM-001` |
-| Passkey ceremony probe (new) | did not exist | **41/41**, exit 0 | `VI-AUTH-001` |
+| Passkey ceremony probe (new) | did not exist | **55/55**, exit 0 | `VI-AUTH-001` |
 | Guard-sentinel probe (new) | did not exist | **11/11** across 2 recognised abort texts | `GUARD-1` |
 | Mutation campaign | 9/9 KILLED, minimum set incomplete | **11/11 KILLED**, `tally: {"KILLED":11}`, exit 0 | `VI-TEST-001` |
 | Worker bundle | `gzip 2393.75 KiB` | `gzip 2395.07 KiB` (**+1.32 KiB**) | budget still within ADR 0004 |
@@ -140,17 +140,46 @@ version, checked against the crates.io API on 2026-09-27.
 |---|---|---|---|
 | 1 | compiles for `wasm32-unknown-unknown` | PASS | `cargo check --workspace --target wasm32-unknown-unknown` |
 | 2 | Worker dry-run/build succeeds | PASS | `pnpm build` → `Total Upload: 9453.62 KiB / gzip: 2395.07 KiB` |
-| 3 | **registration + assertion verify end-to-end with server-side ceremony state** | **PASS** | `pnpm smoke:passkey` — 41/41, real ES256, real CBOR, real D1, real Worker |
+| 3 | **registration + assertion verify end-to-end with server-side ceremony state** | **PASS** | `pnpm smoke:passkey` — 55/55, real ES256, real CBOR, real D1, real Worker |
 | 4 | password KDF fits real Worker CPU/memory | **UNPROVEN — unchanged** | no Argon2id cost measurement inside the Worker CPU limit exists. Recorded in [`next-verification-actions.md`](next-verification-actions.md) — an **in-repo** gap, not an external dependency. This repair does not claim it. |
 | 5 | bundle impact acceptable | PASS | `gzip` +1.32 KiB on a 2393.75 KiB baseline; ADR 0004 sets no Worker ceiling and the figure is now recorded in CI |
 
 **Proof 3, in detail.** `apps/api/scripts/p02-passkey-smoke.mjs` builds a real P-256 key with
 `node:crypto`, encodes a spec-conformant `attestation: "none"` attestation object, and signs
-assertions with ES256. 41 checks covering: ceremony start, F01-004/005 option policy, challenge
+assertions with ES256. 55 checks covering: ceremony start, F01-004/005 option policy, challenge
 substitution, origin substitution, RP-ID substitution, missing user verification, missing
 attested credential data, `raw_id` substitution, duplicate-authenticator enrolment, corrupted
 signature, unknown credential, user-handle substitution, replay with an **advanced** sign counter,
 session revocation, and D1-enforced ceremony expiry.
+
+**Two required cases were missing and are now covered.** The objective for this probe names
+"unknown/**revoked** credential" and "`user_id` substitution". Only "unknown" was, and the two gaps
+were the ones where the security claim actually lives:
+
+- **Revoked credential.** Only *session* revocation was tested. An unknown credential is refused
+  because it does not exist; a **revoked** one still exists and still verifies cryptographically, so
+  only the revocation state can refuse it. The probe now reaches that state through the real route —
+  a reauth grant, the lockout guard, a configured password, then `DELETE /api/v1/account/passkeys/{id}`
+  — and asserts a revoked credential cannot authenticate **even with a valid signature**, with the
+  sign counter advanced so the counter check cannot be what refuses it.
+
+  Two properties on the way there are worth their own checks, because each is a way the endpoint
+  could be wrong in the permissive direction: the **lockout guard** refuses to remove the last login
+  method, and a **fabricated reauth grant** is refused. The second is only reachable once a password
+  exists, because `revoke_passkey` evaluates `can_revoke_passkey` *before* consuming the grant — so
+  with one passkey a fabricated grant is refused by the lockout guard instead. A bare "was it
+  refused?" check passes on either reason, which is why the reason is asserted.
+
+- **Identity substitution.** There was no such case, and a neighbouring check sent `X-User-ID`, a
+  header the server never reads — a check that could only ever pass. Replaced by two falsifiable
+  halves: `/api/v1/me` must resolve the same user whatever identity headers claim (`X-User-ID`,
+  `X-Actor-ID`, `X-Principal-ID`, `X-Sub`), and an org-scoped read must refuse a client-asserted
+  `x-org-id`. The second is real rather than vacuous because `x-org-id` **is** read, as a mismatch
+  guard in `authorize_org`.
+
+  This case is **not** mutation-detectable and is not described as such: the server reads no
+  identity header, so reverting it would mean *adding* the vulnerability. It is a live assertion of a
+  property, which is a weaker and honest kind of evidence than a mutation proof.
 
 What the probe does *not* fake, stated plainly: it does not hold the private key internally or
 require user presence, because those are authenticator properties outside the control plane's
@@ -163,20 +192,24 @@ boundary. The genuine CTAP2 half is `apps/web/scripts/browser-probe.mjs`, which 
 | Reverted | Probe result | Failure reported |
 |---|---|---|
 | `now_secs` → `SystemTime` | 5/7 | `registration ceremony start … status=500` |
-| `verify_es256` → DER only | 33/34 | `a correct assertion signs in … reason=passkey_signature_invalid` |
-| neither (both applied) | 41/41 | — |
+| `verify_es256` → DER only | 33/35 | `a correct assertion signs in … reason=passkey_signature_invalid` |
+| neither (both applied) | 55/55 | — |
 
-**Why the denominators are 7 and 34, and not 41.** The probe returns early once a core step fails,
-so under a revert the later checks never run and are not counted. A reader comparing `41/41` with
-`33/34` could reasonably conclude that seven checks had disappeared; they were never reached. The
+**Why the denominators are 7 and 35, and not 55.** The probe returns early once a core step fails,
+so under a revert the later checks never run and are not counted. A reader comparing `55/55` with
+`33/35` could reasonably conclude that twenty checks had disappeared; they were never reached. The
 same holds for `5/7`: the ceremony cannot start, so nothing downstream of it executes.
 
-Worth recording because checking it changed nothing. The figures were first measured when the probe
-had 34 checks, and it has since grown to 41, so a stale number looked likely enough to be worth
-re-deriving. Re-measuring all three states reproduced `41/41`, `5/7`, and `33/34` exactly: the
-denominators move with the early return, not with the probe's size. The suspicion was unfounded and
-the recorded numbers were left alone, because changing a correct record to match an expectation is
-its own kind of drift.
+**These figures have been re-measured twice, and the second time they moved.** The first
+measurement was against a 34-check probe. Re-measuring then reproduced `33/34` exactly, and the
+denominators were correctly attributed to the early return rather than the probe's size. The probe
+has since grown to 55 checks — the objective's required "revoked credential" and "`user_id`
+substitution" cases were missing and have been added — and re-measuring again gave `55/55`, `5/7`,
+and `33/35`.
+
+So the first suspicion of staleness was unfounded and nothing was changed to match it; the second
+was founded and the numbers were changed. Both are recorded because "we checked and it was fine"
+and "we checked and it was wrong" are different results, and only one of them is an excuse.
 
 **Original reproducer, unchanged.** `evidence/vfy001-repro.sh` reported
 `status=500` on both ceremony-start endpoints. After the repair the same script's endpoints

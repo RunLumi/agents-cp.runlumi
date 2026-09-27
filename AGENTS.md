@@ -327,7 +327,8 @@ proof, and each proof is rerunnable:
 
 | Gate | Sensitivity proof |
 |---|---|
-| `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/34 against 41/41). The denominators are smaller because the probe returns early once a core step fails, so the later checks are never reached rather than passing |
+| `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/35 against 55/55). The denominators are smaller because the probe returns early once a core step fails, so the later checks are never reached rather than passing |
+| `smoke:passkey` (revocation) | `evidence/vfy-revoked-credential-sensitivity.sh` — the `revoked_at` filter in the login path reverted; a revoked credential then authenticates with 200 and the probe reports 54/55 |
 | `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected |
 | `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
 | `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
