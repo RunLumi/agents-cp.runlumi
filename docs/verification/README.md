@@ -174,7 +174,7 @@ baseline to attack, not a summary to agree with.
 
 | Run | Commit | Verdict |
 |---|---|---|
-| [`2026-09-27-v00-independent-reconstruction`](runs/2026-09-27-v00-independent-reconstruction/verification-run.md) | `ecbdac1` → `d2917a3` | **FAIL → repaired.** At `ecbdac1`: passkey ceremonies panicked on the Worker runtime and self-service onboarding was blocked. All seven findings are now closed — see [`repair-closure.md`](runs/2026-09-27-v00-independent-reconstruction/repair-closure.md). No Tier-0 or Tier-1 claim remains FAIL. |
+| [`2026-09-27-v00-independent-reconstruction`](runs/2026-09-27-v00-independent-reconstruction/verification-run.md) | `ecbdac1` → `ece860b` | **FAIL → repaired.** At `ecbdac1`: passkey ceremonies panicked on the Worker runtime and self-service onboarding was blocked. All seven findings are now closed — see [`repair-closure.md`](runs/2026-09-27-v00-independent-reconstruction/repair-closure.md). No Tier-0 or Tier-1 claim remains FAIL. |
 
 
 A run may carry a `repair-closure.md`. It is the post-repair half of that run: what each finding

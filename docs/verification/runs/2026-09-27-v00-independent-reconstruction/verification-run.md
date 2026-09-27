@@ -24,7 +24,7 @@ so neither can be mistaken for the other:
 | | Commit | What it means |
 |---|---|---|
 | Reconstruction | `ecbdac1` | the state the reconstruction judged. Every "before" figure in this record belongs to it |
-| Repair | `d2917a3` (the tip of the repair branch) | the state the post-repair verdicts were re-derived from |
+| Repair | `ece860b` (the tip of the repair branch) | the state the post-repair verdicts were re-derived from |
 
 The repair is ten cohesive commits, one finding per commit where a finding needed more than one
 change, in the order the record's own `next-verification-actions.md` prescribed:

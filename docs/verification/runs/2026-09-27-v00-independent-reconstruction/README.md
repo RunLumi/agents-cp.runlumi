@@ -5,7 +5,7 @@ independent verifier could actually prove about the repository at a named commit
 
 | Run | Commit | Verdict | Headline |
 |---|---|---|---|
-| [`2026-09-27-v00-independent-reconstruction`](./2026-09-27-v00-independent-reconstruction/verification-run.md) | `ecbdac1` → `d2917a3` | **FAIL → repaired** | At `ecbdac1` the primary authentication path (passkeys) returned 500 on the real Worker runtime and no self-service user could onboard. Seven findings, all now closed: the real-browser journey went **20/23 → 39/39**, the P05 runtime smoke **175/1 → 185/0**, and the mutation campaign **9/9 → 11/11** on the required minimum set. See [`repair-closure.md`](./2026-09-27-v00-independent-reconstruction/repair-closure.md). |
+| [`2026-09-27-v00-independent-reconstruction`](./2026-09-27-v00-independent-reconstruction/verification-run.md) | `ecbdac1` → `ece860b` | **FAIL → repaired** | At `ecbdac1` the primary authentication path (passkeys) returned 500 on the real Worker runtime and no self-service user could onboard. Seven findings, all now closed: the real-browser journey went **20/23 → 39/39**, the P05 runtime smoke **175/1 → 185/0**, and the mutation campaign **9/9 → 11/11** on the required minimum set. See [`repair-closure.md`](./2026-09-27-v00-independent-reconstruction/repair-closure.md). |
 
 ## Contents of a run
 
