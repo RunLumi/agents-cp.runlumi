@@ -66,6 +66,11 @@ const PACKAGE = "pkg_0123456789abcdef0123456789abcdef";
 const PACKAGE_OTHER = "pkg_ffffffffffffffffffffffffffffffff";
 const VERSION_ONE = "1.0.0";
 const VERSION_TWO = "1.1.0";
+// The seed holds VERSION_ONE and VERSION_TWO, so any case that needs a version
+// of its own must use this one. A duplicate-version case cannot reuse a seeded
+// version, because then its FIRST insert is already the duplicate and the case
+// proves nothing about the second.
+const VERSION_THREE = "3.0.0";
 const MANIFEST = JSON.stringify({
   tools: ["pkg_read"],
   mcp_servers: [],
@@ -815,30 +820,23 @@ try {
 
   // -- F25-001 stable identity, and an immutable published version ------------
   expect("a published version cannot be re-pointed at another package", "rejected", [
-    pluginVersion(id("pvr_", 901), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     `UPDATE plugin_versions SET package_id = '${PACKAGE_OTHER}' WHERE version = '${VERSION_ONE}'`,
   ]);
   expect("a published version's manifest cannot be edited in place", "rejected", [
-    pluginVersion(id("pvr_", 902), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     `UPDATE plugin_versions SET manifest_json = '${MANIFEST.replace('"none"', '"computer_use"')}' WHERE version = '${VERSION_ONE}'`,
   ]);
   expect("a published version's digest cannot be swapped", "rejected", [
-    pluginVersion(id("pvr_", 903), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     `UPDATE plugin_versions SET content_digest = '${DIGEST_TWO}' WHERE version = '${VERSION_ONE}'`,
   ]);
   expect("a duplicate package/version is refused", "rejected", [
-    pluginVersion(id("pvr_", 904), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
-    pluginVersion(id("pvr_", 905), PACKAGE, VERSION_ONE, DIGEST_TWO, MANIFEST),
+    pluginVersion(id("pvr_", 904), PACKAGE, VERSION_THREE, DIGEST, MANIFEST),
+    pluginVersion(id("pvr_", 905), PACKAGE, VERSION_THREE, DIGEST_TWO, MANIFEST),
   ]);
   expect("a wildcard in a manifest is refused", "rejected", [
-    publisher(PUBLISHER, "Lumi", 1),
-    pluginPackage(PACKAGE, "Pack Reader", PUBLISHER),
-    pluginVersion(id("pvr_", 906), PACKAGE, VERSION_ONE, DIGEST, MANIFEST_WILDCARD),
+    pluginVersion(id("pvr_", 906), PACKAGE, VERSION_THREE, DIGEST, MANIFEST_WILDCARD),
   ]);
   expect("an incomplete manifest is refused", "rejected", [
-    publisher(PUBLISHER, "Lumi", 1),
-    pluginPackage(PACKAGE, "Pack Reader", PUBLISHER),
-    pluginVersion(id("pvr_", 907), PACKAGE, VERSION_ONE, DIGEST, MANIFEST_INCOMPLETE),
+    pluginVersion(id("pvr_", 907), PACKAGE, VERSION_THREE, DIGEST, MANIFEST_INCOMPLETE),
   ]);
 
   // -- F25-004 org policy ----------------------------------------------------
@@ -866,13 +864,17 @@ try {
 
   // -- F25-003 and one review state per package ------------------------------
   expect("a pending_review install without a reason is refused", "rejected", [
-    pluginVersion(id("pvr_", 910), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     pluginInstall(id("pil_", 910), PACKAGE, VERSION_ONE, "pending_review", "NULL"),
   ]);
+  // The SEEDED install, moved to blocked with no reason -- the same shape as the
+  // control below, which is the point: the only difference between the case and its
+  // control is the reason, so the reason is what the trigger is enforcing.
+  //
+  // This used to insert its own install first, which collided with the seeded
+  // (ORG, PACKAGE) row, so the case reported "rejected" whether or not the trigger
+  // existed. It is the case mutation VI-MIG-001 was aimed at.
   expect("a blocked install without a reason is refused", "rejected", [
-    pluginVersion(id("pvr_", 911), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
-    pluginInstall(id("pil_", 911), PACKAGE, VERSION_ONE, "approved", "NULL"),
-    `UPDATE plugin_installs SET review_state = 'blocked' WHERE install_id = '${id("pil_", 911)}'`,
+    `UPDATE plugin_installs SET review_state = 'blocked' WHERE install_id = '${id("pil_", 1)}'`,
   ]);
   // The seeded install is the row to move: the UNIQUE `(org_id, package_id)` index
   // means there is exactly one review state per package per org, so a second row
@@ -880,15 +882,14 @@ try {
   expect("control: a blocked install WITH a reason is accepted", "accepted", [
     `UPDATE plugin_installs SET review_state = 'blocked', blocked_reason = 'untrusted publisher' WHERE install_id = '${id("pil_", 1)}'`,
   ]);
+  // The seed already installs (ORG, PACKAGE), so ONE more install for that package
+  // IS the duplicate. The four-line setup this replaced re-inserted the seeded
+  // version, the seeded second version, and the seeded install, and was rejected at
+  // the first line.
   expect("a second install row for one package in one org is refused", "rejected", [
-    pluginVersion(id("pvr_", 913), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
-    pluginVersion(id("pvr_", 914), PACKAGE, VERSION_TWO, DIGEST_TWO, MANIFEST),
     pluginInstall(id("pil_", 913), PACKAGE, VERSION_ONE, "approved"),
-    pluginInstall(id("pil_", 914), PACKAGE, VERSION_TWO, "approved"),
   ]);
   expect("an install of a version nobody published is refused", "rejected", [
-    publisher(PUBLISHER, "Lumi", 1),
-    pluginPackage(PACKAGE, "Pack Reader", PUBLISHER),
     pluginInstall(id("pil_", 915), PACKAGE, "9.9.9", "approved"),
   ]);
 
@@ -1002,36 +1003,30 @@ try {
 
   // -- F25-007 and F13 default deny ------------------------------------------
   expect("registering a tool the manifest does not declare is refused", "rejected", [
-    pluginVersion(id("pvr_", 920), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     registration(id("ptr_", 920), PACKAGE, VERSION_ONE, "not_declared"),
   ]);
   expect("control: registering a declared tool is accepted", "accepted", [
     registration(id("ptr_", 921), PACKAGE, VERSION_TWO, "pkg_read"),
   ]);
   expect("the same tool cannot be registered twice for one org", "rejected", [
-    pluginVersion(id("pvr_", 922), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     registration(id("ptr_", 922), PACKAGE, VERSION_ONE, "pkg_read"),
     registration(id("ptr_", 923), PACKAGE, VERSION_ONE, "pkg_read"),
   ]);
 
   // -- F25-008 quarantine ----------------------------------------------------
   expect("a quarantine cannot be deleted", "rejected", [
-    pluginVersion(id("pvr_", 930), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 930), VERSION_ONE),
     `DELETE FROM plugin_quarantines WHERE quarantine_id = '${id("pqr_", 930)}'`,
   ]);
   expect("two active quarantines for one version are refused", "rejected", [
-    pluginVersion(id("pvr_", 931), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 931), VERSION_ONE),
     quarantine(id("pqr_", 932), VERSION_ONE),
   ]);
   expect("lifting a quarantine without a reason is refused", "rejected", [
-    pluginVersion(id("pvr_", 933), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 933), VERSION_ONE),
     `UPDATE plugin_quarantines SET lifted_at = '${NOW}' WHERE quarantine_id = '${id("pqr_", 933)}'`,
   ]);
   expect("a lifted quarantine cannot be re-engaged in place", "rejected", [
-    pluginVersion(id("pvr_", 934), PACKAGE, VERSION_ONE, DIGEST, MANIFEST),
     quarantine(id("pqr_", 934), VERSION_ONE, `'${NOW}'`),
     `UPDATE plugin_quarantines SET lifted_at = NULL WHERE quarantine_id = '${id("pqr_", 934)}'`,
   ]);
@@ -1064,25 +1059,29 @@ try {
   );
 
   // -- F24-001 a named identity, not a shared account ------------------------
+  // The seed's staff principal already holds prefix 0123456789abcdef, so the FIRST
+  // insert here used to be the duplicate rather than the second. Both cases now put
+  // the collision on the statement under test, which is the whole point of a
+  // two-insert case.
   expect("two staff principals cannot share a credential prefix", "rejected", [
     staff(
       "stf_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "a@internal.example",
       "support",
-      "0123456789abcdef",
+      "aaaabbbbccccdddd",
       HASH,
     ),
-    staff(STAFF_OTHER, "b@internal.example", "security", "0123456789abcdef", HASH),
+    staff(STAFF_OTHER, "b@internal.example", "security", "aaaabbbbccccdddd", HASH),
   ]);
   expect("two staff principals cannot share an email", "rejected", [
     staff(
       "stf_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "a@internal.example",
       "support",
-      "0123456789abcdef",
+      "aaaabbbbccccdddd",
       HASH,
     ),
-    staff(STAFF_OTHER, "a@internal.example", "security", "ffffffffffffffff", HASH),
+    staff(STAFF_OTHER, "a@internal.example", "security", "eeeeffff00001111", HASH),
   ]);
   expect(
     "a staff credential hash must be 64 lowercase hex",
@@ -1271,6 +1270,42 @@ try {
   let passed = 0;
   const failures = [];
   for (const testCase of cases) {
+    // A "rejected" case is only evidence if the statements BEFORE the one under
+    // test are themselves accepted.
+    //
+    // Without this, a case whose SETUP is invalid reports "rejected" and passes,
+    // having proved nothing about the invariant it names. 15 of the 125 cases were
+    // exactly that: each inserted a plugin version at `(PACKAGE, '1.0.0')`, which
+    // the seed already holds, so `ux_plugin_versions_package_version` rejected the
+    // first statement and the case passed whether or not the trigger it names
+    // existed. Found by mutation VI-MIG-001 surviving, not by reading.
+    //
+    // So the runner checks the prefix, and reports a case whose setup is broken as a
+    // FAILURE with the setup's own error, which is the only message that points at
+    // the real problem. This is the third instance of the same lesson in this file:
+    // a probe that cannot tell "the database refused" from "my fixture was invalid"
+    // is worse than no probe, because it looks like coverage.
+    if (testCase.want === "rejected" && testCase.statements.length > 1) {
+      db.exec("SAVEPOINT prefix");
+      let prefixError = null;
+      try {
+        for (const statement of testCase.statements.slice(0, -1)) {
+          db.prepare(statement).run();
+        }
+      } catch (error) {
+        prefixError = error.message;
+      }
+      db.exec("ROLLBACK TO prefix");
+      db.exec("RELEASE prefix");
+      if (prefixError) {
+        failures.push(testCase.label);
+        console.log(`  FAIL  ${testCase.label}`);
+        console.log(
+          `        the SETUP is invalid, so this case would pass for any reason: ${prefixError}`,
+        );
+        continue;
+      }
+    }
     db.exec("SAVEPOINT probe");
     let actual = "accepted";
     let detail = "";
