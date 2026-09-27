@@ -4,6 +4,8 @@
 
 Fix verified defects without weakening the contract or hiding the evidence that found them.
 
+This is a **specialized backlog/batch repair prompt**. Normal verification prompts also repair defects inline. Use this prompt when findings were intentionally queued, span multiple campaigns, need a dedicated repair session, or must be handed to a different agent/owner.
+
 ## Loop
 
 For each accepted finding:
