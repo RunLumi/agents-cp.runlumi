@@ -15,7 +15,7 @@ They differ from `docs/prompts/goal-*.md`:
 4. `verify-03-test-strength-mutation.md`
 5. `verify-04-release-and-repair.md`
 
-Use `repair-findings.md` only after defects are recorded.
+`repair-findings.md` is for queued/backlog findings or a dedicated repair pass. The normal verification prompts should **fix verified defects immediately after preserving the failing evidence**, then re-run the relevant proof and continue.
 
 ## Discipline
 
@@ -25,7 +25,10 @@ A verifier must:
 - prefer executable checks over LLM judgment;
 - distinguish PASS from UNPROVEN;
 - never weaken a verifier/spec/contract to make code pass;
-- preserve failing evidence;
+- preserve failing evidence before editing code;
+- fix discovered implementation/test/infrastructure defects when the root cause is clear and within scope;
+- add or strengthen regression evidence for every meaningful fix;
+- re-run the original reproducer and affected proof obligations before continuing;
 - explicitly name external claims it cannot exercise.
 
 Output is an evidence record, not persuasive prose.
