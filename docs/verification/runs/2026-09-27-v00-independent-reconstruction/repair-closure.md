@@ -19,7 +19,7 @@ Where a repair required a durable decision, it is recorded in
 
 | Gate | Before (at `ecbdac1`) | After | Verdict moved |
 |---|---|---|---|
-| Real-browser journey | **20/23**, 3 FAIL | **39/39**, 0 FAIL, exit 0 | `VI-AUTH-001`, `VI-ONBOARD-1`, `VI-UX-001`, `VI-UX-002`, `ROUTE-2` |
+| Real-browser journey | **20/23**, 3 FAIL (old probe) | **39/39**, 0 FAIL, exit 0 — and **12 named failures** against the pre-repair product, so it is proven able to fail | `VI-AUTH-001`, `VI-ONBOARD-1`, `VI-UX-001`, `VI-UX-002`, `ROUTE-2` |
 | P05 runtime smoke | **175 pass / 1 fail**, exit 1 | **185 pass / 0 fail**, exit 0 | `GUARD-1`, `VI-IDEM-001` |
 | Passkey ceremony probe (new) | did not exist | **41/41**, exit 0 | `VI-AUTH-001` |
 | Guard-sentinel probe (new) | did not exist | **11/11** across 2 recognised abort texts | `GUARD-1` |
@@ -31,6 +31,76 @@ doing so: the repairs added checks, and none of the original 23 were removed. Th
 fallbacks that made the old run report its failures cleanly are **gone** — a verifier that repairs
 its own subject stops being a verifier, and the details are in
 [`findings/VFY-002-no-email-verification-step-in-web-ui.md`](findings/VFY-002-no-email-verification-step-in-web-ui.md).
+
+The 20/23 figure is the **old** probe in this run's `evidence/`. The promoted 39-check one was
+separately proven able to fail; see [The gate can fail](#the-gate-can-fail) below. That is not a
+formality — proving it found two more defects in the gate itself.
+
+---
+
+## The gate can fail
+
+A gate that only ever passes is a script, not a check. The promoted browser journey had never been
+run against a product it was supposed to fail on, and running it revealed that **it could not report
+three of the defects it was built to find**:
+
+```text
+$ sh evidence/vfy-browser-sensitivity.sh
+  absent as expected: verifyEmail in apps/web/src/features/auth/auth-screen.tsx
+  absent as expected: setShowCreateOrg(true) in apps/web/src/features/organizations/org-dashboard.tsx
+  present as expected: min-w-[620px] in apps/web/src/features/organizations/org-dashboard.tsx
+
+FAIL  the verification step renders a submittable form, not a dead end  — {"found":false,…}
+FAIL  the one-time code field is named and labelled  — {"found":false,…}
+FAIL  submitting the form calls POST /api/v1/auth/verify-email  — no one-time-code input exists
+FAIL  the session now reports a verified email  — email_verified=false
+FAIL  a control exists to open the create-organization panel again  — {"present":false,…}
+FAIL  a SECOND organization can be created through the UI
+FAIL  the organization switcher lists both organizations…  — options=0
+
+12/24 browser checks passed
+probe exit status: 1
+SENSITIVE: the probe failed against ecbdac1, naming VFY-002 and VFY-003.
+```
+
+### What that exercise found wrong with the gate
+
+1. **Its waits tested for the repair.** "Did signup succeed?" looked for
+   `input[name=one-time-code]`, `#org-switcher`, or the words "create an organization" — **all three
+   introduced by the repair**. Against the pre-repair product it timed out and exited **2**, a harness
+   fault, where it should have reported a defect. A gate that can only pass on the exact UI it was
+   written alongside is not a gate. Both waits are repair-independent now: a terminal state is "the
+   signup form is gone, or an alert is showing, or the shell is present".
+2. **It crashed on the state it exists to detect.** Having reported that no verification form existed,
+   it then called `Object.getOwnPropertyDescriptor(…, "value").set.call(undefined, …)` and died with
+   `TypeError: Illegal invocation`, losing every later check. Interactions sit behind an explicit
+   form-exists guard now, and the skip is itself reported as a failure.
+3. **It ran on forever.** The cross-organization stage had an unbounded wait, turning a run that had
+   already named two defects into a 30-minute timeout. Bounded now — and when the switcher is absent,
+   `VI-UX-001`/`VI-UX-002` are reported **UNPROVEN** rather than silently skipped, because a verifier
+   that cannot reach the state it is testing has proved nothing about it.
+
+None of this was visible while the probe passed 39/39 on the repaired code. All three lived in the
+**failure** path, which nothing exercises until something actually breaks.
+
+### What it does not prove, stated plainly
+
+`VFY-007` is **not** demonstrated by that run. The narrow-layout checks come after the
+cross-organization checks, and the pre-repair UI cannot reach a second organization, so the journey
+stops before the Members table is ever measured — a layout defect masked by a navigation defect. Its
+sensitivity rests on the ten component cases in
+`apps/web/src/features/organizations/org-dashboard.test.ts`, each verified to fail when its fix is
+reverted. One journey cannot prove everything, and overstating it would be worse than the gap.
+
+`VFY-001` is not shown by that run either, because the Worker is deliberately the repaired one so
+that the variable under test is the web source. It is proven directly and more sharply by reverting
+each of its two patches against `pnpm smoke:passkey`.
+
+`evidence/vfy-browser-sensitivity.sh` is rerunnable: it builds a linked worktree at `ecbdac1`,
+asserts the pre-repair source really lacks the fix — two absences and one presence, so a wrong
+worktree fails loudly rather than passing vacuously — serves it on its own port, and requires the
+promoted probe to exit non-zero with `VFY-002` and `VFY-003` named. Exit **2** is rejected rather than
+accepted, because a harness fault says nothing about the product.
 
 ---
 

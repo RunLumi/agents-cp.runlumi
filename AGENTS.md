@@ -320,6 +320,22 @@ exit **1** (a check did not hold) and exit **2** (the harness could not run): th
 statement about the product, the second is a statement about the harness, and collapsing them would
 let a broken probe read as a detected defect.
 
+### Showing that a gate can fail
+
+A gate nobody has watched fail is an assumption. Each runtime gate therefore has a sensitivity
+proof, and each proof is rerunnable:
+
+| Gate | Sensitivity proof |
+|---|---|
+| `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/34) |
+| `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected |
+| `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
+| `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
+
+Running a gate against the product it is meant to fail on finds defects in the gate itself. It found
+three in `smoke:browser`: waits that tested for the repair, a crash on the very state the gate
+exists to detect, and an unbounded wait. None was visible while the gate passed.
+
 ## Git discipline
 
 - Small cohesive commits.

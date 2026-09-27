@@ -78,7 +78,11 @@ function check(name, ok, detail = "") {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function waitFor(page, fn, { timeout = STEP_TIMEOUT, interval = 150, label = "condition" } = {}) {
+async function waitFor(
+  page,
+  fn,
+  { timeout = STEP_TIMEOUT, interval = 150, label = "condition" } = {},
+) {
   const deadline = Date.now() + timeout;
   for (;;) {
     let value;
@@ -102,9 +106,7 @@ const setInput = (selector, value) => {
 };
 
 const clickExact = (text) => {
-  const el = [...document.querySelectorAll("button")].find(
-    (n) => n.textContent.trim() === text,
-  );
+  const el = [...document.querySelectorAll("button")].find((n) => n.textContent.trim() === text);
   if (!el) return false;
   el.click();
   return true;
@@ -130,6 +132,52 @@ async function shutdown() {
     /* already gone */
   }
 }
+
+/**
+ * Did the signup screen reach a state where waiting longer cannot help?
+ *
+ * This must be INDEPENDENT of what the repaired UI looks like. The first version
+ * tested for `input[name=one-time-code]`, `#org-switcher`, or the words "create
+ * an organization" — all three of which the *repair* introduced. Run against the
+ * pre-repair product it therefore timed out, and the probe exited 2 (harness
+ * fault) instead of reporting that email verification was impossible. A gate that
+ * can only pass on the exact UI it was written alongside is not a gate.
+ *
+ * Three repair-independent terminal states:
+ *   - the signup form is gone (the app moved on)
+ *   - an alert is showing (the app reported a failure -- that IS a terminal state,
+ *     and reporting it is the whole point)
+ *   - the authenticated shell is present
+ */
+const signupReachedTerminalState = () =>
+  Boolean(
+    ![...document.querySelectorAll("form")].some((f) => f.querySelector("input[type=email]")) ||
+    document.querySelector("[role=alert]") ||
+    document.querySelector("#org-switcher"),
+  ) || undefined;
+
+/**
+ * Is a one-time-code affordance on screen, however it is worded?
+ *
+ * Structural first (an input that a browser or password manager would recognise as
+ * a code field), then a deliberately broad copy match. The pre-repair screen said
+ * "Verification required for …" and rendered no input at all, so the structural
+ * test is false there and the copy test carries it — which is correct, because a
+ * code the user cannot enter is precisely the defect.
+ */
+const looksLikeVerificationStep = () => {
+  const codeField = [...document.querySelectorAll("input")].some((el) =>
+    /one-time-code/i.test(
+      `${el.getAttribute("autocomplete") ?? ""} ${el.name ?? ""} ${el.placeholder ?? ""}`,
+    ),
+  );
+  if (codeField) return true;
+  const submittable = [...document.querySelectorAll("form")].some(
+    (f) => /code/i.test(f.textContent ?? "") && f.querySelector("input"),
+  );
+  if (submittable) return true;
+  return /verif|one-time code|enter the code/i.test(document.body.innerText) || undefined;
+};
 
 async function main() {
   if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -170,7 +218,10 @@ async function main() {
       automaticPresenceSimulation: true,
     },
   });
-  check("a real CTAP2 virtual authenticator (resident key + UV) is attached", Boolean(authenticatorId));
+  check(
+    "a real CTAP2 virtual authenticator (resident key + UV) is attached",
+    Boolean(authenticatorId),
+  );
 
   await page.goto(WEB, { waitUntil: "load" });
   await waitFor(page, () => document.body.innerText.includes("Sign in with passkey"), {
@@ -191,11 +242,16 @@ async function main() {
   });
   const submit = hierarchy.controls.find((c) => c.tag === "button" && c.type === "submit");
   const emailAt = hierarchy.controls.findIndex((c) => c.tag === "input" && c.type === "email");
-  check("sign-in's first submit control is the passkey CTA",
+  check(
+    "sign-in's first submit control is the passkey CTA",
     Boolean(submit) && /passkey/i.test(submit.text) && submit.primary,
-    `submit="${submit?.text}" primary=${submit?.primary}`);
-  check("the passkey CTA precedes the email field (passkey-first, not password-first)",
-    emailAt > 0 && submit.index < emailAt, `submit@${submit.index} email@${emailAt}`);
+    `submit="${submit?.text}" primary=${submit?.primary}`,
+  );
+  check(
+    "the passkey CTA precedes the email field (passkey-first, not password-first)",
+    emailAt > 0 && submit.index < emailAt,
+    `submit@${submit.index} email@${emailAt}`,
+  );
   if (SHOTS) await page.screenshot(join(SHOTS, "01-signin-passkey-first.png"));
 
   // ---- F01-004/005: does the ceremony the UI offers actually work? ---------
@@ -233,11 +289,18 @@ async function main() {
   // 201, not 200: a ceremony start creates a pending `webauthn_ceremonies` row.
   // Asserting 200 here would have failed for a reason unrelated to the claim.
   const ceremonyOk = (r) => r.status === 200 || r.status === 201;
-  check("POST /api/v1/auth/passkey/signup/start returns server-side creation options",
-    ceremonyOk(ceremonyProbe.signup), `status=${ceremonyProbe.signup.status} ${ceremonyProbe.signup.body}`);
-  check("POST /api/v1/auth/passkey/login/start returns server-side request options",
-    ceremonyOk(ceremonyProbe.login), `status=${ceremonyProbe.login.status} ${ceremonyProbe.login.body}`);
-  check("both ceremony options carry a distinct server-issued challenge",
+  check(
+    "POST /api/v1/auth/passkey/signup/start returns server-side creation options",
+    ceremonyOk(ceremonyProbe.signup),
+    `status=${ceremonyProbe.signup.status} ${ceremonyProbe.signup.body}`,
+  );
+  check(
+    "POST /api/v1/auth/passkey/login/start returns server-side request options",
+    ceremonyOk(ceremonyProbe.login),
+    `status=${ceremonyProbe.login.status} ${ceremonyProbe.login.body}`,
+  );
+  check(
+    "both ceremony options carry a distinct server-issued challenge",
     typeof signupFields.public_key?.challenge === "string" &&
       signupFields.public_key.challenge.length >= 16 &&
       typeof loginFields.public_key?.challenge === "string" &&
@@ -245,21 +308,28 @@ async function main() {
     // The SPA must never mint its own challenge: an attacker who can choose it
     // chooses the one the server verifies.
     `signup.challenge=${typeof signupFields.public_key?.challenge} ` +
-      `login.challenge=${typeof loginFields.public_key?.challenge}`);
+      `login.challenge=${typeof loginFields.public_key?.challenge}`,
+  );
   // `rpId` appears on a PublicKeyCredentialRequestOptions (login) and NOT on a
   // PublicKeyCredentialCreationOptions (registration) -- for registration the RP
   // ID is implied by the caller's origin. Asserting it on the registration
   // response was a probe bug, not a product defect.
-  check("the login ceremony options name the relying party explicitly",
+  check(
+    "the login ceremony options name the relying party explicitly",
     loginFields.public_key?.rpId === "localhost",
-    `rpId=${loginFields.public_key?.rpId}`);
-  check("the registration ceremony options bind the account to the ceremony",
+    `rpId=${loginFields.public_key?.rpId}`,
+  );
+  check(
+    "the registration ceremony options bind the account to the ceremony",
     typeof signupFields.public_key?.user?.id === "string" &&
       signupFields.public_key.user.id.length > 0,
-    `user.id=${typeof signupFields.public_key?.user?.id}`);
-  check("the two ceremonies have DIFFERENT challenges",
+    `user.id=${typeof signupFields.public_key?.user?.id}`,
+  );
+  check(
+    "the two ceremonies have DIFFERENT challenges",
     signupFields.public_key?.challenge !== loginFields.public_key?.challenge,
-    "a shared challenge would let one ceremony's response satisfy the other");
+    "a shared challenge would let one ceremony's response satisfy the other",
+  );
 
   // ---- password fallback still works, so the remaining UX claims are testable
   await page.evaluate(clickExact, "Create account");
@@ -274,23 +344,30 @@ async function main() {
   await page.evaluate(setInput, "input[type=text]", "VFY Verifier");
   await page.evaluate(setInput, "input[type=password]", password);
   await page.evaluate(submitForm);
-  // Matched on STRUCTURE, not on copy. The first version of this wait looked for
-  // the literal string "Verification required", and it timed out once the
-  // verification step was repaired and reworded -- a verifier coupled to
-  // marketing copy breaks when the copy is fixed, which is backwards. What must
-  // be true is that the app reached a terminal state after signup: either the
-  // verification form, or the authenticated shell.
-  const afterSignup = await waitFor(
-    page,
-    () =>
-      Boolean(
-        document.querySelector("input[name=one-time-code]") ||
-          document.querySelector("#org-switcher") ||
-          /create an organization/i.test(document.body.innerText),
-      ) || undefined,
-    { timeout: 60_000, label: "password signup result" },
+  const afterSignup = await waitFor(page, signupReachedTerminalState, {
+    timeout: 60_000,
+    label: "password signup result",
+  }).catch(() => null);
+  check(
+    "email + password registration reaches a terminal screen",
+    Boolean(afterSignup),
+    afterSignup ? "" : "the signup form is still on screen after 60s",
   );
-  check("email + password registration reaches a terminal screen", Boolean(afterSignup));
+  if (!afterSignup) {
+    // Continuing would time out again on the next wait, and the run would end as a
+    // harness fault. Reporting the first failure with everything gathered is worth
+    // more than four timeouts.
+    check(
+      "the browser console produced no errors during the journey",
+      consoleErrors.length === 0,
+      consoleErrors.slice(0, 3).join(" | "),
+    );
+    if (SHOTS) await page.screenshot(join(SHOTS, "02a-after-signup-stuck.png"));
+    await shutdown();
+    console.log(`\n${results.length - failures}/${results.length} browser checks passed`);
+    process.exitCode = 1;
+    return;
+  }
   if (SHOTS) await page.screenshot(join(SHOTS, "02a-after-signup.png"));
 
   // ---- F01-002: the verification step must be completable FROM THE UI -------
@@ -306,11 +383,14 @@ async function main() {
   // `POST /api/v1/auth/verify-email` itself when the UI could not, so the journey
   // continued and the defect stayed invisible in the tally. That fallback is gone.
   // The UI is driven, or the probe fails here.
-  const verifyScreen = await page.evaluate(() =>
-    /verify .*email|one-time code/i.test(document.body.innerText),
+  const verifyScreen = Boolean(await page.evaluate(looksLikeVerificationStep));
+  check(
+    "registration hands the user a verification step to complete",
+    verifyScreen,
+    verifyScreen
+      ? ""
+      : "the account is unverified, so F01-002 requires a step that sets email_verified",
   );
-  check("registration hands the user a verification step to complete", verifyScreen,
-    "the account is unverified, so F01-002 requires a step that sets email_verified");
 
   if (verifyScreen) {
     const control = await page.evaluate(() => {
@@ -318,9 +398,7 @@ async function main() {
         /one-time code/i.test(f.textContent),
       );
       const input = form?.querySelector("input");
-      const submit = [...(form?.querySelectorAll("button") ?? [])].find(
-        (b) => b.type === "submit",
-      );
+      const submit = [...(form?.querySelectorAll("button") ?? [])].find((b) => b.type === "submit");
       const label = input ? document.querySelector(`label[for="${input.id}"]`) : null;
       return {
         found: Boolean(form && input && submit),
@@ -332,45 +410,78 @@ async function main() {
         disabledBeforeTyping: submit?.disabled ?? null,
       };
     });
-    check("the verification step renders a submittable form, not a dead end",
-      control.found, JSON.stringify(control));
-    check("the one-time code field is named and labelled",
-      control.inputNamed && control.labelled, JSON.stringify(control));
-    // The development flow pre-fills the code, so the disabled state is only
-    // observable after clearing the field. Asserted directly rather than through
-    // `control`, because `control` was captured before the clear.
-    const submitStates = await page.evaluate(() => {
-      const input = document.querySelector("input[name=one-time-code]");
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-      const readDisabled = () => {
-        const form = input?.closest("form");
+    check(
+      "the verification step renders a submittable form, not a dead end",
+      control.found,
+      JSON.stringify(control),
+    );
+    check(
+      "the one-time code field is named and labelled",
+      control.inputNamed && control.labelled,
+      JSON.stringify(control),
+    );
+
+    // Everything below INTERACTS with the form the two checks above just proved
+    // exists. Run against the pre-repair product the first check reports
+    // `found: false` and then `Object.getOwnPropertyDescriptor(...).set.call(
+    // undefined, ...)` throws `TypeError: Illegal invocation`, so the probe died
+    // with exit 2 and the remaining checks never ran. A verifier must survive the
+    // state it exists to detect: report the missing form as a failure, and say
+    // that the interactive checks could not be attempted.
+    if (!control.found) {
+      check(
+        "the verification submit can be disabled and re-enabled",
+        false,
+        "no verification form exists to interact with, so its behaviour cannot be checked. " +
+          "Reported rather than crashed: a verifier that dies on the state it exists to detect " +
+          "reports a harness fault where it should report the defect",
+      );
+    } else {
+      // The development flow pre-fills the code, so the disabled state is only
+      // observable after clearing the field. Asserted directly rather than through
+      // `control`, because `control` was captured before the clear.
+      const submitStates = await page.evaluate(() => {
+        const input = document.querySelector("input[name=one-time-code]");
+        if (!input) return { missing: true, before: null, afterEmpty: null };
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        const readDisabled = () => {
+          const form = input.closest("form");
+          const button = [...(form?.querySelectorAll("button") ?? [])].find(
+            (b) => b.type === "submit",
+          );
+          return button?.disabled ?? null;
+        };
+        const before = readDisabled();
+        setter.call(input, "");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        return { before, afterEmpty: readDisabled() };
+      });
+      check(
+        "the verification submit is disabled while the field is empty",
+        submitStates.afterEmpty === true,
+        JSON.stringify(submitStates),
+      );
+      await sleep(120);
+      await page.evaluate(() => {
+        const input = document.querySelector("input[name=one-time-code]");
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(input, "abc");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await sleep(120);
+      const tooShortDisabled = await page.evaluate(() => {
+        const form = document.querySelector("input[name=one-time-code]")?.closest("form");
         const button = [...(form?.querySelectorAll("button") ?? [])].find(
           (b) => b.type === "submit",
         );
         return button?.disabled ?? null;
-      };
-      const before = readDisabled();
-      setter.call(input, "");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      return { before, afterEmpty: readDisabled() };
-    });
-    check("the verification submit is disabled while the field is empty",
-      submitStates.afterEmpty === true, JSON.stringify(submitStates));
-    await sleep(120);
-    await page.evaluate(() => {
-      const input = document.querySelector("input[name=one-time-code]");
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-      setter.call(input, "abc");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await sleep(120);
-    const tooShortDisabled = await page.evaluate(() => {
-      const form = document.querySelector("input[name=one-time-code]")?.closest("form");
-      const button = [...(form?.querySelectorAll("button") ?? [])].find((b) => b.type === "submit");
-      return button?.disabled ?? null;
-    });
-    check("the verification submit stays disabled for an implausibly short code",
-      tooShortDisabled === true, `disabled=${tooShortDisabled}`);
+      });
+      check(
+        "the verification submit stays disabled for an implausibly short code",
+        tooShortDisabled === true,
+        `disabled=${tooShortDisabled}`,
+      );
+    }
 
     // Read the code from the element that displays it.
     //
@@ -388,44 +499,50 @@ async function main() {
       );
       return el?.textContent.trim() ?? null;
     });
-    check("the development build surfaces the verification code to the operator",
+    // Absent is not an error here: a production build never shows a code. It is
+    // only a failure in the development build, which is what this probe drives.
+    check(
+      "the development build surfaces the verification code to the operator",
       typeof code === "string" && /^[0-9a-f]{32,}$/i.test(code),
-      `code=${code ? `${code.slice(0, 6)}… (${code.length} chars)` : "not shown"}`);
+      `code=${code ? `${code.slice(0, 6)}… (${code.length} chars)` : "not shown"}`,
+    );
 
     if (code) {
-      const issued = await page.evaluate(
-        async (value) => {
-          const before = window.__vfy.exchanges.filter((e) =>
-            e.url.includes("/auth/verify-email"),
-          ).length;
-          const input = document.querySelector("input[name=one-time-code]");
-          if (!input) return { typed: false };
-          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(
-            input,
-            value,
-          );
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          const form = input.closest("form");
-          form?.requestSubmit();
-          for (let i = 0; i < 60; i += 1) {
-            await new Promise((r) => setTimeout(r, 250));
-            const after = window.__vfy.exchanges.filter((e) =>
-              e.url.includes("/auth/verify-email"),
-            );
-            if (after.length > before) {
-              return { typed: true, status: after.at(-1).status, body: after.at(-1).body };
-            }
+      const issued = await page.evaluate(async (value) => {
+        const before = window.__vfy.exchanges.filter((e) =>
+          e.url.includes("/auth/verify-email"),
+        ).length;
+        const input = document.querySelector("input[name=one-time-code]");
+        if (!input) {
+          return {
+            typed: false,
+            status: null,
+            body: "no one-time-code input exists, so the code could not be typed",
+          };
+        }
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        const form = input.closest("form");
+        form?.requestSubmit();
+        for (let i = 0; i < 60; i += 1) {
+          await new Promise((r) => setTimeout(r, 250));
+          const after = window.__vfy.exchanges.filter((e) => e.url.includes("/auth/verify-email"));
+          if (after.length > before) {
+            return { typed: true, status: after.at(-1).status, body: after.at(-1).body };
           }
-          return { typed: true, status: null, body: "no request was issued" };
-        },
-        code,
-      );
-      check("submitting the form calls POST /api/v1/auth/verify-email",
+        }
+        return { typed: true, status: null, body: "no request was issued" };
+      }, code);
+      check(
+        "submitting the form calls POST /api/v1/auth/verify-email",
         issued.typed && typeof issued.status === "number",
-        `status=${issued.status} ${String(issued.body).slice(0, 120)}`);
-      check("the UI completes verification successfully",
+        `typed=${issued.typed} status=${issued.status} ${String(issued.body).slice(0, 120)}`,
+      );
+      check(
+        "the UI completes verification successfully",
         issued.status === 200 || issued.status === 201 || issued.status === 204,
-        `status=${issued.status} ${String(issued.body).slice(0, 160)}`);
+        `status=${issued.status} ${String(issued.body).slice(0, 160)}`,
+      );
       await sleep(1500);
       if (SHOTS) await page.screenshot(join(SHOTS, "02b-verified.png"));
 
@@ -435,23 +552,36 @@ async function main() {
         const response = await fetch("/api/v1/me");
         return { status: response.status, body: await response.json() };
       });
-      check("the session now reports a verified email",
+      check(
+        "the session now reports a verified email",
         verifiedShell.status === 200 && verifiedShell.body?.user?.email_verified === true,
-        `email_verified=${verifiedShell.body?.user?.email_verified}`);
+        `email_verified=${verifiedShell.body?.user?.email_verified}`,
+      );
     }
   }
+  // A brand-new member lands on the create-organization panel, which has no
+  // switcher, so the shell test accepts either. Repair-independent: it looks for a
+  // control that only an authenticated session renders, not for the verification
+  // form's input, which the pre-repair product does not have.
   const reachedShell = await waitFor(
     page,
     () =>
       Boolean(
         document.querySelector("#org-switcher") ||
-          document.querySelector("input[name=one-time-code]") ||
-          /create an organization/i.test(document.body.innerText),
+        [...document.querySelectorAll("button, form, input")].some((el) =>
+          /organization name|create an organization|new organization/i.test(
+            `${el.textContent ?? ""} ${el.getAttribute("aria-label") ?? ""}`,
+          ),
+        ) ||
+        document.querySelector("[role=alert]"),
       ) || undefined,
     { timeout: 60_000, label: "authenticated shell" },
   ).catch(() => false);
-  check("a password session renders the authenticated organization shell",
-    reachedShell !== false);
+  check(
+    "a password session renders the authenticated organization shell",
+    reachedShell !== false,
+    reachedShell !== false ? "" : "no shell control appeared within 60s",
+  );
   if (SHOTS) await page.screenshot(join(SHOTS, "02-authenticated-shell.png"));
 
   // ---- two organizations with distinctive names ---------------------------
@@ -513,12 +643,18 @@ async function main() {
     );
     return { present: Boolean(button), visible: Boolean(button?.getClientRects().length) };
   });
-  check("a control exists to open the create-organization panel again",
-    reOpenControl.present, JSON.stringify(reOpenControl));
+  check(
+    "a control exists to open the create-organization panel again",
+    reOpenControl.present,
+    JSON.stringify(reOpenControl),
+  );
 
   const createdB = await createOrg(orgB);
-  check("a SECOND organization can be created through the UI", createdB,
-    createdB ? "" : "the panel could not be reopened once the user had one organization");
+  check(
+    "a SECOND organization can be created through the UI",
+    createdB,
+    createdB ? "" : "the panel could not be reopened once the user had one organization",
+  );
 
   const switcherHasBoth = await waitFor(
     page,
@@ -528,20 +664,48 @@ async function main() {
     },
     { label: "switcher listing both organizations", timeout: 40_000 },
   ).catch(() => 0);
-  check("the organization switcher lists both organizations after the UI created the second",
-    Number(switcherHasBoth) >= 2, `options=${switcherHasBoth}`);
+  check(
+    "the organization switcher lists both organizations after the UI created the second",
+    Number(switcherHasBoth) >= 2,
+    `options=${switcherHasBoth}`,
+  );
   if (SHOTS) await page.screenshot(join(SHOTS, "03-org-created.png"));
 
   // ---- VI-UX-001: switching organization must not show stale data ----------
-  await waitFor(page, () => Boolean(document.querySelector("#org-switcher")), {
+  //
+  // Bounded, and the skip is reported rather than assumed. An unbounded wait here
+  // turned a run that had already named two product defects into a 30-minute
+  // timeout with exit 2, which reads as a broken harness instead of a broken
+  // product. The switcher claims need two organizations, which the checks above
+  // already tried to create; if that did not happen, saying so is the result.
+  const hasSwitcher = await waitFor(page, () => Boolean(document.querySelector("#org-switcher")), {
     label: "organization shell after both orgs exist",
-  });
+    timeout: 20_000,
+  })
+    .then(() => true)
+    .catch(() => false);
+  if (!hasSwitcher) {
+    check(
+      "the organization switcher exists, so cross-organization claims can be checked",
+      false,
+      "no switcher is present, which follows from the UI not being able to reach a second " +
+        "organization. The VI-UX-001 and VI-UX-002 claims below are UNPROVEN, not PASS: a " +
+        "verifier that cannot reach the state it is testing has proved nothing about it.",
+    );
+    if (SHOTS) await page.screenshot(join(SHOTS, "03b-no-switcher.png"));
+    console.log(`\n${results.length - failures}/${results.length} browser checks passed`);
+    process.exitCode = 1;
+    return;
+  }
   const switcher = await page.evaluate(() => {
     const el = document.querySelector("#org-switcher");
     return el ? [...el.options].map((o) => o.textContent.trim()) : null;
   });
-  check("the switcher always names the current organization and lists both",
-    Array.isArray(switcher) && switcher.length >= 2, JSON.stringify(switcher));
+  check(
+    "the switcher always names the current organization and lists both",
+    Array.isArray(switcher) && switcher.length >= 2,
+    JSON.stringify(switcher),
+  );
 
   async function switchTo(label) {
     const applied = await page.evaluate((wanted) => {
@@ -579,20 +743,27 @@ async function main() {
 
   const switchedToB = await switchTo(orgB);
   if (switchedToB.applied !== true) {
-    check("the organization switcher can move to the second organization", false,
-      String(switchedToB.applied));
+    check(
+      "the organization switcher can move to the second organization",
+      false,
+      String(switchedToB.applied),
+    );
   } else {
     const leakedOnB = switchedToB.samples.filter((t) => t.includes(orgA));
-    check("after switching to org B no sample of the DOM ever shows org A's name",
+    check(
+      "after switching to org B no sample of the DOM ever shows org A's name",
       leakedOnB.length === 0 && switchedToB.samples.at(-1).includes(orgB),
-      `samples=${switchedToB.samples.length} leaks=${leakedOnB.length}`);
+      `samples=${switchedToB.samples.length} leaks=${leakedOnB.length}`,
+    );
     if (SHOTS) await page.screenshot(join(SHOTS, "04-org-b-after-switch.png"));
 
     const switchedToA = await switchTo(orgA);
     const leakedOnA = switchedToA.samples.filter((t) => t.includes(orgB));
-    check("switching back restores org A and org B's name is never left behind",
+    check(
+      "switching back restores org A and org B's name is never left behind",
       leakedOnA.length === 0 && switchedToA.samples.at(-1).includes(orgA),
-      `samples=${switchedToA.samples.length} leaks=${leakedOnA.length}`);
+      `samples=${switchedToA.samples.length} leaks=${leakedOnA.length}`,
+    );
   }
 
   // ---- deep link / back button --------------------------------------------
@@ -600,15 +771,21 @@ async function main() {
     const el = document.querySelector("#org-switcher");
     return el?.selectedOptions?.[0]?.textContent ?? "";
   });
-  const deepLink = await page.evaluate((organizationSlug) => {
-    window.history.pushState({}, "", `/org/${organizationSlug}/settings/data`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    return window.location.pathname;
-  }, (await page.evaluate(() => document.body.innerText.match(/([a-z0-9-]+) · active/)?.[1] ?? "x")));
+  const deepLink = await page.evaluate(
+    (organizationSlug) => {
+      window.history.pushState({}, "", `/org/${organizationSlug}/settings/data`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      return window.location.pathname;
+    },
+    await page.evaluate(() => document.body.innerText.match(/([a-z0-9-]+) · active/)?.[1] ?? "x"),
+  );
   await sleep(1400);
   const deepLinkText = await page.text();
-  check("a hand-edited deep link resolves to a real panel, not a silent Overview",
-    /Data & retention|Export history|Billing/i.test(deepLinkText), `${deepLink} (${slug})`);
+  check(
+    "a hand-edited deep link resolves to a real panel, not a silent Overview",
+    /Data & retention|Export history|Billing/i.test(deepLinkText),
+    `${deepLink} (${slug})`,
+  );
   if (SHOTS) await page.screenshot(join(SHOTS, "05-deeplink-data.png"));
 
   // ---- keyboard reachability and visible focus ----------------------------
@@ -623,12 +800,17 @@ async function main() {
       outline: `${styles.outlineStyle}/${styles.outlineWidth}`,
     };
   });
-  check("the organization switcher is keyboard focusable", focusProbe?.active === true,
-    JSON.stringify(focusProbe));
-  check("focus on the primary navigation control is visible (ring or outline)",
+  check(
+    "the organization switcher is keyboard focusable",
+    focusProbe?.active === true,
+    JSON.stringify(focusProbe),
+  );
+  check(
+    "focus on the primary navigation control is visible (ring or outline)",
     (focusProbe.boxShadow && focusProbe.boxShadow !== "none") ||
       (focusProbe.outline && !focusProbe.outline.startsWith("none")),
-    `box-shadow=${focusProbe?.boxShadow}`);
+    `box-shadow=${focusProbe?.boxShadow}`,
+  );
 
   // A roving tabindex (one tab in the sequence, the rest reached with arrow
   // keys) is the correct ARIA pattern, so `tabIndex={-1}` on an unselected tab
@@ -636,7 +818,9 @@ async function main() {
   // them, which is asserted with real key events below. Anything else with a
   // negative tabIndex is a genuine keyboard dead end.
   const focusable = await page.evaluate(() => {
-    const els = [...document.querySelectorAll("a[href],button:not([disabled]),input,select,[tabindex]")];
+    const els = [
+      ...document.querySelectorAll("a[href],button:not([disabled]),input,select,[tabindex]"),
+    ];
     const describe = (el) =>
       `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}` +
       `="${(el.textContent || "").trim().slice(0, 28)}" tabIndex=${el.tabIndex}`;
@@ -648,16 +832,19 @@ async function main() {
       tabstrips: document.querySelectorAll('[role="tablist"]').length,
     };
   });
-  check("no interactive control outside a roving tablist is removed from the tab order",
+  check(
+    "no interactive control outside a roving tablist is removed from the tab order",
     focusable.unreachable.length === 0,
-    `total=${focusable.total} roving=${focusable.roving} tabstrips=${focusable.tabstrips} unreachable=${JSON.stringify(focusable.unreachable)}`);
+    `total=${focusable.total} roving=${focusable.roving} tabstrips=${focusable.tabstrips} unreachable=${JSON.stringify(focusable.unreachable)}`,
+  );
 
   // Drive the tablist with real arrow keys: focus the selected tab, press
   // ArrowRight, and require focus to land on the next tab.
   const arrowNav = await page.evaluate(() => {
     const strip = document.querySelector('[role="tablist"]');
     if (!strip) return { error: "no tablist" };
-    const selected = strip.querySelector('[role="tab"][tabindex="0"]') ?? strip.querySelector('[role="tab"]');
+    const selected =
+      strip.querySelector('[role="tab"][tabindex="0"]') ?? strip.querySelector('[role="tab"]');
     if (!selected) return { error: "no tab" };
     selected.focus();
     const before = document.activeElement.textContent.trim();
@@ -667,8 +854,11 @@ async function main() {
     const after = document.activeElement.textContent.trim();
     return { before, after, moved: before !== after };
   });
-  check("a tablist's unselected tabs are reachable with the keyboard (arrow keys)",
-    arrowNav.moved === true, JSON.stringify(arrowNav));
+  check(
+    "a tablist's unselected tabs are reachable with the keyboard (arrow keys)",
+    arrowNav.moved === true,
+    JSON.stringify(arrowNav),
+  );
 
   // ---- narrow layout -------------------------------------------------------
   //
@@ -809,7 +999,8 @@ async function main() {
   const overflowing = Object.entries(measured).filter(
     ([, value]) => value.scrollWidth > value.clientWidth + 1,
   );
-  check("the document itself does not scroll sideways at 390px",
+  check(
+    "the document itself does not scroll sideways at 390px",
     overflowing.length === 0,
     overflowing.length
       ? overflowing
@@ -818,7 +1009,8 @@ async function main() {
               `${label}: ${value.scrollWidth}>${value.clientWidth} :: ${value.offenders[0] ?? "?"}`,
           )
           .join(" | ")
-      : "no section overflows the document");
+      : "no section overflows the document",
+  );
 
   // The containment metric is the one that catches VFY-007, and it is asserted
   // separately because it fails for a different reason: the document is fine and
@@ -826,7 +1018,8 @@ async function main() {
   const clippedInteractive = Object.entries(clipped).filter(
     ([, value]) => value.interactiveClipped.length > 0,
   );
-  check("no interactive control is clipped inside a scroll container at 390px",
+  check(
+    "no interactive control is clipped inside a scroll container at 390px",
     clippedInteractive.length === 0,
     clippedInteractive.length
       ? clippedInteractive
@@ -838,8 +1031,9 @@ async function main() {
           )
           .join(" | ")
       : `checked ${Object.values(clipped).reduce((n, v) => n + v.scrollContainers, 0)} scroll containers, ` +
-        `${Object.values(clipped).reduce((n, v) => n + v.decorativeClipped, 0)} non-interactive nodes clipped ` +
-        "(which is allowed: a long identifier may scroll)");
+          `${Object.values(clipped).reduce((n, v) => n + v.decorativeClipped, 0)} non-interactive nodes clipped ` +
+          "(which is allowed: a long identifier may scroll)",
+  );
 
   // The Members table specifically, because that is where the defect was found and
   // because "the role column is reachable on a phone" is the user-facing claim
@@ -861,7 +1055,12 @@ async function main() {
       roleControlPresent: Boolean(roleControl),
       roleControlReachable: box ? box.left >= -1 && box.right <= viewport + 1 : false,
       roleControlBox: box
-        ? { left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width), height: Math.round(box.height) }
+        ? {
+            left: Math.round(box.left),
+            right: Math.round(box.right),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          }
         : null,
       // AGENTS.md: never trade target size for visual minimalism.
       roleControlMeetsTouchTarget: box ? box.width >= 44 && box.height >= 44 : false,
@@ -876,15 +1075,21 @@ async function main() {
       /member|admin|owner|viewer/i.test(p.textContent),
     ),
   );
-  check("the Members table shows each member's role on a 390px screen",
+  check(
+    "the Members table shows each member's role on a 390px screen",
     membersNarrow.table && (roleVisible || roleFolded),
-    `headers=${JSON.stringify(membersNarrow.headers)} column=${roleVisible} folded=${roleFolded}`);
-  check("the role control is fully inside the viewport at 390px, with no scrolling to reach it",
+    `headers=${JSON.stringify(membersNarrow.headers)} column=${roleVisible} folded=${roleFolded}`,
+  );
+  check(
+    "the role control is fully inside the viewport at 390px, with no scrolling to reach it",
     membersNarrow.roleControlReachable === true,
-    JSON.stringify(membersNarrow));
-  check("the role control meets a 44x44 touch target at 390px",
+    JSON.stringify(membersNarrow),
+  );
+  check(
+    "the role control meets a 44x44 touch target at 390px",
     membersNarrow.roleControlMeetsTouchTarget === true,
-    JSON.stringify(membersNarrow));
+    JSON.stringify(membersNarrow),
+  );
   if (SHOTS) await page.screenshot(join(SHOTS, "06-narrow-390.png"));
   await page.setViewport(1440, 900);
   await sleep(400);
@@ -894,12 +1099,17 @@ async function main() {
     const response = await fetch("/api/v1/me");
     return { status: response.status, body: await response.json() };
   });
-  check("the shell's own session is the one the browser presents to /api/v1/me",
+  check(
+    "the shell's own session is the one the browser presents to /api/v1/me",
     me.status === 200 && Array.isArray(me.body.organizations) && me.body.organizations.length >= 2,
-    `orgs=${me.body?.organizations?.length}`);
+    `orgs=${me.body?.organizations?.length}`,
+  );
 
-  check("the browser console produced no errors during the journey",
-    consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
+  check(
+    "the browser console produced no errors during the journey",
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(" | "),
+  );
 
   if (SHOTS) await page.screenshot(join(SHOTS, "07-final.png"));
   await shutdown();

@@ -51,7 +51,8 @@ export function findChrome() {
 /** Why no browser could be launched, phrased so a CI log is self-explanatory. */
 export const NO_CHROME_REASON =
   "no Chrome/Chromium found. Install one, or set PROBE_CHROME to its executable. " +
-  "Tried: " + CHROME_CANDIDATES.join(", ");
+  "Tried: " +
+  CHROME_CANDIDATES.join(", ");
 
 export async function launch({ port = 9333, headless = true } = {}) {
   const profile = mkdtempSync(join(tmpdir(), "vfy-chrome-"));
@@ -155,8 +156,9 @@ export async function newPage(browser, url = "about:blank") {
       });
       if (result.exceptionDetails) {
         throw new Error(
-          `page evaluate threw: ${result.exceptionDetails.exception?.description ??
-            result.exceptionDetails.text}`,
+          `page evaluate threw: ${
+            result.exceptionDetails.exception?.description ?? result.exceptionDetails.text
+          }`,
         );
       }
       return result.result.value;
@@ -210,7 +212,10 @@ export function collectConsoleErrors(browser, page) {
     if (data.sessionId !== page.sessionId) return;
     if (data.method === "Runtime.consoleAPICalled" && data.params.type === "error") {
       errors.push(
-        data.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 300),
+        data.params.args
+          .map((a) => a.value ?? a.description ?? "")
+          .join(" ")
+          .slice(0, 300),
       );
     }
     if (data.method === "Runtime.exceptionThrown") {
