@@ -2,7 +2,7 @@
 
 ## Mission
 
-Try to falsify load-bearing security, money, and durable-state claims.
+Try to falsify load-bearing security, money, and durable-state claims. When a real defect is found, **preserve the failing evidence, fix the root cause, add regression coverage, re-run the attack, then continue the campaign**.
 
 ## Required attack families
 
@@ -98,6 +98,22 @@ Try injecting prompt, file path/content, API key, history, MCP secret, arbitrary
 
 Prove rejection at parser/API and durable schema where relevant.
 
+## Autonomous repair loop
+
+For every unexpected failure:
+
+1. preserve the exact reproducer and pre-fix evidence;
+2. reduce to the smallest failing boundary;
+3. classify root cause: implementation, contract/spec ambiguity, verifier weakness, migration/data, or environment;
+4. if it is an implementation/verifier/infrastructure defect and the intended behavior is clear, fix it now;
+5. add or strengthen a regression test/probe at the cheapest correct layer;
+6. re-run the original attack unchanged;
+7. re-run affected proof obligations and the relevant broader gate;
+8. for Tier-0/Tier-1 verifier gaps, use targeted mutation/fault injection when valuable;
+9. only then mark the claim PASS and continue.
+
+If fixing would require changing a MUST requirement/frozen contract, stop that claim and use the deliberate change process instead of editing the requirement to get green.
+
 ## Output
 
 For every attack record:
@@ -112,4 +128,4 @@ For every attack record:
 - regression gap;
 - severity.
 
-Create findings before repair. Preserve failed evidence.
+Create a finding/evidence record **before** repair, then update it with root cause, fix, regression proof, and closure evidence. Leave only genuinely unresolved items as FAIL/UNPROVEN/BLOCKED.
