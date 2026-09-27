@@ -71,8 +71,9 @@ When a phase or release is believed complete:
 3. Security, tenant isolation, authentication, data-loss, budget, and compatibility claims require hostile/runtime evidence, not only unit tests or code review.
 4. For load-bearing invariants, verify the verifier with targeted mutation or deliberate fault injection in a disposable worktree.
 5. Never weaken a verifier, spec, or frozen contract merely to make implementation pass.
-6. Keep verification and repair separable so failing evidence survives the fix.
-7. A test count is telemetry, not proof. Every critical PASS must identify the claim and evidence that demonstrates it.
+6. Verification is an autonomous repair loop: preserve failing evidence, fix clear in-scope root causes, add/strengthen regression proof, re-run the original reproducer and affected verification, then continue.
+7. Keep verification and repair logically separable so failing evidence survives the fix; they do not need to be separate agent sessions.
+8. A test count is telemetry, not proof. Every critical PASS must identify the claim and evidence that demonstrates it.
 
 Read `docs/verification/README.md` and `docs/verification/plan00-verification-system.md` before a post-implementation verification campaign.
 
