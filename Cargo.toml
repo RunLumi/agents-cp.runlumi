@@ -2,6 +2,16 @@
 members = ["apps/api"]
 resolver = "2"
 
+# VFY-001: `passkey-auth` 0.1.3 stamps WebAuthn ceremony state from
+# `std::time::SystemTime::now()`, which is `unsupported()` and panics on
+# `wasm32-unknown-unknown`. Every passkey ceremony endpoint therefore returned
+# HTTP 500 on the Worker. The vendored copy patches exactly one function (the
+# clock) and nothing else. `vendor/PATCHES.md` explains the delta and how to
+# audit it; `docs/adr/0008-vendored-passkey-auth-wasm-clock.md` records the
+# decision. Remove this block when upstream is fixed.
+[patch.crates-io]
+passkey-auth = { path = "vendor/passkey-auth" }
+
 [profile.release]
 codegen-units = 1
 lto = true
