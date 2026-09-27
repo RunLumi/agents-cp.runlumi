@@ -120,17 +120,35 @@ retries, and the join between them is a reconcile that does not exist yet.
 
 ## Verification
 
-### The budget-denial ORDERING is unproven
+### The budget ordering is proven structurally, not at runtime
 
-"Hard budget denial occurs before any upstream inference dispatch" is VI-BUD-001, and
-only half of it is proven. That a hard denial is **enforced at all** is proven by
-mutation — disabling it is killed with `left: Allow, right: Deny`. That it happens
-**before** dispatch is **UNPROVEN**: the mutation the contract asks for is to move the
-decision after dispatch, and a string-replace harness cannot move a call site
-honestly. A mutation that reshuffles code and then fails to compile proves nothing,
-and inventing a subtler one would have been a better-looking lie than an honest gap.
+This was recorded as PARTIAL and is now narrower than that. The contract's mutation —
+move the budget decision after dispatch — is a **compile error** on this code, because
+the dispatch metadata consumes `budget_decision_value`, a binding the budget match
+produces. The ordering is a data coupling, not a convention, and the verifier that
+fails is rustc.
 
-The ordering is readable in `routes/inference.rs`, and a reviewer should read it.
+What the compiler cannot catch is **neutering the scrutinee**:
+`match budget_admission.decision` → `match P05BudgetDecision::Allow` has the same type
+and compiles, so every decision takes the Allow arm and a denied request is dispatched.
+That is covered by a structural gate in `p09_failure_tests` and by a campaign case
+that applies exactly that mutation.
+
+**The residual, stated plainly:** the gate is V1 — source text. A future rewrite that
+stopped carrying the decision through the dispatch metadata would reintroduce the gap,
+and the compiler would not object, because the coupling it relies on is the thing that
+would be gone. Four assertions guard it (one dispatch site, the order, both
+non-admitting arms diverging *and* recording, and the metadata still carrying the
+decision), and each names its own failure.
+
+**To close it properly**, either:
+
+- a D1-backed route test with a mock endpoint that fails if it is ever called after a
+  denial — the same BLOCKED row as the browser pass and the staging deploy; or
+- a **permit type**: have the budget decision produce a value that `dispatch` cannot be
+  called without, so the coupling is in the signature rather than in a struct field
+  someone can stop filling in. That is a real improvement and a change to a money path,
+  so it is a follow-up rather than something to do inside a verification PR.
 
 ### Three Tier-0 invariants have assertions but no adversarial test
 

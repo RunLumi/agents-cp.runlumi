@@ -215,7 +215,7 @@ git worktree add /tmp/p09-verify HEAD      # it refuses to run in a main checkou
 cd /tmp/p09-verify && node apps/api/scripts/p09-mutation-campaign.mjs --apply
 ```
 
-**8/8 killed, each for a reason a reader can see.** The script is deliberately not
+**9/9 killed, each for a reason a reader can see.** The script is deliberately not
 in `pnpm test`: it rebuilds the crate per case and mutates code on purpose.
 
 ### What it found
@@ -225,6 +225,8 @@ in `pnpm test`: it rebuilds the crate per case and mutates code on purpose.
 | 1 | VI-IDEM-001 **survived** | `grep -c idempotency` on the storage harness returned **0**. The retry-safety substrate had no database-level proof, while the gate claimed 97 invariants. |
 | 2 | writing the missing probes | A `completed` idempotency record could exist with **no response at all**: `BETWEEN` on a NULL column is NULL, `0 OR NULL` is NULL, and a SQLite `CHECK` fails only on a definite false. Migration `0020` closes it. |
 | 3 | VI-MIG-001 **survived** | **18 of the 125 storage invariants were false passes.** Their setup re-inserted a row the seed already held, so the case reported "rejected" before reaching the statement it named. The runner now checks the setup and fails loudly. |
+| 3b | auditing the fix for the *other* case shape | `query`-shaped cases had **zero** setup validation and fail **open**: `check` runs per row, so a query matching nothing never calls it and the case reports "holds" vacuously. Now a `query` case fails on zero rows unless it declares `expectsNoRows`. |
+| 3c | VI-BUD-001 as PARTIAL | The honest gap was smaller than recorded: the contract's own mutation is a **compile error**, because the dispatch consumes the decision's binding. Only the neutered scrutinee needed a gate. |
 | 4 | reading each verdict | Three campaign cases were killing for the wrong reason — a string arm, an unreachable branch, and two expectations naming symbols that never appear in the failure. |
 
 Items 1–3 are defects in the *verification*, which is worse than a defect in the
@@ -243,15 +245,17 @@ for the wrong reason is worse than no gate.
 | VI-MIG-001 invariant-bearing constraints | **PASS** | a terminal-state trigger's `WHEN` neutralised → killed by the storage harness |
 | VI-AUTH-001 ceremony replay | **UNPROVEN** | no mutation case; the P02 suite asserts consumption but was not adversarially tested at V4 |
 | VI-AUTH-002 revocation mid-request | **UNPROVEN** | failure-injection covers revocation, but not by mutation |
-| VI-BUD-001 denial before dispatch | **PARTIAL** | "a hard denial is enforced at all" is **PASS** (killed). The contract's actual mutation — *moving the decision after dispatch* — is **UNPROVEN**: a string-replace harness cannot move a call site honestly, and a mutation that reshuffles code then fails to compile proves nothing. |
+| VI-BUD-001 denial before dispatch | **PASS (V1 structural + V2 decision); runtime confirmation BLOCKED on D1** | Decision correctness killed by mutation. The contract's own mutation — *move the decision after dispatch* — is a **compile error**, because the dispatch metadata consumes `budget_decision_value`, a binding the match produces. So the ordering is a coupling, not a convention, and rustc is the verifier. What rustc cannot catch is neutering the scrutinee (`match P05BudgetDecision::Allow` has the same type), so a structural gate in `p09_failure_tests` asserts it, and a ninth campaign case applies exactly that mutation. Residual named in `known-limitations.md`. |
 | VI-MIG-002 local-only adoption | **BLOCKED** | `external_proof_required: true`; needs a real LumiAgents host |
 | VI-CON-002 released client compatibility | **BLOCKED** | `external_proof_required: true` |
 | VI-UX-001 / VI-UX-002 / VI-OBS-001 | **BLOCKED** | need a browser and a deployed environment |
 
-**Three PASS, one PARTIAL, three UNPROVEN, five BLOCKED.** The UNPROVEN and BLOCKED
-rows are the honest shape of this phase: the mechanical gates are strong, and the
-claims that need a browser, a deployed environment, or a second repository are not
-something more testing in this repository can establish.
+**Four PASS, three UNPROVEN, five BLOCKED**, with VI-BUD-001 passing at V1+V2 and its
+runtime half explicitly blocked rather than folded into the pass.
+
+The UNPROVEN and BLOCKED rows are the honest shape of this phase: the mechanical gates
+are strong, and the claims that need a browser, a deployed environment, or a second
+repository are not something more testing in this repository can establish.
 
 ### The lesson, stated once
 
