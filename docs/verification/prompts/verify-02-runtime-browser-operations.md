@@ -2,7 +2,7 @@
 
 ## Mission
 
-Prove the built system across boundaries users/operators actually depend on, not only inside modules.
+Prove the built system across boundaries users/operators actually depend on, not only inside modules. Broken runtime/browser flows are not merely reported: **capture the failure, fix the root cause, add regression evidence, re-run the same real flow, then keep verifying**.
 
 ## Worker runtime
 
@@ -91,8 +91,22 @@ Measure against repository budgets:
 - inference TTFT/total with deterministic stub;
 - main-thread long tasks on critical browser flow.
 
+## Runtime repair loop
+
+When a runtime/browser/operations check fails unexpectedly:
+
+1. preserve the request/trace/screenshot/log and exact environment;
+2. reproduce at the narrowest real boundary without mocking away the failure;
+3. fix the smallest coherent root cause;
+4. add a regression check at the appropriate layer;
+5. re-run the exact failed runtime/browser scenario;
+6. re-run nearby failure-injection and observability checks;
+7. continue the remaining verification campaign.
+
+Do not downgrade a real-browser requirement to static markup or replace a Worker/D1 failure with a pure-unit mock just to obtain green.
+
 ## Output
 
-Record commands, environment/runtime/browser versions, request IDs, screenshots/traces where useful, injected failures, measured budgets, and verdict per claim.
+Record commands, environment/runtime/browser versions, request IDs, screenshots/traces where useful, injected failures, measured budgets, **pre-fix and post-fix evidence for repaired defects**, and verdict per claim.
 
 No browser/runtime available => affected claims are **UNPROVEN**, not static-markup PASS.
