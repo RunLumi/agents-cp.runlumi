@@ -3,7 +3,7 @@
 Generated from `apps/api/migrations/`. `security::release_docs` asserts this file
 names every migration in apply order, so it cannot fall behind the schema.
 
-**19 migrations · 111 tables · 200 indexes · 69 triggers.**
+**20 migrations · 111 tables · 200 indexes · 73 triggers.**
 
 ## Why the trigger count is the headline
 
@@ -11,7 +11,7 @@ An invariant enforced only in application code is one code path away from being
 bypassed by a migration, a script, a console session, or a future packet. A trigger
 is the only thing that still holds when nobody remembers the Rust.
 
-That is what the 69 triggers are for, and why the schema harness
+That is what the 73 triggers are for, and why the schema harness
 (`apps/api/scripts/p07-schema-invariants.mjs`) asserts each one is **rejected by
 the database** rather than by a code path. The shape of those invariants:
 
@@ -29,18 +29,68 @@ the database** rather than by a code path. The shape of those invariants:
   place. A version is immutable once published, which is what makes the permission
   diff mean anything.
 - A `pending_review` or `blocked` install must carry a reason.
+- A completed idempotency record must carry a 2xx status, and a pending one must
+  carry a claim token and no result.
+
+## Migration 0020: a CHECK that could not say what it meant
+
+`0001` declares the idempotency record's state as a CHECK:
+
+```sql
+CHECK (
+    (state = 'pending'    AND response_status IS NULL AND ...)
+ OR (state = 'completed' AND response_status BETWEEN 200 AND 299 AND ...)
+)
+```
+
+The intent is "a completed record has a result". The SQL does not deliver it. With
+`response_status` NULL, `BETWEEN 200 AND 299` evaluates to **NULL**, not false; the
+`pending` arm is false, so the OR is `0 OR NULL` = NULL; and **a SQLite CHECK
+constraint fails only on a definite false — it passes on NULL.** So this row was
+accepted:
+
+```sql
+INSERT INTO idempotency_records (..., state, response_status, response_body)
+VALUES (..., 'completed', NULL, '{}');
+```
+
+Probed directly rather than inferred: status 200 accepted, status 500 rejected,
+status **NULL accepted**. The record claims a request completed and carries no
+result, in the table that makes every mutating route safe to retry. A retrying
+client is served a NULL status, and the idempotency layer reports a settled request
+that settled to nothing.
+
+This was found by the P09 verification campaign, not by reading. The campaign's
+VI-IDEM-001 mutation removed a column from the idempotency upsert's `ON CONFLICT`
+clause and **all 97 storage invariants still passed** — because
+`grep -c idempotency` on the harness returned `0`. The substrate had no
+database-level proof at all. Writing those probes found the NULL hole on the second
+case, which is the ordinary shape of this: a coverage gap hides the bug behind it.
+
+**A trigger, not a rebuilt table.** SQLite cannot `ALTER` a CHECK constraint, so
+closing this in the table means create-copy-drop-rename — the first migration in
+this repository to alter a table created by an earlier phase, and the rollback
+argument below depends on no migration doing that. Trading a load-bearing property
+for one NULL-safety gap would be a bad trade. A trigger is NULL-safe when written
+with explicit `IS NULL` tests, and additive, so old and new Workers stay compatible
+in both directions.
+
+The `pending` arm is closed by the same migration, even though the table's CHECK
+already got it right, so that a future edit to the CHECK cannot quietly open the
+other half.
 
 ## Rollback is forward-only, and the schema is why
 
 No migration from P02 onward alters a table created by an earlier phase; they
 create new ones. Rolling back a release therefore means rolling back the
 **Worker**, not the database. `0016`–`0019` add only new tables, so dropping them
-is safe and no pre-P07 data is at risk.
+is safe and no pre-P07 data is at risk, and `0020` adds only triggers, so dropping
+them is safe too and re-opening the NULL hole is the only consequence.
 
 The consequence worth stating rather than hiding: a rollback leaves the newer
-tables in place, harmless and unread, until a forward migration or a manual drop.
-That is the correct trade. A down-migration that drops a column a still-running
-older Worker reads is far worse than an orphan table.
+tables and triggers in place, harmless and unread, until a forward migration or a
+manual drop. That is the correct trade. A down-migration that drops a column a
+still-running older Worker reads is far worse than an orphan table.
 
 ## The tenant column has two spellings
 
@@ -56,7 +106,7 @@ explicitly so the gap cannot reopen unnoticed.
 
 | Migration | Tables | Indexes | Triggers | What it adds |
 |---|---|---|---|---|
-| `0001_p01_foundation.sql` | 2 | 2 | 0 | Outbox and idempotency substrate. Both use `organization_id` — the spelling the rest of the schema did not follow, which is why the tenant audit knows both. |
+| `0001_p01_foundation.sql` | 2 | 2 | 0 | Outbox and idempotency substrate. Both use `organization_id` — the spelling the rest of the schema did not follow, which is why the tenant audit knows both. **Its `completed`-state CHECK had a NULL hole; `0020` closes it.** |
 | `0002_p02_identity_organizations.sql` | 12 | 20 | 2 | Identity, organizations, memberships, invitations, teams, projects, access grants. The authorization substrate everything else authorizes against. |
 | `0003_p02_auth_rate_limits.sql` | 1 | 1 | 0 | Auth rate limiting. |
 | `0004_p02_identity_link_challenges.sql` | 1 | 2 | 0 | Email link challenges. |
@@ -75,3 +125,4 @@ explicitly so the gap cannot reopen unnoticed.
 | `0017_p07_plugin_governance.sql` | 7 | 10 | 14 | Plugin governance: publishers, packages, versions, policies, installs, tool registrations, quarantines. **14 triggers.** |
 | `0018_p07_platform_operations.sql` | 4 | 8 | 14 | Platform operations: staff principals, support grants, feature flags, kill switches. **14 triggers.** `organization_id` here is the CUSTOMER a staff principal acts on, not a caller scope. |
 | `0019_p08_migration_adoption.sql` | 4 | 10 | 3 | Migration adoption: workspace adoption state, stage events, remediation, and the published client-compatibility policy. `client_compatibility_policy` is the only class whose owner scope is Platform and whose sensitivity is Public. |
+| `0020_p09_idempotency_null_safety.sql` | 0 | 0 | 4 | **P09. No new tables** — four triggers that close a NULL hole in `0001`'s idempotency CHECK. See below; this is the only migration in the repository that adds constraints to an existing table rather than creating a new one. |

@@ -195,6 +195,453 @@ try {
      VALUES ('${sid}', '${klass}', '${ref}', '${scope}', ${orgId ?? "NULL"}, 'incident 42',
        '${STAFF}', '${NOW}', ${expiresAt ?? "NULL"}, ${state ?? "'engaged'"}, 1, '${NOW}', '${NOW}')`;
 
+  // ===================== 0001 — idempotency and outbox =====================
+  //
+  // These were MISSING until the P09 verification campaign (VI-IDEM-001) mutated
+  // the `ON CONFLICT` clause of the idempotency upsert and all 97 invariants still
+  // passed. `grep -c idempotency` on the harness returned 0: the entire retry-safety
+  // substrate — the thing that makes every mutating route safe to retry — had no
+  // database-level proof at all, while the harness's own header claimed 33
+  // invariants "from 0016" and the release schema map listed 0001 as covered.
+  //
+  // A verifier that cannot see the most load-bearing table in the system is not
+  // coverage. These cases are the ones that matter most precisely because they were
+  // absent.
+  const idem = (
+    principal,
+    org,
+    method,
+    path,
+    digest,
+    fingerprint,
+    state,
+    status,
+    body,
+    claim,
+    expiresAt,
+  ) =>
+    `INSERT INTO idempotency_records (principal_id, organization_id, method, path, key_digest,
+       request_fingerprint, state, response_status, response_body, expires_at, claim_token)
+     VALUES ('${principal}', '${org}', '${method}', '${path}', '${digest}', '${fingerprint}',
+       '${state}', ${status}, ${body}, ${expiresAt ?? `'${FUTURE}'`}, ${claim})`;
+  const CLAIM = `'claim-0123456789abcdef'`;
+  const IDEM = {
+    principal: "usr_0123456789abcdef0123456789abcdef",
+    path: "/api/v1/orgs/org_0123456789abcdef0123456789abcdef/things",
+    digest: "sha256:key0123456789abcdef",
+  };
+
+  // Without a control that MUST succeed, every "rejected" below would be
+  // indistinguishable from a broken fixture.
+  expect(
+    "control: a pending idempotency claim is accepted",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req1",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+  expect(
+    "control: a completed idempotency record is accepted",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG,
+      "PUT",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req2",
+      "completed",
+      "200",
+      "'{}'",
+      "NULL",
+    ),
+  );
+
+  // The one that matters: the same key twice is ONE record. This is the entire
+  // mechanism by which a retried mutation does not apply twice.
+  //
+  // BOTH inserts are in this one case, and they have to be. Every case runs inside
+  // a rolled-back SAVEPOINT, so a lone insert is always the FIRST one and the
+  // uniqueness constraint never fires. The first version of this case asserted a
+  // single insert and passed for the wrong reason, which is failure mode 1 wearing
+  // a new hat.
+  expect("a duplicate idempotency key is refused", "rejected", [
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req3",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req3",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  ]);
+  // ...and the uniqueness is scoped, so two orgs and two principals can each hold
+  // the same key. A UNIQUE that was one column too narrow would refuse a legitimate
+  // concurrent request, which is a different and quieter failure.
+  expect(
+    "the same key for another organization is a different record",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG_OTHER,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req4",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+  expect(
+    "the same key for another principal is a different record",
+    "accepted",
+    idem(
+      "usr_ffffffffffffffffffffffffffffffff",
+      ORG,
+      "POST",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req5",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+  expect(
+    "the same key on another method is a different record",
+    "accepted",
+    idem(
+      IDEM.principal,
+      ORG,
+      "DELETE",
+      IDEM.path,
+      IDEM.digest,
+      "sha256:req6",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+
+  // State and its payload are one invariant. A `pending` row carrying a response,
+  // or a `completed` row with no status, is a claim that lies about what happened.
+  // Each of these is an UPDATE, so the row has to exist in the SAME case. A
+  // statement against a row a previous case rolled back touches nothing, reports
+  // "accepted", and proves nothing — which is exactly what the first version of
+  // these cases did.
+  const seedPending = (n) =>
+    idem(
+      IDEM.principal,
+      ORG,
+      "HEAD",
+      IDEM.path,
+      `sha256:head${n}`,
+      "sha256:reqh",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    );
+  for (const [label, statement] of [
+    [
+      "a pending record carrying a response status is refused",
+      "UPDATE idempotency_records SET response_status = 200 WHERE principal_id = '%s' AND method = 'HEAD' AND state = 'pending'",
+    ],
+    [
+      "a pending record carrying a response body is refused",
+      "UPDATE idempotency_records SET response_body = '{}' WHERE principal_id = '%s' AND method = 'HEAD' AND state = 'pending'",
+    ],
+    [
+      "a pending record with no claim token is refused",
+      "UPDATE idempotency_records SET claim_token = NULL WHERE principal_id = '%s' AND method = 'HEAD' AND state = 'pending'",
+    ],
+  ]) {
+    expect(label, "rejected", [seedPending(1), statement.replace("%s", IDEM.principal)]);
+  }
+  // The one that the table's own CHECK could NOT say, and the reason migration
+  // 0020 exists. Before 0020 this row was ACCEPTED: `response_status BETWEEN 200 AND
+  // 299` on a NULL column is NULL, the branch OR is `0 OR NULL` = NULL, and a
+  // SQLite CHECK fails only on a definite false. Probed, not inferred: status 200
+  // accepted, status 500 rejected, status NULL accepted.
+  expect(
+    "a completed record with NO status is refused (migration 0020: a CHECK cannot express this)",
+    "rejected",
+    idem(
+      IDEM.principal,
+      ORG,
+      "PATCH",
+      IDEM.path,
+      "sha256:reqnull",
+      "sha256:reqn",
+      "completed",
+      "NULL",
+      "'{}'",
+      "NULL",
+    ),
+  );
+  // ...and the mirror, which the pending branch could say but which is now guarded
+  // explicitly so a future edit to the CHECK cannot open the other half.
+  expect(
+    "a pending record with no claim token is refused on INSERT (migration 0020)",
+    "rejected",
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      "sha256:reqnoc",
+      "sha256:reqnc",
+      "pending",
+      "NULL",
+      "NULL",
+      "NULL",
+    ),
+  );
+
+  for (const [label, state, status, body, claim] of [
+    ["a completed record with no status is refused", "completed", "NULL", "'{}'", "NULL"],
+    ["a completed record with a non-2xx status is refused", "completed", "500", "'{}'", "NULL"],
+    [
+      "a completed record with a non-JSON body is refused",
+      "completed",
+      "200",
+      "'not json'",
+      "NULL",
+    ],
+    [
+      "a completed record still holding its claim token is refused",
+      "completed",
+      "200",
+      "'{}'",
+      CLAIM,
+    ],
+    ["an unknown state is refused", "in_progress", "NULL", "NULL", CLAIM],
+    ["a lower-case method is refused", "pending", "NULL", "NULL", CLAIM],
+  ]) {
+    expect(
+      label,
+      "rejected",
+      idem(
+        IDEM.principal,
+        ORG,
+        label === "a lower-case method is refused" ? "post" : "PATCH",
+        IDEM.path,
+        "sha256:reqbad",
+        "sha256:reqb",
+        state,
+        status,
+        body,
+        claim,
+      ),
+    );
+  }
+  for (const [label, pathValue] of [["a relative path is refused", "api/v1/things"]]) {
+    expect(
+      label,
+      "rejected",
+      idem(
+        IDEM.principal,
+        ORG,
+        "POST",
+        pathValue,
+        "sha256:reqpath",
+        "sha256:reqp",
+        "pending",
+        "NULL",
+        "NULL",
+        CLAIM,
+      ),
+    );
+  }
+  expect(
+    "a malformed expiry is refused",
+    "rejected",
+    idem(
+      IDEM.principal,
+      ORG,
+      "POST",
+      IDEM.path,
+      "sha256:reqexp",
+      "sha256:reqe",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+      "'2026-10-26'",
+    ),
+  );
+  expect(
+    "an empty principal is refused",
+    "rejected",
+    idem(
+      "",
+      ORG,
+      "POST",
+      IDEM.path,
+      "sha256:reqprin",
+      "sha256:reqpr",
+      "pending",
+      "NULL",
+      "NULL",
+      CLAIM,
+    ),
+  );
+
+  // The outbox. An event is delivered at-least-once, so the event id is the
+  // dedupe key and it must be the SAME id inside the envelope as outside it —
+  // otherwise a consumer reading the envelope and a dispatcher reading the column
+  // disagree about which event this is.
+  // `outbox_events` has no created_at/updated_at. It has queued_at/delivered_at,
+  // which are the interesting ones anyway: queued_at is when the dispatcher handed
+  // the event to the queue, and delivered_at is when the queue confirmed it. The
+  // first version of this helper invented two columns, which is failure mode 1
+  // again \u2014 a typo that reports "the database rejected a well-formed row" and
+  // sends you hunting for a schema bug that does not exist.
+  const outbox = (eventId, type, org, envelope, status, attempts, occurredAt = NOW) =>
+    `INSERT INTO outbox_events (event_id, event_type, occurred_at, request_id, correlation_id,
+       organization_id, envelope_json, delivery_status, attempt_count, next_attempt_at)
+     VALUES ('${eventId}', '${type}', '${occurredAt}', 'req_0123456789abcdef0123456789abcdef',
+       'trace-1', '${org}', ${envelope}, '${status}', ${attempts}, '${NOW}')`;
+  // Returns a QUOTED SQL literal, so the template above must not quote it again.
+  const envelopeFor = (eventId, type) => `'{"event_id":"${eventId}","event_type":"${type}"}'`;
+
+  expect(
+    "control: a well-formed pending outbox event is accepted",
+    "accepted",
+    outbox(
+      "evt_0123456789abcdef0123456789abcdef",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.created"),
+      "pending",
+      0,
+    ),
+  );
+  // Both inserts in ONE case. Every case runs in a rolled-back SAVEPOINT, so a lone
+  // insert is always the first and the PRIMARY KEY never fires. The same trap
+  // caught the idempotency duplicate above.
+  expect("a duplicate event id is refused", "rejected", [
+    outbox(
+      "evt_0123456789abcdef0123456789abcdef",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.created"),
+      "pending",
+      0,
+    ),
+    outbox(
+      "evt_0123456789abcdef0123456789abcdef",
+      "thing.deleted",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.deleted"),
+      "pending",
+      0,
+    ),
+  ]);
+  // The two that make the envelope and the row one fact rather than two.
+  expect(
+    "an envelope naming a DIFFERENT event id than its row is refused",
+    "rejected",
+    outbox(
+      "evt_ffffffffffffffffffffffffffffffff",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_0123456789abcdef0123456789abcdef", "thing.created"),
+      "pending",
+      0,
+    ),
+  );
+  expect(
+    "an envelope naming a DIFFERENT event type than its row is refused",
+    "rejected",
+    outbox(
+      "evt_fffffffffffffffffffffffffffffffe",
+      "thing.created",
+      ORG,
+      envelopeFor("evt_fffffffffffffffffffffffffffffffe", "thing.deleted"),
+      "pending",
+      0,
+    ),
+  );
+  for (const [label, sql] of [
+    [
+      "a non-JSON envelope is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffd",
+        "thing.created",
+        ORG,
+        "'not json'",
+        "pending",
+        0,
+      ),
+    ],
+    [
+      "an unknown delivery status is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffc",
+        "thing.created",
+        ORG,
+        envelopeFor("evt_fffffffffffffffffffffffffffffffc", "thing.created"),
+        "in_flight",
+        0,
+      ),
+    ],
+    [
+      "a negative attempt count is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffb",
+        "thing.created",
+        ORG,
+        envelopeFor("evt_fffffffffffffffffffffffffffffffb", "thing.created"),
+        "pending",
+        -1,
+      ),
+    ],
+    [
+      "a malformed occurred_at is refused",
+      outbox(
+        "evt_fffffffffffffffffffffffffffffffa",
+        "thing.created",
+        ORG,
+        envelopeFor("evt_fffffffffffffffffffffffffffffffa", "thing.created"),
+        "pending",
+        0,
+        "2026-09-26",
+      ),
+    ],
+  ]) {
+    expect(label, "rejected", sql);
+  }
+
   // ============================ 0016 — machine identity ====================
 
   // Without a case that MUST succeed, every "rejected" below would be
