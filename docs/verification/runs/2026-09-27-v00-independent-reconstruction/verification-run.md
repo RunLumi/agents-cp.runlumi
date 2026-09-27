@@ -24,28 +24,51 @@ so neither can be mistaken for the other:
 | | Commit | What it means |
 |---|---|---|
 | Reconstruction | `ecbdac1` | the state the reconstruction judged. Every "before" figure in this record belongs to it |
-| Repair | `ece860b` | the state the post-repair verdicts were re-derived from |
+| Repair | `ece860b` | the state the five product-repair verdicts were re-derived from |
+| Repair, guard recognition | `70ff568` | the state the guard-probe and mutation-campaign verdicts were re-derived from |
 
-`ece860b` is named rather than the branch tip deliberately: a record cannot name the commit that
-contains itself, because writing that name creates a newer commit. `ece860b` contains every
-repair, every new gate, and this record, and the commits after it touch documentation only — so
-re-running any gate at `ece860b` and at the branch tip produces the same numbers. A commit
-reference that has gone stale is worse than none, because it looks like provenance.
+A commit is named rather than the branch tip deliberately: a record cannot name the commit that
+contains itself, because writing that name creates a newer commit. The two repair commits exist
+because the campaign's own reconstruction produced more than one round of obligations. `70ff568` adds
+`GUARD-2`, which closes the one repair deliverable `ece860b` had left open — VFY-004 asked for "a
+D1-boundary regression probe **plus a mutation case**", and the probe existed while the case did
+not. So the verdict set has two homes: the five product repairs at `ece860b`, and the guard
+recognition and campaign verdicts at `70ff568`. A commit reference that has gone stale is worse than
+none, because it looks like provenance.
 
-The repair is ten cohesive commits, one finding per commit where a finding needed more than one
-change, in the order the record's own `next-verification-actions.md` prescribed:
+The repair is 22 cohesive commits, one finding per commit where a finding needed more than one
+change, in the order the record's own `next-verification-actions.md` prescribed. The first ten are
+the product repairs and the gates they needed:
 
 ```
-55cc41f  fix(api)  passkey ceremony works on the Worker runtime      (VFY-001)
-f996c3e  test(api) delete the orphaned P02 fixtures                  (VFY-006)
-3807943  test(api) make the committed-literal scan hermetic          (VFY-005)
-f1e714a  test(api) gate the passkey ceremony on a real Worker        (VFY-001)
-1aad908  fix(api)  recognise a guard sentinel's abort again          (VFY-004)
-00dd0d9  test(api) gate the guard sentinel's abort text              (VFY-004)
-c2f81c3  fix(web)  let a new user finish onboarding                  (VFY-002)
-0dfcfc3  fix(web)  second organization + narrow layout               (VFY-003, VFY-007)
-0e90546  test(web) promote the real-browser journey to a gate        (VFY-001/002/003/007)
-d2917a3  test(api) complete the required mutation set, fix reporting (VFY-005, VI-TEST-001)
+55cc41f  fix(api)  make the passkey ceremony work on the Worker runtime      (VFY-001)
+f996c3e  test(api) delete the orphaned P02 fixtures                            (VFY-006)
+3807943  test(api) make the committed-literal scan hermetic                   (VFY-005)
+f1e714a  test(api) gate the passkey ceremony on a real Worker                 (VFY-001)
+1aad908  fix(api)  recognise a guard sentinel's abort again                   (VFY-004)
+00dd0d9  test(api) gate the guard sentinel's abort text                       (VFY-004)
+c2f81c3  fix(web)  let a new user finish onboarding                           (VFY-002)
+0dfcfc3  fix(web)  make the second organization and the narrow layout reachable (VFY-003, VFY-007)
+0e90546  test(web) promote the real-browser journey to a gated artifact      (VFY-001/002/003/007)
+d2917a3  test(api) complete the required mutation set, fix the reporting     (VI-TEST-001)
+```
+
+The rest are the repairs to the verifiers themselves, which running them turned up — and which are
+repairs in their own right, not documentation:
+
+```
+ece860b  docs(verification) close the V00 campaign against the repair tip
+9ecb79b  docs(verification) point the post-repair commit references at ece860b
+7dbc42d  docs(verification) explain why the record names ece860b and not the tip
+557593f  docs(verification) name the surviving UNPROVEN claims and where each gap lives
+fbc730e  test(web)  prove the browser gate can fail, and fix the three ways it could not
+55aecce  docs(verification) record the VFY-001 reproducer's final run, and its wrong expectation
+3a47f1e  ci:        make the real-browser gate's step able to fail, and prove it runs
+25827f0  docs(verification) re-measure the passkey sensitivity, and record that it was fine
+9c9193c  test(api)  cover the two passkey cases the probe was missing
+2079581  docs(verification) re-measure against the 55-check probe and correct the figures
+40e6b1d  fix(api)   stop the mutation campaign mistaking a full disk for a bad mutant
+70ff568  test(api)  add VFY-004's mutation case, and the probe check it exposed missing
 ```
 
 ```bash
