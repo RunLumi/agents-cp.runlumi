@@ -118,6 +118,35 @@ prove Cloudflare delivers to the branch.
 See above. A single sweep owns the durable state; the queue owns the transport
 retries, and the join between them is a reconcile that does not exist yet.
 
+## Verification
+
+### The budget-denial ORDERING is unproven
+
+"Hard budget denial occurs before any upstream inference dispatch" is VI-BUD-001, and
+only half of it is proven. That a hard denial is **enforced at all** is proven by
+mutation — disabling it is killed with `left: Allow, right: Deny`. That it happens
+**before** dispatch is **UNPROVEN**: the mutation the contract asks for is to move the
+decision after dispatch, and a string-replace harness cannot move a call site
+honestly. A mutation that reshuffles code and then fails to compile proves nothing,
+and inventing a subtler one would have been a better-looking lie than an honest gap.
+
+The ordering is readable in `routes/inference.rs`, and a reviewer should read it.
+
+### Three Tier-0 invariants have assertions but no adversarial test
+
+VI-AUTH-001 (ceremony replay) and VI-AUTH-002 (revocation mid-request) have test
+coverage and no mutation case. VI-UX-001/002 and VI-OBS-001 are BLOCKED on a browser
+and a deployed environment.
+
+### The static null-check scan is V1, not V3
+
+`p09-null-check-scan.mjs` finds the *shape* of the SQLite NULL-passes-`CHECK` hole by
+reading DDL. It is how the class was sized — 108 tables, 166 `BETWEEN`-bearing `CHECK`
+blocks, one candidate — and the per-case probes in `p07-schema-invariants.mjs` are
+what prove a fix. It also needed three corrections to stop crying wolf, and its
+`--ignore-adjudications` flag exists so the proof step is a supported operation rather
+than a hand-edit.
+
 ## Performance
 
 **No field metrics were measured.** LCP, INP, CLS, Worker p50/p95, D1 query count
