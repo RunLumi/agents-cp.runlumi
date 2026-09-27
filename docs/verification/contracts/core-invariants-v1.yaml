@@ -1,0 +1,128 @@
+version: 1
+name: lumi-agents-control-plane-core-verification-invariants
+status: authoritative-minimum
+
+verdicts:
+  - PASS
+  - FAIL
+  - UNPROVEN
+  - BLOCKED
+  - NOT_APPLICABLE
+
+invariants:
+  - id: VI-TEN-001
+    tier: 0
+    claim: A principal in one organization cannot access or mutate another organization's tenant-owned resource by substituting identifiers.
+    minimum_proof: [V3, V4]
+    attacks: [foreign_resource_id, foreign_project_id, foreign_credential_id, foreign_device_id, stale_org_context]
+    mutation: Remove one representative org/ownership predicate and require the cross-tenant verifier to fail.
+
+  - id: VI-AUTH-001
+    tier: 0
+    claim: Authentication ceremonies are short-lived, kind-bound, origin/RP-bound where applicable, and cannot be replayed after consumption.
+    minimum_proof: [V3, V4]
+    attacks: [expired_challenge, consumed_challenge, wrong_ceremony_kind, wrong_origin, wrong_rp_id]
+    mutation: Accept a consumed ceremony and require replay verification to fail.
+
+  - id: VI-AUTH-002
+    tier: 0
+    claim: Revoked sessions, devices, and authenticators cannot continue refreshing or authenticating.
+    minimum_proof: [V3, V4]
+
+  - id: VI-AUTHZ-001
+    tier: 0
+    claim: Authorization, membership, entitlement, and policy authority is server-side and cannot be elevated by client fields.
+    minimum_proof: [V3, V4]
+    mutation: Turn one explicit denial into allow and require focused authorization verification to fail.
+
+  - id: VI-SEC-001
+    tier: 0
+    claim: Provider credentials, session tokens, authorization headers, recovery secrets, and protected secrets are absent from normal API responses, logs, audit metadata, and snapshots.
+    minimum_proof: [V3, V4]
+
+  - id: VI-BUD-001
+    tier: 0
+    claim: Hard budget denial occurs before any upstream inference dispatch.
+    minimum_proof: [V3, V4]
+    mutation: Move the budget decision after dispatch and require upstream-dispatch verification to fail.
+
+  - id: VI-BUD-002
+    tier: 1
+    claim: Concurrent reservations and reconciliation do not permit obvious duplicate charging or unbounded overspend of the same budget.
+    minimum_proof: [V2, V3, V4]
+
+  - id: VI-INF-001
+    tier: 0
+    claim: Inference retry/fallback does not occur after meaningful streamed output is committed unless an explicit resumable protocol permits it.
+    minimum_proof: [V3, V4]
+    mutation: Allow fallback after first content event and require stream-safety verification to fail.
+
+  - id: VI-INF-002
+    tier: 1
+    claim: Published route versions are immutable and rollback selects a prior version without requiring a client redeploy.
+    minimum_proof: [V2, V3]
+
+  - id: VI-IDEM-001
+    tier: 1
+    claim: Retryable mutations, webhook/outbox delivery, and automation execution do not duplicate committed business side effects on retry.
+    minimum_proof: [V2, V3, V4]
+    mutation: Bypass a representative dedupe/idempotency guard and require duplicate-side-effect verification to fail.
+
+  - id: VI-DATA-001
+    tier: 0
+    claim: Export, deletion, retention, and support-access operations preserve tenant authorization and every declared data class has explicit behavior.
+    minimum_proof: [V3, V4]
+
+  - id: VI-MIG-001
+    tier: 1
+    claim: The database migrates from empty and representative previous states without silently weakening invariant-bearing constraints.
+    minimum_proof: [V3, V4]
+    mutation: Remove a representative constraint/trigger and require a direct invalid-write probe to fail.
+
+  - id: VI-MIG-002
+    tier: 0
+    claim: Local-only Lumi Agents remains possible without control-plane sign-in, and adoption/unbind does not silently upload or destroy local prompt, file, secret, or history data.
+    minimum_proof: [V3, V4, V5]
+    external_proof_required: true
+
+  - id: VI-CON-001
+    tier: 1
+    claim: The web consumer and control-plane provider agree on every API interaction the web actually uses.
+    minimum_proof: [V2, V3]
+
+  - id: VI-CON-002
+    tier: 1
+    claim: Released Lumi Agents desktop clients remain compatible with supported control-plane protocol versions.
+    minimum_proof: [V3, V5]
+    external_proof_required: true
+
+  - id: VI-UX-001
+    tier: 2
+    claim: Switching organization context cannot leave stale data or actions from the previous organization visible or actionable.
+    minimum_proof: [V3, V4]
+
+  - id: VI-UX-002
+    tier: 2
+    claim: Critical control-plane journeys have real loading, error, permission, keyboard/focus, narrow-layout, and destructive-action behavior.
+    minimum_proof: [V3]
+
+  - id: VI-OBS-001
+    tier: 1
+    claim: Operators can correlate a request across policy, domain, external dispatch, usage, and audit without logging protected content.
+    minimum_proof: [V3, V5]
+
+  - id: VI-REL-001
+    tier: 1
+    claim: External dependency failures produce bounded retries/timeouts, stable errors, and no unintended duplicate side effects.
+    minimum_proof: [V3, V4]
+
+  - id: VI-WASM-001
+    tier: 1
+    claim: Backend and security-critical dependencies compile and run within the Cloudflare Worker WASM/runtime constraints used for release.
+    minimum_proof: [V1, V3]
+
+  - id: VI-TEST-001
+    tier: 0
+    claim: Critical verification is sensitive to representative dangerous implementation faults.
+    minimum_proof: [V4]
+    method: Targeted mutation or deliberate fault injection in a disposable worktree.
