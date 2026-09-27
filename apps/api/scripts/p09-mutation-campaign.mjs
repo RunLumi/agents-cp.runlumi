@@ -138,7 +138,12 @@ const CASES = [
     find: "match budget_admission.decision {",
     replace: "match P05BudgetDecision::Allow {",
     verifier: ["cargo", "modules::p09_failure_tests::a_hard_budget_denial"],
-    expect: "does not diverge",
+    // The kill is the scrutinee assertion, not the divergence one: the gate's second
+    // check (`the admission decision is matched on its own value, not on a constant`)
+    // fires first, because neutering the scrutinee is exactly what it exists to catch.
+    // Verified by hand rather than assumed, since "the right test failed" and "some
+    // test failed" look identical in a tally.
+    expect: "is matched on its own value, not on a constant",
   },
   {
     id: "VI-IDEM-001",
