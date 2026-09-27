@@ -116,6 +116,31 @@ const CASES = [
     expect: "soft_limit_notifies_but_hard_and_unavailable_are_closed",
   },
   {
+    id: "VI-BUD-001",
+    tier: 0,
+    // The SECOND half of VI-BUD-001: the ordering.
+    //
+    // The contract's own mutation is "move the budget decision after dispatch". Run
+    // literally on this file, hoisting the dispatch region above the decision is a
+    // COMPILE ERROR rather than a silent behaviour change, because the dispatch
+    // metadata consumes `budget_decision_value` -- a binding the match produces. So
+    // for THAT mutation the verifier that fails is rustc, which is stronger than any
+    // test. It is recorded as a case rather than a paragraph because "the compiler
+    // enforces this" is exactly the kind of claim that decays silently: the day
+    // somebody rewrites the dispatch to stop carrying the decision, the coupling is
+    // gone and nothing here would notice.
+    //
+    // What rustc does NOT catch is neutering the scrutinee. Same type, compiles
+    // happily, every decision takes the Allow arm, and a denied request is dispatched.
+    // That is the mutation below, and the structural gate is what kills it.
+    title: "a budget denial no longer consults its own decision (ordering)",
+    file: "apps/api/src/routes/inference.rs",
+    find: "match budget_admission.decision {",
+    replace: "match P05BudgetDecision::Allow {",
+    verifier: ["cargo", "modules::p09_failure_tests::a_hard_budget_denial"],
+    expect: "does not diverge",
+  },
+  {
     id: "VI-IDEM-001",
     tier: 0,
     // The original form of this case renamed a column in the upsert's ON CONFLICT

@@ -1974,3 +1974,132 @@ fn mcp_tool_input(policy_status: McpPolicyStatus) -> PolicyEvaluationInput {
         policy_version: 3,
     }
 }
+
+// ---------------------------------------------------------------------------
+// VI-BUD-001: a hard budget denial must happen BEFORE any upstream dispatch.
+//
+// The Tier-0 contract's mutation for this invariant is "move the budget decision
+// after dispatch and require upstream-dispatch verification to fail". This is the
+// honest account of what that mutation actually finds here, because the interesting
+// part is what it does NOT find.
+//
+// What it DOES find: the dispatch path consumes `budget_decision_value`, a binding
+// produced by the budget match. So hoisting the whole dispatch region above the
+// budget decision is a COMPILE ERROR, not a silent behaviour change. The ordering is
+// therefore load-bearing rather than conventional, and the compiler is the thing that
+// fails. That is stronger than a test, and it is the verifier that kills the
+// mutation.
+//
+// What it does NOT find: neutering the decision (`match budget_admission.decision`
+// → `match P05BudgetDecision::Allow`) compiles perfectly, because the type is
+// unchanged. The compiler couples the dispatch to the decision's RESULT; it cannot
+// couple it to the decision being CONSULTED. So the assertions below are what catch
+// that, and they are V1 structural -- source text, not runtime. An end-to-end proof
+// that a denied request never reaches the provider needs a real D1 binding and a
+// mock endpoint, which is the same BLOCKED row as the browser pass and the staging
+// deploy. The residual is named in `docs/release/known-limitations.md` rather than
+// papered over.
+//
+// Each assertion below aims at one specific regression, so a failure names which.
+
+/// The VI-BUD-001 gate. V1 (structural), and labelled as such in its own name.
+#[test]
+fn a_hard_budget_denial_is_wired_to_precede_the_only_upstream_dispatch() {
+    // The same resolution the tenant audit uses, so there is one answer to "where is
+    // the crate root" rather than two.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("routes")
+        .join("inference.rs");
+    let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!(
+            "{} must be readable for the VI-BUD-001 gate: {error}",
+            path.display()
+        )
+    });
+
+    // 1. Exactly one dispatch site. A second one would be a dispatch the budget
+    //    decision does not sit in front of, and there is nothing here to notice it.
+    let dispatch_sites: Vec<_> = source
+        .match_indices("dispatch(")
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(
+        dispatch_sites.len(),
+        1,
+        "there must be exactly one upstream dispatch in routes/inference.rs, so a budget \
+         denial provably precedes all of them; found {}",
+        dispatch_sites.len()
+    );
+    let dispatch_at = dispatch_sites[0];
+
+    // 2. The decision is consulted BEFORE that dispatch, and it is the admission's own
+    //    decision rather than a constant. The second half is the part the compiler
+    //    cannot check: `match P05BudgetDecision::Allow` has the same type and
+    //    compiles, which would let every decision take the Allow arm.
+    let admission_at = source
+        .find("p05_budget_admission(")
+        .expect("the budget admission is called");
+    let match_at = source
+        .find("match budget_admission.decision {")
+        .expect("the admission decision is matched on its own value, not on a constant");
+    assert!(
+        admission_at < dispatch_at,
+        "the budget admission is evaluated AFTER the dispatch, so a denial can arrive too late \
+         to prevent it"
+    );
+    assert!(
+        match_at < dispatch_at,
+        "the budget decision is matched AFTER the dispatch, so dispatch does not depend on it"
+    );
+
+    // 3. Both non-admitting outcomes DIVERGE. A `Deny` arm that recorded the denial
+    //    and fell through would be the violation in its purest form: the tenant is
+    //    told nothing, and the request is sent anyway.
+    let arms = source
+        .match_indices("P05BudgetDecision::")
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>();
+    assert!(
+        arms.len() >= 4,
+        "expected Allow, SoftLimit, Deny and Unavailable arms; found {} mentions",
+        arms.len()
+    );
+    for arm in [
+        "P05BudgetDecision::Deny =>",
+        "P05BudgetDecision::Unavailable =>",
+    ] {
+        let at = source
+            .find(arm)
+            .unwrap_or_else(|| panic!("{arm} is missing from the budget decision"));
+        // The arm's body runs to the next arm or the end of the match. 900 characters
+        // is generous for these two arms and short enough not to reach past the match.
+        // The search starts AFTER the arm's own mention: searching from `at` finds
+        // the arm itself at offset 0 and yields an empty body, which is how the first
+        // version of this reported a divergence that was right there in the source.
+        let body_end = source[at + arm.len()..]
+            .find("P05BudgetDecision::")
+            .map(|offset| at + arm.len() + offset)
+            .unwrap_or(at + 900);
+        let body = &source[at..body_end];
+        assert!(
+            body.contains("return Err("),
+            "{arm} does not diverge: it records the refusal and then falls through, so the \
+             request would continue to dispatch"
+        );
+        assert!(
+            body.contains("record_inference_denial("),
+            "{arm} does not record the refusal, so an operator would not see the denial"
+        );
+    }
+
+    // 4. The dispatch region CONSUMES the binding the match produces. This is the
+    //    coupling that makes hoisting the dispatch a compile error, so it is worth
+    //    asserting explicitly: without it the ordering is a convention that a rewrite
+    //    could quietly drop.
+    assert!(
+        source.contains("budget_decision: budget_decision_value.to_owned()"),
+        "the dispatch metadata no longer carries the budget decision, so the dispatch path is \
+         no longer coupled to it and the ordering has become a convention"
+    );
+}
