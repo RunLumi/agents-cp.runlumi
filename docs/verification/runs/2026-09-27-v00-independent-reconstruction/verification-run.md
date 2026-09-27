@@ -27,6 +27,8 @@ so neither can be mistaken for the other:
 | Repair | `ece860b` | the state the five product-repair verdicts were re-derived from |
 | Repair, guard recognition | `70ff568` | the state the guard-probe and mutation-campaign verdicts were re-derived from |
 | Repair, P06 data governance | `040a6aa` | the state the `VI-DATA-001` verdict, the bind-count gate, and the P06 probe's numbers were re-derived from |
+| Repair, cross-tenant probe | `6c11cf1` | the state `VI-TEN-001`'s limit was first *measured* on, and the 16/18 figure in VFY-010 |
+| Repair, the cross-tenant leak | `37de9e3` | the state `VI-TEN-001`'s handler-level verdict was re-derived from, after VFY-010's measurement found a critical leak |
 
 A commit is named rather than the branch tip deliberately: a record cannot name the commit that
 contains itself, because writing that name creates a newer commit. The three repair commits exist
@@ -40,6 +42,17 @@ assumed was merely unproven:
   the case did not.
 - `040a6aa` — VFY-008 and VFY-009, found by building the verifier `VI-DATA-001` said was missing,
   and the two gates that came out of it.
+- `6c11cf1` — the cross-tenant probe VFY-010 said was the largest in-repo gap and had never been
+  built. Its numbers are superseded by `37de9e3`, which added a real resource to substitute.
+- `37de9e3` — the critical cross-tenant read that probe found on its **first** run.
+
+There is a pattern in those three lines that is worth stating, because the earlier rounds had
+already declared the campaign closed once: **two of the three rounds found a defect only after
+building the verifier for a claim whose failure mode was already written down.** VFY-008 and
+VFY-009 were found by building `VI-DATA-001`'s missing verifier. VFY-011 was found by building
+`VI-TEN-001`'s missing verifier, and it is the more serious of the two — cross-tenant data
+disclosure rather than a broken pipeline. A campaign that had stopped at the reconstruction's
+verdicts would have closed with a Tier-0 claim PASS whose limit was a hand-wave.
 
 A commit reference that has gone stale is worse than none, because it looks like provenance.
 
@@ -77,6 +90,9 @@ fbc730e  test(web)  prove the browser gate can fail, and fix the three ways it c
 40e6b1d  fix(api)   stop the mutation campaign mistaking a full disk for a bad mutant
 70ff568  test(api)  add VFY-004's mutation case, and the probe check it exposed missing
 040a6aa  fix(api)   the P06 export and deletion pipeline never worked — two causes
+6c11cf1  test(api)  prove the cross-tenant boundary on the routes no gate reached
+558ebfa  docs(verification) record VFY-010, and correct a claim the record overstated
+37de9e3  fix(api)   stop any organization reading another's project access grants
 ```
 
 ```bash
@@ -207,8 +223,13 @@ Counted from the matrix rows:
 - evidence: `security::tenant_audit` (421 statements, 0 unclassified) + `p05-smoke.mjs` (two
   org-scoped cross-tenant negatives, both on `runs/{run_id}`) + `p08-tenancy-smoke.mjs` (18 routes,
   16 proven, 0 leaks, 2 unproven); mutation `WHERE org_id = ?1 AND package_id = ?2` killed
-- verdict: **PASS**, with the limit now *measured* rather than assumed — 85 of the 104 org-scoped
+- verdict: **PASS**, with the limit now *measured* rather than assumed — 82 of the 104 org-scoped
   routes still have no handler-level evidence (VFY-010)
+- **the measurement found a critical defect and the defect is closed** — building the probe turned
+  an unexamined limit into a **cross-tenant read of another organization's project access grants**,
+  `org_id` / `member_id` / `team_id` included, reachable by any organization owner who substituted
+  a project id. Repaired with the guard three neighbours in the same file already carried, and
+  reverting that guard turns the probe red again with the leak named. VFY-011
 
 ### Secrets and policy
 - claims: `VI-SEC-001`, `VI-AUTHZ-001`
@@ -292,6 +313,7 @@ all; the second is only covered at the storage layer (the runtime guard is VFY-0
 | VFY-008 | **critical** | `VI-DATA-001` | **closed** | `findings/VFY-008-sql-bind-count-mismatches.md` |
 | VFY-009 | **critical** | `VI-DATA-001` | **partially closed** | `findings/VFY-009-p06-job-queue-has-no-producer.md` |
 | VFY-010 | high | `VI-TEN-001` (evidence limit) | **partially closed** | `findings/VFY-010-cross-tenant-isolation-was-statement-level-only.md` |
+| VFY-011 | **critical** | `VI-TEN-001` | **closed** | `findings/VFY-011-project-access-grants-leak-across-organizations.md` |
 
 VFY-008 and VFY-009 were not in the reconstruction. They were found by doing the one thing
 `next-verification-actions.md` named as the largest remaining in-repo hole: building the runtime
@@ -347,9 +369,10 @@ discharge, and the four closure conditions are each measured rather than asserte
 
 | Condition | Measured |
 |---|---|
-| No Tier-0 claim FAIL or UNPROVEN without a named dependency | **met, with `VI-TEN-001` carrying a measured limit.** Nine of the ten Tier-0 claims are PASS or externally blocked; `VI-TEN-001` is PASS with 85 of its 104 org-scoped routes still lacking handler-level evidence (VFY-010), which is a recorded, quantified, in-repo gap rather than an unexamined one. The tenth, `VI-DATA-001`, was UNPROVEN with a *missing verifier* rather than a missing dependency; the verifier was built, it found the claim FAIL (VFY-008, VFY-009), both are repaired, and the one leg still UNPROVEN — the R2 write — has its dependency named in `missing-external-proofs.md` §8 and the probe exits **2**, the code for "the harness could not run" |
+| No Tier-0 claim FAIL or UNPROVEN without a named dependency | **met, with `VI-TEN-001` carrying a measured limit.** Nine of the ten Tier-0 claims are PASS or externally blocked; `VI-TEN-001` is PASS with 82 of its 104 org-scoped routes still lacking handler-level evidence (VFY-010), which is a recorded, quantified, in-repo gap rather than an unexamined one. The measurement itself paid for the rest of this round: it found a **critical** cross-tenant read in `projects/{project_id}/access` that no existing gate could see, which is now closed (VFY-011). The tenth, `VI-DATA-001`, was UNPROVEN with a *missing verifier* rather than a missing dependency; the verifier was built, it found the claim FAIL (VFY-008, VFY-009), both are repaired, and the one leg still UNPROVEN — the R2 write — has its dependency named in `missing-external-proofs.md` §8 and the probe exits **2**, the code for "the harness could not run" |
 | p05 runtime smoke at zero failures | `pnpm smoke:p05` **185 checks passed; 0 failures; 4 limitations** |
 | Real-browser journey at zero failures | `pnpm smoke:browser` **39/39, exit 0**, run through the exact CI step against a committed tree |
+| (a consequence of the second, not a fifth condition) | `pnpm smoke:p08` **19/21 proven, 0 leaks, 2 unproven**, exit 0. Building it found a **critical** cross-tenant read that three earlier rounds had carried as a PASS with an unmeasured limit — now closed (VFY-011) |
 | The record names the commit the verdicts came from | it does — see "Post-repair commit" |
 
 **Verdict: the campaign is closed**, with one honest qualification rather than a clean bill of
@@ -428,6 +451,7 @@ getting more dependencies.
 | `ROUTE-2` | **FAIL** (Tier 1) | **PASS** | Browser journey creates two organizations through the UI and the switcher lists both; the V00 API fallback is deleted. |
 | `VI-UX-001` | PASS on an out-of-band state | **PASS on a UI-reachable state** | Same journey. The evidence limit recorded against it is discharged. |
 | `VI-UX-002` | **FAIL** (low) | **PASS** | Containment metric, not document width. Role control measured at 136×44 px inside a 390 px viewport. |
+| `VI-TEN-001` (handler half) | PASS on a limit that had never been measured | **one critical leak found and closed; the limit is now a number** | `pnpm smoke:p08` found that `GET /orgs/{org_id}/projects/{project_id}/access` authorized against the path's `org_id` and then read the grants with no org predicate, so any owner could read another org's access grants — member ids and team ids included. Repaired with the same `.filter(|project| project.org_id == org_id)` guard three neighbours already carried; reverting it turns the probe red again (VFY-011). 19/21 proven, 0 leaks, **82 of 104** org-scoped routes still without handler-level evidence. |
 | `VI-DATA-001` | **UNPROVEN at V3** — "no verifier crosses HTTP → R2" | **FAIL, then repaired; R2 leg still UNPROVEN** | The missing verifier was built (`p06-data-smoke.mjs`, 26 cases). It found two independent critical defects, not a proof gap: `POST /orgs/{id}/exports` returned `409` on **every** request (VFY-008, a bind-count mismatch), and the P06 job queue had no producer, so no job had ever been dispatched (VFY-009). Both repaired; the request now returns `201` with durable rows. The R2 write and the streamed download remain UNPROVEN because the local queue does not deliver a published body intact — see `missing-external-proofs.md` §8. |
 
 ## Baseline (post-repair)
@@ -451,7 +475,7 @@ getting more dependencies.
 | P08 schema probe | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | PASS — 17/17 |
 | runtime smokes P01–P05 | `pnpm smoke:local` … `smoke:p05` | PASS — **P05 185/0** (was 175/1) |
 | **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 55/55 |
-| **cross-tenant probe** (new gate) | `pnpm smoke:p08` | PASS — **16/18 proven, 0 leaks, 2 unproven**; 85 of 104 org-scoped routes reported as having no handler-level evidence |
+| **cross-tenant probe** (new gate) | `pnpm smoke:p08` | PASS — **19/21 proven, 0 leaks, 2 unproven**; 82 of 104 org-scoped routes reported as having no handler-level evidence. Found and now closed one **critical** cross-tenant leak (VFY-011) |
 | **SQL bind-count scan** (new gate) | `pnpm schema:bind-count` | PASS — **463/463** statements agree |
 | **P06 data-governance probe** (new gate) | `node apps/api/scripts/p06-data-smoke.mjs` | 26/26 cases hold; **1 leg BLOCKED by the environment** (exit 2) |
 | **real-browser journey** (new gate) | `pnpm smoke:browser` | PASS — **39/39** (was 20/23) |
@@ -484,13 +508,19 @@ so excluded it from the very tally meant to catch it.
 - **`commit_mutation` still discards its batch error.** Any future D1 fault on a mutation route
   will again answer `409 conflict`. What a route should say when its own transaction fails is a
   contract question, not a bug fix, so it is recorded rather than done.
-- **85 of the 104 org-scoped routes still have no handler-level cross-tenant evidence** (VFY-010,
+- **82 of the 104 org-scoped routes still have no handler-level cross-tenant evidence** (VFY-010,
   action 5.1). It is now *measured* rather than assumed, and it is larger than the record
-  implied: `p06-data-smoke.mjs` and `p08-tenancy-smoke.mjs` between them prove 19 of them, and
-  reading `p05-smoke.mjs` showed it carries two org-scoped negatives, not the five surfaces the
-  record credited it with. 57 of the 85 take a resource id and need one real resource per surface
-  to substitute; 28 are mutating or id-less actions. This still needs no external dependency and
-  is the largest remaining in-repo hole.
+  implied: reading `p05-smoke.mjs` showed it carries two org-scoped negatives, not the five
+  surfaces the record credited it with, and `p08-tenancy-smoke.mjs` now proves 19 more. 54 of the
+  82 take a resource id and need one real resource per surface to substitute; 28 are mutating or
+  id-less actions. This still needs no external dependency and is the largest remaining in-repo
+  hole.
+- **Two P07 creates fail in ways the product does not explain.** `POST
+  /orgs/{org_id}/service-accounts` answers `503 "The usage store is unavailable."` on a fresh
+  organization, and `POST /orgs/{org_id}/teams` answers `409 conflict`. Neither is claimed as
+  diagnosed; both discard the underlying D1 error, and the 503 names the *usage* store on a
+  machine-identity route. Recorded in VFY-011, because a create that cannot be driven is a surface
+  whose routes cannot be evidenced.
 - **Three new gates are new.** Each has been shown sensitive to a targeted fault, but a gate that
   has never survived its own first real failure has not yet been tested by one. The next campaign
   should expect to tune them.

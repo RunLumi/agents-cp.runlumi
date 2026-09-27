@@ -141,7 +141,7 @@ measured RTO and RPO, plus a documented rollback/forward-fix for a data-affectin
 
 ---
 
-## 7. Cross-tenant substitution at HTTP, on 85 of the 104 org-scoped routes (Tier 0, in-repo)
+## 7. Cross-tenant substitution at HTTP, on 82 of the 104 org-scoped routes (Tier 0, in-repo)
 
 This is not external, and it is listed because it is the largest missing proof in the matrix.
 
@@ -156,25 +156,48 @@ org-scoped route.
 **What now exists.** `pnpm smoke:p08` (`apps/api/scripts/p08-tenancy-smoke.mjs`) asks each
 id-less org-scoped route three times — as a member, as a plain member of another organization,
 and as that other organization's owner — and counts a route proven only when the member's own
-call succeeded and both outsiders were refused with `404 resource_not_found`. It proves **16 of
-18**, with 0 leaks; the two skips are billing routes where a fresh organization has no
-subscription and no granted entitlement, so there is nothing to leak and nothing to distinguish.
+call succeeded and both outsiders were refused with `404 resource_not_found`. It proves **19 of
+21** driven routes, with 0 leaks; the two skips are billing routes where a fresh organization has
+no subscription and no granted entitlement, so there is nothing to leak and nothing to
+distinguish. The three extra routes over the list-only version are a real project created in org A
+and substituted under org B's path.
 
-**What is still missing, exactly.** The router registers **104** org-scoped routes. Nineteen now
-have handler-level evidence. **Eighty-five do not**, and the probe prints the list on every run
+**What building it found, which is the reason this section was worth closing.** The probe
+immediately reported a leak the record's own limit line had been carrying unexamined:
+`GET /orgs/{org_id}/projects/{project_id}/access` authorized the caller against the **`org_id` in
+the path** and then read the grants with `WHERE project_id = ?1` and no org predicate, so any
+organization owner could substitute another organization's project id and read its access grants —
+`org_id`, `member_id` and `team_id` included. Repaired with the same
+`.filter(|project| project.org_id == org_id)` guard `patch_project`, `create_grant` and
+`readable_project` already carried; reverting it turns the probe red again with the leak named.
+VFY-011. **A gap that is written down is worth closing precisely because the closure is where the
+defect is** — a limit nobody measured is a limit nobody knows the size of.
+
+**What is still missing, exactly.** The router registers **104** org-scoped routes. Twenty-three now
+have handler-level evidence. **Eighty-two do not**, and the probe prints the list on every run
 so the number cannot drift from the router:
 
-- **57** take a resource id, so each surface needs one real resource created in org B and then
+- **54** take a resource id, so each surface needs one real resource created in org B and then
   substituted under org A's path — automations, leases, webhooks, deliveries, credentials,
   routes, model versions, service accounts, adoption bindings, plugins, adoption remediations,
-  exports, deletions, sessions, runs, projects, tools, MCP servers, invitations, members, teams.
+  exports, deletions, sessions, runs, tools, MCP servers, invitations, members, teams. The probe
+  now shows the shape on a real project.
 - **28** are mutating or id-less actions this probe does not drive — billing cancel/change/
   portal-session, plugin install/approve/block/pin, adoption preview/telemetry, plugin reports,
   ownership transfer, invitations, team mutations, and the platform surfaces.
 
-**Required evidence.** For each of the 57, seed one resource in org B and substitute it under
+**Required evidence.** For each of the 54, seed one resource in org B and substitute it under
 org A's path, asserting a denial indistinguishable from not-found and that no list or pagination
 response leaks B's metadata. For the 28, a body the route will accept.
+
+**A dependency of its own, discovered while closing this.** The service-account and team surfaces
+cannot be seeded: `POST /orgs/{org_id}/service-accounts` answers `503 "The usage store is
+unavailable."` on a fresh organization — a *usage*-store message on a P07 machine-identity
+route, because `machine_identity` reuses `routes::usage`'s scoped-mutation helpers — and
+`POST /orgs/{org_id}/teams` answers `409 conflict`, which `commit_scoped_mutation` returns from
+exactly one arm, the idempotency claim guard. Both discard the underlying D1 error, so neither
+says what failed. Undiagnosed, recorded in VFY-011; until they are, those routes' own create
+paths have no runtime evidence either.
 
 **Verdict until then: UNPROVEN at V3** for those 85 routes; PASS at V1/V2 through the SQL
 classification, which the tenant audit does enforce. See `findings/VFY-010-…md`.

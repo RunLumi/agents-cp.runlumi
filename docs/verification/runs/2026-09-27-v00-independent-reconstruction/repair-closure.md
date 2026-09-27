@@ -717,6 +717,54 @@ thing reported green.
 
 ---
 
+## VFY-010 and VFY-011 — the round that closed a Tier-0 claim's unmeasured limit, and what it cost
+
+`VI-TEN-001` is Tier 0. It was carried as PASS, correctly, on the tenant audit plus
+`p05-smoke.mjs`'s two org-scoped negatives, with a limit line saying the audit "does not prove
+routes call the right statement." The limit was never measured. **Measuring it found a critical
+cross-tenant read.**
+
+| | before | after |
+|---|---|---|
+| org-scoped routes with handler-level cross-tenant evidence | 1 of 104 | **23 of 104** |
+| `projects/{project_id}/access` readable across organizations | **yes** | no |
+| `p08-tenancy-smoke.mjs` | did not exist | 19 of 21 driven routes proven, 0 leaks, 2 unproven |
+| sensitivity | — | `authorize_org` made to skip the membership lookup → **15 leaks, exit 1** |
+
+The defect, in one line: `list_grants` authorized the caller against the `org_id` in the path and
+then read the grants with `WHERE project_id = ?1` and no org predicate, so any organization owner
+could substitute another organization's project id and read its access grants — `org_id`,
+`member_id` and `team_id` included. Repaired with the
+`.filter(|project| project.org_id == org_id)` guard that `patch_project`, `create_grant` and
+`readable_project` in the same file already carry; reverting it turns the probe red again with the
+leak named.
+
+Three things in that round are worth keeping, because each is a property of how the work is done
+rather than of this codebase:
+
+- **The unproven set is computed from the router, not listed.** The probe reads `app.rs` and fails
+  if a route it claims to test has disappeared, so a stale entry is a bug in the probe rather than
+  a quiet pass, and a new route lands in the unproven bucket by construction. A hand-written
+  "not covered" list of 81 paths would have rotted silently.
+- **Two gates had to be wrong before they were right.** The shared harness lost the receiver when
+  a probe destructured its methods, and the substituted-id criterion was too strict in a way that
+  read like three product defects. Both are documented where they were fixed, because a verifier
+  that is only ever run against a correct product has not been tested.
+- **A seed the probe cannot drive is a limitation of the probe, not a failure of the product.** The
+  two creates it could not drive are reported under an `OPEN LEADS` heading with their responses.
+  Recording them as failures would leave the gate permanently red for a cause nobody has
+  diagnosed, and a gate that is always red is a gate nobody reads.
+
+**The pattern across the campaign's four repair rounds.** Two of them found a defect only *after*
+building the verifier for a claim whose failure mode was already written down. VFY-008 and VFY-009
+came from building `VI-DATA-001`'s missing verifier — a broken export pipeline. VFY-011 came from
+building `VI-TEN-001`'s missing verifier — cross-tenant data disclosure, which is the more serious
+of the two. A campaign that stopped at the reconstruction's verdicts would have closed with a
+Tier-0 claim PASS whose limit was a hand-wave. **A limit that is written down is worth closing
+precisely because the closure is where the defect is.**
+
+---
+
 ## What is still not proven
 
 Nothing below was silently upgraded. Each keeps a named dependency and stays in
@@ -735,7 +783,10 @@ Nothing below was silently upgraded. Each keeps a named dependency and stays in
 - **Production-scale restore** — RTO measured on a local database, not at production volume.
 - **`VI-DATA-001`'s R2 leg** is UNPROVEN for an environmental reason, named in
   `missing-external-proofs.md` §8. Everything either side of it is proven.
-- **The Tier-0 cross-tenant gap for P06–P08 routes** (action 5.1) is the largest remaining
-  in-repo hole. It needs no external dependency and is the next thing worth building. It is
-  smaller than it was: `p06-data-smoke.mjs` now covers the export surface's tenant and permission
-  boundaries, which nothing did before.
+- **Cross-tenant substitution on 82 of the 104 org-scoped routes** (VFY-010, action 5.1) is the
+  largest remaining in-repo hole, and it is now a *number* rather than a description. It is also
+  much larger than the reconstruction implied: reading `p05-smoke.mjs` showed it carries two
+  org-scoped negatives, not the five surfaces this file previously credited it with, and
+  `p08-tenancy-smoke.mjs` had never been built. 54 of the 82 take a resource id and need one real
+  resource per surface; 28 are mutating or id-less actions. The probe prints the exact list on
+  every run, so the work cannot drift from the router.
