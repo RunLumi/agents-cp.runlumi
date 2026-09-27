@@ -305,8 +305,14 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
 | `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
 
-`verify:mutation` is the only command here that deliberately breaks code. It refuses to run outside
-a linked worktree for that reason:
+`verify:mutation` is the only command here that deliberately breaks code. It needs roughly **2.4 GB
+of scratch space per case**, built under `target/mutation-scratch` — deliberately on the same volume
+as the repository rather than in the system temp directory, because a run that fills the system
+volume fails its builds and the campaign then reports the mutants as *invalid*, which is a
+misdiagnosis of the machine as a property of the code. Set `$P09_SCRATCH` to move the scratch
+elsewhere.
+
+It refuses to run outside a linked worktree for the same reason:
 
 ```bash
 git worktree add ../verify HEAD

@@ -23,8 +23,15 @@
 // gate you wrote cannot fail.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, cpSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 const APPLY = process.argv.includes("--apply");
@@ -363,6 +370,75 @@ function resolveWrangler() {
   return null;
 }
 
+/**
+ * Where each mutant's scratch tree is built.
+ *
+ * DEFAULT, not the system temp dir. A scratch tree holds a full `target/` -- about
+ * 2.4 GB, because the copy deliberately excludes `target/` and every case builds
+ * from scratch -- and `os.tmpdir()` is routinely on the small system volume. On a
+ * 228 GB volume with 1 GB free the build fails with ENOSPC partway through the
+ * campaign, and the harness then reports `NOT_A_VALID_MUTATION`: "the mutant did
+ * not compile, so no verifier could have caught the fault". That is a
+ * MISDIAGNOSIS. Nothing is wrong with the mutation, the machine is out of room, and
+ * a reader of the report is told a product property failed to compile.
+ *
+ * So the scratch defaults to a directory on the SAME volume as the repository,
+ * where the build outputs already live, and `$P09_SCRATCH` overrides it. The
+ * disk-space classification in `classifyBuildFailure` is the second half of the
+ * fix: even with a better default, a machine can still fill up, and a build that
+ * failed for any reason other than the code must not be reported as a property of
+ * the mutation.
+ */
+function scratchRoot() {
+  const override = process.env.P09_SCRATCH;
+  const root = override ?? join(process.cwd(), "..", "..", "target", "mutation-scratch");
+  mkdirSync(root, { recursive: true });
+  return root;
+}
+
+/**
+ * Distinguish "the mutant does not compile" from "the build environment failed".
+ *
+ * Only a genuine compiler diagnostic means the mutation was invalid. A build that
+ * ran out of disk, ran out of memory, or was killed belongs to the harness, and
+ * reporting it as a property of the mutant inverts cause and effect -- it tells a
+ * reader that a Tier-0 invariant's evidence is absent for a reason that has
+ * nothing to do with it.
+ */
+function classifyBuildFailure(result) {
+  const out = result.out ?? "";
+  if (
+    /No space left on device|ENOSPC|disk (?:is )?full|out of memory|Killed|signal: 9|Too many open files/i.test(
+      out,
+    )
+  ) {
+    return {
+      verdict: "HARNESS_FAULT",
+      detail:
+        "the BUILD ENVIRONMENT failed, not the mutant: the compiler never got to judge the " +
+        `code. That makes the case absent, not invalid. The build said:\n  ${out
+          .split("\n")
+          .filter((line) =>
+            /No space|ENOSPC|disk|out of memory|Killed|Too many open files/i.test(line),
+          )
+          .slice(0, 3)
+          .join("\n  ")}`,
+    };
+  }
+  if (!/error\[E\d+]|error: could not compile|error: aborting/i.test(out)) {
+    return {
+      verdict: "HARNESS_FAULT",
+      detail:
+        "the build failed WITHOUT a compiler diagnostic, so the mutant was never judged. " +
+        `Output tail: ${out.slice(-300)}`,
+    };
+  }
+  return {
+    verdict: "NOT_A_VALID_MUTATION",
+    detail: "the mutant did not compile, so no verifier could have caught the fault",
+  };
+}
+
 function run(cmd, args, cwd, env) {
   return execFileSync(cmd, args, {
     cwd,
@@ -431,7 +507,7 @@ console.log(`mutating a linked worktree at ${process.cwd()}\n`);
 
 const results = [];
 for (const testCase of CASES) {
-  const scratch = mkdtempSync(join(tmpdir(), "p09-mutant-"));
+  const scratch = mkdtempSync(join(scratchRoot(), "p09-mutant-"));
   const label = `${testCase.id} ${testCase.title}`;
   try {
     // A cheap copy rather than a worktree per case: the tree is small enough and
@@ -511,11 +587,7 @@ for (const testCase of CASES) {
         scratch,
       );
       if (compile.code !== 0) {
-        results.push({
-          ...testCase,
-          verdict: "NOT_A_VALID_MUTATION",
-          detail: "the mutant did not compile, so no verifier could have caught the fault",
-        });
+        results.push({ ...testCase, ...classifyBuildFailure(compile) });
         continue;
       }
     }
@@ -533,10 +605,14 @@ for (const testCase of CASES) {
         scratch,
       );
       if (wasm.code !== 0) {
+        const classified = classifyBuildFailure(wasm);
         results.push({
           ...testCase,
-          verdict: "NOT_A_VALID_MUTATION",
-          detail: "the mutant did not build for wasm32, so the Worker probe cannot reach it",
+          ...classified,
+          detail:
+            classified.verdict === "NOT_A_VALID_MUTATION"
+              ? "the mutant did not build for wasm32, so the Worker probe cannot reach it"
+              : classified.detail,
         });
         continue;
       }

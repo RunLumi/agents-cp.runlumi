@@ -526,6 +526,44 @@ explicitly so a future run that passes for the wrong reason is visible in the ou
 
 ---
 
+## A fourth verifier defect, found in the harness while re-running it
+
+The mutation campaign reported `NOT_A_VALID_MUTATION` for its last three cases — "the mutant did
+not compile, so no verifier could have caught the fault" — on a campaign that had killed all eleven
+cases hours earlier, with no code change in between.
+
+The cause was not the mutations. Each case builds in a scratch tree that deliberately excludes
+`target/`, so every case does a full build; that is about **2.4 GB**, and the scratch was being
+created in `os.tmpdir()`, which is on the system volume. That volume had **965 MiB free**. The builds
+died with ENOSPC partway through, and the harness reported a **machine that ran out of room** as a
+**property of the mutation**.
+
+That is the exact inversion this campaign was assembled to catch, committed in the tool written to
+catch it: a reader is told a Tier-0 invariant's evidence is absent, and the real reason — that the
+machine is full — appears nowhere.
+
+Two fixes, because the first alone is a better default rather than a correct one:
+
+1. **The scratch defaults to a volume with room**: `target/mutation-scratch`, beside the repository
+   where the build outputs already live, with `$P09_SCRATCH` to override. The system temp directory
+   is a poor default for a 2.4 GB build and should not have been the one.
+2. **A build failure is classified.** `classifyBuildFailure` distinguishes a genuine compiler
+   diagnostic (`error[E…]`, `could not compile`) from an environment failure — ENOSPC, OOM, a killed
+   process, too many open files — and from a failure with **no diagnostic at all**, which is
+   suspicious by itself because it means the compiler never judged the code. Only the first is
+   `NOT_A_VALID_MUTATION`; the others are `HARNESS_FAULT`, which the tally gate already refuses to
+   accept as a pass.
+
+Re-run after both: **11/11 KILLED**, exit 0, on the same tree that had just reported three invalid
+mutations.
+
+This is the fourth verifier defect repaired in this campaign, and the second found by *running* a
+verifier rather than by reading it — after the campaign's exit gate, its missing-launcher
+misreporting, and the browser probe's three failure-path defects. Every one was invisible while the
+thing reported green.
+
+---
+
 ## What is still not proven
 
 Nothing below was silently upgraded. Each keeps a named dependency and stays in
