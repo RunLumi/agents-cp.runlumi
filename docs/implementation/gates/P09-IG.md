@@ -305,9 +305,15 @@ needs most was not.
 populated D1 through `wrangler`, exports with `wrangler d1 export`, restores into an
 empty database, and verifies.
 
-**Measured** (3 runs, 195 KiB): export 2.05–2.27 s, restore 157–264 ms, verify
-151–218 ms, **RTO 2.39–2.62 s**. RPO is 0 rows inside the snapshot; the recoverable-loss
-window is the interval between exports, which is an operational decision.
+**Measured** (8 runs, 195 KiB): export 2.0–3.2 s, restore 157–677 ms, verify
+151–417 ms, **RTO 2.4–4.2 s, median ≈2.9 s**; one cold run took 11.3 s. RPO is 0 rows
+inside the snapshot; the recoverable-loss window is the interval between exports, which
+is an operational decision.
+
+**What dominates the RTO is tooling startup, not the data.** Export is the largest step
+only because `wrangler d1 export` starts a workerd process, and at 195 KiB the dump work
+is trivial. The restore is pure `sqlite3` replay and is the only step that grows with the
+database — so on a production-shaped export the shape inverts.
 
 **Not a production RTO, and the script prints that caveat itself.** The database is
 195 KiB with two organizations. Every figure scales with size and the restore scales

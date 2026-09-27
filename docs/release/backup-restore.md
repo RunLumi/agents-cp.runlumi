@@ -8,13 +8,21 @@ dump into an empty database, and verifies the result. The script is
 `apps/api/scripts/p09-restore-rehearsal.mjs`, it is re-runnable, and it is
 non-destructive: it moves your local D1 state aside and puts it back, which is tested.
 
-| Step | Measured (3 runs) |
+| Step | Measured over 8 runs |
 |---|---|
-| export | 2.05 – 2.27 s (195 KiB dump) |
-| restore | 157 – 264 ms |
-| verify | 151 – 218 ms |
-| **RTO, recovery path** | **2.39 – 2.62 s** |
-| whole rehearsal, including building the fixture | ~12 s |
+| export | 2.0 – 3.2 s (195 KiB dump) |
+| restore | 157 – 677 ms |
+| verify | 151 – 417 ms |
+| **RTO, recovery path** | **2.4 – 4.2 s, median ≈ 2.9 s** |
+| whole rehearsal, including building the fixture | 9 – 14 s |
+
+One cold run took 11.3 s, which is why the range is stated rather than a single figure.
+
+**What dominates the RTO is tooling startup, not the data.** Export is the largest step
+because `wrangler d1 export` starts a workerd process, and at 195 KiB the actual dump
+work is trivial. The restore is pure `sqlite3` replay and is the only step that will
+grow with database size — so on a production-shaped export the shape of this table
+inverts, and the extrapolation to per-megabyte cost is the restore's, not the export's.
 
 **These are not a production RTO, and the script says so in its own output.** The
 database measured is 195 KiB with two organizations. Every figure scales with size, and

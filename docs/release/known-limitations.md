@@ -104,9 +104,14 @@ which is what the incident response depends on.
 
 ### The measured RTO is for a 195 KiB database
 
-`pnpm verify:restore` runs the rehearsal and it passes: export 2.05–2.27 s, restore
-157–264 ms, verify 151–218 ms, RTO 2.39–2.62 s. The database is 195 KiB with two
-organizations. **These are not a production RTO.** Every figure scales with size and the
+`pnpm verify:restore` runs the rehearsal and it passes: over 8 runs, export 2.0–3.2 s,
+restore 157–677 ms, verify 151–417 ms, RTO 2.4–4.2 s with a median near 2.9 s. One cold
+run took 11.3 s. The database is 195 KiB with two organizations.
+
+**What dominates the RTO is tooling startup, not the data** — export is the biggest step
+only because `wrangler` starts a workerd process, and at this size the dump work is
+trivial. The restore is pure `sqlite3` replay and is the only step that grows with the
+database, so on a production-shaped export the shape inverts. **These are not a production RTO.** Every figure scales with size and the
 restore scales worst, because it replays a text dump. What is established is that the
 path works and roughly what it costs per megabyte.
 

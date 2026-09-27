@@ -49,9 +49,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const KEEP = process.argv.includes("--keep");
-// `--prove-detectable` runs the fault injection. It is ON by default because a
-// verification step nobody runs is a step nobody should rely on, and the cost is one
-// extra suite run.
+// Step 6 is on by DEFAULT and opt-OUT, because a verification step nobody runs is a
+// step nobody should rely on, and the cost is one extra suite run. The first version
+// had this the other way round under a flag named `--prove-detectable`, which meant
+// the thing the script exists to do was skipped unless you knew to ask for it.
 const PROVE_DETECTABLE = !process.argv.includes("--no-fault-injection");
 const REPO = process.cwd();
 const API = join(REPO, "apps", "api");
@@ -84,23 +85,46 @@ const record = (label, ok, detail) => {
 // another mechanism is a rehearsal of the wrong mechanism.
 const STATE = join(API, ".wrangler", "state");
 const STASH = `${STATE}.rehearsal-stash`;
-let stashed = false;
+// Two flags, not one, and the distinction is a data-loss bug.
+//
+// The first version had a single `stashed` flag and an unconditional
+// `rmSync(STATE)` in the restore. If a previous run had left a stash behind, then
+// `stashState()` threw BEFORE moving anything -- and the `finally` still ran
+// `rmSync(STATE)`, deleting the developer's real local database while `stashed` was
+// false, so the stash was never moved back. A verification script that destroys your
+// data when it fails is the worst thing this repository could ship, and it was one
+// branch away from doing it.
+//
+// So the restore only touches STATE when this run is the thing that created it.
+let movedAside = false;
+let createdHere = false;
 
 function stashState() {
-  if (!existsSync(STATE)) return;
+  // Checked FIRST, and before anything is touched.
   if (existsSync(STASH)) {
     throw new Error(
-      `${STASH} already exists, so a previous rehearsal did not finish. Remove it, or ` +
-        `check whether it holds local D1 data you need.`,
+      `${STASH} already exists, so a previous rehearsal did not finish. Move it back to ` +
+        `${STATE} if it holds data you need, or delete it if it does not.`,
     );
   }
-  renameSync(STATE, STASH);
-  stashed = true;
+  if (existsSync(STATE)) {
+    renameSync(STATE, STASH);
+    movedAside = true;
+  } else {
+    // There was no local state at all; the rehearsal will create some.
+    createdHere = true;
+  }
 }
 
 function restoreState() {
-  rmSync(STATE, { recursive: true, force: true });
-  if (stashed) renameSync(STASH, STATE);
+  if (movedAside) {
+    rmSync(STATE, { recursive: true, force: true });
+    renameSync(STASH, STATE);
+  } else if (createdHere) {
+    rmSync(STATE, { recursive: true, force: true });
+  }
+  // Neither: this run never touched STATE, so there is nothing to undo. Removing it
+  // "just in case" is what destroyed data in the version above.
 }
 
 function wrangler(args) {
