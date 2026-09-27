@@ -339,9 +339,9 @@ getting more dependencies.
 |---|---|---|---|
 | `VI-AUTH-001` | **FAIL** (Tier 0) | **PASS** | `pnpm smoke:passkey` 55/55 — real ES256, real CBOR, real D1, real Worker; both defects load-bearing by revert. `docs/adr/0008-vendored-passkey-auth-wasm-clock.md` |
 | `VI-ONBOARD-1` | **FAIL** (Tier 0) | **PASS** | Browser journey drives the UI's verification form and observes `email_verified: true`; the V00 API fallback is deleted. 10 new Vitest cases, each confirmed sensitive. |
-| `VI-TEST-001` | PASS but the required mutation set was incomplete | **PASS on the full minimum set** | Campaign **10/10 KILLED**, exit 0. Both entries `proof-obligations.md` names and that V00 found missing are now present, and both were killed with the verifier's own words in the verdict. `VI-AUTH-001` "accept a consumed auth ceremony" is killed by the passkey probe with `FAIL a consumed login ceremony cannot be replayed with a fresh sign counter — status=200` — under the fault the replay genuinely succeeded. `GUARD-1` "bypass one idempotency guard" is killed by `p05-smoke.mjs` on `internal reservation endpoint replays the managed hold (status=503 reason=none)`, which is the *same* assertion VFY-004 was found through: the abort must be **recognised** in order to be refused, and refusing it must still **work**. The exit gate now keys off the **tally**, so a case that never ran cannot report success. |
+| `VI-TEST-001` | PASS but the required mutation set was incomplete | **PASS on the full minimum set** | Campaign **12/12 KILLED**, exit 0. Both entries `proof-obligations.md` names and that V00 found missing are now present, and both were killed with the verifier's own words in the verdict. `VI-AUTH-001` "accept a consumed auth ceremony" is killed by the passkey probe with `FAIL a consumed login ceremony cannot be replayed with a fresh sign counter — status=200` — under the fault the replay genuinely succeeded. `GUARD-1` "bypass one idempotency guard" is killed by `p05-smoke.mjs` on `internal reservation endpoint replays the managed hold (status=503 reason=none)`, which is the *same* assertion VFY-004 was found through: the abort must be **recognised** in order to be refused, and refusing it must still **work**. The exit gate now keys off the **tally**, so a case that never ran cannot report success. |
 | `VI-WASM-001` ("run" half) | **FAIL** (Tier 1) | **PASS** | No Worker panics; `pnpm smoke:passkey` exercises both ceremony paths on `wasm32-unknown-unknown`. |
-| `GUARD-1` | **FAIL** (Tier 1) | **PASS** | `pnpm smoke:p05` 185/0, was 175/1 (`status=503 reason=none`); `pnpm guard:probe` 11/11 against real migrations and a real sentinel, sensitive to all five mutations. |
+| `GUARD-1` | **FAIL** (Tier 1) | **PASS** | `pnpm smoke:p05` 185/0, was 175/1 (`status=503 reason=none`); `pnpm guard:probe` **13/13** against real migrations and a real sentinel, sensitive to all five mutations, and now also to campaign case `GUARD-2`, which reverts the recogniser itself. |
 | `VI-IDEM-001` (runtime half) | **FAIL** | **PASS** | Same. A deliberately refused write now answers with its documented reason instead of a 503. |
 | `ROUTE-2` | **FAIL** (Tier 1) | **PASS** | Browser journey creates two organizations through the UI and the switcher lists both; the V00 API fallback is deleted. |
 | `VI-UX-001` | PASS on an out-of-band state | **PASS on a UI-reachable state** | Same journey. The evidence limit recorded against it is discharged. |
@@ -351,7 +351,7 @@ getting more dependencies.
 
 | Check | Command | Result |
 |---|---|---|
-| format | `pnpm format:check` | PASS (174 files) |
+| format | `pnpm format:check` | PASS (176 files) |
 | lint | `pnpm lint` | PASS (0 warnings, 0 errors) |
 | typecheck | `pnpm typecheck` | PASS |
 | web unit | `pnpm --filter @runlumi/agents-cp-web test` | PASS — 48 files, **816 tests** (was 798) |
@@ -359,7 +359,7 @@ getting more dependencies.
 | storage invariants | `pnpm schema:p07` | PASS — 125/125 |
 | secret canary | `pnpm canary:p09` | PASS — 15/15 |
 | NULL-passes-CHECK scan | `pnpm schema:null-check` | PASS |
-| **guard-sentinel probe** (new) | `pnpm guard:probe` | PASS — 11/11 across 2 recognised abort texts |
+| **guard-sentinel probe** (new) | `pnpm guard:probe` | PASS — **13/13** across 2 recognised abort texts |
 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
 | WASM | `cargo check --workspace --target wasm32-unknown-unknown` | PASS |
 | Worker build | `pnpm build` | PASS — `gzip: 2395.07 KiB` (was 2393.75; **+1.32 KiB**) |
@@ -369,13 +369,22 @@ getting more dependencies.
 | runtime smokes P01–P05 | `pnpm smoke:local` … `smoke:p05` | PASS — **P05 185/0** (was 175/1) |
 | **passkey ceremony probe** (new) | `pnpm smoke:passkey` | PASS — 55/55 |
 | **real-browser journey** (new gate) | `pnpm smoke:browser` | PASS — **39/39** (was 20/23) |
-| mutation campaign | `pnpm verify:mutation --apply` in a disposable linked worktree | PASS — **11/11 KILLED**, `tally: {"KILLED":11}`, exit 0 |
+| mutation campaign | `pnpm verify:mutation --apply` in a disposable linked worktree | PASS — **12/12 KILLED**, `tally: {"KILLED":12}`, exit 0 |
 | `pnpm check` | as defined in `package.json` | **EXIT 0** |
 
 Three new gates are now part of `pnpm test` or CI: `guard:probe` (in `pnpm test`),
 `smoke:passkey` (CI, after `pnpm build`), and `smoke:browser` (CI, after migrations). The browser
 journey needed a real Chrome and two running services, so it is a CI step rather than part of
 `pnpm check` — which `AGENTS.md` defines as a check that must not require a browser.
+
+The mutation campaign grew a twelfth case, `GUARD-2`, so that `pnpm verify:mutation` covers
+VFY-004's own fix rather than only a shell script. Building it found that `guard:probe` proved the
+aborted-text *list* correct against real SQLite but never checked that the application *used* it —
+it re-implemented the match in JavaScript, so mutating the Rust function left all eleven checks
+green. The probe now also asserts the wiring (13 checks), and the case's first kill was attributed
+to a check that had not fired; both are written up in `repair-closure.md`, along with a harness
+defect this exposed that would have relabelled a *surviving* `p05` mutant as a harness fault and
+so excluded it from the very tally meant to catch it.
 
 ## Gaps that remain, stated plainly
 

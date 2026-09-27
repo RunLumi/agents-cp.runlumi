@@ -303,6 +303,7 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | the migration's triggers and constraints refuse what the domain says they refuse | a local D1 |
 | `pnpm verify:restore` | a restored database still refuses every invalid write | nothing |
 | `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
+| `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
 | `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
 
 `verify:mutation` is the only command here that deliberately breaks code. It needs roughly **2.4 GB
@@ -335,7 +336,7 @@ proof, and each proof is rerunnable:
 |---|---|
 | `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/35 against 55/55). The denominators are smaller because the probe returns early once a core step fails, so the later checks are never reached rather than passing |
 | `smoke:passkey` (revocation) | `evidence/vfy-revoked-credential-sensitivity.sh` — the `revoked_at` filter in the login path reverted; a revoked credential then authenticates with 200 and the probe reports 54/55 |
-| `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected |
+| `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected — plus campaign case `GUARD-2`, which reverts `is_guard_abort` to the pre-VFY-004 substring matcher. The probe verifies the list behaviourally against real SQLite and the function's use of the list structurally; it does not execute the Rust function, so run-time evidence for the match itself comes from `smoke:p05` and `GUARD-1` |
 | `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
 | `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
 

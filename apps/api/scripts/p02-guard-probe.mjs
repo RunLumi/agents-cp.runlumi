@@ -72,6 +72,39 @@ function guardAbortTexts() {
   return [...block[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
 }
 
+/**
+ * Read the body of `is_guard_abort` out of the Rust source.
+ *
+ * This probe verifies the LIST against a real database. It previously did not
+ * verify that the FUNCTION reads that list -- it re-implemented the matching here in
+ * JavaScript, so replacing `is_guard_abort`'s body with `contains("constraint")`
+ * changed nothing this probe could see. The mutation campaign found that: a case
+ * that reverts the recogniser to the pre-VFY-004 matcher left all eleven checks
+ * green, and was reported as a harness fault because the guard probe exited 0.
+ *
+ * A list nobody reads is not a fix. So the wiring is asserted too, and the campaign's
+ * mutation is detectable.
+ */
+function isGuardAbortBody() {
+  const source = readFileSync(join(apiDir, "src/core/idempotency.rs"), "utf8");
+  const start = source.indexOf("pub fn is_guard_abort(detail: &str) -> bool {");
+  if (start === -1) return null;
+  // Walk braces to the end of the function, so the body is read exactly rather than
+  // guessed from a fixed number of lines.
+  let depth = 0;
+  let opened = false;
+  for (let i = start; i < source.length; i += 1) {
+    if (source[i] === "{") {
+      depth += 1;
+      opened = true;
+    } else if (source[i] === "}") {
+      depth -= 1;
+      if (opened && depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 const isRecognised = (text, known) => {
   const lowered = String(text).toLowerCase();
   return known.some((candidate) => lowered.includes(candidate.toLowerCase()));
@@ -364,6 +397,46 @@ check("the recognised-text list holds only measured entries", () => {
   }
   if (known.some((text) => text.trim() === "")) {
     return "GUARD_ABORT_TEXTS holds an empty entry, which would match every error";
+  }
+  return null;
+});
+
+check("is_guard_abort actually reads the list this probe verifies", () => {
+  // The gap this closes: the probe re-implements the match in JavaScript, so it
+  // proved the LIST is right and said nothing about whether the application uses it.
+  // A list nothing reads is not a fix.
+  const body = isGuardAbortBody();
+  if (body === null) {
+    return (
+      "is_guard_abort was not found in apps/api/src/core/idempotency.rs, so the probe " +
+      "cannot tell whether the application still uses the list it verifies. If it moved or was " +
+      "renamed, update this probe rather than deleting the check."
+    );
+  }
+  if (!body.includes("GUARD_ABORT_TEXTS")) {
+    return (
+      "is_guard_abort no longer reads GUARD_ABORT_TEXTS:\n  " +
+      body.replace(/\s+/g, " ").slice(0, 200) +
+      "\n  The list this probe verifies against real SQLite is therefore decorative -- the " +
+      "same class of defect as VFY-004 itself, where the matcher and the schema had drifted " +
+      "apart and nothing connected them."
+    );
+  }
+  return null;
+});
+
+check("is_guard_abort does not widen itself past the list", () => {
+  // Belt and braces. Even while reading the list, a function that also accepts any
+  // text containing "constraint" is back to the pre-VFY-004 behaviour, which called
+  // a UNIQUE violation on an unrelated table a deliberate guard.
+  const body = isGuardAbortBody();
+  if (body === null) return "is_guard_abort was not found; see the check above";
+  if (/contains\(\s*["']constraint["']\s*\)/.test(body)) {
+    return (
+      'is_guard_abort still accepts any text containing "constraint", which is the ' +
+      "over-broad half of the pre-VFY-004 matcher: an UNIQUE or FOREIGN KEY violation on an " +
+      "unrelated table would be reported as a deliberate guard and answered with business copy."
+    );
   }
   return null;
 });

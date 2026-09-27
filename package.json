@@ -20,7 +20,7 @@
     "format:check": "oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all -- --check",
     "lint": "oxlint --type-aware apps/web/src apps/web/vite.config.ts",
     "typecheck": "pnpm --filter @runlumi/agents-cp-web typecheck",
-    "test": "pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09 && pnpm schema:null-check && pnpm guard:probe",
+    "test": "pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09 && pnpm schema:null-check && pnpm guard:probe && pnpm verify:campaign-selftest",
     "schema:p07": "node apps/api/scripts/p07-schema-invariants.mjs",
     "canary:p09": "node apps/api/scripts/p09-secret-canary.mjs",
     "rust:check": "cargo clippy --workspace --all-targets -- -D warnings && cargo check --workspace --target wasm32-unknown-unknown",
@@ -28,7 +28,8 @@
     "ui:add": "pnpm --filter @runlumi/agents-cp-web ui:add",
     "schema:null-check": "node apps/api/scripts/p09-null-check-scan.mjs",
     "verify:mutation": "node apps/api/scripts/p09-mutation-campaign.mjs",
-    "verify:restore": "node apps/api/scripts/p09-restore-rehearsal.mjs"
+    "verify:restore": "node apps/api/scripts/p09-restore-rehearsal.mjs",
+    "verify:campaign-selftest": "node apps/api/scripts/p09-mutation-campaign.mjs --self-test"
   },
   "devDependencies": {
     "oxfmt": "0.70.0",

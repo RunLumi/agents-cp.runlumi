@@ -16,6 +16,10 @@
 // Usage:
 //   node apps/api/scripts/p09-mutation-campaign.mjs            # report
 //   node apps/api/scripts/p09-mutation-campaign.mjs --apply    # mutate + verify
+//   node apps/api/scripts/p09-mutation-campaign.mjs --self-test
+//
+// `--self-test` exercises the harness's OWN verdict parsing and needs no worktree, no
+// Worker, and no mutation, so it runs in `pnpm test`. See the note above `SELF_TEST`.
 //
 // `--apply` mutates a DISPOSABLE WORKTREE and never the working tree; it refuses
 // to run unless the worktree it was given is not the current checkout. The
@@ -315,6 +319,71 @@ const CASES = [
     verifier: ["smoke:p05"],
     expect: "replays the managed hold",
   },
+  {
+    id: "GUARD-2",
+    tier: 1,
+    // VFY-004's own mutation case, named as a deliverable in
+    // `docs/verification/runs/2026-09-27-v00-independent-reconstruction/next-verification-actions.md`:
+    // "add a storage probe that executes one real guard sentinel through D1 and
+    // asserts the recogniser accepts the produced error" AND "a mutation case".
+    //
+    // The probe exists (`p02-guard-probe.mjs`, in `pnpm test`). Until now the
+    // recogniser's own mutation was only exercised by a shell script, so
+    // `pnpm verify:mutation` did not cover it and the campaign could not tell a reader
+    // that the fix is load-bearing.
+    //
+    // WHAT IT FAULTS. `core::idempotency::is_guard_abort` is replaced by the matcher it
+    // replaced: `detail.contains("NOT NULL") || detail.contains("constraint")`. That is
+    // the pre-VFY-004 implementation, and it is BOTH halves of the original defect at
+    // once -- it misses the migration-0020 trigger text, and it accepts a UNIQUE or
+    // FOREIGN KEY violation on any table as a deliberate guard.
+    //
+    // WHY THIS PROBE, AND WHAT IT ACTUALLY CATCHES -- which is narrower than the
+    // first draft of this comment claimed, and was corrected by measurement.
+    //
+    // `guard:probe` applies the real migrations to a real database and runs the real
+    // sentinel, then compares the abort text against the LIST. It does NOT execute the
+    // Rust function. So the draft's claim that "it also fails the negative cases,
+    // because the old matcher calls a UNIQUE violation a guard" was wrong: the
+    // negatives -- "an UNIQUE violation on an unrelated table is NOT read as a guard" --
+    // are testing the probe's OWN matcher in JavaScript, and they pass straight through
+    // a mutation of the Rust body. Measured, not assumed: under this mutation the
+    // probe reported 12/13, and the single failure was the structural check.
+    //
+    // What catches it is the structural check "is_guard_abort does not widen itself
+    // past the list", which reads the Rust body and rejects `contains("constraint")`.
+    // That check exists because the first run of this case surfaced the gap; before
+    // it, a mutation of the function left all eleven original checks green.
+    title:
+      "the guard recogniser reverts to matching any constraint, so a store outage reads as a guard",
+    edits: [
+      {
+        file: "apps/api/src/core/idempotency.rs",
+        find: "    GUARD_ABORT_TEXTS\n        .iter()\n        .any(|text| lowered.contains(&text.to_ascii_lowercase()))",
+        replace:
+          '    lowered.contains("NOT NULL") || lowered.contains("constraint")\n    || GUARD_ABORT_TEXTS.is_empty()',
+      },
+    ],
+    // WHICH CHECK CATCHES IT, since the probe has two and only one is load-bearing.
+    // The mutation keeps a reference to the constant -- `|| GUARD_ABORT_TEXTS.is_empty()`
+    // -- so the compiler does not warn about an unused item, which means
+    // `is_guard_abort actually reads the list` still PASSES. The check that fires is
+    // `is_guard_abort does not widen itself past the list`, and that is what `expect`
+    // names. Pointing it at the other one produced a kill attributed to a check that
+    // did none of the work, which is the same false confidence as a wrong-reason kill
+    // in any other form.
+    //
+    // CONSEQUENT LIMIT, stated rather than glossed. The probe is evidence in two
+    // pieces: the LIST is right against a real database (behavioural), and the
+    // FUNCTION is wired to that list without widening past it (structural). It does
+    // NOT prove the function performs the match correctly at run time. The run-time
+    // evidence for the match itself is `smoke:p05` and the `GUARD-1` case.
+    //
+    // `guard:probe` opens SQLite directly and starts no Worker, so this case skips
+    // the release build entirely -- seconds rather than minutes.
+    verifier: ["smoke:guard"],
+    expect: "does not widen itself past the list",
+  },
 ];
 
 /**
@@ -325,10 +394,124 @@ const CASES = [
  * being reported as a product failure.
  */
 const SMOKE_SCRIPTS = {
-  passkey: "apps/api/scripts/p02-passkey-smoke.mjs",
-  p05: "apps/api/scripts/p05-smoke.mjs",
-  guard: "apps/api/scripts/p02-guard-probe.mjs",
+  // `needsWorker: true` means the probe starts a real development Worker, so the
+  // mutant has to be built for wasm32 and bundled before it can run. `guard` opens a
+  // SQLite database directly and touches no HTTP surface, so building a Worker for it
+  // would cost five minutes to test nothing. Deriving this from a flag rather than
+  // from the `smoke:` prefix is what keeps a cheap case cheap.
+  //
+  // `tally(out)` answers one question: did this probe just report a verdict, and did
+  // that verdict come out clean? It returns null when no verdict was reported at all,
+  // which the caller treats as a harness fault.
+  //
+  // Each probe therefore parses its OWN summary, beside its own name, because the three
+  // do not share a format:
+  //
+  //   passkey   "55/55 checks passed"
+  //   p05       "P05 smoke: 185 checks passed; 0 failures; 0 limitations"   <- no "/n"
+  //   guard     "13/13 guard cases hold across 2 recognised abort texts"
+  //
+  // Two earlier attempts to share one pattern both broke. Matching the passkey wording
+  // rejected the guard probe's correct "13/13 guard cases hold" as reporting nothing.
+  // Loosening it to any /n/n then went the other way: p05 has no denominator, so a
+  // SURVIVING p05 mutant -- the one outcome this whole campaign exists to detect --
+  // would have been relabelled a harness fault and quietly excluded from the tally.
+  // A shared pattern is only safe when the things it parses actually agree.
+  passkey: {
+    script: "apps/api/scripts/p02-passkey-smoke.mjs",
+    needsWorker: true,
+    tally(out) {
+      const m = /(\d+)\/(\d+) checks passed/.exec(out);
+      if (!m) return null;
+      return { clean: m[1] === m[2], reported: `${m[1]}/${m[2]} checks passed` };
+    },
+  },
+  p05: {
+    script: "apps/api/scripts/p05-smoke.mjs",
+    needsWorker: true,
+    tally(out) {
+      const m = /P05 smoke: (\d+) checks passed; (\d+) failures/.exec(out);
+      if (!m) return null;
+      return {
+        clean: m[2] === "0",
+        reported: `P05 smoke: ${m[1]} checks passed; ${m[2]} failures`,
+      };
+    },
+  },
+  guard: {
+    script: "apps/api/scripts/p02-guard-probe.mjs",
+    needsWorker: false,
+    tally(out) {
+      const m = /(\d+)\/(\d+) guard cases hold/.exec(out);
+      if (!m) return null;
+      return { clean: m[1] === m[2], reported: `${m[1]}/${m[2]} guard cases hold` };
+    },
+  },
 };
+
+/**
+ * Check the harness's own verdict parsing.
+ *
+ * WHY THIS IS A TEST AND NOT A COMMENT. Every campaign case that uses a runtime probe
+ * asks the same question before believing a kill: *did that probe just report a clean
+ * verdict?* A wrong answer there is invisible in the best case (a mutant is called
+ * `HARNESS_FAULT` and quietly excluded from the tally) and catastrophic in the
+ * worst.
+ *
+ * That is not hypothetical. The first version of this check matched the *passkey*
+ * probe's summary wording and rejected the guard probe's correct result. The second
+ * version generalised to any `/n/n` and then could not see `p05`, whose summary has no
+ * denominator at all -- so a *surviving* p05 mutant, the one outcome this campaign
+ * exists to detect, would have been relabelled `HARNESS_FAULT` and dropped.
+ *
+ * So each probe parses its own summary, and these cases pin the three shapes that
+ * matter for each of them: a clean summary, a FAILING summary that nevertheless
+ * exited 0, and a crash with no summary at all. The templates are the real ones, so
+ * a probe changing its wording shows up here rather than at the end of a
+ * twenty-minute campaign.
+ */
+const SELF_TEST = [
+  // [probe, what the output is, must the verdict come back clean?]
+  ["passkey", "\n55/55 checks passed", true],
+  ["passkey", "\n54/55 checks passed", false],
+  ["passkey", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
+  ["p05", "\nP05 smoke: 185 checks passed; 0 failures; 0 limitations", true],
+  ["p05", "\nP05 smoke: 184 checks passed; 1 failures; 0 limitations", false],
+  ["p05", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
+  ["guard", "\n13/13 guard cases hold across 2 recognised abort texts", true],
+  ["guard", "\n12/13 guard cases hold across 2 recognised abort texts", false],
+  ["guard", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
+];
+
+if (process.argv.includes("--self-test")) {
+  let failed = 0;
+  for (const [name, output, wantClean] of SELF_TEST) {
+    const verdict = SMOKE_SCRIPTS[name].tally(output);
+    const gotClean = verdict === null ? null : verdict.clean;
+    const ok = gotClean === wantClean;
+    if (!ok) failed += 1;
+    const label = wantClean === null ? "no verdict (harness fault)" : `clean=${wantClean}`;
+    console.log(
+      `  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(8)} ${label.padEnd(24)} ${
+        verdict ? verdict.reported : "null"
+      }`,
+    );
+    if (!ok) {
+      console.log(
+        `        wanted clean=${wantClean}, got clean=${gotClean} from:\n  ${JSON.stringify(output)}`,
+      );
+    }
+  }
+  console.log(`\n${SELF_TEST.length - failed}/${SELF_TEST.length} verdict-parsing cases hold`);
+  if (failed > 0) {
+    console.log(
+      "\nA verdict parser that no longer recognises its probe will relabel mutants as\n" +
+        "HARNESS_FAULT. Fix the parser or the probe's wording -- do not loosen the\n" +
+        "check until it passes.",
+    );
+  }
+  process.exit(failed > 0 ? 1 : 0);
+}
 
 /**
  * Locate a wrangler binary outside the scratch copy.
@@ -579,7 +762,9 @@ for (const testCase of CASES) {
     // test unmutated code and report a false pass. The `cargo build --tests` step
     // is kept as well so an obviously non-compiling mutant is rejected cheaply
     // before the expensive one.
-    const needsWorker = testCase.verifier.some((v) => v.startsWith("smoke:"));
+    const needsWorker = testCase.verifier.some(
+      (v) => v.startsWith("smoke:") && SMOKE_SCRIPTS[v.slice("smoke:".length)]?.needsWorker,
+    );
     if (!testCase.verifier.includes("schema")) {
       const compile = tryRun(
         "cargo",
@@ -681,8 +866,8 @@ for (const testCase of CASES) {
           });
           continue;
         }
-        const probe = SMOKE_SCRIPTS[verifier.slice("smoke:".length)];
-        if (!probe) {
+        const entry = SMOKE_SCRIPTS[verifier.slice("smoke:".length)];
+        if (!entry) {
           results.push({
             ...testCase,
             verdict: "HARNESS_FAULT",
@@ -696,19 +881,31 @@ for (const testCase of CASES) {
           });
           continue;
         }
-        const result = tryRun("node", [probe], scratch, {
+        const result = tryRun("node", [entry.script], scratch, {
           P02_PASSKEY_WRANGLER: wrangler,
           P05_WRANGLER: wrangler,
         });
-        if (result.code === 0 && !/\d+\/\d+ checks passed/.test(result.out)) {
-          // A probe that crashed before reporting is not a pass; treat an
-          // unparseable run as a harness fault rather than a kill.
-          const reported = /(\d+)\/(\d+) checks passed/.exec(result.out);
-          if (!reported || reported[1] !== reported[2]) {
+        // A probe that crashed before its verdict is not a pass, and a probe that
+        // printed a failing tally while still exiting 0 is not a pass either. Both
+        // are harness faults: they mean the run produced no evidence either way.
+        //
+        // Note this only runs on exit 0. A mutant that the probe rejects exits
+        // non-zero, which is the kill path and must stay untouched.
+        if (result.code === 0) {
+          const verdict = entry.tally(result.out);
+          if (!verdict) {
             results.push({
               ...testCase,
               verdict: "HARNESS_FAULT",
-              detail: "the runtime probe exited 0 without reporting a complete check tally",
+              detail: `the runtime probe exited 0 without reporting a check tally in its own format, so it crashed before its verdict`,
+            });
+            continue;
+          }
+          if (!verdict.clean) {
+            results.push({
+              ...testCase,
+              verdict: "HARNESS_FAULT",
+              detail: `the runtime probe exited 0 but its own tally read "${verdict.reported}"; a probe that reports failures must not exit 0`,
             });
             continue;
           }

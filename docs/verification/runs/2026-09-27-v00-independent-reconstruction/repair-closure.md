@@ -22,8 +22,8 @@ Where a repair required a durable decision, it is recorded in
 | Real-browser journey | **20/23**, 3 FAIL (old probe) | **39/39**, 0 FAIL, exit 0 — and **12 named failures** against the pre-repair product, so it is proven able to fail | `VI-AUTH-001`, `VI-ONBOARD-1`, `VI-UX-001`, `VI-UX-002`, `ROUTE-2` |
 | P05 runtime smoke | **175 pass / 1 fail**, exit 1 | **185 pass / 0 fail**, exit 0 | `GUARD-1`, `VI-IDEM-001` |
 | Passkey ceremony probe (new) | did not exist | **55/55**, exit 0 | `VI-AUTH-001` |
-| Guard-sentinel probe (new) | did not exist | **11/11** across 2 recognised abort texts | `GUARD-1` |
-| Mutation campaign | 9/9 KILLED, minimum set incomplete | **11/11 KILLED**, `tally: {"KILLED":11}`, exit 0 | `VI-TEST-001` |
+| Guard-sentinel probe (new) | did not exist | **13/13** across 2 recognised abort texts | `GUARD-1`, `GUARD-2` |
+| Mutation campaign | 9/9 KILLED, minimum set incomplete | **12/12 KILLED**, `tally: {"KILLED":12}`, exit 0 | `VI-TEST-001` |
 | Worker bundle | `gzip 2393.75 KiB` | `gzip 2395.07 KiB` (**+1.32 KiB**) | budget still within ADR 0004 |
 
 The browser journey went from three failures to zero, and it grew from 23 to 39 checks while
@@ -523,6 +523,103 @@ was passing for the **wrong reason**. Replaying an identical assertion is refuse
 that disabled ceremony consumption entirely still left every check green. The replay now advances
 the signature counter, the way a real authenticator does, and asserts the refusal reason
 explicitly so a future run that passes for the wrong reason is visible in the output.
+
+---
+
+## The VFY-004 mutation case, and a limit the probe has
+
+The objective for VFY-004 asks for two things: "a D1-boundary regression probe" and "a mutation
+case". The probe existed. The mutation case did not — the recogniser's own revert was only
+exercised by a shell script, so `pnpm verify:mutation` did not cover the fix it exists to defend.
+`GUARD-2` is that case: it replaces `is_guard_abort` with the matcher it replaced,
+`contains("NOT NULL") || contains("constraint")`, which is **both** halves of the original defect
+at once — it misses the migration-0020 trigger text, and it calls a UNIQUE or FOREIGN KEY
+violation on an unrelated table a deliberate guard.
+
+**Getting there exposed a real gap in the probe.** `guard:probe` re-implemented the matcher in
+JavaScript and compared real SQLite output against the *parsed list*. It therefore proved the list
+is correct and said nothing about whether the application **uses** it. A mutation of the Rust
+function left all eleven checks green — the list nobody reads is not a fix, and that is the same
+class of defect as VFY-004 itself, where the matcher and the schema had drifted apart and nothing
+connected them. The probe now carries two structural checks: that the function references the
+list, and that it does not widen past the list. 13 checks.
+
+### A sixth verifier defect, and the one that mattered
+
+It also exposed a harness fault worth more than the case that found it. The campaign's "did the
+probe report a verdict?" guard matched `/\d+\/\d+ checks passed/` — the *passkey* probe's wording
+— so the guard probe's correct "13/13 guard cases hold" was rejected as reporting nothing. A harness
+that only understands one of its own verifiers will eventually reject a correct result from another.
+
+The first repair loosened it to any `/\d+\/\d+/`, and **that was wrong in the other direction,
+and had to be found rather than shipped.** `p05` reports
+
+```text
+P05 smoke: 185 checks passed; 0 failures; 0 limitations
+```
+
+— there is no denominator anywhere in it. So a *surviving* `p05` mutant, which is precisely the
+outcome this campaign exists to detect, would have found no `/n/n` in its output and been relabelled
+`HARNESS_FAULT` — dropped from the tally, reported as a gap in the campaign rather than as a mutant
+that got through. The harness would have become less likely to report the defect it was built to
+report.
+
+Both attempts failed for the same reason: one pattern shared across three verifiers that do not
+agree on a format. Each probe now parses **its own** summary, next to its own name in
+`SMOKE_SCRIPTS`:
+
+| probe | summary | `needsWorker` |
+|---|---|---|
+| `passkey` | `55/55 checks passed` | yes |
+| `p05` | `P05 smoke: 185 checks passed; 0 failures` | yes |
+| `guard` | `13/13 guard cases hold across 2 …` | no |
+
+Nine cases now pin those parsers, in `pnpm verify:campaign-selftest`, which `pnpm test` runs: for
+each probe, a clean summary, a *failing* summary that nevertheless exited 0 (`54/55`,
+`184 … ; 1 failures`, `12/13`), and a crash with no summary at all. A dirty summary is caught as
+`HARNESS_FAULT` too — a probe that reports failures and exits 0 is a broken probe, not a kill. And
+because a parser that stops matching raises `HARNESS_FAULT` rather than passing quietly, the failure
+mode of this arrangement is loud.
+
+The self-test is itself shown to fail: reinstating the over-general `/n/n` matcher for `p05`, which
+is the precise mistake described above, drops it to **7/9** and exits 1. Left as a one-off command
+it would have been a measurement; as a gate in `pnpm test` it is a standing claim.
+
+**And a wrong-reason kill of my own.** The first run of `GUARD-2` reported KILLED, but the evidence
+line it quoted was a **PASS** — the `expect` string named the "reads the list" check, which still
+passed, because the mutation keeps a reference to the constant so the compiler does not warn about
+an unused item. The check that actually fired was "does not widen itself past the list". Attributing
+a kill to a check that did no work is the same false confidence as any other wrong-reason kill, so
+`expect` now names the check that fires, and the case says which one is load-bearing and why the
+other still passes.
+
+### Both new checks are shown to fire
+
+A check nobody has watched fail is a claim, not a check. Each of the two structural checks was
+faulted by hand and the probe re-run on the real tree:
+
+| Fault applied to `is_guard_abort` | Result | Check that fired |
+|---|---|---|
+| none | **13/13**, exit 0 | — |
+| `contains("NOT NULL") \|\| contains("constraint")` (the pre-VFY-004 matcher) | **12/13**, exit 1 | does not widen itself past the list |
+| `lowered.contains("not null constraint failed")` — no reference to the list at all | **12/13**, exit 1 | actually reads the list this probe verifies |
+
+The third fault is the one a purely behavioural probe cannot see, and it is the reason the check
+exists. The file was restored and re-verified at 13/13 after the measurement.
+
+### What `guard:probe` does and does not prove
+
+Worth stating plainly, because the two pieces of evidence are different in kind:
+
+- **The list** is verified *behaviourally* — a real sentinel through real SQLite, its abort text
+  compared against the parsed list, on both the 0020 and the pre-0020 schema.
+- **The function's use of the list** is verified *structurally* — it references the constant, and it
+  does not widen past it.
+
+It does **not** execute the Rust function against real SQLite error text, so the probe's behavioural
+negatives pass even under a mutation of that function, because they are testing the probe's own
+matcher. Nothing here claims the function performs the match correctly at run time; the
+`smoke:p05` and `GUARD-1` cases are the run-time evidence for that.
 
 ---
 
