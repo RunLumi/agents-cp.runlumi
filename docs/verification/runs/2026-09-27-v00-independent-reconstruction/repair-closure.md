@@ -170,6 +170,23 @@ boundary. The genuine CTAP2 half is `apps/web/scripts/browser-probe.mjs`, which 
 return `201` with a `ceremony_id`, an `expires_at`, and server-generated `public_key` options, and
 the Worker log contains zero panics.
 
+Re-run against the final tree, script untouched:
+
+```text
+HEAD=fbc730e  at 2026-09-27T16:37:03Z
+POST /api/v1/auth/passkey/signup/start        status=201
+POST /api/v1/auth/passkey/login/start         status=201
+--- actual Worker log ---
+[wrangler:info] POST /api/v1/auth/passkey/signup/start 201 Created (101ms)
+[wrangler:info] POST /api/v1/auth/passkey/login/start 201 Created (9ms)
+```
+
+No panics. The script's own `expected` line says `status=200`, and that expectation is **wrong**:
+a ceremony start creates a `webauthn_ceremonies` row, so `201 Created` is the correct answer. The
+same mistake was in the promoted browser probe and was fixed there. It is deliberately **left
+uncorrected here**, because this script is the record of what was run against `ecbdac1`: editing a
+reproducer's expected values after using it as evidence is how a baseline stops being a baseline.
+
 **Gated.** `pnpm smoke:passkey` runs in `.github/workflows/checks.yml` after `pnpm build`.
 
 ---
