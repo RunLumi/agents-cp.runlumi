@@ -60,6 +60,22 @@ Before starting a phase as coordinator:
 
 The prompt library exists to reduce prompt drift across agents; it does not replace the repository contracts.
 
+## Independent verification
+
+`docs/verification/` is the authoritative post-implementation verification system.
+
+When a phase or release is believed complete:
+
+1. Derive proof obligations from specs, ADRs, and contracts before trusting implementation handoffs or prior PASS evidence.
+2. Use only PASS, FAIL, UNPROVEN, BLOCKED, or NOT_APPLICABLE; never convert missing critical evidence into a soft PASS.
+3. Security, tenant isolation, authentication, data-loss, budget, and compatibility claims require hostile/runtime evidence, not only unit tests or code review.
+4. For load-bearing invariants, verify the verifier with targeted mutation or deliberate fault injection in a disposable worktree.
+5. Never weaken a verifier, spec, or frozen contract merely to make implementation pass.
+6. Keep verification and repair separable so failing evidence survives the fix.
+7. A test count is telemetry, not proof. Every critical PASS must identify the claim and evidence that demonstrates it.
+
+Read `docs/verification/README.md` and `docs/verification/plan00-verification-system.md` before a post-implementation verification campaign.
+
 ## Read first
 
 Before changing architecture, dependencies, build tooling, public API contracts, authentication, authorization, persistence, or cross-cutting UI behavior:
