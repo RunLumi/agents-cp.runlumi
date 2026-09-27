@@ -89,23 +89,40 @@ jobs:
         # it is the only one that can catch that class of defect.
         run: |
           pnpm --filter @runlumi/agents-cp-api db:migrations:apply:local
-          pnpm --filter @runlumi/agents-cp-web dev --port 5173 --strictPort &
-          pnpm --filter @runlumi/agents-cp-api dev --port 8787 &
-          # Wait for both to answer rather than sleeping a guessed interval.
-          for i in $(seq 1 90); do
+          # Both services are backgrounded with their output redirected to a file.
+          # That is not tidiness: a background process holding the step's stdout
+          # keeps the step's output pipe open, so the runner waits for it long after
+          # the last command has finished and the step appears to hang until it is
+          # killed. Redirecting also leaves the service logs intact for a failure,
+          # which a bare `&` would have interleaved into the step's own log.
+          pnpm --filter @runlumi/agents-cp-web dev --port 5173 --strictPort >/tmp/vite.log 2>&1 &
+          pnpm --filter @runlumi/agents-cp-api dev --port 8787 >/tmp/worker.log 2>&1 &
+          # Wait for both to answer rather than sleeping a guessed interval. The
+          # original loop had no failure branch: it fell through after 90 tries and
+          # went on to run the probe against a service that was not there.
+          ready=0
+          for i in $(seq 1 120); do
             web=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/ || true)
             api=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/api/health || true)
             if [ "$web" = "200" ] && [ "$api" = "200" ]; then
               echo "both services are up after ${i}s"
+              ready=1
               break
             fi
             sleep 1
           done
-          curl -sS --fail http://localhost:8787/api/health
-          curl -sS --fail -o /dev/null http://localhost:5173/
-          pnpm smoke:browser
-        # A stuck journey is a failing journey, not a slow one: the probe's own
-        # per-condition timeouts plus this ceiling bound the step at roughly six
-        # minutes, and the log is uploaded either way so a failure is diagnosable
-        # from CI alone.
+          if [ "$ready" != "1" ]; then
+            echo "::error::the web server and/or the Worker never came up"
+            echo "--- vite.log ---"; tail -40 /tmp/vite.log || true
+            echo "--- worker.log ---"; tail -40 /tmp/worker.log || true
+            exit 1
+          fi
+          pnpm smoke:browser || {
+            echo "::error::the real-browser journey failed"
+            echo "--- worker.log (tail) ---"; tail -40 /tmp/worker.log || true
+            exit 1
+          }
+        # A stuck journey is a failing journey, not a slow one. The probe's own
+        # per-condition timeouts plus this ceiling bound the step, so a hang is a
+        # failure with a reason rather than a job that never finishes.
         timeout-minutes: 12
