@@ -25,8 +25,8 @@ Every implementation agent reads, in order:
 | P05 | Runs, tools, usage, control | Complete (`p05-cg-v1`, P05-IG conditional PASS) |
 | P06 | Automations, events, billing, data | Contract Gate frozen (`p06-cg-v1`); packets ready |
 | P07 | Enterprise, admin, plugins | Implementation complete (`p07-cg-v1`; P07-IG PASS WITH FOLLOW-UP). F06 and the internal ops console frozen-not-built by coordinator decision |
-| P08 | LumiAgents migration and adoption | Blocked by relevant P03-P07 work; P07's INT seams are server-side only |
-| P09 | Hardening and release | Blocked by MVP implementation |
+| P08 | LumiAgents migration and adoption | **Next.** P07's server-side seams (`/plugin-reports`, `/machine/whoami`) exist and are tested; no host implements them yet |
+| P09 | Security, reliability, performance, release hardening | Complete (`gates/P09-IG.md` PASS WITH FOLLOW-UP). 11 release artifacts in `docs/release/`; 7 named follow-ups, none in a release-bar category |
 
 The live execution state is in `STATUS.md`. Only the coordinator should update that file.
 
