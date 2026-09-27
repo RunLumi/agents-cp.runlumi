@@ -18,6 +18,23 @@ This directory exists to break that correlation.
 
 > No claim without a proof obligation. No PASS without reproducible evidence. No critical invariant is trusted until a verifier has tried to break it.
 
+Verification is an **autonomous closed loop**, not a read-only audit:
+
+```text
+verify
+→ reproduce failure
+→ preserve failing evidence
+→ diagnose root cause
+→ fix the smallest coherent cause
+→ add/strengthen regression evidence
+→ re-run the original reproducer
+→ re-run affected proof obligations
+→ mutation/fault-test the verifier when critical
+→ continue verification
+```
+
+The default is to fix issues as they are discovered. Separation between verification and repair means **evidence and requirements remain independent**, not that a verifier must stop after writing a bug report.
+
 ## Authority
 
 ```text
@@ -70,7 +87,9 @@ A verifier should:
 7. Attack the highest-risk assumptions.
 8. Verify important tests can actually fail via targeted mutation/fault injection.
 9. Read existing implementation evidence last and reconcile differences.
-10. Record PASS/FAIL/UNPROVEN/BLOCKED/N/A with exact evidence.
+10. When a defect is found, record the failing evidence before changing code, then repair and re-verify it.
+11. Continue until the claim is proven, explicitly FAIL/UNPROVEN/BLOCKED, or a real stop condition is reached.
+12. Record PASS/FAIL/UNPROVEN/BLOCKED/N/A with exact evidence.
 
 This ordering is intentional: reading implementer evidence first anchors the verifier to the implementer's model.
 
@@ -139,8 +158,8 @@ Convert incidents/near misses/representative traces into regression capsules. Te
 1. `plan00-verification-system.md`
 2. `contracts/core-invariants-v1.yaml`
 3. `prompts/verify-00-independent-reconstruction.md`
-4. focused adversarial/runtime/mutation prompts
-5. `prompts/repair-findings.md`
+4. focused adversarial/runtime/mutation prompts, fixing verified defects along the way
+5. `prompts/repair-findings.md` for queued/backlog findings or a dedicated repair pass
 6. `release-gate.md`
 
 ## References
