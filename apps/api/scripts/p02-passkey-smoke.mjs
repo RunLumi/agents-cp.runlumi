@@ -66,6 +66,11 @@ import { fileURLToPath } from "node:url";
 const RP_ID = process.env.WEBAUTHN_RP_ID ?? "localhost";
 const ORIGIN = process.env.WEBAUTHN_ORIGINS?.split(",")[0]?.trim() ?? "http://localhost:5173";
 
+// The password these probes configure on their throwaway account. Named once, so the
+// probe that sets it and the probe that signs in with it cannot drift into using two
+// different values and failing for a reason unrelated to the claim under test.
+const PROBE_PASSWORD = "correct horse battery staple 42";
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const apiDir = path.resolve(scriptDir, "..");
 // Resolvable from outside this tree, so the mutation campaign can run the probe
@@ -176,6 +181,43 @@ function authenticatorData({ rpId, credentialId, coseKey, flags, signCount = 0 }
 
 function clientData({ type, challenge, origin }) {
   return Buffer.from(JSON.stringify({ type, challenge, origin, crossOrigin: false }), "utf8");
+}
+
+/**
+ * Build an `AuthenticationResponse` the way a CTAP2 authenticator would.
+ *
+ * Module-level rather than a closure inside one probe because two ceremonies need
+ * it now: sign-in, and the reauth ceremony that revoking a credential requires.
+ * `challenge` is passed in rather than captured, because a fresh ceremony has a
+ * fresh challenge and reusing the previous one is precisely the substitution the
+ * server must refuse.
+ */
+function buildAssertion(authenticator, overrides = {}, challenge) {
+  const credentialId = overrides.credentialId ?? authenticator.credentialId;
+  const authData =
+    overrides.authData ??
+    authenticatorData({
+      rpId: overrides.rpId ?? RP_ID,
+      credentialId,
+      coseKey: Buffer.alloc(0),
+      flags: FLAG_UP | FLAG_UV | FLAG_BE | FLAG_BS,
+      signCount: overrides.signCount ?? 1,
+    });
+  const client = clientData({
+    type: "webauthn.get",
+    challenge: overrides.challenge ?? challenge,
+    origin: overrides.origin ?? ORIGIN,
+  });
+  const signature =
+    overrides.signature ?? signEs256(authenticator.privateKey, authData, sha256(client));
+  return {
+    id: b64url(credentialId),
+    raw_id: b64url(credentialId),
+    authenticatorData: b64url(authData),
+    signature: b64url(signature),
+    clientDataJSON: b64url(client),
+    ...(overrides.userHandle ? { userHandle: b64url(Buffer.from(overrides.userHandle)) } : {}),
+  };
 }
 
 function signEs256(privateKey, authData, clientDataHash) {
@@ -619,32 +661,7 @@ async function probeAuthentication(authenticator) {
     String(options?.userVerification),
   );
 
-  const assertion = (overrides = {}) => {
-    const authData =
-      overrides.authData ??
-      authenticatorData({
-        rpId: overrides.rpId ?? RP_ID,
-        credentialId: overrides.credentialId ?? authenticator.credentialId,
-        coseKey: Buffer.alloc(0),
-        flags: FLAG_UP | FLAG_UV | FLAG_BE | FLAG_BS,
-        signCount: overrides.signCount ?? 1,
-      });
-    const client = clientData({
-      type: "webauthn.get",
-      challenge: overrides.challenge ?? options.challenge,
-      origin: overrides.origin ?? ORIGIN,
-    });
-    const signature =
-      overrides.signature ?? signEs256(authenticator.privateKey, authData, sha256(client));
-    return {
-      id: b64url(overrides.credentialId ?? authenticator.credentialId),
-      raw_id: b64url(overrides.credentialId ?? authenticator.credentialId),
-      authenticatorData: b64url(authData),
-      signature: b64url(signature),
-      clientDataJSON: b64url(client),
-      ...(overrides.userHandle ? { userHandle: b64url(Buffer.from(overrides.userHandle)) } : {}),
-    };
-  };
+  const assertion = (overrides = {}) => buildAssertion(authenticator, overrides, options.challenge);
   const good = assertion();
 
   const flipLastByte = (bytes) =>
@@ -783,6 +800,311 @@ async function probeAuthentication(authenticator) {
 
 // --- expiry -------------------------------------------------------------------
 
+// --- revoked credential, and the lockout guard in front of it -------------------
+//
+// F01 requires that a revoked authenticator can no longer authenticate, and the
+// objective for this probe names "unknown/revoked credential" as a required case.
+// "Unknown" is covered; "revoked" was not, and it is the more interesting half:
+// an unknown credential is refused by not existing, while a revoked one still
+// exists and still verifies cryptographically. Only the revocation state can
+// refuse it, so the test has to reach that state through the real route.
+//
+// Revocation is not a bare DELETE. It requires a reauth grant, and the last
+// login method is protected so an account cannot be locked out of itself. Both of
+// those are properties worth proving on the way to the revocation, because each is
+// a way the endpoint could be wrong in the permissive direction.
+
+async function probeRevokedCredential(authenticator) {
+  const jar = new Jar();
+
+  // Establish a fresh session first: revocation needs an authenticated, CSRF-
+  // carrying caller, and a brand-new Jar is the honest way to be sure the session
+  // under test is the one we just proved works.
+  const started = await call(jar, "POST", "/api/v1/auth/passkey/login/start", {});
+  if (started.status !== 201) {
+    fail("the revocation probe could not start a ceremony", `status=${started.status}`);
+    return;
+  }
+  const signed = await call(jar, "POST", "/api/v1/auth/passkey/login/complete", {
+    ceremony_id: started.body.ceremony_id,
+    credential: buildAssertion(authenticator, { signCount: 3 }, started.body.public_key.challenge),
+  });
+  if (signed.status !== 200) {
+    fail(
+      "the revocation probe could not sign in",
+      `status=${signed.status} reason=${reasonOf(signed)}`,
+    );
+    return;
+  }
+
+  const listed = await call(jar, "GET", "/api/v1/account/passkeys");
+  const credential = listed.body?.items?.find((item) => item.passkey_id);
+  if (
+    !expect(
+      "the registered passkey appears in the account's credential inventory",
+      Boolean(credential),
+      `items=${listed.body?.items?.length}`,
+    )
+  ) {
+    return;
+  }
+  const passkeyId = credential.passkey_id;
+
+  // --- revocation requires a reauth grant -------------------------------------
+  const noGrant = await call(jar, "DELETE", `/api/v1/account/passkeys/${passkeyId}`, {
+    reauth_grant_id: "reauth_00000000000000000000000000000000",
+    reauth_token: "0".repeat(64),
+  });
+  // The reason matters as much as the refusal. `revoke_passkey` evaluates
+  // `can_revoke_passkey` BEFORE it consumes the grant, so with one passkey and no
+  // password a fabricated grant is refused with 409 `last_login_method_required` --
+  // and a bare "was it refused?" check then passes for the WRONG reason, which is
+  // the false positive this probe exists to catch elsewhere. The grant-specific
+  // refusal is asserted again below, once a password exists and the lockout guard no
+  // longer short-circuits.
+  expect(
+    "the lockout guard answers before the grant is examined, and names itself",
+    reasonOf(noGrant) === "last_login_method_required",
+    `status=${noGrant.status} reason=${reasonOf(noGrant)}`,
+  );
+
+  /**
+   * One full reauth cycle: start a ceremony, assert against it, and read the grant
+   * that COMPLETE issues.
+   *
+   * The start response is a `CeremonyStartResponse` -- `ceremony_id`, `expires_at`,
+   * `public_key` -- and carries no grant. The grant is minted at completion and
+   * returned as `{ grant: { grant_id, token, expires_at } }`. An earlier version of
+   * this probe looked for `grant_id` in the START response, found none, and reported
+   * "returned no grant", which reads as a product failure and was a harness fault
+   * wearing a product label.
+   */
+  const reauth = async (purpose, signCount) => {
+    const start = await call(jar, "POST", "/api/v1/account/reauth/passkey/start", { purpose });
+    if (start.status !== 200 && start.status !== 201) {
+      return { error: `reauth start status=${start.status} reason=${reasonOf(start)}` };
+    }
+    const options = start.body?.public_key;
+    if (!options?.challenge || !start.body?.ceremony_id) {
+      return {
+        error: `reauth start returned no ceremony: ${JSON.stringify(start.body).slice(0, 200)}`,
+      };
+    }
+    const complete = await call(jar, "POST", "/api/v1/account/reauth/passkey/complete", {
+      ceremony_id: start.body.ceremony_id,
+      credential: buildAssertion(authenticator, { signCount }, options.challenge),
+    });
+    if (complete.status !== 200 && complete.status !== 201) {
+      return { error: `reauth complete status=${complete.status} reason=${reasonOf(complete)}` };
+    }
+    const grant = complete.body?.grant;
+    if (!grant?.grant_id || !grant?.token) {
+      return {
+        error: `reauth complete returned no grant: ${JSON.stringify(complete.body).slice(0, 200)}`,
+      };
+    }
+    return { grantId: grant.grant_id, token: grant.token };
+  };
+
+  // --- the last login method is protected -------------------------------------
+  const first = await reauth("passkey_management", 11);
+  if (first.error) {
+    fail("the revocation probe could not obtain a reauth grant", first.error);
+    return;
+  }
+  const locked = await call(jar, "DELETE", `/api/v1/account/passkeys/${passkeyId}`, {
+    reauth_grant_id: first.grantId,
+    reauth_token: first.token,
+  });
+  expect(
+    "the only login method cannot be revoked, so an account cannot lock itself out",
+    locked.status === 409,
+    `status=${locked.status} reason=${reasonOf(locked)}`,
+  );
+  expect(
+    "the lockout refusal names the reason a user can act on",
+    reasonOf(locked) === "last_login_method_required",
+    `reason=${reasonOf(locked)}`,
+  );
+
+  // --- a password exists, so the passkey is now removable ----------------------
+  // `validate_reauth_purpose` accepts exactly `passkey_management`,
+  // `password_change`, and `account_recovery`. A guess of a fourth name --
+  // `password_management` -- was correctly refused with 422 `purpose_invalid`,
+  // which is a good sign about the server and a sign the probe was reading the
+  // contract from imagination.
+  const second = await reauth("password_change", 12);
+  if (second.error) {
+    fail("the revocation probe could not obtain a second reauth grant", second.error);
+    return;
+  }
+  const password = await call(jar, "POST", "/api/v1/account/password", {
+    password: PROBE_PASSWORD,
+    reauth_grant_id: second.grantId,
+    reauth_token: second.token,
+  });
+  expect(
+    "a password can be configured with a reauth grant",
+    password.status === 200 || password.status === 201 || password.status === 204,
+    `status=${password.status} reason=${reasonOf(password)}`,
+  );
+  if (password.status >= 400) return;
+
+  // A password now exists, so the lockout guard passes and a fabricated grant is
+  // refused by the GRANT check. This is the assertion that actually proves a reauth
+  // grant is required, and it is only reachable from here.
+  const stillNoGrant = await call(jar, "DELETE", `/api/v1/account/passkeys/${passkeyId}`, {
+    reauth_grant_id: "reauth_00000000000000000000000000000000",
+    reauth_token: "0".repeat(64),
+  });
+  expect(
+    "a fabricated reauth grant is refused once the lockout guard no longer applies",
+    refusedWithReason(stillNoGrant) && reasonOf(stillNoGrant) !== "last_login_method_required",
+    `status=${stillNoGrant.status} reason=${reasonOf(stillNoGrant)}`,
+  );
+
+  const third = await reauth("passkey_management", 13);
+  if (third.error) {
+    fail("the revocation probe could not obtain a third reauth grant", third.error);
+    return;
+  }
+  const revoked = await call(jar, "DELETE", `/api/v1/account/passkeys/${passkeyId}`, {
+    reauth_grant_id: third.grantId,
+    reauth_token: third.token,
+  });
+  if (
+    !expect(
+      "a credential can be revoked once another login method exists",
+      revoked.status === 200 || revoked.status === 204,
+      `status=${revoked.status} reason=${reasonOf(revoked)}`,
+    )
+  ) {
+    return;
+  }
+
+  // --- the revoked credential must no longer authenticate ---------------------
+  //
+  // The assertion is cryptographically VALID: same key, correct challenge, correct
+  // origin, advanced sign counter. The only thing that can refuse it is the
+  // revocation state, which is what makes this the revoked-credential case rather
+  // than a repeat of the unknown-credential case.
+  const afterStart = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/start", {});
+  const afterComplete = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/complete", {
+    ceremony_id: afterStart.body?.ceremony_id,
+    credential: buildAssertion(
+      authenticator,
+      { signCount: 2000 },
+      afterStart.body?.public_key?.challenge,
+    ),
+  });
+  expect(
+    "a REVOKED credential cannot authenticate, even with a valid signature",
+    afterComplete.status >= 400,
+    `status=${afterComplete.status} reason=${reasonOf(afterComplete)}`,
+  );
+  expect(
+    "the refusal is not a signature failure, so it is the revocation that refused it",
+    reasonOf(afterComplete) !== "passkey_signature_invalid",
+    `reason=${reasonOf(afterComplete)} -- passkey_signature_invalid would mean the probe ` +
+      "built a bad assertion and proved nothing about revocation",
+  );
+
+  // Handed to the identity-substitution probe, which cannot use the passkey this one
+  // just revoked and must therefore sign in with the password configured above.
+  return { email: authenticator.email, password: PROBE_PASSWORD };
+}
+
+// --- client-supplied identity is never authority -------------------------------
+//
+// The objective names `user_id` substitution as a required case. The property is:
+// a client cannot assert who it is. Two halves, both falsifiable:
+//
+//   1. No header changes the identity the session resolves to. `/api/v1/me` is
+//      derived from the session row, so sending identity-asserting headers with a
+//      fabricated principal must return the same user.
+//   2. `x-org-id` IS a header the server reads -- as a mismatch guard in
+//      `authorize_org` -- so disagreeing with the path is a real, observable
+//      behaviour rather than a header nobody reads. A test that sends a header the
+//      server ignores would pass by construction and prove nothing.
+
+async function probeIdentitySubstitution(identity) {
+  const jar = new Jar();
+  // Signs in with the PASSWORD the revocation probe configured, not with the passkey.
+  // Two reasons, and the second is the important one:
+  //
+  //   1. By this point the passkey has been revoked -- deliberately, by the previous
+  //      probe -- so a passkey sign-in here would fail and this probe would report a
+  //      harness fault where the product was behaving exactly as specified.
+  //   2. The probes must not depend on each other's side effects. A verifier that only
+  //      works because of what an earlier stage left behind is testing the earlier
+  //      stage as much as the claim.
+  const signed = await call(jar, "POST", "/api/v1/auth/password/login", {
+    email: identity.email,
+    password: identity.password,
+  });
+  if (signed.status !== 200) {
+    fail(
+      "the identity-substitution probe could not sign in",
+      `status=${signed.status} reason=${reasonOf(signed)}`,
+    );
+    return;
+  }
+  const baseline = await call(jar, "GET", "/api/v1/me");
+  const me = baseline.body?.user;
+  if (
+    !expect(
+      "the passkey session resolves an identity to start from",
+      baseline.status === 200 && typeof me?.id === "string",
+      `status=${baseline.status}`,
+    )
+  ) {
+    return;
+  }
+
+  const impostor = "usr_0000000000000000000000000000dead";
+  const headers = {
+    "X-User-ID": impostor,
+    "X-Actor-ID": impostor,
+    "X-Principal-ID": impostor,
+    "X-Sub": impostor,
+  };
+  const spoofed = await call(jar, "GET", "/api/v1/me", undefined, headers);
+  expect(
+    "identity-asserting headers do not change who the session is",
+    spoofed.status === 200 && spoofed.body?.user?.id === me.id,
+    `asked as ${impostor}, resolved as ${spoofed.body?.user?.id} (real ${me.id})`,
+  );
+  expect(
+    "no identity-asserting header widens the session's organizations",
+    Array.isArray(spoofed.body?.organizations) &&
+      spoofed.body.organizations.length === baseline.body.organizations.length,
+    `before=${baseline.body?.organizations?.length} after=${spoofed.body?.organizations?.length}`,
+  );
+
+  // A fabricated org on a real, read-only, org-scoped route. The mismatch guard
+  // in `authorize_org` fires before any lookup, so this must be refused rather than
+  // answered -- and refused for a reason that names the mismatch.
+  const fabricated = await call(
+    jar,
+    "GET",
+    "/api/v1/orgs/org_0000000000000000000000000000dead/settings/data",
+    undefined,
+    { "X-Org-ID": "org_0000000000000000000000000000dead" },
+  );
+  expect(
+    "a client-asserted organization the session does not belong to is refused",
+    fabricated.status === 403 || fabricated.status === 404,
+    `status=${fabricated.status} reason=${reasonOf(fabricated)}`,
+  );
+  expect(
+    "the organization context mismatch is named, not reported as a bare denial",
+    reasonOf(fabricated) === "org_context_mismatch" ||
+      reasonOf(fabricated) === "organization_not_accessible" ||
+      reasonOf(fabricated) === "not_found",
+    `reason=${reasonOf(fabricated)}`,
+  );
+}
+
 async function probeExpiredCeremony() {
   const jar = new Jar();
   const started = await call(jar, "POST", "/api/v1/auth/passkey/login/start", {});
@@ -888,6 +1210,12 @@ async function main() {
 
   const authenticator = await probeRegistration();
   if (authenticator) await probeAuthentication(authenticator);
+  // These two mutate and then depend on the account's credential state, so they
+  // run AFTER the sign-in probes, which need that credential to be usable.
+  const afterRevocation = authenticator ? await probeRevokedCredential(authenticator) : null;
+  // The identity probe revives nothing; it only reads, so it can run last and its
+  // verdict is unaffected by the revocation above.
+  if (afterRevocation) await probeIdentitySubstitution(afterRevocation);
   await probeExpiredCeremony();
 
   // The Worker must still be serving: a probe that ends with the runtime dead
