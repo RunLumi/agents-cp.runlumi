@@ -25,7 +25,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const APPLY = process.argv.includes("--apply");
 
@@ -194,20 +194,174 @@ const CASES = [
     verifier: ["cargo", "secret_canary"],
     expect: "leak",
   },
+  {
+    id: "VI-AUTH-001",
+    tier: 0,
+    // The one entry in `docs/verification/proof-obligations.md`'s "Minimum
+    // mutation set" this campaign did not cover: "accept a consumed auth
+    // ceremony".
+    //
+    // F01 FR-F01-010 requires a ceremony to be "consumed atomically on success".
+    // That requirement is enforced TWICE, independently:
+    //
+    //   1. `ensure_pending` re-reads the row and requires `status = 'pending'`.
+    //   2. `consume_ceremony` is a compare-and-set that only transitions a PENDING
+    //      row, returns `false` when there was nothing to transition, and the
+    //      handler turns that `false` into `ceremony_invalid`.
+    //
+    // Which is why this case is a TWO-SITE fault. Removing either defence alone
+    // leaves the other one standing, so a single-site mutation here would report
+    // a survivor for the uninteresting reason that it was not really testing the
+    // invariant. That was measured, not assumed: mutating `ensure_pending` alone
+    // left every probe check green, because the storage CAS caught the replay.
+    //
+    // WHY ONLY THE RUNTIME PROBE CAN CATCH THIS. The row is still consumed in both
+    // layers, so every storage invariant holds, `schema:p07` is unaffected, and a
+    // domain test over `consume_ceremony` still passes -- nothing in the store
+    // changed. Only a probe that actually completes a ceremony TWICE, over real
+    // HTTP against a real Worker with real ES256, sees the second completion
+    // succeed. That is why this case names `smoke:passkey` and not `cargo test`.
+    //
+    // The probe's replay case also advances the signature counter. Without that,
+    // the replay is refused for the wrong reason (`passkey_counter_regression` --
+    // a property of the credential, not of the ceremony) and the ceremony
+    // invariant stays unproven no matter what is mutated. Found while building
+    // this case; see the comment on the case inside `p02-passkey-smoke.mjs`.
+    //
+    // COST: this case makes the harness build a release Worker in the scratch
+    // tree, so it is minutes rather than seconds. That is the price of crossing
+    // the boundary where the bug actually lives.
+    title: "a consumed WebAuthn ceremony is accepted a second time",
+    edits: [
+      {
+        // Defence 1: the handler stops requiring the ceremony to be pending.
+        file: "apps/api/src/routes/authenticators.rs",
+        find: "        || ceremony.status != CeremonyStatus::Pending.as_str()",
+        replace: "        || false",
+      },
+      {
+        // Defence 2: the compare-and-set transitions any row, not just a pending
+        // one, so it reports success for a ceremony that was already consumed.
+        file: "apps/api/src/repositories/authenticators.rs",
+        find: "        Ok(D1Adapter::changes(&result)? == 1)",
+        replace: "        let _ = &result; Ok(true)",
+      },
+    ],
+    verifier: ["smoke:passkey"],
+    expect: "consumed login ceremony cannot be replayed",
+  },
+  {
+    id: "GUARD-1",
+    tier: 1,
+    // The other entry `docs/verification/proof-obligations.md` names in its minimum
+    // mutation set and that this campaign did not cover: "bypass one idempotency
+    // guard". Found by V00-2026-09-27.
+    //
+    // WHAT IT FAULTS. A guard sentinel is a deliberately invalid
+    // `idempotency_records` insert that aborts a D1 batch when a conditional write
+    // matched zero rows. This mutation makes one of them unconditional-never: the
+    // `WHERE NOT EXISTS` that holds the sentinel's row is replaced with `WHERE 0`,
+    // so the sentinel can never insert, so the batch can never abort, so the write
+    // it was protecting is no longer protected.
+    //
+    // This is `ASSERT_RESERVATION_CREATED_SQL` in `repositories/budgets.rs`, the
+    // sentinel behind `budget_reservations`. With it bypassed, replaying the internal
+    // reservation request commits a SECOND hold against the same budget instead of
+    // being refused, so the caller is charged twice and the budget is overspent --
+    // and the batch reports success while doing it.
+    title: "an idempotency guard sentinel is bypassed, so a replayed reservation commits twice",
+    edits: [
+      {
+        file: "apps/api/src/repositories/budgets.rs",
+        find: "WHERE NOT EXISTS (\n    SELECT 1 FROM budget_reservations\n    WHERE reservation_id = ?1 AND org_id = ?2 AND request_id = ?3\n)",
+        replace: "WHERE 0",
+      },
+    ],
+    // WHY ONLY P05 CAN CATCH THIS. The sentinel is Rust source, not schema, so
+    // `schema:p07` is blind to it: the table, its constraints, and its indexes are
+    // all still correct. A `cargo test` over the repository is also blind, because
+    // the sentinel's whole purpose is to abort a BATCH, and no unit test drives a
+    // D1 batch. What sees it is a probe that replays a reservation over real HTTP
+    // against a real Worker and requires the second attempt to be refused --
+    // `p05-smoke.mjs`, in the case named "internal reservation endpoint replays the
+    // managed hold".
+    //
+    // That case is also the one V00 found failing for the OTHER reason: before
+    // VFY-004 was fixed it reported `status=503 reason=none`, because the guard's
+    // abort was being classified as a store outage. So this case is the round trip
+    // for VFY-004 -- the abort must be recognised in order to be refused, AND
+    // refusing it must still work.
+    verifier: ["smoke:p05"],
+    expect: "replays the managed hold",
+  },
 ];
 
-function run(cmd, args, cwd) {
+/**
+ * The runtime probes this campaign can drive, by the `smoke:<name>` a case declares.
+ *
+ * A mapping rather than a convention so that adding a probe is a one-line change with an
+ * explicit spelling, instead of a case silently naming a script that does not exist and
+ * being reported as a product failure.
+ */
+const SMOKE_SCRIPTS = {
+  passkey: "apps/api/scripts/p02-passkey-smoke.mjs",
+  p05: "apps/api/scripts/p05-smoke.mjs",
+  guard: "apps/api/scripts/p02-guard-probe.mjs",
+};
+
+/**
+ * Locate a wrangler binary outside the scratch copy.
+ *
+ * Order, most specific first:
+ *   1. \$PROBE_WRANGLER -- an explicit override always wins.
+ *   2. `<cwd>/apps/api/node_modules/.bin/wrangler` -- correct when the campaign is
+ *      run from a full checkout.
+ *   3. The MAIN checkout, derived from the git common directory. A linked worktree
+ *      stores its gitdir under `<main>/.git/worktrees/<name>`, so the parent of the
+ *      common dir is the main checkout, and that is the one place `pnpm install`
+ *      actually ran. This is what makes a worktree run work at all.
+ */
+function resolveWrangler() {
+  const rel = join("apps", "api", "node_modules", ".bin", "wrangler");
+  const candidates = [process.env.PROBE_WRANGLER, join(process.cwd(), rel)];
+  try {
+    const common = run(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      process.cwd(),
+    ).trim();
+    if (common) {
+      // `--git-common-dir` is `<main>/.git`, so the checkout root is one level up
+      // from that. Both forms are tried: the first version used only
+      // `dirname(common) + "/.."`, which climbs ABOVE the checkout and therefore
+      // never found anything. A resolver that silently finds nothing reports
+      // HARNESS_FAULT, which is diagnosable but costs a full campaign run to
+      // discover.
+      candidates.push(join(common, "..", rel));
+      candidates.push(join(dirname(common), rel));
+    }
+  } catch {
+    // Not a git checkout, or git is unavailable. The first two candidates stand.
+  }
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function run(cmd, args, cwd, env) {
   return execFileSync(cmd, args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
+    ...(env ? { env: { ...process.env, ...env } } : {}),
   });
 }
 
-function tryRun(cmd, args, cwd) {
+function tryRun(cmd, args, cwd, env) {
   try {
-    return { code: 0, out: run(cmd, args, cwd) };
+    return { code: 0, out: run(cmd, args, cwd, env) };
   } catch (error) {
     return {
       code: error.status ?? 1,
@@ -223,7 +377,10 @@ console.log(
 );
 for (const c of CASES) {
   console.log(`  ${c.id} (tier ${c.tier})  ${c.title}`);
-  console.log(`      fault in  ${c.file}`);
+  const sites = c.edits ? [...new Set(c.edits.map((e) => e.file ?? c.file))] : [c.file];
+  console.log(
+    `      fault in  ${sites.join(" + ")}${c.edits && c.edits.length > 1 ? ` (${c.edits.length}-site fault)` : ""}`,
+  );
   console.log(`      killed by ${c.verifier.join(" + ")}; reason must mention "${c.expect}"`);
 }
 if (!APPLY) {
@@ -270,34 +427,119 @@ for (const testCase of CASES) {
       filter: (src) =>
         !src.includes("/target/") && !src.includes("/node_modules/") && !src.includes("/.git/"),
     });
-    const path = join(scratch, testCase.file);
-    if (!existsSync(path)) {
-      results.push({ ...testCase, verdict: "BLOCKED", detail: `${testCase.file} not found` });
-      continue;
-    }
-    const before = readFileSync(path, "utf8");
-    if (!before.includes(testCase.find)) {
+    // A case injects one fault (`find`/`replace`) or several (`edits`).
+    //
+    // Multiple edits exist because a genuinely defended-in-depth invariant cannot
+    // be disabled by touching one place, and pretending otherwise would produce a
+    // mutation that "survives" for the uninteresting reason that a second
+    // mechanism was doing the work. VI-AUTH-001 is the case in point: the
+    // ceremony-replay requirement is enforced twice, independently, so removing
+    // either defence alone leaves the other standing.
+    //
+    // Every target is checked for existence and every anchor for presence BEFORE
+    // anything is written, so a case can never half-apply and then be reported as
+    // evidence. A missing anchor is BLOCKED, which the tally gate now treats as a
+    // failure -- an earlier version exited 0 here, next to "0/1 killed".
+    const faults = testCase.edits ?? [{ find: testCase.find, replace: testCase.replace }];
+    // The file list is derived, not read from `testCase.file`, so a case that uses
+    // `edits` does not also have to declare a redundant `file`.
+    const relative = [...new Set(faults.map((f) => f.file ?? testCase.file))];
+    const absent = relative.filter((rel) => !existsSync(join(scratch, rel)));
+    if (absent.length) {
       results.push({
         ...testCase,
         verdict: "BLOCKED",
-        detail: `anchor not present, so the fault was never injected: "${testCase.find}"`,
+        detail: `target file(s) not found in the scratch copy: ${absent.join(", ")}`,
       });
       continue;
     }
-    writeFileSync(path, before.replace(testCase.find, testCase.replace));
+    const sources = new Map();
+    const missing = [];
+    for (const fault of faults) {
+      const rel = fault.file ?? testCase.file;
+      const file = join(scratch, rel);
+      const source = sources.get(file) ?? readFileSync(file, "utf8");
+      if (!source.includes(fault.find)) {
+        missing.push(`${rel}: "${fault.find}"`);
+        continue;
+      }
+      sources.set(file, source.replace(fault.find, fault.replace));
+    }
+    if (missing.length) {
+      results.push({
+        ...testCase,
+        verdict: "BLOCKED",
+        detail: `anchor(s) not present, so the fault was never injected: ${missing.join("; ")}`,
+      });
+      continue;
+    }
+    for (const [file, source] of sources) writeFileSync(file, source);
+    if (faults.length > 1) {
+      console.log(
+        `      (${faults.length}-site fault: ${[...sources.keys()].map((f) => f.replace(`${scratch}/`, "")).join(", ")})`,
+      );
+    }
 
     // Half one: the mutant must COMPILE. A mutation that fails to build has
     // killed nothing; it just failed to typecheck.
-    const build = testCase.verifier.includes("schema")
-      ? { code: 0, out: "" }
-      : tryRun("cargo", ["build", "--tests", "-p", "lumi-agents-control-plane-api"], scratch);
-    if (build.code !== 0) {
-      results.push({
-        ...testCase,
-        verdict: "NOT_A_VALID_MUTATION",
-        detail: "the mutant did not compile, so no verifier could have caught the fault",
-      });
-      continue;
+    //
+    // A case whose verifier drives the real Worker needs a RELEASE build of the
+    // wasm, not just `cargo build --tests`: `wrangler dev` serves
+    // `apps/api/build/index.js`, and if that artifact is stale the probe would
+    // test unmutated code and report a false pass. The `cargo build --tests` step
+    // is kept as well so an obviously non-compiling mutant is rejected cheaply
+    // before the expensive one.
+    const needsWorker = testCase.verifier.some((v) => v.startsWith("smoke:"));
+    if (!testCase.verifier.includes("schema")) {
+      const compile = tryRun(
+        "cargo",
+        ["build", "--tests", "-p", "lumi-agents-control-plane-api"],
+        scratch,
+      );
+      if (compile.code !== 0) {
+        results.push({
+          ...testCase,
+          verdict: "NOT_A_VALID_MUTATION",
+          detail: "the mutant did not compile, so no verifier could have caught the fault",
+        });
+        continue;
+      }
+    }
+    if (needsWorker) {
+      const wasm = tryRun(
+        "cargo",
+        [
+          "build",
+          "--release",
+          "-p",
+          "lumi-agents-control-plane-api",
+          "--target",
+          "wasm32-unknown-unknown",
+        ],
+        scratch,
+      );
+      if (wasm.code !== 0) {
+        results.push({
+          ...testCase,
+          verdict: "NOT_A_VALID_MUTATION",
+          detail: "the mutant did not build for wasm32, so the Worker probe cannot reach it",
+        });
+        continue;
+      }
+      // `worker-build` is what produces `apps/api/build/index.js`. It is a
+      // separate binary from cargo, so the harness runs it directly rather than
+      // assuming `pnpm build` works inside a scratch copy.
+      const bundle = tryRun("worker-build", ["--release"], join(scratch, "apps/api"));
+      if (bundle.code !== 0) {
+        results.push({
+          ...testCase,
+          verdict: "HARNESS_FAULT",
+          detail:
+            "worker-build failed, so the Worker probe would have tested a stale or absent bundle " +
+            "and its result would mean nothing",
+        });
+        continue;
+      }
     }
 
     // Half two: EVERY named verifier must die, and say why.
@@ -325,6 +567,63 @@ for (const testCase of CASES) {
         runs.push(["canary", tryRun("node", ["apps/api/scripts/p09-secret-canary.mjs"], scratch)]);
       } else if (verifier === "cargo") {
         continue; // the concrete filter is the next entry
+      } else if (verifier.startsWith("smoke:")) {
+        // A real-runtime probe. Run from the scratch tree so the mutated sources
+        // and the freshly built bundle are the ones under test.
+        //
+        // The scratch copy deliberately excludes `node_modules`, so the wrangler
+        // binary has to come from the REAL tree. The first version resolved it as
+        // `<cwd>/apps/api/node_modules/.bin/wrangler`, and `cwd` is the disposable
+        // worktree -- which has no `node_modules` -- so the probe died with `spawn
+        // ... ENOENT` and the case was reported as KILLED_FOR_THE_WRONG_REASON. A
+        // missing launcher reported as a wrong reason is how a broken campaign
+        // reads as a finding about the product.
+        const wrangler = resolveWrangler();
+        if (!wrangler) {
+          results.push({
+            ...testCase,
+            verdict: "HARNESS_FAULT",
+            detail:
+              "no wrangler binary could be found, so the runtime probe could not be " +
+              "started at all. Looked in the worktree, in the main checkout derived " +
+              "from the git common dir, and at \$PROBE_WRANGLER. Install workspace " +
+              "dependencies and re-run; this is a campaign defect, not evidence.",
+          });
+          continue;
+        }
+        const probe = SMOKE_SCRIPTS[verifier.slice("smoke:".length)];
+        if (!probe) {
+          results.push({
+            ...testCase,
+            verdict: "HARNESS_FAULT",
+            detail:
+              `no script is registered for "${verifier}". Known: ` +
+              `${Object.keys(SMOKE_SCRIPTS)
+                .map((n) => `smoke:${n}`)
+                .join(", ")}. ` +
+              "A case naming a probe that does not exist would otherwise be reported as " +
+              "evidence about the product.",
+          });
+          continue;
+        }
+        const result = tryRun("node", [probe], scratch, {
+          P02_PASSKEY_WRANGLER: wrangler,
+          P05_WRANGLER: wrangler,
+        });
+        if (result.code === 0 && !/\d+\/\d+ checks passed/.test(result.out)) {
+          // A probe that crashed before reporting is not a pass; treat an
+          // unparseable run as a harness fault rather than a kill.
+          const reported = /(\d+)\/(\d+) checks passed/.exec(result.out);
+          if (!reported || reported[1] !== reported[2]) {
+            results.push({
+              ...testCase,
+              verdict: "HARNESS_FAULT",
+              detail: "the runtime probe exited 0 without reporting a complete check tally",
+            });
+            continue;
+          }
+        }
+        runs.push([verifier, result]);
       } else {
         const r = tryRun(
           "cargo",
@@ -361,12 +660,32 @@ for (const testCase of CASES) {
       continue;
     }
     const killedForTheRightReason = out.toLowerCase().includes(testCase.expect.toLowerCase());
+    // The verifier's own words travel with the verdict. A KILLED_FOR_THE_WRONG_REASON
+    // is a question -- "what DID it say?" -- and a verdict that raises a question
+    // without the evidence to answer it forces a manual re-run in a scratch tree to
+    // diagnose, which is what had to happen for VI-AUTH-001.
+    //
+    // Trimmed to the lines that actually mention the expected marker, falling back
+    // to a short tail, so the useful part is visible without pasting a release
+    // build log into the summary.
+    const evidence = (() => {
+      const lines = out.split("\n");
+      const needle = testCase.expect.toLowerCase();
+      const near = lines.filter((line) => line.toLowerCase().includes(needle));
+      return (near.length ? near : lines.slice(-30))
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .join(" / ")
+        .slice(0, 900);
+    })();
     results.push({
       ...testCase,
       verdict: killedForTheRightReason ? "KILLED" : "KILLED_FOR_THE_WRONG_REASON",
       detail: killedForTheRightReason
-        ? "the verifier failed, and the failure names the invariant"
-        : `the verifier failed but nothing mentioned "${testCase.expect}", so the kill may be incidental`,
+        ? `the verifier failed, and the failure names the invariant: ${evidence}`
+        : `the verifier failed but nothing mentioned "${testCase.expect}", so the kill may ` +
+          `be incidental. What it actually said: ${evidence}`,
     });
   } catch (error) {
     results.push({
@@ -402,4 +721,27 @@ if (survivors.length) {
   console.log("\nA surviving mutation means a Tier-0 claim is UNPROVEN, not PASS:");
   for (const s of survivors) console.log(`  - ${s.id}: ${s.title} (${s.verdict})`);
 }
-process.exit(survivors.length ? 1 : 0);
+
+// A case that never ran is not a pass. Found while adding the `smoke:passkey`
+// case: a BLOCKED case (a harness fault, a missing anchor, a build that failed)
+// left `survivors` empty, so the campaign printed `0/1 mutations were killed` and
+// then exited 0. A green exit code next to a zero tally is the exact shape of
+// claim this campaign exists to prevent, and it was in the harness itself.
+//
+// So the gate is on the TALLY, not on the survivor list: every case must be
+// KILLED for the process to succeed.
+const unresolved = results.filter((r) => r.verdict !== "KILLED");
+if (unresolved.length) {
+  console.log("\nNOT every mutation was killed, so this campaign did not pass:");
+  for (const r of unresolved) {
+    console.log(`  - ${r.id}: ${r.title} (${r.verdict}) — ${r.detail}`);
+  }
+  if (survivors.length === 0) {
+    console.log(
+      "\n  Note: none of these are SURVIVED. A BLOCKED or HARNESS_FAULT verdict means the\n" +
+        "  case never produced evidence either way, which is a gap in the campaign, not a\n" +
+        "  clean bill of health. Fix the case and re-run.",
+    );
+  }
+}
+process.exit(unresolved.length ? 1 : 0);

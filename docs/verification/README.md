@@ -162,6 +162,27 @@ Convert incidents/near misses/representative traces into regression capsules. Te
 5. `prompts/repair-findings.md` for queued/backlog findings or a dedicated repair pass
 6. `release-gate.md`
 
+## Runs
+
+`runs/` holds one directory per campaign: a verification-run record, a claim-evidence matrix,
+the list of external proofs still owed, ordered next actions, findings, and the exact evidence
+the verdicts rest on. Each run is pinned to a commit SHA, so a PASS can be re-derived rather
+than inherited.
+
+Read the most recent run's `verification-run.md` before starting a new campaign: it is the
+baseline to attack, not a summary to agree with.
+
+| Run | Commit | Verdict |
+|---|---|---|
+| [`2026-09-27-v00-independent-reconstruction`](runs/2026-09-27-v00-independent-reconstruction/verification-run.md) | `ecbdac1` | **FAIL → repaired.** At `ecbdac1`: passkey ceremonies panicked on the Worker runtime and self-service onboarding was blocked. All seven findings are now closed — see [`repair-closure.md`](runs/2026-09-27-v00-independent-reconstruction/repair-closure.md). No Tier-0 or Tier-1 claim remains FAIL. |
+
+
+A run may carry a `repair-closure.md`. It is the post-repair half of that run: what each finding
+became, the evidence that moved each verdict, and any **verifier** defects found while repairing.
+Read it after the run record, not instead of it — the run record's "before" tables are deliberately
+left intact, because a verification record that silently rewrites its own baseline is not a record
+of anything. The verdict table to quote is always the post-repair one.
+
 ## References
 
 - NIST SSDF — https://csrc.nist.gov/pubs/sp/800/218/final

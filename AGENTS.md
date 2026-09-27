@@ -287,6 +287,39 @@ cargo test --workspace
 cargo check --workspace --target wasm32-unknown-unknown
 ```
 
+## Runtime proofs
+
+`pnpm check` proves compilation, types, unit behaviour, and the schema. It does **not** prove that
+the system works inside the Worker runtime or in a browser, and it cannot: it opens neither. These
+are the gates that do. Each is self-contained unless noted.
+
+| Command | What it proves | Needs |
+|---|---|---|
+| `pnpm db:migrate:local` | every migration applies to a real local D1 | — |
+| `pnpm smoke:local` | the P01 foundation surface answers | a Worker on `:8787` |
+| `pnpm smoke:p02` … `smoke:p05` | the P02–P05 surfaces answer | a Worker on `:8787` |
+| `pnpm smoke:passkey` | a real WebAuthn ceremony verifies end-to-end — registration and assertion, with hostile cases for challenge, origin, RP ID, replay, expiry, and revocation | nothing; it starts its own D1 and Worker. Needs `pnpm build` first, or it compiles one |
+| `pnpm guard:probe` | a guard sentinel's abort is recognised as a deliberate refusal, not a store outage | nothing; a real SQLite database |
+| `pnpm --filter @runlumi/agents-cp-api p08:invariants` | the migration's triggers and constraints refuse what the domain says they refuse | a local D1 |
+| `pnpm verify:restore` | a restored database still refuses every invalid write | nothing |
+| `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
+| `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
+
+`verify:mutation` is the only command here that deliberately breaks code. It refuses to run outside
+a linked worktree for that reason:
+
+```bash
+git worktree add ../verify HEAD
+cd ../verify && pnpm verify:mutation --apply
+git worktree remove ../verify
+```
+
+`smoke:browser` locates Chrome itself and honours `PROBE_CHROME`. A run with no browser exits **2**,
+never 0 — a verifier that could not find its browser has proven nothing. Note the difference between
+exit **1** (a check did not hold) and exit **2** (the harness could not run): the first is a
+statement about the product, the second is a statement about the harness, and collapsing them would
+let a broken probe read as a detected defect.
+
 ## Git discipline
 
 - Small cohesive commits.

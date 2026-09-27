@@ -1,0 +1,390 @@
+# Repair closure — the V00 findings, discharged
+
+**This document is the post-repair half of the V00 run.** `verification-run.md` recorded what
+was true at `ecbdac1`; this records what is true after the repair loop, with the evidence for
+each claim re-derived rather than inherited.
+
+The rule applied throughout, from `AGENTS.md` and `docs/verification/README.md`: preserve the
+failing evidence, fix the smallest coherent root cause, add or strengthen regression proof at
+the cheapest correct layer, re-run the original reproducer **unchanged**, re-run the affected
+proof obligations, and confirm the mutation campaign and `pnpm check` are still green.
+
+No spec, frozen contract, or existing verifier was weakened to obtain any of these results.
+Where a repair required a durable decision, it is recorded in
+[`docs/adr/0008-vendored-passkey-auth-wasm-clock.md`](../../../adr/0008-vendored-passkey-auth-wasm-clock.md).
+
+---
+
+## Headline
+
+| Gate | Before (at `ecbdac1`) | After | Verdict moved |
+|---|---|---|---|
+| Real-browser journey | **20/23**, 3 FAIL | **39/39**, 0 FAIL, exit 0 | `VI-AUTH-001`, `VI-ONBOARD-1`, `VI-UX-001`, `VI-UX-002`, `ROUTE-2` |
+| P05 runtime smoke | **175 pass / 1 fail**, exit 1 | **185 pass / 0 fail**, exit 0 | `GUARD-1`, `VI-IDEM-001` |
+| Passkey ceremony probe (new) | did not exist | **41/41**, exit 0 | `VI-AUTH-001` |
+| Guard-sentinel probe (new) | did not exist | **11/11** across 2 recognised abort texts | `GUARD-1` |
+| Mutation campaign | 9/9 KILLED, minimum set incomplete | **10/10 KILLED**, `tally: {"KILLED":10}`, exit 0 | `VI-TEST-001` |
+| Worker bundle | `gzip 2393.75 KiB` | `gzip 2395.07 KiB` (**+1.32 KiB**) | budget still within ADR 0004 |
+
+The browser journey went from three failures to zero, and it grew from 23 to 39 checks while
+doing so: the repairs added checks, and none of the original 23 were removed. Three of the
+fallbacks that made the old run report its failures cleanly are **gone** — a verifier that repairs
+its own subject stops being a verifier, and the details are in
+[`findings/VFY-002-no-email-verification-step-in-web-ui.md`](findings/VFY-002-no-email-verification-step-in-web-ui.md).
+
+---
+
+## Finding-by-finding closure
+
+### VFY-001 — every passkey ceremony returned 500 in the Worker
+
+**Status: CLOSED.** Tier 0, `VI-AUTH-001` FAIL → PASS; `VI-WASM-001` "run" half FAIL → PASS.
+
+The root cause was two defects at the platform boundary inside `passkey-auth` 0.1.3, not one:
+
+1. `types::now_secs()` called `std::time::SystemTime::now()`, which is `unsupported()` and
+   **panics** on `wasm32-unknown-unknown`. Called from inside `start_registration` and
+   `start_authentication_with_creds`, so the adapter's existing `state.created_at = 0` mitigation
+   — which ran *after* the call — could never prevent it.
+2. **Found only after (1) was fixed.** `crypto::verify_es256` parsed signatures with
+   `EsSig::from_der`, and its module comment stated the error outright: *"The ES256 signature on
+   the wire is **DER-encoded**, not raw r||s"*. WebAuthn specifies the opposite — a fixed-length
+   `R || S` concatenation, 32 bytes each — and every real authenticator emits that form. A
+   DER-only parser rejects 100 % of genuine assertions.
+
+Defect 2 was invisible because the crate's own `es256_round_trip` test signs with `p256` and
+serialises with `sig.to_der()`, so it asserted the crate's wrong assumption back at itself. It
+surfaced only because the new probe builds authenticator output **to the specification** with
+`node:crypto` and `dsaEncoding: "ieee-p1363"`, not to the library's expectation.
+
+**Decision:** [`ADR 0008`](../../../adr/0008-vendored-passkey-auth-wasm-clock.md) — vendor via
+`[patch.crates-io]`, patch exactly two functions, both on the platform boundary. Replacing the
+crate with `webauthn-rs` was rejected on evidence: it pulls `ring`/`aws-lc-rs`/`x509-parser`
+into a Worker already at ~80 % of the 3 MiB free-tier compressed limit, and it would re-open
+F01's five required proofs from scratch. Upgrading is impossible — 0.1.3 is the newest published
+version, checked against the crates.io API on 2026-09-27.
+
+**F01's five required proofs, all now discharged:**
+
+| # | Requirement | State | Evidence |
+|---|---|---|---|
+| 1 | compiles for `wasm32-unknown-unknown` | PASS | `cargo check --workspace --target wasm32-unknown-unknown` |
+| 2 | Worker dry-run/build succeeds | PASS | `pnpm build` → `Total Upload: 9453.62 KiB / gzip: 2395.07 KiB` |
+| 3 | **registration + assertion verify end-to-end with server-side ceremony state** | **PASS** | `pnpm smoke:passkey` — 41/41, real ES256, real CBOR, real D1, real Worker |
+| 4 | password KDF fits real Worker CPU/memory | **UNPROVEN — unchanged** | no Argon2id cost measurement inside the Worker CPU limit exists. Named in `missing-external-proofs.md`. This repair does not claim it. |
+| 5 | bundle impact acceptable | PASS | `gzip` +1.32 KiB on a 2393.75 KiB baseline; ADR 0004 sets no Worker ceiling and the figure is now recorded in CI |
+
+**Proof 3, in detail.** `apps/api/scripts/p02-passkey-smoke.mjs` builds a real P-256 key with
+`node:crypto`, encodes a spec-conformant `attestation: "none"` attestation object, and signs
+assertions with ES256. 41 checks covering: ceremony start, F01-004/005 option policy, challenge
+substitution, origin substitution, RP-ID substitution, missing user verification, missing
+attested credential data, `raw_id` substitution, duplicate-authenticator enrolment, corrupted
+signature, unknown credential, user-handle substitution, replay with an **advanced** sign counter,
+session revocation, and D1-enforced ceremony expiry.
+
+What the probe does *not* fake, stated plainly: it does not hold the private key internally or
+require user presence, because those are authenticator properties outside the control plane's
+boundary. The genuine CTAP2 half is `apps/web/scripts/browser-probe.mjs`, which registers a real
+`WebAuthn.addVirtualAuthenticator` over CDP. The two are complementary halves of one claim.
+
+**Both patches are load-bearing, proven by reverting each:**
+
+| Reverted | Probe result | Failure reported |
+|---|---|---|
+| `now_secs` → `SystemTime` | 5/7 | `registration ceremony start … status=500` |
+| `verify_es256` → DER only | 33/34 | `a correct assertion signs in … reason=passkey_signature_invalid` |
+| neither (both applied) | 41/41 | — |
+
+**Original reproducer, unchanged.** `evidence/vfy001-repro.sh` reported
+`status=500` on both ceremony-start endpoints. After the repair the same script's endpoints
+return `201` with a `ceremony_id`, an `expires_at`, and server-generated `public_key` options, and
+the Worker log contains zero panics.
+
+**Gated.** `pnpm smoke:passkey` runs in `.github/workflows/checks.yml` after `pnpm build`.
+
+---
+
+### VFY-002 — no self-service user could ever verify their email
+
+**Status: CLOSED.** Tier 0, `VI-ONBOARD-1` FAIL → PASS.
+
+`verifyEmail()` was exported from `apps/web/src/lib/api.ts` and called from nowhere. The auth
+screen rendered a one-time code with no control to submit it, so `email_verified` could never
+become true — and because `Permission::requires_verified_email()` refuses every mutating
+permission, the first thing a new user tried was refused forever:
+
+```json
+{"error":{"code":"permission_denied","message":"Verify your email before creating an organization.",
+          "details":{"reason":"email_verification_required"}}}
+```
+
+and the UI rendered that as *"Ask an administrator to grant access to this action."*
+
+**Root cause, in two parts.** The missing submit branch was the blocker. The error copy was a
+second, independent defect: mapping every 403 to a permissions message meant the one 403 that is
+a self-service blocker was reported as something only an administrator could fix.
+
+**Repairs.**
+
+- `apps/web/src/features/auth/email-verification-form.tsx` (new) — the step, extracted as its own
+  component. The defect was the *absence* of behaviour, and absence is what a test cannot see; the
+  reason it was invisible is that the step lived as anonymous JSX inside a large `useState`
+  machine where no test could reach it and no test could fail. It renders a real `<form>` with a
+  labelled, named, `autocomplete="one-time-code"` field, a submit that is disabled until a code is
+  typed and while the request is in flight, an error rendered as `role="alert"` with the request
+  ID per F22-011, and "Skip for now" as a secondary action.
+- `auth-screen.tsx` — the `method === "code"` submit branch now calls `verifyEmail`, and the
+  orphaned code input that lived outside any form is removed so `id={codeId}` appears exactly once
+  and the label association is valid.
+- `lib/errors.ts` — `email_verification_required` is matched **before** the generic 403 branch,
+  and requires `status === 403` as well as the reason, so a reason echoed on another status cannot
+  claim the user should go and verify their email.
+
+**Regression proof, 10 new cases in `auth-screen.test.tsx`,** each confirmed sensitive by
+reverting the corresponding fix:
+
+| Mutation | Result |
+|---|---|
+| submit control removed from the form | 2 tests FAIL |
+| the specific 403 branch disabled | 1 test FAIL |
+| neither | 10/10 pass |
+
+The disabled-state assertions scope to the opening `<button>` tag and require a real attribute
+boundary, because the button's `className` contains `disabled:cursor-not-allowed` and a naive
+substring match would pass on an *enabled* button — an assertion worth nothing.
+
+**Behavioural proof in a real browser.** The probe signs up with a password, reads the code the
+development build displays, types it, and submits **through the UI**. It observes the request
+actually being issued and its status, then confirms `/api/v1/me` reports `email_verified: true`.
+The manual `POST /api/v1/auth/verify-email` fallback from the V00 evidence copy is **deleted** — it
+had kept the journey alive while the defect stayed invisible in the tally.
+
+---
+
+### VFY-003 — a user with one organization could not create a second
+
+**Status: CLOSED.** `ROUTE-2` FAIL → PASS; the `VI-UX-001` evidence limit is discharged.
+
+`showCreateOrg` was initialised from `me.organizations.length === 0` and only ever set to
+`false`, so the create-organization panel was unreachable once a user belonged to any
+organization. The API accepted a second one; only the UI hid it. It also made the organization
+switcher unreachable in practice, which is why `VI-UX-001` had needed an out-of-band API call to
+reach a two-organization state at all.
+
+**Repair.** A "New organization" control beside the organization switcher. F22's information
+architecture has no top-level create-organization destination, so inventing a nav item would have
+contradicted the spec; the switcher is where "which organization am I in" is already answered. The
+control only appears when the user already has an organization, because with none the create panel
+is already the whole page. It touches only the latch — the create-organization branch is evaluated
+before `load`, so no refetch is triggered and no loading flash occurs. `CreateOrganizationPanel`
+now reports *which* organization it created so the shell selects it, because creating one and being
+left staring at the previous one is a silent no-op from the user's point of view.
+
+**Regression proof, 8 cases in `org-dashboard.test.ts`,** including two that fail while the latch
+exists (verified: removing the control fails 3 of them; restoring `min-w-[620px]` fails 1). The
+"is in the header" assertion is structural — between the switcher's closing tag and the content
+column — not a character distance, which a single explanatory comment can push past any threshold.
+Class assertions strip comments first, because a class named in a comment is not a class on an
+element.
+
+**Behavioural proof in a real browser.** The probe now asserts the control exists, opens it, and
+creates the second organization **through the UI**, then requires the switcher to list both. The
+`POST /api/v1/orgs` fallback is **deleted**.
+
+---
+
+### VFY-004 — a deliberately refused guarded write was reported as a store outage
+
+**Status: CLOSED.** Tier 1, `GUARD-1` FAIL → PASS; `VI-IDEM-001` runtime half FAIL → PASS.
+
+36 guard sentinels across 13 repository modules abort a D1 batch by inserting a deliberately
+invalid `idempotency_records` row. The batch error is the only signal that a write was refused
+**on purpose** rather than the store being unavailable — and the two must not be confused: a
+refusal means "re-read authoritative state and answer", an outage means "fail closed with 503".
+
+Both detectors were case-sensitive substring matches on the pre-`0020` schema's text. Migration
+`0020` added `trg_idempotency_pending_has_no_result`, a `BEFORE INSERT` trigger that fires before
+the column constraints, so the error for the byte-identical statement changed to text matching
+neither half. Every guard in the repository was silently reclassified as a store outage; P06
+automation refusals became retryable job failures instead of settled ones.
+
+**The repair is a named list, and that is the substantive point.** `core::idempotency::
+GUARD_ABORT_TEXTS` holds exactly **two** entries, and the number is measured rather than
+assumed:
+
+- `NOT NULL constraint failed: idempotency_records.principal_id` — schema 0019 and earlier.
+  Named down to the **column**, not the table, because the sentinel's only NULL-valued NOT NULL
+  column is `principal_id`. A test I wrote first asserted a `NOT NULL` failure on a *different*
+  column of the same table was not a guard; it failed, and the fix was to narrow the entry. Naming
+  the table would have classified a code bug as a deliberate refusal and handed the caller a
+  business answer for a fault.
+- `a pending idempotency record carries no result and must hold a claim token` — schema 0020
+  onward.
+
+**Why two and not more.** The three `CHECK constraint failed: …` texts on this table are
+unreachable: `principal_id TEXT NOT NULL` is a *column* constraint and SQLite evaluates column
+constraints before table-level `CHECK`s, so the NOT NULL text always wins. The sibling
+`trg_idempotency_completed_requires_status` and its message cannot fire either, because all 37
+sentinels set `state = 'pending'`. My first draft of this list carried those three plus one more;
+a probe run measured them as dead and they were removed, because dead entries are a liability — a
+future reader cannot tell a measured entry from a guessed one, and a guessed one invites "fixing"
+the recogniser by matching more.
+
+**The duplicate is gone.** There were two copies of the detector. `repositories/automations.rs`
+now delegates to the single definition and `routes/usage.rs`'s private copy is deleted. That is the
+actual lesson of VFY-004: two copies cost exactly one migration's worth of drift.
+
+**The over-broad half is also fixed.** `contains("constraint")` accepted a UNIQUE or FOREIGN KEY
+violation on **any** table, so an unrelated integrity failure could be answered with business copy.
+
+**New gate: `apps/api/scripts/p02-guard-probe.mjs`, 11/11.** It applies the real migrations to a
+real SQLite database, executes the real sentinel, and requires the produced text to be in the
+list. It also counts the sentinel sites so a changed shape is noticed, proves the pre-`0020` schema
+is still recognised (so a rollback or an older restored backup stays correct), and pins the
+negative half against UNIQUE, FOREIGN KEY, missing-table, and wrong-column failures. Wired into
+`pnpm test`.
+
+**Sensitivity, all five mutations detected** (`evidence/vfy004-guard-sensitivity.sh`):
+
+| Mutation | Probe |
+|---|---|
+| the `0020` trigger text removed (exactly the VFY-004 defect) | 8/11, 3 FAIL |
+| the pre-`0020` text removed | 9/11, 2 FAIL |
+| the old over-broad `["constraint"]` matcher, verbatim | 7/11, 8 FAIL |
+| the list emptied | 7/11, 8 FAIL |
+| the `0020` column entry widened back to the whole table | 10/11, 1 FAIL |
+| restored | 11/11 |
+
+**Runtime effect.** `p05-smoke.mjs` went from 175 pass / 1 fail (`status=503 reason=none`) to
+**185 pass / 0 fail**. The extra nine checks are ones the failure had been short-circuiting.
+
+---
+
+### VFY-005 — the secret-canary scan was not hermetic
+
+**Status: CLOSED** in the V00 campaign. Retained here for completeness: the committed-literal scan
+skipped generated state but still caught a real leak, proven sensitive by two mutations, and
+`canary:p09` is now wired into `pnpm test`.
+
+### VFY-006 — orphaned P02 fixtures contradicted the live contract
+
+**Status: CLOSED** in the V00 campaign. The fixtures were deleted rather than wired up, because
+making them executable requires choosing which endpoint each represents — a product-contract
+decision, not a verification one.
+
+### VFY-007 — the Members table clipped its role control off a 390 px screen
+
+**Status: CLOSED.** `VI-UX-002` → PASS.
+
+**The metric was the first defect.** V00 used `document.documentElement.scrollWidth`, which
+**passed** while the table was clipping, because the clipping happened inside an `overflow-x-auto`
+container that absorbs the overflow without propagating it to the document. A document that does
+not scroll is not a page whose content is all reachable. The probe now measures **containment** —
+for every scroll container, is a control clipped off its own right edge.
+
+**And the replacement metric had the same bug, found by measuring.** The first containment
+implementation collected every clipped node and stopped at eight. The Members table produced eight
+non-interactive nodes in DOM order — `th`, `tbody`, `tr`, `td` — so the walk ended before it
+reached the role `<select>`, and reported *"no interactive control is clipped"* while a control was
+clipped by 68 px. That is finding VFY-007's own shape: a truncated sample reading as a clean bill
+of health. It now collects only interactive elements, and reports the non-interactive count
+separately as context.
+
+**Measured failure, at 390 px with three visible columns:** table wanted 457 px; the role
+`<select>` was squeezed to **36 px wide at x=422..458** — entirely outside the viewport, reachable
+only by scrolling a container, and below any reasonable touch target.
+
+**Repair.** Three visible columns do not fit 390 px; two do. The Role column folds into the member
+cell below `sm`, alongside Status and Joined, leaving **Member + Action**. Nothing is lost: the
+folded text is in the DOM at every width, so a screen reader still reads role, status, and join
+date — only the layout differs. The select gets `min-w-[8.5rem]`, so the Action column cannot
+shrink below the control and the Member cell wraps instead; the rationale is a comment on the
+declaration, because `min-w-[8.5rem]` looks like tidying to the next person who sees it. Every
+column header carries `scope="col"`.
+
+**After:** headers `["Member", "Action"]`, role control at **x=225..361, 136×44 px**, fully inside
+the viewport, meeting the 44×44 touch target `AGENTS.md` requires.
+
+**Regression proof, 10 cases in `org-dashboard.test.ts`**, each verified to fail when its
+corresponding fix is reverted.
+
+---
+
+## What the repairs cost, measured against ADR 0004's budgets
+
+| Budget (`AGENTS.md` / ADR 0004) | Before | After | Delta | Target | Status |
+|---|---:|---:|---:|---:|---|
+| Worker compressed | 2393.75 KiB | **2395.07 KiB** | +1.32 KiB | — (no ceiling set) | ~80 % of Cloudflare's 3 MiB free-tier limit; **the threshold is a cost decision nobody has made** |
+| Web initial JS | 100.16 KiB gzip | **100.75 KiB gzip** | +0.59 KiB | ≤ 170 KiB | within budget |
+| Web CSS | 8.83 KiB gzip | **8.89 KiB gzip** | +0.06 KiB | ≤ 35 KiB | within budget |
+| Largest route chunk | 40.17 KiB gzip | **40.17 KiB gzip** | 0 | ≤ 80 KiB | within budget |
+
+The +0.59 KiB of initial JS is the extracted `EmailVerificationForm` plus the error-presentation
+branch — both shipped to every route, because the auth screen is in the initial chunk. It buys the
+ability to test the surface at all, which is worth more than 0.59 KiB.
+
+`js-sys` was already in the graph through `wasm-bindgen`/`worker`, so the two-function passkey
+patch costs ~1 KiB rather than a dependency tree. **That measurement is the reason ADR 0008
+rejected `webauthn-rs`**, which would have pulled `ring`/`aws-lc-rs`/`x509-parser` into a Worker
+already at 80 % of the compressed limit.
+
+### A budget gate was deliberately not added
+
+`next-verification-actions.md` action 6 asks for a CI budget job. It is **not** done, and the reason
+is on the record rather than in a TODO: choosing the *threshold* is a product and cost decision,
+not a verification one. `AGENTS.md` forbids inventing a lasting convention that `DESIGN.md` and
+`docs/adr/` do not carry, and a budget invented by the verifier is exactly that. The measurements
+above are recorded so the decision has a baseline to start from, and both figures are already
+printed by `pnpm build` on every run.
+
+---
+
+## Three verifier defects found while repairing, and fixed
+
+Not product defects. Each was a case of the harness reporting something other than what it
+measured, which is worse than a missing check.
+
+1. **The mutation campaign exited 0 next to "0/1 mutations were killed."** A `BLOCKED` or
+   `HARNESS_FAULT` verdict left the survivor list empty, so the gate passed. The gate now keys off
+   the **tally** — every case must be `KILLED` — and says explicitly that a case which never
+   produced evidence is a gap in the campaign, not a clean bill of health.
+2. **A missing launcher was reported as a wrong-reason kill.** The passkey case resolved
+   `wrangler` as `<cwd>/apps/api/node_modules/.bin/wrangler`; `cwd` is the disposable worktree,
+   which has no `node_modules`. The probe died with `spawn … ENOENT` and the case was reported as
+   `KILLED_FOR_THE_WRONG_REASON` — a broken campaign reading as a finding about the product. It now
+   resolves the binary from the worktree, then from the **main checkout derived from the git common
+   dir** (which is where `pnpm install` actually ran), or `$PROBE_WRANGLER`, and reports
+   `HARNESS_FAULT` with the list of places it looked if none is found. A `KILLED` verdict also
+   carries the verifier's own words, because a verdict that raises a question without the evidence
+   to answer it forces a manual re-run in a scratch tree to diagnose — which is exactly what had to
+   happen here.
+3. **The browser probe could not report its own failure.** Chrome is a child process; if a step
+   threw before `browser.close()`, Chrome stayed alive and kept Node's event loop running, so the
+   probe **hung for 30 minutes with no output** instead of failing. Teardown is now in a `finally`,
+   the process exits explicitly, and a harness fault exits **2** — distinct from **1** for a
+   product failure, so a broken probe cannot read as a detected defect.
+
+A fourth, found by the campaign rather than by me: the passkey probe's replay case was passing for
+the **wrong reason**. Replaying an identical assertion is refused with
+`passkey_counter_regression` — a property of the credential, not of the ceremony — so a mutation
+that disabled ceremony consumption entirely still left every check green. The replay now advances
+the signature counter, the way a real authenticator does, and asserts the refusal reason
+explicitly so a future run that passes for the wrong reason is visible in the output.
+
+---
+
+## What is still not proven
+
+Nothing below was silently upgraded. Each keeps a named dependency and stays in
+[`missing-external-proofs.md`](missing-external-proofs.md).
+
+- **`VI-AUTH-001` / F01 requirement 4** — Argon2id cost inside the Worker's CPU limit. Never
+  measured. This repair does not claim it.
+- **`VI-MIG-002`, `VI-CON-002`** — need the `RunLumi/LumiAgents` client repository.
+- **`VI-OBS-001` V5 half** — needs a staging deploy and protected-content log inspection.
+- **AI provider and payment sandbox claims** — need live providers. `LUMI_PROVIDER_ALLOWLIST` is
+  empty, so no real upstream inference dispatch is possible from here.
+- **Email delivery** — no mailbox.
+- **Production-scale restore** — RTO measured on a local database, not at production volume.
+- **The Tier-0 cross-tenant gap for P06–P08 routes** (action 5.1) is the largest remaining
+  in-repo hole. It needs no external dependency and is the next thing worth building.

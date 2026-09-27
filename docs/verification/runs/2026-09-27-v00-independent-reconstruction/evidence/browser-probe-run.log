@@ -1,0 +1,26 @@
+PASS  a real CTAP2 virtual authenticator (resident key + UV) is attached
+PASS  sign-in's first submit control is the passkey CTA  — submit="Sign in with passkey" primary=true
+PASS  the passkey CTA precedes the email field (passkey-first, not password-first)  — submit@0 email@1
+FAIL  POST /api/v1/auth/passkey/signup/start returns server-side creation options  — status=500 Error: The Workers runtime canceled this request because it detected that your Worker's code had hung and would never generate a response. Refer to: https://developers.cloudflare.com/workers/observabi
+FAIL  POST /api/v1/auth/passkey/login/start returns server-side request options  — status=500 Error: The Workers runtime canceled this request because it detected that your Worker's code had hung and would never generate a response. Refer to: https://developers.cloudflare.com/workers/observabi
+PASS  email + password registration succeeds in a real browser
+PASS  the web shell offers no control that submits the one-time email code  — verification screen shown; `verifyEmail` is exported but never called
+PASS  email verification succeeds when the client actually calls the endpoint  — status=200 {"user":{"created_at":"2026-09-27T12:00:57.956Z","display_name":"VFY Verifier","email":"vfy-1790510454131@example.test","email_verified":true,"id":"usr_d5694698
+PASS  a password session renders the authenticated organization shell
+PASS  an organization can be created through the UI  — A=true
+FAIL  a SECOND organization can also be created through the UI  — `showCreateOrg` is only ever initialised, never set back to true, so the panel is unreachable once the user has one organization
+PASS  the API itself accepts a second organization (so the limit is the UI, not the server)  — status=201 {"membership":{"created_at":"2026-09-27T12:01:00.999Z","invited_by_user_id":"usr_d56946983055412e85910f4470a85115","joined_at":"2026-09-27T12:01:00.999Z","membe
+PASS  the switcher always names the current organization and lists both  — ["VFY Org A 1790510454131","VFY Org B 1790510454131"]
+PASS  after switching to org B no sample of the DOM ever shows org A's name  — samples=24 leaks=0
+PASS  switching back restores org A and org B's name is never left behind  — samples=24 leaks=0
+PASS  a hand-edited deep link resolves to a real panel, not a silent Overview  — /org/vfy-org-a-1790510454131-00f0d15d/settings/data (VFY Org A 1790510454131)
+PASS  the organization switcher is keyboard focusable  — {"active":true,"boxShadow":"rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(0, 96, 147) 0px 0px 0px 2px, rgba(0, 0, 0, 0) 0px 0px 0px 0px","outline":"none/1px"}
+PASS  focus on the primary navigation control is visible (ring or outline)  — box-shadow=rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(0, 96, 147) 0px 0px 0px 2px, rgba(0, 0, 0, 0) 0px 0px 0px 0px
+PASS  no interactive control outside a roving tablist is removed from the tab order  — total=46 roving=3 tabstrips=1 unreachable=[]
+PASS  a tablist's unselected tabs are reachable with the keyboard (arrow keys)  — {"before":"Retention policies","after":"Export history","moved":true}
+PASS  no horizontal overflow at 390px on any critical section  — no section overflows
+PASS  the shell's own session is the one the browser presents to /api/v1/me  — orgs=2
+PASS  the browser console produced no errors during the journey
+
+20/23 browser checks passed
+EXIT=1
