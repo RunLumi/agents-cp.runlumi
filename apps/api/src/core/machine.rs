@@ -259,7 +259,17 @@ impl fmt::Debug for MachineKeyMaterial {
         f.debug_struct("MachineKeyMaterial")
             .field("key_prefix", &self.key_prefix)
             .field("secret", &"[redacted]")
-            .field("secret_hash", &self.secret_hash)
+            // P09-SEC-02: `secret_hash` is redacted here for the same reason
+            // `ApiKeyRecord::fmt` redacts it. A SHA-256 of a 256-bit secret is not
+            // reversible, so this is not about recoverability — it is that the
+            // derived hash is the ONLY thing persisted, and a value that is the
+            // only copy of a credential's proof should not be the one field a
+            // stray `{:?}` still prints. The two types describe the same material
+            // at two moments of its life, so they must not disagree about it.
+            .field("secret_hash", &"[redacted]")
+            // The fingerprint stays: F14 retains the prefix and the fingerprint as
+            // published metadata so an operator can identify which key a log line
+            // refers to, and `api_key_json` returns it.
             .field("fingerprint", &self.fingerprint)
             .finish()
     }

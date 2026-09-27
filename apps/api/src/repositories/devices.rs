@@ -154,7 +154,18 @@ pub struct DeviceRecord {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// P09-SEC-02: `DeviceRecord` keeps its derived `Debug` because everything in it
+// is public by construction — a device's Ed25519 public key and the fingerprint
+// of that public key are identifiers a human needs, and `device_json` already
+// returns the non-secret half. The two records below it hold the values that are
+// not: the enrollment `code_hash` and the released proof `challenge` are what a
+// pending enrollment is gated on, and `token_hash` is the lookup index for a
+// bearer device token. Each therefore gets a hand-written `Debug`.
+
+/// An enrollment in flight. `code_hash` gates who may approve the enrollment and
+/// `challenge` is the proof released only after approval, so both are excluded.
+/// `finish_non_exhaustive` means a new column cannot start printing silently.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DeviceEnrollmentRecord {
     pub enrollment_id: String,
     pub org_id: String,
@@ -173,12 +184,49 @@ pub struct DeviceEnrollmentRecord {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl std::fmt::Debug for DeviceEnrollmentRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceEnrollmentRecord")
+            .field("enrollment_id", &self.enrollment_id)
+            .field("org_id", &self.org_id)
+            .field("code_hash", &"[redacted]")
+            .field("public_key", &self.public_key)
+            .field("key_fingerprint", &self.key_fingerprint)
+            .field("device_name", &self.device_name)
+            .field("platform", &self.platform)
+            .field("app_version", &self.app_version)
+            .field("status", &self.status)
+            .field("challenge", &self.challenge.as_ref().map(|_| "[redacted]"))
+            .field("device_id", &self.device_id)
+            .field("approved_by_user_id", &self.approved_by_user_id)
+            .field("expires_at", &self.expires_at)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The stored form of a device bearer token. Only the hash is persisted, and the
+/// hash is the lookup index: printing it tells a reader which token was in play
+/// and gives an offline attacker the whole row to work from, exactly as
+/// `api_keys.secret_hash` does. Redacted for the same reason.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DeviceTokenRecord {
     pub token_hash: String,
     pub device_id: String,
     pub expires_at: String,
     pub created_at: String,
+}
+
+impl std::fmt::Debug for DeviceTokenRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceTokenRecord")
+            .field("token_hash", &"[redacted]")
+            .field("device_id", &self.device_id)
+            .field("expires_at", &self.expires_at)
+            .field("created_at", &self.created_at)
+            .finish_non_exhaustive()
+    }
 }
 
 pub struct DeviceRepository<'a> {

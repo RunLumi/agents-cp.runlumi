@@ -5,6 +5,7 @@
 //! these types validate and preserve the frozen P01 contract.
 
 mod context;
+mod egress;
 mod error;
 mod event;
 mod idempotency;
@@ -16,6 +17,7 @@ mod staff;
 mod timestamp;
 
 pub use context::{ActorContext, ActorType, RequestContext};
+pub use egress::{is_blocked_address, is_dns_name, is_reserved_host_name, parse_ip_literal};
 pub use error::{ApiError, ApiErrorBody, ApiErrorCode, CoreError};
 pub use event::{EventEnvelope, EventType};
 pub use idempotency::{

@@ -276,7 +276,14 @@ pub struct MembershipRecord {
     pub updated_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+/// An outstanding or consumed organization invitation.
+///
+/// `token_hash` is the lookup index for the invitation token that the invitee
+/// presents, so it gets a hand-written `Debug` rather than a derived one — the
+/// same treatment `api_keys.secret_hash` gets in
+/// `repositories::machine_identity::ApiKeyRecord`. `redact_invitation` in
+/// `routes::organizations` is the client projection and already omits it.
+#[derive(Clone, Deserialize, Serialize)]
 pub struct InvitationRecord {
     pub invitation_id: String,
     pub org_id: String,
@@ -290,6 +297,25 @@ pub struct InvitationRecord {
     pub accepted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl std::fmt::Debug for InvitationRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InvitationRecord")
+            .field("invitation_id", &self.invitation_id)
+            .field("org_id", &self.org_id)
+            .field("email", &"[redacted]")
+            .field("role", &self.role)
+            .field("invited_by_user_id", &self.invited_by_user_id)
+            .field("token_hash", &"[redacted]")
+            .field("status", &self.status)
+            .field("expires_at", &self.expires_at)
+            .field("accepted_by_user_id", &self.accepted_by_user_id)
+            .field("accepted_at", &self.accepted_at)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

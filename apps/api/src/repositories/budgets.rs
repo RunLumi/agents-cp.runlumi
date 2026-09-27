@@ -260,6 +260,29 @@ WHERE status = 'reserved'
   )
 "#;
 
+/// Organizations holding at least one expired reservation.
+///
+/// The expiry sweep is per-organization because that is how
+/// [`EXPIRE_RESERVATIONS_SQL`] is bounded, and a per-organization bound is what
+/// stops one tenant's backlog from starving everyone else's. This is the other
+/// half: finding which organizations to sweep, also bounded, oldest first.
+///
+/// This statement had no caller until P09. A Worker killed between the
+/// reservation insert and `finalize_request` left the row `reserved` forever.
+/// That is not a spend leak — every admission query already filters live holds
+/// by `expires_at > now` — but it is an observability leak: the row never reached a
+/// terminal state, no `budget.reconciled` event was emitted, and an operator
+/// summing `status = 'reserved'` saw a phantom hold that would never clear. That
+/// is exactly the signal an on-call engineer needs to tell "someone is spending"
+/// from "a Worker died an hour ago", so it matters.
+const ORGS_WITH_EXPIRED_RESERVATIONS_SQL: &str = r#"
+SELECT DISTINCT org_id
+FROM budget_reservations
+WHERE status = 'reserved' AND expires_at <= ?1
+ORDER BY expires_at ASC
+LIMIT ?2
+"#;
+
 const RATE_LIMIT_SELECT: &str = r#"
 SELECT rate_limit_policy_id, org_id, scope_type, scope_id, requests_per_minute,
        tokens_per_minute, max_concurrent_requests, version, created_by_user_id,
@@ -390,6 +413,12 @@ SELECT
        AND (?6 = '' OR r.model_alias = ?6)) AS active_inferences,
     ?7 AS minute_started_at
 "#;
+
+/// One organization returned by [`ORGS_WITH_EXPIRED_RESERVATIONS_SQL`].
+#[derive(Clone, Debug, Deserialize)]
+struct ExpiredReservationOrgRow {
+    org_id: String,
+}
 
 #[derive(Clone, Debug, Deserialize)]
 struct BudgetRow {
@@ -1054,6 +1083,27 @@ impl<'a> BudgetRepository<'a> {
                 optional_text(input.budget_id),
             ],
         )
+    }
+
+    /// The organizations with expired holds, oldest first, bounded.
+    ///
+    /// `None` when the store is unavailable, so the caller can retry rather than
+    /// conclude there is nothing to do.
+    pub async fn orgs_with_expired_reservations(
+        &self,
+        now: &str,
+        limit: i32,
+    ) -> worker::Result<Vec<String>> {
+        let statement = self.database.prepare(
+            ORGS_WITH_EXPIRED_RESERVATIONS_SQL,
+            &[BindValue::Text(now), BindValue::Integer(limit)],
+        )?;
+        let rows = statement
+            .all()
+            .await?
+            .results::<ExpiredReservationOrgRow>()
+            .map_err(|_| worker::Error::RustError("expired reservation orgs unreadable".into()))?;
+        Ok(rows.into_iter().map(|row| row.org_id).collect())
     }
 
     /// Bounded expiry sweep for crash recovery.

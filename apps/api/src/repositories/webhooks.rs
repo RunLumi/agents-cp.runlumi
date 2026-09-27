@@ -670,13 +670,21 @@ SET enabled = 0, version = version + 1, updated_at = ?3
 WHERE endpoint_id = ?1 AND org_id = ?2 AND version = ?4
 "#;
 
+/// The endpoint's terminal-failure counter, and the auto-disable that can follow
+/// from it.
+///
+/// Guarded on the endpoint's `version` like every other transition in this file.
+/// It was previously `WHERE endpoint_id = ?1` with no guard at all, which meant a
+/// re-driven delivery incremented the counter a second time and could disable an
+/// endpoint that had already recovered — the one write in the delivery path that a
+/// replay could move twice. Found by the P09 tenant/state audit, not by review.
 const RECORD_TERMINAL_FAILURE_SQL: &str = r#"
 UPDATE webhook_endpoints
 SET consecutive_terminal_failures = consecutive_terminal_failures + 1,
     enabled = CASE WHEN ?2 = 1 THEN 0 ELSE enabled END,
     version = version + 1,
     updated_at = ?3
-WHERE endpoint_id = ?1
+WHERE endpoint_id = ?1 AND version = ?4
 "#;
 
 const RESET_TERMINAL_FAILURES_SQL: &str = r#"
@@ -1209,11 +1217,14 @@ impl<'a> WebhookRepository<'a> {
         )
     }
 
+    /// `expected_version` is the endpoint version the caller read, so a replayed
+    /// delivery finds the row already advanced and changes nothing.
     pub fn record_terminal_failure_statement(
         &self,
         endpoint_id: &str,
         auto_disable: bool,
         now: &Timestamp,
+        expected_version: i64,
     ) -> worker::Result<D1PreparedStatement> {
         self.database.prepare(
             RECORD_TERMINAL_FAILURE_SQL,
@@ -1221,6 +1232,7 @@ impl<'a> WebhookRepository<'a> {
                 BindValue::Text(endpoint_id),
                 BindValue::Integer(i32::from(auto_disable)),
                 BindValue::Text(now.as_str()),
+                BindValue::Int64(expected_version),
             ],
         )
     }

@@ -7,11 +7,11 @@ Last initialized: 2026-09-27
 ## Current phase
 
 - Active execution model: **P08 closed**
-- Current implementation phases: **P08 complete (control plane merged, client seam merged in `RunLumi/LumiAgents` PR #31); P07 implementation complete; P06 implementation complete; P05 and P03 complete; P04 implemented/review**
-- Next implementable phase: **P08-INT-02..06 in `RunLumi/LumiAgents` (wizard UI, ownership labels, import flow, offline startup wiring) against frozen `p08-cg-v1`. P07-MOD-01/BE-01 (F06) stay frozen-not-built and are not blockers.**
-- Current Contract Gates: **P02-CG `p02-cg-v2`; P03-CG `p03-cg-v1`; P04-CG `p04-cg-v1`; P05-CG `p05-cg-v1`; P06-CG `p06-cg-v1`; P07-CG `p07-cg-v1`; P08-CG `p08-cg-v1` (frozen, no Change Request)**
-- Shared-file owner: **P08 coordinator for P08; P07 coordinator for P07; P06 coordinator for P06; P05 coordinator for P05; P04 coordinator for P04; P03 coordinator (merged) for P03**
-- Integration owner: **P08 coordinator for P08; P07 coordinator for P07; P06 coordinator for P06; P05 coordinator for P05; P04 coordinator for P04; P03 coordinator (merged) for P03**
+- Current implementation phases: **P09 production hardening complete (Integration Gate: PASS WITH FOLLOW-UP); P08 complete (control plane merged, client seam merged in `RunLumi/LumiAgents` PR #31); P07 implementation complete; P06 implementation complete; P05 complete; P04 implemented/review; P03 complete**
+- Next implementable phase: **P08-INT-02..06 in `RunLumi/LumiAgents` (wizard UI, ownership labels, import flow, offline startup wiring) against frozen `p08-cg-v1`, plus the seven P09 follow-ups in `docs/release/release-checklist.md`. None of the P09 follow-ups blocks P08; the backup/restore rehearsal should be done first.**
+- Current Contract Gates: **P02-CG `p02-cg-v2`; P03-CG `p03-cg-v1`; P04-CG `p04-cg-v1`; P05-CG `p05-cg-v1`; P06-CG `p06-cg-v1`; P07-CG `p07-cg-v1`; P08-CG `p08-cg-v1` (all frozen, no Change Request)**
+- Shared-file owner: **P09 coordinator for P09; P08 coordinator for P08; P07 coordinator for P07; P06 coordinator for P06; P05 coordinator for P05; P04 coordinator for P04; P03 coordinator (merged) for P03**
+- Integration owner: **P09 coordinator for P09; P08 coordinator for P08; P07 coordinator for P07; P06 coordinator for P06; P05 coordinator for P05; P04 coordinator for P04; P03 coordinator (merged) for P03**
 
 ## Phase status
 
@@ -26,6 +26,7 @@ Last initialized: 2026-09-27
 | P06   | implementation complete; visual pass owed | frozen: `p06-cg-v1` (`11341a5`, PR #22; CR-001/002/003 + ADR 0006) | PASS: all six claims mapped to named evidence           | 15 migrations, 48 routes mounted, 668 Rust + 479 web tests, hosted CI green. Frontend reconciled with `docs/screens/lumi_plan_entitlements.webp` and `lumi_export_history.webp`, under the authority of F22's information-architecture tree: Data & Retention is one four-tab Settings page, Billing is the reference's two-column card grid with a "Usage vs. plan limits" table, and the three P06 settings surfaces (billing, data, webhooks) sit under Settings at `/org/{slug}/settings/...` with breadcrumbs, while Automations stays top level. **Outstanding:** no P06 surface has been visually verified in a browser — none is attached to this session. `docs/screens/` has no reference for automations or webhooks; that gap is real, and is recorded in the P06-FE handoff together with the deliberate deviations |
 | P07   | implementation complete; visual pass owed | frozen: `p07-cg-v1` (ADR 0007), fixture `p07-contracts-v1.json`   | PASS WITH FOLLOW-UP: `docs/implementation/gates/P07-IG.md` | Scope cut to F14 + F25 + F24-007, with F06 (SSO/SCIM/domains) and the internal ops console frozen-not-built per the gate's decisions 3 and 4. 22 routes mounted across 3 modules plus `require_machine`/`require_staff`; migrations `0016`–`0018`; 848 Rust + 720 web tests; **97/97 storage invariants proven rejected by the database itself, now a CI gate via `pnpm test`**. Six defects found by tests and fixed, including a `blocked_reason` omission that made the plugin detail page render nothing and a `*.suffix` manifest form that could not be reported at all. **Outstanding, and the reason this is not a plain PASS:** no P07 surface has been rendered in a browser (none attached), so desktop/narrow layout, focus rings, and async states are visually unverified — P06 carries the same debt; and the vertical slice is proven at the domain/projection/database layers rather than by an end-to-end request against a running Worker. `docs/screens/` has no reference for any P07 surface. F22 places neither, so `Plugins` and `Identity & access` are recorded deviations under Settings rather than claimed as F22-authorized |
 | P08   | closed                                    | frozen: `p08-cg-v1` (PR #27)                                        | PASS: `docs/implementation/gates/P08-IG.md`               | `p08-cg-v1` frozen with 45 domain tests, migration `0019` applied, a 17-case schema probe in CI, nine routes (one deliberately unauthenticated), and a lazy 10.3 kB gzip web surface with 78 tests. Seven of the eight Integration Gate claims are proven with named evidence; the eighth, the real client, landed as `RunLumi/LumiAgents` PR #31 (`fbb4a09`) with 49 tests and local migration `0023`, and closed P08. **Outstanding, all recorded in `docs/implementation/evidence/P08-IG-2026-09-26.md`:** no browser visual verification, no HTTP smoke, and no client UI — the wizard is a seam, not a screen |
+| P09   | hardening complete; rehearsal and browser pass owed | n/a (no new contracts frozen) | PASS WITH FOLLOW-UP: `docs/implementation/gates/P09-IG.md` | Five workstreams turned into mechanical gates rather than review: **421 SQL statements tenant-classified with 0 unclassified**, 46 secret canaries, 70 hostile egress inputs, 97 storage invariants, 32 failure-injection tests — all in `pnpm check`. **Eleven real defects found by tests, not review.** Two were Gate D failures this phase fixed: the jobs dead-letter queue was declared and never read (a poisoned job was invisible; FR-F21-009 was failing outright), and `expire_reservations_statement` had zero callers, so a hold leaked by a crash never reached a terminal state. The most serious finding is neither: **a provider stream cut short before `[DONE]` was recorded as a successful run with the budget reservation committed at the full upper bound** — overcharging the tenant, on money that is immutable by design. The tenant audit also found four tables had never been audited at all, because the tenant column has two spellings and the original scan knew one. **Outstanding:** no backup/restore rehearsal (no measured RPO or RTO), no browser pass on any surface, no staging deploy — so LCP/INP/CLS, Worker p95, D1 latency, TTFT, and fallback latency are **unmeasured**; the bundle budgets are measured and CI-gated, the field metrics are not. Eleven release artifacts in `docs/release/`, two of them generated with drift tests |
 | P09   | blocked                                   | blocked                                                            | blocked                                                 | release hardening only                                                                                                                                                                                                                                                                                        |
 
 ## Packet status vocabulary
@@ -239,6 +240,23 @@ P08 was therefore developed in a clean clone on the root volume with the missing
 blob re-hashed from the worktree copy and the unreachable reflog entries expired.
 Recovery that leaves the primary checkout healthy — a fresh `git clone`, or a
 `git fetch --refetch` once the phantom ref is gone — should be its own change.
+
+## P09 packet status
+
+| Packet        | State  | Notes                                                                                                     |
+| ------------- | ------ | --------------------------------------------------------------------------------------------------------- |
+| P09-SEC-01    | merged | Tenant isolation: 421 statements classified, 0 unclassified, 10 tests. Found 4 never-audited tables, 1 inline SQL literal, 1 unguarded write |
+| P09-SEC-02    | merged | Secrets: 32 Rust + 14 script canary cases, both proven able to fail. 10 `derive(Debug)` on secret-bearing records fixed; 1 unsanitized metadata path reported |
+| P09-SEC-03    | merged | SSRF/egress: `core/egress.rs` + a 70-input corpus. Fixed a validator that read a different host than the transport, and an unreachable IPv6 range table |
+| P09-REL-01    | merged | 32 failure-injection tests. Fixed a truncated stream recorded as a successful run with the reservation committed; found the unread jobs DLQ and the unswept budget hold |
+| P09-PERF-01    | merged | All bundle budgets measured and CI-gated; field metrics **unmeasured** and stated as such. No budget raised |
+| P09-OPS-01    | merged | Runbook, incident checklist, SLO/dashboard references. Gate D was FAILING and is why the DLQ and the sweep were fixed |
+| P09-QA-01     | merged | `docs/release/` — 11 artifacts, 2 of them generated with drift tests. Five gates recorded in `release-checklist.md` |
+| P09-COORD-01  | merged | This phase's handoff, and the two `lib.rs` correctness fixes the failure-injection pass reported rather than made |
+
+P09 froze no new contracts. One frozen *artifact* — `p07-contracts-v1.json` — was
+completed so two languages could be held to one document; the reasoning is in
+`gates/P09-IG.md` and in the fixture's own `_note`, and no frozen behavior changed.
 
 ## Rule
 
