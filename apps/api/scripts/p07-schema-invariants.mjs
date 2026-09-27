@@ -132,8 +132,16 @@ try {
   /// one of these follows is the same: a query that forgot its `org_id` predicate
   /// must FAIL, not pass. A cross-tenant test that passes when the tenant filter is
   /// removed is worse than no test, because it looks like coverage.
-  const query = (label, sql, check, setup = []) =>
-    cases.push({ label, want: "holds", sql, check, statements: setup });
+  ///
+  /// `expectsNoRows` is required rather than inferred. `check` runs once per returned
+  /// row, so a query that returns NOTHING never calls it and the case reports "holds"
+  /// -- vacuously, having asserted nothing. That is the read-shaped twin of the
+  /// invalid-setup false pass, and it is silent in exactly the same way: the case is
+  /// green whether or not the seed contains the row it means to read. A case that
+  /// genuinely wants zero rows (a leak check counting scoped rows) must say so, and
+  /// then the runner asserts the emptiness instead of assuming it.
+  const query = (label, sql, check, setup = [], expectsNoRows = false) =>
+    cases.push({ label, want: "holds", sql, check, statements: setup, expectsNoRows });
 
   // ------------------------------------------------------------- writers ----
   const account = (sid, name, caps) =>
@@ -1316,17 +1324,41 @@ try {
           db.prepare(statement).run();
         }
         const rows = db.prepare(testCase.sql).all();
-        const problem = rows.map((row) => testCase.check(row)).find(Boolean);
-        actual = problem ? "violated" : "holds";
-        detail = problem ?? "";
+        // Zero rows means `check` never ran, so the case asserted nothing. That is
+        // the read-shaped twin of the invalid-setup false pass, and it is silent in
+        // the same way: green whether or not the seed holds the row the case means to
+        // read. A case that genuinely wants zero rows declares `expectsNoRows`, and
+        // the runner then asserts the emptiness rather than assuming it.
+        if (rows.length === 0 && !testCase.expectsNoRows) {
+          actual = "asserted-nothing";
+          detail = "the query returned no rows, so check() never ran";
+        } else if (testCase.expectsNoRows && rows.length > 0) {
+          actual = "expected-no-rows";
+          detail = `the query returned ${rows.length} row(s) and this case declares it wants none`;
+        } else {
+          const problem = rows.map((row) => testCase.check(row)).find(Boolean);
+          actual = problem ? "violated" : "holds";
+          detail = problem ?? "";
+        }
       } else {
+        // There is deliberately no "which statement rejected" check here, and there
+        // was one a moment ago. It was redundant: the prefix check above already
+        // requires every statement but the last to be accepted, which means the last
+        // statement is necessarily the first one that can reject. A case whose
+        // subject is not last has that subject inside the prefix, so the prefix fails
+        // and the case is caught -- verified with a planted case, not argued.
+        //
+        // Shipping both would have meant two mechanisms for one property and the
+        // illusion of more rigour than this file actually has.
         for (const statement of testCase.statements) {
           db.prepare(statement).run();
         }
       }
     } catch (error) {
-      actual = "rejected";
-      detail = error.message;
+      if (actual === "accepted") {
+        actual = "rejected";
+        detail = error.message;
+      }
     }
     db.exec("ROLLBACK TO probe");
     db.exec("RELEASE probe");

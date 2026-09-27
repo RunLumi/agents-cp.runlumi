@@ -26,7 +26,7 @@ plain PASS.
 **979 Rust tests · 11 egress-corpus tests · 798 web tests · 125 storage invariants ·
 14 secret canaries.** `pnpm check` exits 0.
 
-**8/8 mutations killed.** The Tier-0 contract requires a named fault to be killed by
+**9/9 mutations killed.** The Tier-0 contract requires a named fault to be killed by
 the verifier that defends it, *for the intended reason*. That is a stronger claim
 than "the tests pass", and it found four things — including that **18 of the 125
 storage invariants were false passes** whose setup re-inserted a row the seed already
@@ -167,7 +167,7 @@ Not release-blocking, and each with an owner-shaped next action.
 | 6 | **A Change Request** for the plugin declaration filter, and one for the
 `security_events` metadata allow-list. | Both are frozen-contract-adjacent and both are documented with the risk. |
 | 7 | **D1-specific integration tests** via `wrangler dev --local`: real CAS refusal, real unique-index rejection, and the dead-letter branch end to end. | Every one of those properties is proven at the statement level; a D1 `PreparedStatement` cannot be constructed on the host. |
-| 8 | **VI-BUD-001's ordering half.** "A hard denial is enforced *at all*" is proven by mutation. "The denial happens *before* dispatch*" is **UNPROVEN**: a string-replace harness cannot move a call site honestly. | The decision is proven to be right; only its position in the sequence is unproven, and the sequence is readable in `routes/inference.rs`. |
+| 8 | **A runtime proof of the budget ordering**, and/or a permit type so the dispatch cannot be called without the decision. | The ordering is currently a V1 structural gate over a compiler-enforced data coupling. That is strong, and it is not the same as observing that no upstream call happened. |
 | 9 | **Adversarial mutation for VI-AUTH-001, VI-AUTH-002** — ceremony replay and revocation mid-request. | Both have assertions; neither has been attacked at V4. |
 | 10 | **Make the P09 audits a merge requirement** rather than a phase artifact. | P08 landed without them and all five flagged it immediately. An audit only covers what lands after it. |
 
