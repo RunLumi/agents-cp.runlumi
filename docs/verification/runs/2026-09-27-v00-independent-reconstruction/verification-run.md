@@ -24,7 +24,13 @@ so neither can be mistaken for the other:
 | | Commit | What it means |
 |---|---|---|
 | Reconstruction | `ecbdac1` | the state the reconstruction judged. Every "before" figure in this record belongs to it |
-| Repair | `ece860b` (the tip of the repair branch) | the state the post-repair verdicts were re-derived from |
+| Repair | `ece860b` | the state the post-repair verdicts were re-derived from |
+
+`ece860b` is named rather than the branch tip deliberately: a record cannot name the commit that
+contains itself, because writing that name creates a newer commit. `ece860b` contains every
+repair, every new gate, and this record, and the commits after it touch documentation only — so
+re-running any gate at `ece860b` and at the branch tip produces the same numbers. A commit
+reference that has gone stale is worse than none, because it looks like provenance.
 
 The repair is ten cohesive commits, one finding per commit where a finding needed more than one
 change, in the order the record's own `next-verification-actions.md` prescribed:
