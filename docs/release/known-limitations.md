@@ -102,6 +102,19 @@ which is what the incident response depends on.
 
 ## Operations
 
+### The measured RTO is for a 195 KiB database
+
+`pnpm verify:restore` runs the rehearsal and it passes: export 2.05–2.27 s, restore
+157–264 ms, verify 151–218 ms, RTO 2.39–2.62 s. The database is 195 KiB with two
+organizations. **These are not a production RTO.** Every figure scales with size and the
+restore scales worst, because it replays a text dump. What is established is that the
+path works and roughly what it costs per megabyte.
+
+**Unmeasured, and each needs something this environment does not have:** production-scale
+timings (a production-shaped export), D1 Time Travel and `d1 export --remote` (a
+Cloudflare account), and R2 restore (a bucket worth restoring — artifacts are
+35-day-ephemeral by policy, so a stale bucket is worse than none).
+
 ### The `JOBS_DLQ_NAME` fix is structurally tested, not behaviourally tested
 
 The new dead-letter consumer needs a live `Env` and two real queues, so its tests

@@ -294,6 +294,63 @@ and latency, TTFT, streaming memory, fallback latency. Each needs a deployed
 environment. This is the largest gap in the evidence and it is why the Performance
 gate is qualified rather than passed outright.
 
+## The restore rehearsal
+
+`docs/release/backup-restore.md` opened by saying no rehearsal had been run and no RPO
+or RTO had been measured. That was the largest operational gap in this phase's evidence:
+every other number in `docs/release/` was measured, and the one an on-call engineer
+needs most was not.
+
+`pnpm verify:restore` runs it. `apps/api/scripts/p09-restore-rehearsal.mjs` builds a
+populated D1 through `wrangler`, exports with `wrangler d1 export`, restores into an
+empty database, and verifies.
+
+**Measured** (3 runs, 195 KiB): export 2.05–2.27 s, restore 157–264 ms, verify
+151–218 ms, **RTO 2.39–2.62 s**. RPO is 0 rows inside the snapshot; the recoverable-loss
+window is the interval between exports, which is an operational decision.
+
+**Not a production RTO, and the script prints that caveat itself.** The database is
+195 KiB with two organizations. Every figure scales with size and the restore scales
+worst. What is established is that the path works and roughly what it costs per
+megabyte.
+
+### Why the verification step is the whole rehearsal
+
+A row-count comparison cannot see the failure that matters: a restore that **loads but
+whose triggers are missing**. Every row present, `integrity_check` clean, counts
+matching — and a database that accepts a revoked credential being reactivated.
+
+So the load-bearing check runs the 125 storage invariants against the **restored** file,
+via a new `P07_SCHEMA_DB` mode that skips migrations and the seed. That mode exists
+because of a line worth recording: every number the harness had ever produced came from
+the freshly-migrated path, which is structurally incapable of detecting a lossy
+restore.
+
+### It proves it can fail
+
+Step 6 drops a trigger from a **copy** of the restored file and requires the suite to
+notice: `123/125`, both affected cases named. The damaged copy has every row, a clean
+`integrity_check`, and matching counts — and is not a database you could serve. This
+runs by default; `--no-fault-injection` skips it and nothing should.
+
+### Four bugs that reported success while measuring nothing
+
+The same shape as bugs found earlier in this phase, which is why they are listed:
+
+- `--emit-db` printed its destination and wrote to a throwaway file, so it **succeeded
+  while producing a zero-byte database.**
+- The restore verdict tested the matched line against `^\d+/\d+$`, which a **passing**
+  run fails — a correct restore was reported as a failed rehearsal.
+- The verify timer started *after* verification: `verify 0 ms`. A fabricated timing in
+  the one document whose value is that its numbers are real.
+- The first version used the default `.wrangler/state`, so a second run died on
+  `UNIQUE constraint failed: users.email`. A rehearsal you can only run once, in a
+  clean checkout, is not one you can rely on.
+
+The script is also **non-destructive**, and that is tested rather than asserted: it
+moves your local D1 state aside and puts it back, verified with a marker file, with the
+restore in a `finally` so a crash cannot cost you local data.
+
 ## The gates
 
 | Gate | Verdict | Note |

@@ -37,7 +37,7 @@
 // Exits non-zero if any case does not behave as declared.
 
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,27 +98,104 @@ function id(prefix, n) {
 }
 
 const workdir = mkdtempSync(path.join(tmpdir(), "p07-invariants-"));
-const dbPath = path.join(workdir, "p07.db");
+
+// --- two modes, both added by the P09 restore rehearsal ------------------------
+//
+// `--emit-db <path>`      apply the migrations, seed one valid row per table, and
+//                         write the result to <path>. This is how the rehearsal gets
+//                         a SOURCE database with real content to export. An empty
+//                         schema would only prove that a restore reproduces an empty
+//                         schema, which is the easy half.
+//
+// `P07_SCHEMA_DB=<path>`  run the cases against an EXISTING database: no migrations,
+//                         no seed, because the file already carries both. This is the
+//                         mode that matters. It is how the cases are run against a
+//                         RESTORED dump rather than a freshly-migrated one, which is
+//                         the only version of the question worth asking.
+//
+// The distinction is the whole point of `docs/release/backup-restore.md`: a database
+// that loads but whose triggers are missing is a database you cannot serve, and
+// running the suite against a freshly-migrated file can never detect that. Every
+// number this harness has ever produced came from the freshly-migrated path.
+function argValue(flag) {
+  const at = process.argv.indexOf(flag);
+  return at >= 0 ? process.argv[at + 1] : undefined;
+}
+
+const EMIT_DB = argValue("--emit-db");
+const EMIT_SEED_SQL = argValue("--emit-seed-sql");
+const EXISTING_DB = process.env.P07_SCHEMA_DB;
+// EMIT_DB wins, because the point of the flag is to write THERE. The first version
+// opened the throwaway workdir path and merely printed the flag's value, so the
+// database was written to a file the branch then deleted -- and `--emit-db` "succeeded"
+// while producing a zero-byte file. A mode that reports success and produces nothing
+// is worse than a mode that fails.
+const dbPath = EMIT_DB ?? EXISTING_DB ?? path.join(workdir, "p07.db");
+
 const db = new DatabaseSync(dbPath);
 
-try {
+if (EMIT_SEED_SQL) {
+  // The fixture, as a file, for `wrangler d1 execute --file`. Same SQL the harness
+  // applies, so the rehearsal's source data and its verification cannot drift.
+  writeFileSync(EMIT_SEED_SQL, seedStatements());
+  console.log(`emitted ${EMIT_SEED_SQL}: the seed fixture as SQL`);
+  db.close();
+  rmSync(workdir, { recursive: true, force: true });
+  process.exit(0);
+}
+
+if (EMIT_DB) {
   const applied = readdirSync(migrationsDir)
     .filter((name) => name.endsWith(".sql"))
     .sort();
   for (const name of applied) {
-    const sql = readFileSync(path.join(migrationsDir, name), "utf8");
-    try {
-      db.exec(sql);
-    } catch (error) {
-      console.error(`FAIL  migration ${name}: ${error.message}`);
+    db.exec(readFileSync(path.join(migrationsDir, name), "utf8"));
+  }
+  seed();
+  const count = (sql) => db.prepare(sql).get().n;
+  console.log(
+    `emitted ${EMIT_DB}: ${applied.length} migrations, ` +
+      `${count("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'")} tables, ` +
+      `${count("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger'")} triggers, ` +
+      `${count("SELECT COUNT(*) AS n FROM organizations")} organizations seeded`,
+  );
+  db.close();
+  rmSync(workdir, { recursive: true, force: true });
+  process.exit(0);
+}
+
+try {
+  if (EXISTING_DB) {
+    const count = (sql) => db.prepare(sql).get().n;
+    const tables = count("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'");
+    const triggers = count("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger'");
+    console.log(
+      `running against an EXISTING database: ${dbPath}\n` +
+        `  ${tables} tables, ${triggers} triggers -- no migrations applied, no seed applied\n`,
+    );
+    if (tables === 0 || triggers === 0) {
+      console.error("FAIL  that database has no schema, so it was never restored.");
       process.exit(1);
     }
-  }
-  console.log(`applied ${applied.length} migrations (last: ${applied.at(-1)})\n`);
+  } else {
+    const applied = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    for (const name of applied) {
+      const sql = readFileSync(path.join(migrationsDir, name), "utf8");
+      try {
+        db.exec(sql);
+      } catch (error) {
+        console.error(`FAIL  migration ${name}: ${error.message}`);
+        process.exit(1);
+      }
+    }
+    console.log(`applied ${applied.length} migrations (last: ${applied.at(-1)})\n`);
 
-  // One valid fixture per table, in dependency order. Every probe is layered on
-  // top of this, so a rejection can only come from the constraint under test.
-  seed();
+    // One valid fixture per table, in dependency order. Every probe is layered on
+    // top of this, so a rejection can only come from the constraint under test.
+    seed();
+  }
 
   const cases = [];
   const expect = (label, want, sql) =>
@@ -1383,11 +1460,19 @@ try {
   rmSync(workdir, { recursive: true, force: true });
 }
 
-function seed() {
-  // ONE exec, in dependency order. The plugin and platform rows reference the
-  // user and the organization, and SQLite resolves foreign keys immediately, so
-  // a second exec seeded first fails every probe for the wrong reason.
-  db.exec(`
+/// The seed as SQL, so it can be materialised as a file as well as applied.
+///
+/// Added by the P09 restore rehearsal. The restored database has to contain the same
+/// fixture the 125 cases are written against, and the honest way to get it there is
+/// to hand the SAME SQL to `wrangler d1 execute --file` rather than to re-derive the
+/// rows in a second place and hope the two agree. A rehearsal whose source data is
+/// produced by different code than its verification is a rehearsal of nothing.
+function seedSql() {
+  return seedStatements();
+}
+
+function seedStatements() {
+  return `
     INSERT INTO users (user_id, email, display_name, email_verified, version, created_at, updated_at)
     VALUES ('${USER}', 'owner@example.com', 'Owner', 1, 1, '${NOW}', '${NOW}');
     INSERT INTO organizations (org_id, display_name, slug, state, version, created_by_user_id, created_at, updated_at)
@@ -1435,5 +1520,9 @@ function seed() {
       engaged_by_staff_principal_id, engaged_at, state, version, created_at, updated_at)
     VALUES ('${SWITCH}', 'plugin_version', '${PACKAGE}@${VERSION_ONE}', 'global', NULL, 'incident 42',
       '${STAFF}', '${NOW}', 'engaged', 1, '${NOW}', '${NOW}');
-  `);
+  `;
+}
+
+function seed() {
+  db.exec(seedStatements());
 }
