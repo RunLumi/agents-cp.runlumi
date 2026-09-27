@@ -61,10 +61,20 @@ const CASES = [
     tier: 0,
     title: "a human-only permission becomes grantable to a machine",
     file: "apps/api/src/modules/machine_identity.rs",
-    find: "return Err(MachineIdentityError::CapabilityHumanOnly);",
-    replace: "return Err(MachineIdentityError::CapabilityUnknown);",
+    // Mutate the DECISION, not the enum's Display arm. The first version of this case
+    // replaced `Self::HumanOnlyAction` in the `as_str` match, which changed a STRING
+    // and was killed by a test asserting the code text -- a kill for the wrong reason
+    // that looked exactly like a behavioural one. It also briefly failed to compile.
+    //
+    // This is the real filter: the `is_human_only` gate in `allow`, which is what
+    // makes a widened scope unable to grant OrgLifecycle, BillingManage, or
+    // DataDelete to a machine.
+    find: "    if is_human_only(permission) {\n        return MachineDecision::Deny(MachineDenyReason::HumanOnlyAction);\n    }",
+    replace:
+      "    if false {\n        return MachineDecision::Deny(MachineDenyReason::HumanOnlyAction);\n    }",
+    file2: undefined,
     verifier: ["cargo", "machine_identity"],
-    expect: "human_only",
+    expect: "HumanOnlyAction",
   },
   {
     id: "VI-INF-001",
@@ -88,10 +98,19 @@ const CASES = [
     // follow-up in the P09 gate.
     title: "a hard budget stops being enforced at all",
     file: "apps/api/src/modules/budget_p05.rs",
-    find: "if policy.kind == BudgetKind::Hard\n            && (policy.limit_minor > MAX_RESERVATION_MINOR",
-    replace: "if false\n            && (policy.limit_minor > MAX_RESERVATION_MINOR",
+    // The version of this mutation that disabled the over-limit guard in the policy
+    // loop SURVIVED, and the reason is worth recording: `MAX_RESERVATION_MINOR` is
+    // `i64::MAX`, D1 stores INTEGER, so `limit_minor > MAX_RESERVATION_MINOR` cannot
+    // be true for any stored value. That branch is defence in depth against a value
+    // the storage layer cannot hold, and nothing tests it because nothing can reach
+    // it. A mutation of unreachable code tells you about the mutation, not the code.
+    //
+    // This one disables the reachable hard denial: over a hard limit, allow.
+    find: "BudgetKind::Hard if projected > policy.limit_minor => consider_candidate(\n                &mut best,\n                BudgetDecision::Deny,",
+    replace:
+      "BudgetKind::Hard if projected > policy.limit_minor => consider_candidate(\n                &mut best,\n                BudgetDecision::Allow,",
     verifier: ["cargo", "modules::budget_p05"],
-    expect: "reservation_too_large",
+    expect: "HardLimitExceeded",
   },
   {
     id: "VI-IDEM-001",
@@ -126,7 +145,11 @@ const CASES = [
     find: "FOR EACH ROW WHEN NEW.review_state = 'blocked' AND NEW.blocked_reason IS NULL",
     replace: "FOR EACH ROW WHEN 0",
     verifier: ["schema"],
-    expect: "blocked plugin install must record a reason",
+    // The harness reports a failing case by its LABEL; the trigger's own RAISE text
+    // never reaches the output. Expecting the RAISE text made a correct kill read as
+    // "killed for the wrong reason", which is the mirror image of the same mistake:
+    // checking that a verifier failed without checking what it said.
+    expect: "a blocked install without a reason is refused",
   },
   {
     id: "VI-SEC-001",
