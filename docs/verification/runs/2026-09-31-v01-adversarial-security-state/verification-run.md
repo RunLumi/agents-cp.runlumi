@@ -2,9 +2,13 @@
 
 ## Status
 
-**in progress.** Six families attacked, eight findings, two product defects found and fixed
-(one **critical**, one **high**), and three claims proven that had no evidence at all. The remaining families and every open item are listed below with what is missing
-and why it is still missing.
+**in progress.** **Ten findings**, four of them product defects found and fixed — one
+**critical** (V01-009: four route modules require an `Idempotency-Key` and then discard it, so
+every retry executed again) and three narrower. Eight of the nine required families now have a
+gate whose failure has been *watched*, and three of those gates were written in this round.
+
+The remaining work is listed item by item below with the specific missing evidence for each.
+Nothing is carried as "probably fine".
 
 ## What this campaign has produced
 
@@ -93,12 +97,20 @@ context, not by a code review.** In every case the same discipline found it:
 | `pnpm smoke:p02` | exit 0 |
 | `pnpm smoke:p03` | exit 0 |
 | `pnpm smoke:browser` | 39/39, exit 0 |
+| `pnpm verify:idempotency` | **41/41**, exit 0 |
+| `pnpm verify:filter-tenancy` | **65/65**, 9 skipped, exit 0 — no leak on any surface |
+| `pnpm verify:inference-failure` | **65/65**, 0 skipped, exit 0 |
+| `pnpm verify:provider-faults` | **exit 2 — BLOCKED**, see GAP-007 |
+| `pnpm smoke:p04` / `pnpm smoke:p05` | exit 0 |
 | `v01-001-sensitivity.sh` | 2 of 2 detected |
 | `v01-003-sensitivity.sh` | 4 of 4 detected, source verified back to its snapshot |
 | `v01-004-sensitivity.sh` | 1 of 3 detected; **A1 and A3 are honest MISSEDs** — see below |
 | `v01-006-sensitivity.sh` | 2 of 2 gating cases detected; B3 an expected MISSED, exit 0 |
 | `v01-007-sensitivity.sh` | 2 of 2 detected, first attempt, exit 0 |
 | `v01-008-sensitivity.sh` | 3 of 3 detected, exit 0 |
+| `v01-009-sensitivity.sh` | 4 of 4 detected; 1 KNOWN MISSED, explained |
+| `v01-filter-sensitivity.sh` | 4 of 4 detected, each printing the ids it leaked |
+| `v01-infer-sensitivity.sh` | 3 of 3 detected |
 
 ## What is still UNPROVEN, and why
 
@@ -112,7 +124,13 @@ Nothing below is claimed as a pass. Each names the specific evidence that is mis
 | ~~migrations on **representative prior state**~~ | **CLOSED in V01-007** | 19/19. Two cut points: 0015 (the ledger seeds rows by design) and 0019 with stored idempotency claims. `p08-invariants` still 17/17 on the populated path |
 | ~~concurrent reservations against a hard budget ceiling~~ | **CLOSED in V01-006** | 8 concurrent requests for 240 against a limit of 100 yield 3 grants holding 90. `verify:budget-concurrency`, 27/27, sensitivity-proven. A released hold returns its capacity and a denied request can then reserve it |
 | a reservation's SQL inference-correlation clause | **redundant second line** | the route resolves the request first and returns 404. B3 is an expected MISSED, recorded in V01-006 |
-| inference streaming: 429, 5xx, malformed chunk, timeout, client disconnect | **UNPROVEN** | unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker. `mock_dispatch` has five fault modes selectable by `endpoint` (mock://lumi-fail, mock://lumi-timeout, mock://lumi-post-output-failure, mock://lumi-success) and is a ready-made surface |
+| ~~inference streaming: fail-before-output, timeout, output-then-fail, client disconnect~~ | **CLOSED in `verify:inference-failure`** | 65/65, 0 skipped. After every outcome no reservation is left `reserved` and every request reaches a terminal state, graded on two D1 tables. Client-disconnect side effects were previously *performed and never checked* |
+| inference streaming: **429, 5xx, a genuinely malformed chunk** | **BLOCKED — GAP-007** | the probe exists and counts the requests reaching a real local server, but `wrangler dev` here does not route a Worker's outbound fetch to a host-local endpoint, so it exits 2. V01-010 is what made the blocker nameable |
+| ~~cross-tenant substitution through FILTERS, PAGINATION and NESTED routes~~ | **CLOSED in `verify:filter-tenancy`** | 65/65, 9 skipped, **no leak found** on any surface, including through the audit route's `metadata_json`. Four mutations detected |
+| ~~same key + incompatible payload, concurrent same-key, cross-principal key reuse~~ | **CLOSED in V01-009, after a critical defect** | 6 racers on one key made 6 projects; now 1. 41/41 |
+| a failed provider dispatch's cause | **CLOSED in V01-010** | it was discarded entirely; `provider_unavailable` was the whole answer for a refused socket, a DNS failure and a bad endpoint alike |
+| `devices.rs` and `foundation_checks.rs` also require a key and ignore it | **UNPROVEN — GAP-005** | the same defect as V01-009 on two further modules, found by reading for the pattern rather than by an attack |
+| `organizations.rs` invitations read-then-write a deterministic id | **UNPROVEN — GAP-006** | a race rather than an absence, and unattacked concurrently |
 | ~~migrations on **representative prior state**~~ | **CLOSED in V01-007** | two cut points only, no assertion about the *content* of a backfill, and foreign keys are not exercised. Those limits are listed in the finding |
 | ~~mutating cross-tenant calls~~ | **CLOSED in V01-008's probe** | 11 mutations from another tenant's owner and from a plain member of the same tenant, across role, capability, project, budget and org. 0 of 11 changed state; refusals are 404 for both an existing and an absent id, so there is no existence oracle. **Still open**: list/**filter**, **pagination** and **nested** substitution, and 28 more mutating routes |
 | 82 of 104 org-scoped routes | **partly closed** | 20 read routes in `smoke:p08` plus 11 mutating routes in `verify:mutating-tenancy`. No filter, pagination or nested substitution anywhere |
