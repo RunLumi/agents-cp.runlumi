@@ -60,6 +60,24 @@ const CASES = [
   {
     id: "VI-TEN-001",
     tier: 0,
+    // The two VI-TEN-001 cases above this one are both statement-level, and that is
+    // the point rather than an oversight. They remove a predicate from SQL and the
+    // tenant audit sees it, because the audit classifies statements. This case
+    // removes nothing from SQL at all: the statements are unchanged, still correctly
+    // classified, and the handler that calls them stops checking the resource against
+    // the organization it was authorized for. Every statement-level verifier stays
+    // green -- which is exactly how `projects/{project_id}/access` shipped a
+    // cross-tenant read of another organization's access grants. See VFY-011.
+    title: "a project grant list is served without the project being org-scoped",
+    file: "apps/api/src/routes/projects.rs",
+    find: '.filter(|project| project.org_id == org_id)\n        .ok_or_else(|| {\n            deny(\n                &context,\n                ApiErrorCode::NotFound,\n                "not_found",\n                "No such project.",\n            )\n        })?;\n    let grants = ProjectRepository::new(database)',
+    replace: "let grants = ProjectRepository::new(database)",
+    verifier: ["smoke:p08"],
+    expect: "/projects/{id}/access",
+  },
+  {
+    id: "VI-TEN-001",
+    tier: 0,
     title: "a service-account page stops being org-scoped",
     file: "apps/api/src/repositories/machine_identity.rs",
     find: "WHERE org_id = ?1",
@@ -438,6 +456,25 @@ const SMOKE_SCRIPTS = {
       };
     },
   },
+  p08: {
+    // `needsWorker: true` for the same reason as passkey and p05: this probe asks a
+    // real Worker for one organization's data with another organization's id, over
+    // real HTTP, and nothing cheaper can tell a refused route from an absent one.
+    script: "apps/api/scripts/p08-tenancy-smoke.mjs",
+    needsWorker: true,
+    // The probe's own summary, beside its own name. A leak makes one of its cases
+    // fail, so the numerator drops and the counts differ -- which is the only signal
+    // needed, and matching on the word "leak" instead would break the moment the
+    // probe reworded a line.
+    tally(out) {
+      const m = /(\d+)\/(\d+) P08 cross-tenant cases hold/.exec(out);
+      if (!m) return null;
+      return {
+        clean: m[1] === m[2],
+        reported: `${m[1]}/${m[2]} P08 cross-tenant cases hold`,
+      };
+    },
+  },
   guard: {
     script: "apps/api/scripts/p02-guard-probe.mjs",
     needsWorker: false,
@@ -478,6 +515,9 @@ const SELF_TEST = [
   ["p05", "\nP05 smoke: 185 checks passed; 0 failures; 0 limitations", true],
   ["p05", "\nP05 smoke: 184 checks passed; 1 failures; 0 limitations", false],
   ["p05", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
+  ["p08", "\n45/45 P08 cross-tenant cases hold, 2 skipped", true],
+  ["p08", "\n44/45 P08 cross-tenant cases hold, 2 skipped", false],
+  ["p08", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
   ["guard", "\n13/13 guard cases hold across 2 recognised abort texts", true],
   ["guard", "\n12/13 guard cases hold across 2 recognised abort texts", false],
   ["guard", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
