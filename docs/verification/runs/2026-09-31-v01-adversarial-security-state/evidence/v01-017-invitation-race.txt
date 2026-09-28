@@ -1,0 +1,43 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01inv3
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:52985
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-rg4ry6/abc0fa43653133e0352a0880b92e40ad2f037dcb-index_bg.wasm is 1268s newer than migrations/0021_p02_team_id_check_correction.sql
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_0210ef8f382a4e56a18a2e7b8790be90
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_dabd6ff26cc6b38ef2ceadeaf7698b69
+  PASS  CONTROL: a first invitation succeeds  — status=201
+
+  first invite: status=201 code=none reason=none -> 1 row(s)
+  PASS  CONTROL: the first invitation wrote exactly ONE pending row for that email  — rows=[{"invitation_id":"inv_6da1edf49a6497cbae9fdef36cbbdca2","email":"v01-invite-first-mulv7jmekoja@example.com","role":"member","status":"pending"}]
+  duplicate invite (different key, same email): status=200 code=none reason=none -> 1 row(s)
+  PASS  V01-017: a duplicate invitation for the same email does not create a second pending row  — rows=[{"invitation_id":"inv_6da1edf49a6497cbae9fdef36cbbdca2","email":"v01-invite-first-mulv7jmekoja@example.com","role":"member","status":"pending"}] -- the partial unique index ux_invitations_pending_target should hold; more than one row means the schema is not protecting this
+  PASS  V01-017: a duplicate invitation is answered EXPLICITLY -- a 2xx carrying duplicate: true, or a stable 4xx -- and never a 503 that reads as an outage  — status=200 code=none reason=none body={"duplicate":true,"invitation":{"created_at":"2026-09-28T23:15:03.820Z","email":"v01-invite-first-mulv7jmekoja@example.com","expires_at":"2026-10-05T23:15:03.820Z","id":"inv_6da1edf49a6497cbae9fdef36cbbdca2","org_id":"org_dabd6ff26cc6b38ef2; a bare 2xx with no duplicate marker would be indistinguishable from a fresh invitation, and a 503 would tell the caller the control-plane store is down when the truth is that the address is already invited
+  PASS  the duplicate refers to the SAME invitation that already exists, not a newly minted one  — duplicate answered id=inv_6da1edf49a6497cbae9fdef36cbbdca2 email=v01-invite-first-mulv7jmekoja@example.com vs the existing inv_6da1edf49a6497cbae9fdef36cbbdca2
+  6 concurrent invites, ONE key, one email: statuses={"200":5,"201":1} -> 1 row(s) in the database
+    201
+    200
+    200
+    200
+    200
+    200
+  PASS  V01-017: six concurrent invites on ONE key create exactly ONE invitation row  — rows=[{"invitation_id":"inv_cbb87cc0e19ce603a57dda7279faee91","email":"v01-invite-race-mulv7jmekoja@example.com","role":"member","status":"pending"}] -- the primary key on invitation_id should hold; a count above 1 means the deterministic id is not actually deterministic or the read-then-write is unguarded
+    breakdown: 1 creation(s) at 201, 5 replay(s) at 200, 0 refusal(s)
+  PASS  V01-017: at most one of the six racers CREATED an invitation; the rest may only replay it or be refused  — 1 racers answered 201; statuses={"200":5,"201":1}
+  PASS  V01-017: NO racer anywhere answered a 5xx, so no caller was told the store is down  — statuses={"200":5,"201":1}; a 503 among the racers means a batch aborted on the primary key or the partial unique index and the caller was told the store is unavailable
+  PASS  V01-017: every racer that was refused carries a stable error code  — statuses={"200":5,"201":1}
+  PASS  V01-017: a racer that is retried with the same key gets the first response back, so a client can learn the outcome after a timeout  — no racer received a replayable answer; statuses={"200":5,"201":1}
+  4 concurrent invites, FOUR keys, one email: statuses={"200":3,"201":1} -> 1 pending row(s)
+  PASS  V01-017: four concurrent invites with DIFFERENT keys for one email create exactly ONE pending row  — rows=[{"invitation_id":"inv_34465ea23c469c7b6666f165b8f8d89d","email":"v01-invite-multi-mulv7jmekoja@example.com","role":"member","status":"pending"}] -- ux_invitations_pending_target is UNIQUE (org_id, email) WHERE status = 'pending'
+  PASS  V01-017: none of the different-key racers is answered with a 503  — statuses={"200":3,"201":1}
+
+  every invitation row in the org: [{"invitation_id":"inv_6da1edf49a6497cbae9fdef36cbbdca2","email":"v01-invite-first-mulv7jmekoja@example.com","role":"member","status":"pending"},{"invitation_id":"inv_cbb87cc0e19ce603a57dda7279faee91","email":"v01-invite-race-mulv7jmekoja@example.com","role":"member","status":"pending"},{"invitation_id":"inv_34465ea23c469c7b6666f165b8f8d89d","email":"v01-invite-multi-mulv7jmekoja@example.com","role":"member","status":"pending"}]
+  invitation audit events: [{"action":"membership.invited.v1","resource_type":"invitation","n":3}]
+  (11 requests were made in total; the audit count is the honest measure of how many logical invitations the server thought happened, and it is compared against the row count above)
+  PASS  V01-017: the number of successful invitation AUDIT events equals the number of invitation rows, so a refused or lost race wrote no audit entry  — audit events=[{"action":"membership.invited.v1","resource_type":"invitation","n":3}] rows=3
+
+23/23 V01 invitation duplicate and race cases hold

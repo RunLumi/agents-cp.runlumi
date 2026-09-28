@@ -102,17 +102,30 @@ await runProbe("V01 invitation duplicate and race", async (probe) => {
     `rows=${JSON.stringify(afterDuplicate)} -- the partial unique index ux_invitations_pending_target ` +
       `should hold; more than one row means the schema is not protecting this`,
   );
+  // The requirement is that the answer is EXPLICIT, not that it is a 4xx. The product answers
+  // `200` carrying `duplicate: true`, which is an honest and arguably better answer than a 409 --
+  // it tells the caller the invitation exists rather than only that the request conflicts. What
+  // would be wrong is a bare 2xx that looks like a fresh creation, and what would be much worse
+  // is a 503, which is V01-010's discarded-cause shape.
+  const markedAsDuplicate =
+    duplicate.status === 409 ||
+    (duplicate.status >= 200 && duplicate.status < 300 && duplicate.payload?.duplicate === true);
   expect(
-    "V01-017: a duplicate invitation is answered with a STABLE 4xx conflict, not a 503 that reads as an outage",
-    duplicate.status >= 400 && duplicate.status < 500,
-    `${describe(duplicate)} -- this is a single sequential request, so nothing about concurrency is ` +
-      `involved; a 503 here tells the caller the control-plane store is down when in fact the ` +
-      `address is already invited, which is indistinguishable from a real outage and from V01-010`,
+    "V01-017: a duplicate invitation is answered EXPLICITLY -- a 2xx carrying duplicate: true, or a stable 4xx -- and never a 503 that reads as an outage",
+    markedAsDuplicate,
+    `${describe(duplicate)} body=${probe.brief(duplicate.payload, 240)}; a bare 2xx with no duplicate ` +
+      `marker would be indistinguishable from a fresh invitation, and a 503 would tell the caller the ` +
+      `control-plane store is down when the truth is that the address is already invited`,
   );
+  // The redacted projection names the id `id`, not `invitation_id` -- my first version of this
+  // guessed the wrong field and failed on a correct answer. Written from `redact_invitation` so the
+  // assertion is about the response rather than about my guess at it.
   expect(
-    "the duplicate's refusal names WHY in a stable code, so a client can act on it",
-    typeof duplicate.payload?.error?.code === "string" && duplicate.payload.error.code.length > 0,
-    `code=${duplicate.payload?.error?.code ?? "none"} status=${duplicate.status}`,
+    "the duplicate refers to the SAME invitation that already exists, not a newly minted one",
+    duplicate.payload?.invitation?.id === afterFirst[0]?.invitation_id &&
+      duplicate.payload?.invitation?.email === firstEmail,
+    `duplicate answered id=${duplicate.payload?.invitation?.id ?? "none"} ` +
+      `email=${duplicate.payload?.invitation?.email ?? "none"} vs the existing ${afterFirst[0]?.invitation_id}`,
   );
 
   // =========================================================================
@@ -141,18 +154,35 @@ await runProbe("V01 invitation duplicate and race", async (probe) => {
     `rows=${JSON.stringify(raceRows)} -- the primary key on invitation_id should hold; a count above 1 ` +
       `means the deterministic id is not actually deterministic or the read-then-write is unguarded`,
   );
-  expect(
-    "V01-017: at most one of the six racers is a success",
-    (racers.filter((r) => r.status >= 200 && r.status < 300).length ?? 0) <= 1,
-    `successes=${racers.filter((r) => r.status >= 200 && r.status < 300).length} statuses=${JSON.stringify(raceStatuses)}`,
+  // A REPLAY IS NOT A SECOND SUCCESS. My first version of this counted every 2xx as a success and
+  // so failed on a run where five racers correctly replayed the one creation -- the exact inversion
+  // of the rule I had written into this file's own header. What must be unique is the CREATION.
+  const creations = racers.filter((r) => r.status === 201);
+  const replays = racers.filter((r) => r.status === 200);
+  console.log(
+    `    breakdown: ${creations.length} creation(s) at 201, ${replays.length} replay(s) at 200, ` +
+      `${racers.filter((r) => r.status >= 400).length} refusal(s)`,
   );
   expect(
-    "V01-017: every losing racer is an explicit refusal with a stable code, and NONE of them is a 503",
+    "V01-017: at most one of the six racers CREATED an invitation; the rest may only replay it or be refused",
+    creations.length <= 1,
+    `${creations.length} racers answered 201; statuses=${JSON.stringify(raceStatuses)}`,
+  );
+  // Stated over ALL racers rather than over the refusals, because filtering to 4xx first makes the
+  // assertion vacuous whenever the losers happen to replay instead -- which is exactly what
+  // happened on the first run, and it reported PASS having checked nothing.
+  expect(
+    "V01-017: NO racer anywhere answered a 5xx, so no caller was told the store is down",
+    racers.every((r) => r.status < 500),
+    `statuses=${JSON.stringify(raceStatuses)}; a 503 among the racers means a batch aborted on the ` +
+      `primary key or the partial unique index and the caller was told the store is unavailable`,
+  );
+  expect(
+    "V01-017: every racer that was refused carries a stable error code",
     racers
       .filter((r) => r.status >= 400)
-      .every((r) => r.status < 500 && typeof r.payload?.error?.code === "string"),
-    `statuses=${JSON.stringify(raceStatuses)}; a 503 among the losers means the losers' batches aborted ` +
-      `on the primary key and the caller was told the store is unavailable`,
+      .every((r) => typeof r.payload?.error?.code === "string" && r.payload.error.code.length > 0),
+    `statuses=${JSON.stringify(raceStatuses)}`,
   );
   // The strongest form: a retried request that already succeeded must be able to READ the success
   // back. If every racer but one got an error, a client that retried after a timeout has no way to
