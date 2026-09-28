@@ -30,6 +30,28 @@ so neither can be mistaken for the other:
 | Repair, cross-tenant probe | `6c11cf1` | the state `VI-TEN-001`'s limit was first *measured* on. Its 16/18 figure is the one VFY-010 records and is superseded by the next row |
 | Repair, the cross-tenant leak | `37de9e3` | the state `VI-TEN-001`'s handler-level verdict was re-derived from, after VFY-010's measurement found a critical leak |
 
+### Provenance — where these commits live
+
+This repository squash-merges, so **the per-round commits named above are not on `main`**. They are
+on the branch this campaign was merged from:
+
+```bash
+git log v00-independent-verification --oneline      # the 36 rounds, in order
+git log v00-independent-verification --oneline -S'<finding text>'
+```
+
+Every hash in the table above resolves there and is reachable from any checkout with the branch
+fetched. The squash commit on `main` carries the whole campaign, so `git log ecbdac1..main` shows
+**one** commit and is **not** the way to enumerate the rounds — which is why the note this replaced
+said `git log ecbdac1..HEAD` was the authority, and why that sentence had to change before the merge
+rather than after it.
+
+Squashing was kept rather than switching to a merge commit for one PR because the convention is
+consistent across the repository's history, and breaking it for a single change trades a real
+benefit — thirty-six inspectable commits — for a one-line deviation. The branch preserves the
+granularity, the record preserves the reasoning, and the naming convention below is what makes the
+two line up.
+
 A commit is named rather than the branch tip deliberately: a record cannot name the commit that
 contains itself, because writing that name creates a newer commit. The three repair commits exist
 because the campaign's own reconstruction produced more than one round of obligations, and
@@ -97,18 +119,20 @@ fbc730e  test(web)  prove the browser gate can fail, and fix the three ways it c
 
 ```bash
 # confirm the list, and the tip, without trusting this document
-git log --oneline ecbdac1..HEAD
+git log --oneline v00-independent-verification --not ecbdac1
 ```
 
 Re-deriving a verdict from a commit means someone else can re-run the same gate and get the same
 number, which is the whole point of naming one. A verdict with no commit is an opinion — and a
 commit reference that has gone stale is worse than no reference, because it looks like provenance.
-The list above is therefore a convenience; `git log ecbdac1..HEAD` is the authority.
+The list above is therefore a convenience; `git log v00-independent-verification --not ecbdac1` is
+the authority.
 
 It is also necessarily short by the commits that edit this record. Naming a commit creates a newer
 one, so the list can never contain the commit that last corrected it — the same reason the branch
 tip is not named. The last entry is therefore always the newest commit this record had seen when it
-was last written, and `git log` is what settles it.
+was last written, and `git log` is what settles it. That applies with more force after the squash
+merge, since the branch carries several documentation-only commits that `main` folds into one.
 
 ### Evidence integrity note — the repository changed mid-campaign
 
