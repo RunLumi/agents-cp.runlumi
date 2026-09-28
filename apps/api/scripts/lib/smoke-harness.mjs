@@ -519,9 +519,12 @@ export class SmokeHarness {
         // line — the one place the failing statement's SQLite error is written — is invisible
         // to every probe. Diagnosing a 503 in this repository is otherwise guesswork, and
         // V01-010 and V01-011 both hit it.
-        "--log-level",
-        process.env.PROBE_WORKER_LOG_LEVEL ?? "debug",
-        ...(process.env.PROBE_QUIET_WORKER === "1" ? ["--show-interactive-dev-session=false"] : []),
+        ...(process.env.PROBE_QUIET_WORKER === "1"
+          ? // The ORIGINAL invocation, exactly. Restoring the old behaviour must mean every
+            // flag the old behaviour used, not "the same flag plus a new one" -- otherwise
+            // "turn the new thing off" is not actually a way back.
+            ["--show-interactive-dev-session=false"]
+          : ["--log-level", process.env.PROBE_WORKER_LOG_LEVEL ?? "debug"]),
         // Exposes /__scheduled so `triggerSweep` can fire the cron on demand.
         "--test-scheduled",
         ...varArgs,

@@ -111,6 +111,28 @@ first written.
 - **`VI-DATA-001`'s R2 leg** is BLOCKED by local queue delivery, not by the product. Exit 2
   from `smoke:p06` means the harness could not run, not that a check failed.
 
+## Open observation: `smoke:p06` now dies partway through
+
+`pnpm smoke:p06` exits 2 with a Worker boot failure partway through the run —
+
+```
+Uncaught TypeError: Failed to construct 'WorkerEntrypoint': constructor parameter 1 is not of type 'Object'.
+  at wrapQueueHandler (.../@sentry+cloudflare@10.74.0_wrangler@4.137.0 ...)
+```
+
+— after passing its first several cases (through "the export is created in the `requested`
+state") and before printing a summary. The documented behaviour for this gate is that it
+**exits 2 for a different and expected reason**: the local queue does not deliver a published
+body, so the R2 leg is BLOCKED. Reaching that leg is what makes the exit meaningful, and this
+run does not get there.
+
+**Not attributable to the harness change in this round.** It reproduces with
+`PROBE_QUIET_WORKER=1`, which restores the *original* wrangler invocation exactly — the flag
+list is byte-for-byte what it was before `--log-level` and the dev-session flag were touched.
+`pnpm smoke:p08` runs clean (47/47) on the same machine, immediately afterwards, so the
+environment is capable of booting a Worker. Left open rather than explained, because the honest
+answer is not yet known and a plausible story is not evidence.
+
 ## Tooling facts established in V01, so nothing rediscovers them
 
 - **D1 refuses a result set wider than 100 columns.** 100 accepted, 101 refused. Documented on
