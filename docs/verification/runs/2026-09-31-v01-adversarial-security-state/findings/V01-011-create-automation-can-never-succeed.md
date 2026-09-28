@@ -208,66 +208,85 @@ it got, so the change in the failure mode is on the record rather than inferred.
 
 ---
 
-# OPEN: a second fault in the same route, not yet explained
 
-`POST /orgs/{org}/automations` now answers:
+---
 
-```
-503 {"error":{"code":"service_unavailable","message":"The control-plane store is unavailable.",
-            "request_id":"req_...","details":{}}}
-```
+# The 503, localised much further
 
-with **`details` empty** and **nothing written** — no `automation_definitions` row, no
-`automation_schedule_rules` row, no audit row, no outbox row. So the route is still
-non-functional; only the *reason* changed.
+Two rounds of elimination, both recorded because the elimination *is* the evidence.
 
-## What has been ruled out, and how
+## 1. It is not the schedule. Every kind that validates hits the same 503.
 
-This is recorded because the elimination is the evidence, and because the next person should
-not repeat it:
+The probe now attempts **five** schedule shapes before giving up, because "the one kind I
+happened to choose fails" is not the same finding as "the route is broken":
 
-| candidate | how it was ruled out |
+| schedule | result |
 |---|---|
-| the three batch statements | all four were executed **by hand, in the product's own order, against the real database** with real ids and real timestamps. Every one succeeded: `automation_schedule_rules`, `automation_definitions`, `security_events`, and `outbox_events` with the product's exact `delivery_status`/`next_attempt_at` binding |
-| `principal_membership_active` | its SQL run by hand against the real org and user: returns 1 |
-| a domain failure | `domain_failure` maps every `DomainError` to a specific code with a frozen reason — `ValidationFailed`, `ScheduleInvalid`, `AutomationNotFound` and the rest. None of them is a 503 with empty `details` |
-| the outbox statement | its own error path is `ServiceUnavailable` with the message **"The event store is unavailable."** The observed message is **"The control-plane store is unavailable."**, which is `database_error` |
-| a stale Worker on the port | no `workerd` process survived any run; ports 8787–8790 were clear before the run |
+| `manual` | **503** `service_unavailable` |
+| `one_time` + `scheduled_at` | **503** `service_unavailable` |
+| `interval` (no zone) | 422 `schedule_timezone_invalid` — a *domain* rejection, from `build_zone` |
+| `interval` + `utc_offset_seconds` + `timezone` | **503** `service_unavailable` |
+| `cron` + `utc_offset_seconds` + `timezone` | **503** `service_unavailable` |
 
-## The observation that makes this strange, and it is the useful part
+Two things fall out of that table. First, **the handler runs and can produce a precise,
+specific reason** — a missing zone is `schedule_timezone_invalid`, not a 503 — so the route is
+not failing wholesale at its front door. Second, **the 503 is reached only by the kinds that get
+past validation, by every one of them**, so the fault is downstream of schedule resolution and
+is not specific to a schedule shape.
 
-**The failing request does not appear in the Worker's own request log.**
+(`build_zone` takes `utc_offset_seconds` plus an optional transition table, not a timezone
+*string*. Passing `"timezone": "UTC"` is ignored, which is why an early version of this probe
+saw `schedule_timezone_invalid` from every zoned kind and I briefly took it for a product
+defect. It was a fixture error.)
 
-The `http_request` log line is emitted unconditionally by the middleware
-(`http/middleware.rs:67`), and the response body carries a `request_id` that the same
-middleware bound into it — so the middleware demonstrably ran. Yet the `request_id` from the
-503 appears **zero times** in the Worker's captured output for that run, while the ids of every
-preceding request appear exactly once. The request produced a Worker-shaped response from a
-Worker whose log does not contain it.
+## 2. Every statement in the batch is provably valid. All seven of them.
 
-That is not explained, and it is not explained *by anything in this route*. It is recorded as
-the next thing to attack.
+`commit_success` builds `[claim, guard, insert_rule, insert, audit, outbox, completion]`. Each
+was executed **by hand, in the product's own order, against the real database of a real run**,
+with the real ids, timestamps and values the route would have used:
 
-## What the harness could not do, and now can
+| statement | result |
+|---|---|
+| `CLAIM_SQL` (the idempotency upsert) | succeeds |
+| `ASSERT_CLAIM_SQL` (the guard) | **inserts nothing and does not error** when the claim's seven columns match — which is the design, verified against real bind values |
+| `INSERT_SCHEDULE_RULE_SQL` | succeeds |
+| `INSERT_AUTOMATION_SQL` | succeeds |
+| the audit insert into `security_events` | succeeds |
+| the outbox insert, with the product's exact `delivery_status`/`next_attempt_at` binding | succeeds |
+| all four **inside one transaction with `PRAGMA foreign_keys=ON`** | succeeds |
 
-Diagnosing this consumed more time than the fix, for one reason: **no probe could see a log
-line written by the Worker.** `workerLog()` returns what wrangler's own pipes carried, which is
-wrangler's request log and its startup banner. A `console_error!` from inside the Worker never
-appears there.
+The FK point matters and was a genuine hole in the first round of elimination. `sqlite3` has
+foreign keys **off by default**, so the hand runs proved nothing about the eight foreign keys on
+`automation_definitions` (`users`, `budgets`, `workspace_bindings`, `devices`,
+`automation_schedule_rules`, `agent_definitions`, `projects`, `organizations`) or the one on
+`security_events`. Re-run with enforcement on and inside an explicit transaction — which is what
+a D1 batch is — and it still succeeds.
 
-`commit_mutation` writes the failing statement's SQLite error — with a comment saying "this is
-the only place the reason a mutation failed reaches anything at all" — and V01-010's whole
-point was to make `providers.rs` log its transport error. **Both log lines were unprovable from
-a probe**, which makes them decorative in the one place that matters.
+Two more things established:
 
-Three harness changes, all of which are test affordances in the test harness:
+- **The batch really is atomic and really did fail.** The `idempotency_records` row for the
+  automations path is absent after a failed create, while the rows for the successful project
+  and agent creates are present. So the claim was rolled back with everything else; this is a
+  failed transaction, not a partial one.
+- **The failure silences the Worker's log, permanently.** A diagnostic that makes one ordinary
+  request, then the automations request, then another ordinary request, and searches the
+  Worker's captured output for each `request_id` gives: first **present**, automations
+  **absent**, third **absent**. `emit_request_log` is unconditional and cannot fail
+  (`if let Ok(record) = serde_json::to_string(&log)`), and the middleware demonstrably ran for
+  the automations request — it bound that very `request_id` into both the header and the body. So
+  the line was produced, and the channel that carries it is dead from that moment, with no error
+  and no warning: the console file contains exactly nine `console_log!` events, all of them
+  `type: 'log'`, and none after that point.
 
-1. `--show-interactive-dev-session=false` is no longer passed by default, and
-   `--log-level debug` is. Without the level, wrangler forwards its own log and silently drops
-   the Worker's. `PROBE_QUIET_WORKER=1` restores the old behaviour.
-2. The Worker's output is teed to `<persist>/worker-console.log`, capped at 2 MB per run.
-3. `probe.workerConsole()` reads that file, which is a **different stream** from
-   `workerLog()` and the only one containing a `console_error!` from inside the Worker.
+**So the reason for this 503 is not merely unknown — it is unrecoverable from any probe on this
+route, because the failure destroys the log that would explain it.** That is a sharper form of
+V01-010 and V01-012, and it is the thing to fix next. In a deployed Worker the
+`report_error` line is forwarded to Sentry, so the operator has it; a probe has nothing.
 
-With those in place the 503 is still not explained — but it is now *visible*, which it was not,
-and the next step is a request rather than a search.
+## What is still not known
+
+Which statement in the batch fails, and why it fails when executed by D1 and not by `sqlite3`.
+The candidates that remain are all at the boundary between the two: D1's own batch execution
+rather than SQLite's, and the fact that a D1 batch is submitted as a unit with its own
+transaction handling. Nothing narrower is available from the outside, and inventing a narrower
+story would be a guess dressed as a finding.

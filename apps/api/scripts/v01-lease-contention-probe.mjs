@@ -190,23 +190,79 @@ await runProbe("V01 automation-lease", async (probe) => {
     return;
   }
 
-  const automation = await request(
-    alice.jar,
-    "POST",
-    `/api/v1/orgs/${org.orgId}/automations`,
+  // Try EVERY schedule kind before giving up, because the fault may be kind-specific and
+  // "the one kind I happened to choose fails" is not the same finding as "the route is
+  // broken". `one_time` and `interval` exercise `plan_next_run` with real inputs where
+  // `manual` does not.
+  const scheduleVariants = [
+    { kind: "manual", body: { kind: "manual" } },
+    { kind: "one_time", body: { kind: "one_time", scheduled_at: "2027-01-01T00:00:00.000Z" } },
     {
-      name: "V01 lease automation",
-      project_id: projectId,
-      agent_definition_id: agentId,
-      execution_principal: { kind: "user" },
-      target: { kind: "eligible_device" },
-      schedule: { kind: "manual" },
-      execution_policy: {},
+      kind: "interval",
+      body: { kind: "interval", every: 15, unit: "minutes", anchor_at: "2026-12-01T00:00:00.000Z" },
     },
-    browserMutation(alice.jar, "v01-lease-automation"),
-  );
-  const automationId =
-    automation.payload?.automation?.automation_id ?? automation.payload?.automation_id;
+    // `interval` and `cron` carry a ZONE as `utc_offset_seconds` plus an optional transition
+    // table -- not a `timezone` string, which is why supplying `"timezone": "UTC"` was ignored
+    // and every such kind answered `422 schedule_timezone_invalid`. `manual` and `one_time`
+    // need no zone at all: `build_zone` returns UTC for them by definition.
+    //
+    // Driving a zoned kind is the cheapest way to tell a fault specific to the two kinds that
+    // reach the commit from a fault in the route itself.
+    {
+      kind: "interval+zoned",
+      body: {
+        kind: "interval",
+        every: 15,
+        unit: "minutes",
+        anchor_at: "2026-12-01T00:00:00.000Z",
+        utc_offset_seconds: 0,
+        timezone: "UTC",
+        overlap_policy: "queue_one",
+        missed_policy: "run_once",
+      },
+    },
+    {
+      kind: "cron+zoned",
+      body: {
+        kind: "cron",
+        expression: "0 9 * * *",
+        utc_offset_seconds: 0,
+        timezone: "UTC",
+        overlap_policy: "queue_one",
+        missed_policy: "run_once",
+      },
+    },
+  ];
+  let automation = null;
+  let automationId = null;
+  const attempts = [];
+  for (const [index, variant] of scheduleVariants.entries()) {
+    const result = await request(
+      alice.jar,
+      "POST",
+      `/api/v1/orgs/${org.orgId}/automations`,
+      {
+        name: `V01 lease automation ${variant.kind}`,
+        project_id: projectId,
+        agent_definition_id: agentId,
+        execution_principal: { kind: "user" },
+        target: { kind: "eligible_device" },
+        schedule: variant.body,
+        execution_policy: {},
+      },
+      browserMutation(alice.jar, `v01-lease-automation-${variant.kind}`),
+    );
+    const id = result.payload?.automation?.automation_id ?? result.payload?.automation_id;
+    attempts.push(
+      `  ${variant.kind.padEnd(9)} -> ${result.status} ${result.payload?.error?.details?.reason ?? result.payload?.error?.code ?? ""}`,
+    );
+    if (result.status === 201 && typeof id === "string") {
+      automation = result;
+      automationId = id;
+      break;
+    }
+  }
+  console.log(`\n  create attempts, in order: \n${attempts.join("\n")}`);
   // `workerConsole()`, not `workerLog()`: only the former carries what the WORKER logged, and
   // the one line that names a failing statement is a `console_error!` from inside it.
   const FULLLOG = (probe.workerConsole() ?? "")
@@ -215,6 +271,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     .slice(-20)
     .map((l) => `    ${l.slice(0, 240)}`)
     .join("\n");
+  const automationStatus = automation?.status ?? 0;
   expect(
     "CONTROL: Org A has a real automation",
     automation.status === 201 && typeof automationId === "string",
