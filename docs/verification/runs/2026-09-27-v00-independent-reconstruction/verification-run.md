@@ -372,11 +372,16 @@ discharge, and the four closure conditions are each measured rather than asserte
 | No Tier-0 claim FAIL or UNPROVEN without a named dependency | **met, with `VI-TEN-001` carrying a measured limit.** Nine of the ten Tier-0 claims are PASS or externally blocked; `VI-TEN-001` is PASS with 82 of its 104 org-scoped routes still lacking handler-level evidence (VFY-010), which is a recorded, quantified, in-repo gap rather than an unexamined one. The measurement itself paid for the rest of this round: it found a **critical** cross-tenant read in `projects/{project_id}/access` that no existing gate could see, which is now closed (VFY-011). The tenth, `VI-DATA-001`, was UNPROVEN with a *missing verifier* rather than a missing dependency; the verifier was built, it found the claim FAIL (VFY-008, VFY-009), both are repaired, and the one leg still UNPROVEN — the R2 write — has its dependency named in `missing-external-proofs.md` §8 and the probe exits **2**, the code for "the harness could not run" |
 | p05 runtime smoke at zero failures | `pnpm smoke:p05` **185 checks passed; 0 failures; 4 limitations** |
 | Real-browser journey at zero failures | `pnpm smoke:browser` **39/39, exit 0**, run through the exact CI step against a committed tree |
-| (a consequence of the second, not a fifth condition) | `pnpm smoke:p08` **19/21 proven, 0 leaks, 2 unproven**, exit 0. Building it found a **critical** cross-tenant read that three earlier rounds had carried as a PASS with an unmeasured limit — now closed (VFY-011) |
+| (a consequence of the second, not a fifth condition) | `pnpm smoke:p08` **19/21 proven, 0 leaks, 2 unproven**, exit 0. Building it found a **critical** cross-tenant read that the earlier rounds had carried as a PASS with an unmeasured limit — now closed (VFY-011) |
 | The record names the commit the verdicts came from | it does — see "Post-repair commit" |
 
 **Verdict: the campaign is closed**, with one honest qualification rather than a clean bill of
-health. `VI-DATA-001` is not fully proven: the export request, its durable rows, the tenant
+health — and the last round is the reason that sentence is worth reading carefully. Auditing the
+closure criterion literally had already found VFY-008 and VFY-009. Auditing the one Tier-0 claim
+whose limit was a hand-wave found a **critical cross-tenant read** (VFY-011) that three committed
+verdicts had described as a PASS. Both are closed, and both were found by *building the verifier
+for a claim whose failure mode was already written down* — which is the argument for closing a
+gap rather than filing it, and the reason this campaign did not stop at the reconstruction. `VI-DATA-001` is not fully proven: the export request, its durable rows, the tenant
 boundary, the permission boundary and the idempotent replay are proven over real HTTP, and the
 object write and the streamed download are not, because the local queue does not deliver a
 published message body intact. That gap is environmental, is named, and is the first thing a
