@@ -1026,7 +1026,14 @@ for (const testCase of CASES) {
           });
           continue;
         }
+        // Every probe gets the resolved binary under the name IT reads, not just
+        // the two that happened to need one when the harness was written. A probe
+        // whose wrangler is missing from a mutated copy reports a missing binary
+        // path, which the campaign correctly grades as a kill for the wrong
+        // reason -- and a wrong-reason kill is worse than no case, because it
+        // looks like evidence.
         const result = tryRun("node", [entry.script], scratch, {
+          PROBE_WRANGLER: wrangler,
           P02_PASSKEY_WRANGLER: wrangler,
           P05_WRANGLER: wrangler,
         });
