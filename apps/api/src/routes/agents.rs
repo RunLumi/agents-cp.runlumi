@@ -35,7 +35,10 @@ use crate::{
     routes::{
         authorization::authorize_org,
         errors,
-        support::{database, database_error, domain_error, idempotency_key, outbox_statement},
+        support::{
+            SecurityEventId, database, database_error, domain_error, idempotency_key,
+            outbox_statement,
+        },
     },
 };
 
@@ -627,9 +630,14 @@ pub(crate) async fn commit_mutation(
         // difference between a diagnosable 503 and one nobody can explain. A
         // request id is included so the line joins up with the response.
         Err(error) => {
-            worker::console_error!(
-                "commit_mutation: the commit batch failed and the outcome is unknown;                  request_id={} error={error:?}",
-                context.request_id.as_str()
+            // `report_error` prefixes the line so the Worker entry forwards it to
+            // Sentry, and appends the request id. A swallowed error never throws, so
+            // `withSentry` cannot see it and a plain log line was the whole of it.
+            crate::routes::support::report_error(
+                context,
+                &format!(
+                    "commit_mutation: the commit batch failed and the outcome is unknown; error={error:?}"
+                ),
             );
             BatchOutcome::StoreFault
         }
@@ -673,7 +681,7 @@ fn security_statement(
         context,
         Some(principal),
         Some(org_id),
-        event_id,
+        SecurityEventId::new(event_id),
         action,
         resource_type,
         Some(resource_id),

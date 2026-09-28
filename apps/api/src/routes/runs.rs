@@ -38,7 +38,10 @@ use crate::{
             validate_text,
         },
         authorization::authorize_org,
-        support::{database, database_error, domain_error, idempotency_key, outbox_statement},
+        support::{
+            SecurityEventId, database, database_error, domain_error, idempotency_key,
+            outbox_statement,
+        },
     },
 };
 
@@ -334,7 +337,7 @@ fn run_security_statement(
         context,
         Some(principal),
         Some(org_id),
-        event_id,
+        SecurityEventId::new(event_id),
         action,
         resource_type,
         Some(resource_id),

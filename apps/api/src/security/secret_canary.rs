@@ -1814,6 +1814,10 @@ const REVIEWED_STRING_NEWTYPES: &[(&str, &str, &str)] = &[
     ("core/idempotency.rs", "IdempotencyKey", "Secret"),
     ("core/idempotency.rs", "IdempotencyKeyDigest", "Secret"),
     ("core/idempotency.rs", "RequestFingerprint", "Secret"),
+    // A `security_events.event_id`. Public: it is an opaque primary key that is
+    // already stored in the clear, and it is the one identifier whose namespace the
+    // type now enforces (`sec_`, never `evt_`).
+    ("routes/support.rs", "SecurityEventId", "Public"),
     ("core/identifiers.rs", "ResourceId", "Public"),
     ("core/identifiers.rs", "ActorId", "Public"),
     ("core/identifiers.rs", "CorrelationId", "Public"),

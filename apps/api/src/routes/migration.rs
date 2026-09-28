@@ -64,7 +64,7 @@ use crate::{
         },
         authorization::authorize_org,
         errors,
-        support::{database, domain_error, idempotency_key, outbox_statement},
+        support::{SecurityEventId, database, domain_error, idempotency_key, outbox_statement},
     },
 };
 
@@ -1536,13 +1536,14 @@ fn support_security_statement(
     resource_id: &str,
     metadata: &Value,
 ) -> Result<worker::d1::D1PreparedStatement, ApiError> {
-    let event_id = crate::adapters::new_event_id();
     crate::routes::support::security_event_statement(
         database,
         context,
         Some(principal),
         Some(org_id),
-        event_id.as_str(),
+        // The `evt_` id this used to build cannot go in a `sec_` column. The
+        // binding is gone with it -- the id existed only to be passed here.
+        SecurityEventId::generate(),
         action,
         resource_type,
         Some(resource_id),

@@ -38,8 +38,8 @@ use crate::{
     routes::{
         authorization::authorize_org,
         support::{
-            database, database_error, domain_error, idempotency_key, outbox_statement,
-            security_event_statement,
+            SecurityEventId, database, database_error, domain_error, idempotency_key,
+            outbox_statement, security_event_statement,
         },
         tools::{
             MutationClaim, PAGE_FETCH_EXTRA, approval_json, begin_mutation, commit_mutation,
@@ -347,7 +347,7 @@ pub async fn resolve_approval(
         &context,
         Some(&access.principal),
         Some(&org_id),
-        &security_event_id,
+        SecurityEventId::new(security_event_id),
         "approval.resolved.v1",
         "approval",
         Some(&approval_id),

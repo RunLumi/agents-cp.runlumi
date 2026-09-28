@@ -70,7 +70,10 @@ use crate::{
         },
         authorization::{DeviceAccess, authorize_device, authorize_org},
         errors,
-        support::{database, database_error, domain_error, idempotency_key, outbox_statement},
+        support::{
+            SecurityEventId, database, database_error, domain_error, idempotency_key,
+            outbox_statement,
+        },
     },
 };
 
@@ -3576,7 +3579,7 @@ fn security_statement(
         context,
         Some(principal),
         Some(org_id),
-        &generated_id("sec"),
+        SecurityEventId::generate(),
         action,
         resource_type,
         Some(resource_id),
@@ -3599,7 +3602,7 @@ fn device_audit(
         context,
         None,
         Some(&access.device.org_id),
-        &generated_id("sec"),
+        SecurityEventId::generate(),
         action,
         resource_type,
         Some(resource_id),

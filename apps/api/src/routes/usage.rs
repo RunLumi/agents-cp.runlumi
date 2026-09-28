@@ -50,7 +50,7 @@ use crate::{
         authorization::{authorize_device, authorize_org},
         errors,
         support::{
-            database, database_error, domain_error, idempotency_key,
+            SecurityEventId, database, database_error, domain_error, idempotency_key, report_error,
             security_event_statement_with_context,
         },
     },
@@ -228,10 +228,17 @@ pub(crate) async fn commit_scoped_mutation(
             // 503 "The usage store is unavailable." and nothing else, for as long as
             // it took to notice. `worker::Error` carries SQLite's message and the
             // failing statement, never the bound values.
-            worker::console_error!(
-                "commit_scoped_mutation: the commit batch failed and the outcome is \
-                 unknown; request_id={} error={error:?}",
-                context.request_id.as_str()
+            //
+            // `report_error` rather than a bare `console_error!`: the line still goes
+            // to the log, and it additionally carries the prefix the Worker entry
+            // forwards to Sentry. A swallowed error never throws, so the SDK cannot
+            // see it on its own -- and this is the arm that hid the P07
+            // service-account failure for a whole campaign round.
+            report_error(
+                context,
+                &format!(
+                    "commit_scoped_mutation: the commit batch failed and the outcome is unknown; error={error:?}"
+                ),
             );
             let repository = IdempotencyRepository::new(database);
             let lookup = repository
@@ -1199,7 +1206,7 @@ fn audit_statement(
         context,
         None,
         Some(org_id),
-        event_id,
+        SecurityEventId::new(event_id),
         action,
         resource_type,
         Some(resource_id),

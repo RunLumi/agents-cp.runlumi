@@ -93,7 +93,8 @@ use crate::{
         authorization::{OrgAccess, authorize_org},
         errors,
         support::{
-            database, database_error, idempotency_key, security_event_statement_with_context,
+            SecurityEventId, database, database_error, idempotency_key,
+            security_event_statement_with_context,
         },
         usage::{
             PreparedScopedMutation, ScopedMutationCommit, commit_scoped_mutation,
@@ -1191,7 +1192,7 @@ pub async fn create_internal_override(
         context,
         None,
         Some(org.as_str()),
-        &generated_id("sec"),
+        SecurityEventId::generate(),
         "entitlement.override_created",
         "entitlement_grant",
         Some(&grant_id),
@@ -1906,7 +1907,7 @@ fn billing_audit(
         context,
         principal,
         Some(org_id),
-        &generated_id("sec"),
+        SecurityEventId::generate(),
         action,
         "subscription",
         Some(resource_id),

@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 
 import RustWorker from "./build/index.js";
+import { installReportBridge } from "./scripts/sentry-report-filter.mjs";
 
 // `Sentry.withSentry` cannot wrap the Rust-generated WorkerEntrypoint class
 // directly: workers-rs builds each entrypoint instance as a `Proxy` whose
@@ -27,6 +28,20 @@ function sentryOptions(env) {
     },
   };
 }
+
+// A swallowed error never throws, so `withSentry` cannot see it -- and the failures
+// worth a page for are disproportionately exactly those. `installReportBridge`
+// forwards the console lines the Rust side has marked, and only those.
+//
+// NOT `captureConsoleIntegration`: the Rust codebase uses `console_error!` for
+// routine operational telemetry as well as for faults, so capturing console output
+// wholesale would bury the faults under queue-routing and job-outcome lines. The
+// decision is made at the call site instead, by the reserved prefix. See
+// `scripts/sentry-report-filter.mjs`.
+//
+// Installed at module scope rather than inside the handlers, so it is in place
+// before the first request and covers the scheduled and queue paths too.
+installReportBridge(Sentry);
 
 export default Sentry.withSentry(sentryOptions, {
   async fetch(request, env, ctx) {

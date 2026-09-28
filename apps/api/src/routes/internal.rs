@@ -64,7 +64,7 @@ use crate::{
     routes::{
         agents::replay_response,
         errors,
-        support::{database, domain_error, idempotency_key},
+        support::{SecurityEventId, database, domain_error, idempotency_key},
         usage::{
             PreparedScopedMutation, ScopedMutationCommit, commit_scoped_mutation,
             prepare_scoped_mutation,
@@ -784,7 +784,7 @@ pub async fn create_grant(
         &context,
         None,
         Some(organization.as_str()),
-        crate::adapters::new_event_id().as_str(),
+        SecurityEventId::generate(),
         "support_grant.issued",
         "support_grant",
         Some(&grant_id),
@@ -880,7 +880,7 @@ pub async fn revoke_grant(
         &context,
         None,
         Some(existing.organization_id.as_str()),
-        crate::adapters::new_event_id().as_str(),
+        SecurityEventId::generate(),
         "support_grant.revoked",
         "support_grant",
         Some(&grant_id),

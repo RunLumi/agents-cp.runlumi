@@ -80,7 +80,10 @@ use crate::{
             service_unavailable, validate_prefixed_id,
         },
         authorization::{OrgAccess, authorize_org, denial},
-        support::{database, database_error, domain_error, idempotency_key, outbox_statement},
+        support::{
+            SecurityEventId, database, database_error, domain_error, idempotency_key,
+            outbox_statement,
+        },
     },
 };
 
@@ -2657,7 +2660,7 @@ fn audit_statement(
             context,
             principal,
             None,
-            event_id,
+            SecurityEventId::new(event_id),
             action,
             resource_type,
             Some(resource_id),
