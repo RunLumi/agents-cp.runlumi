@@ -23,7 +23,7 @@ Where a repair required a durable decision, it is recorded in
 | P05 runtime smoke | **175 pass / 1 fail**, exit 1 | **185 pass / 0 fail**, exit 0 | `GUARD-1`, `VI-IDEM-001` |
 | Passkey ceremony probe (new) | did not exist | **55/55**, exit 0 | `VI-AUTH-001` |
 | Guard-sentinel probe (new) | did not exist | **13/13** across 2 recognised abort texts | `GUARD-1`, `GUARD-2` |
-| Mutation campaign | 9/9 KILLED, minimum set incomplete | **12/12 KILLED**, `tally: {"KILLED":12}`, exit 0 | `VI-TEST-001` |
+| Mutation campaign | 9/9 KILLED, minimum set incomplete | **13/13 KILLED**, `tally: {"KILLED":13}`, exit 0 | `VI-TEST-001` |
 | Worker bundle | `gzip 2393.75 KiB` | `gzip 2395.07 KiB` (**+1.32 KiB**) | budget still within ADR 0004 |
 
 The browser journey went from three failures to zero, and it grew from 23 to 39 checks while

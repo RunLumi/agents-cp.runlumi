@@ -2,7 +2,20 @@
 
 ## Status
 
-partially closed — 16 routes proven, 85 of 104 still without handler-level evidence
+**superseded in part by VFY-011 — read the note below before using any number here**
+
+partially closed, as measured when this finding was written: 16 routes proven, 85 of 104 still
+without handler-level evidence
+
+> **These figures are a measurement taken at a moment, and the moment has moved.** The probe has
+> since been extended to substitute a real project id, so the current figure is **19 of 21 driven
+> routes proven, 0 leaks, 2 unproven, and 82 of 104 org-scoped routes without handler-level
+> evidence**. More importantly, building the verifier described below found a **critical
+> cross-tenant read** on its first run — `projects/{project_id}/access` — which is closed in
+> VFY-011. Nothing here is wrong; it is what was true before the probe could see a handler-level
+> defect at all. The body is left as written because the whole point of this finding is that the
+> gap was real and unmeasured, and quietly editing the numbers would erase the reason it was
+> worth finding.
 
 ## Severity
 
