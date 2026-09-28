@@ -435,20 +435,26 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
       `reason=${third.payload?.error?.details?.reason ?? third.payload?.error?.code ?? "n/a"} ` +
       `response_attempt=${third.payload?.attempt ?? "n/a"} ` +
       `occurrence_attempt ${beforeThird?.attempt} -> ${afterThird?.attempt} ` +
-      `active_leases=${activeAfterThird.length}`,
+      `active_leases=${activeAfterThird.length}\n` +
+      `    body=${JSON.stringify(third.payload).slice(0, 300)}`,
   );
 
   // THE CLAIM. `max_start_attempts` is 1 and the lease is gone, so a second START of this
   // occurrence must be refused. If it is not, the bound is not enforced and V01-013 is a live
   // abuse and spend defect rather than a bookkeeping one: one scheduled slot runs twice.
+  // The refusal must be the RIGHT refusal, not merely a non-2xx. The first version of this
+  // assertion asked only for `status >= 400` and it PASSED on a `503` -- which is the same
+  // wrong-reason pass that let `verify:lease-contention` report a partial run as a complete one.
+  // A `503` here says the control-plane store is unavailable, and a device that lost its lease
+  // and retried would be told the whole store is down rather than that its attempt is spent. So
+  // the shape is part of the claim: a 4xx, with a stable reason, and never a 5xx.
   expect(
-    "V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time (it can - the attempt column never advances, so the bound is never reached)",
-    third.status >= 400,
-    `the third claim answered ${third.status} with reason=` +
-      `${third.payload?.error?.details?.reason ?? third.payload?.error?.code ?? "n/a"}, and left ` +
-      `${activeAfterThird.length} active lease(s); a second start of an occurrence bound to one ` +
-      `attempt means the same scheduled slot can run its work twice, and the retry bound is ` +
-      `unreachable by construction`,
+    "V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time, and the refusal is a 4xx naming a reason (it is neither: the attempt column never advances, so the bound is never reached, AND the refusal is not a stable 4xx)",
+    third.status >= 400 && third.status < 500,
+    `the third claim answered ${third.status} with body ${JSON.stringify(third.payload).slice(0, 240)} ` +
+      `and left ${activeAfterThird.length} active lease(s); a 503 tells a device that lost its lease that the ` +
+      `control-plane store is down rather than that its attempt is spent, and a second start of an ` +
+      `occurrence bound to one attempt would mean the same scheduled slot running its work twice`,
   );
   expect(
     "the occurrence's attempt counter sits at 1, the number the refused second start would have used",

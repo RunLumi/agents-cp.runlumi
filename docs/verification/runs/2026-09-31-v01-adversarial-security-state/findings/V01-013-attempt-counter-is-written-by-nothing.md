@@ -12,6 +12,15 @@ and confirmed; the repair is **not** applied, and it is not attempted here, beca
 started, and it is **unenforceable**. Nothing can be retried forever through this path, because
 the number the check reads never changes.
 
+**Raised by V01-014's run, with a second symptom that is client-facing.** Driving the whole arc
+showed the dead counter also makes a *legitimate* re-claim fail as an outage: because the re-claim
+recomputes `attempt = 0 + 1 = 1`, its attempt row collides with the first claim's on
+`ux_automation_occurrence_attempts(occurrence_id, attempt, outcome)`, the batch aborts, and the
+device is told **"The automation control-plane store is unavailable."** with empty `details`. A
+device that lost its lease and retried is therefore told the whole store is down, and backs off
+against a fiction. Same root cause, so the same fix removes it -- see V01-014 for the chain and
+the database evidence.
+
 ## Attack record
 
 | | |

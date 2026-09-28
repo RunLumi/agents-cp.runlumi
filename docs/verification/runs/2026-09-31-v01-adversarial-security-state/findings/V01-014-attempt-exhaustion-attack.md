@@ -36,11 +36,11 @@ the TTL, let the sweep expire the lease, claim again.
 | **Setup** | a real `wasm32` Worker and fresh local D1. A real owner, organization, project, agent and **automation created with `max_start_attempts: 1`**, `lease_ttl_seconds: 30` and `heartbeat_interval_seconds: 10`. A real enrolled device with a real ed25519 device proof. A real `run_now` occurrence. |
 | **Action** | 1. read the stored retry policy out of D1 and assert it is `1`; 2. claim the occurrence; 3. read the occurrence's own `attempt`; 4. claim again while the lease is live; 5. wait for the sweep to expire the lease, **proving the expiry happened**; 6. claim a third time. |
 | **Expected** | the first claim advances the occurrence's `attempt` to 1; the second is refused and moves nothing; after the lease expires, the third is **refused as an exhausted attempt**, and the occurrence's `attempt` sits at 1. |
-| **Actual** | pending the run |
-| **Evidence** | pending the run (`evidence/v01-014-attempt-exhaustion.txt`) |
-| **Verdict** | pending the run |
-| **Regression gap** | pending the run |
-| **Severity** | high if the third claim succeeds |
+| **Actual** | the arc ran to completion and every control held, but the final claim was refused for the **wrong reason and with the wrong shape**. The sweep expired the lease (`lse_…:expired`), the occurrence stayed `pending` and claimable, and the third claim answered **`503 {"code":"service_unavailable","message":"The automation control-plane store is unavailable.","details":{}}`** — not an exhausted-attempt refusal. |
+| **Evidence** | `evidence/v01-014-attempt-exhaustion.txt` (27/31; the 4 FAILs are V01-013 and the wrong-shape refusal) |
+| **Verdict** | **FAIL — product defect**, and the root cause is V01-013's with a second symptom |
+| **Regression gap** | asserted in `verify:attempt-exhaustion` and failing on purpose: 4 named assertions |
+| **Severity** | **high**, and higher than recorded before the run — see the causal chain below |
 
 ## The five choices that make this attack mean something
 
@@ -134,3 +134,77 @@ attempts without ever having been started twice.
 So the repair has to distinguish *a start* from *a transition of a started occurrence*, and that
 distinction belongs in the route, not in a shared statement's SET list. This attack is what
 pins the required behaviour, and it should be re-run unchanged after the repair.
+
+---
+
+# The result: one root cause, two symptoms, and the wrong shape on top
+
+`pnpm verify:attempt-exhaustion` reports **27/31**, and the four failures are the whole point.
+
+## What held, and it is worth stating because each of these could have been the thing that broke
+
+| step | result |
+|---|---|
+| the first claim succeeds and takes exactly one lease | `201`, one active lease |
+| the occurrence's `attempt` advances | **0 → 0.** Fails. |
+| a `leased` occurrence records `started_at` | **`null`.** Fails. |
+| a second claim while the lease is live is refused | `409 automation_invalid_state`, still one active lease, `attempt` unmoved |
+| the lease leaves `active` **by the sweep** | `lse_…:expired` — the positive transition, read from D1, not assumed |
+| the occurrence is still claimable afterwards | `state=pending` — so the refusal below is not a terminal state |
+| the third claim takes no lease | `active_leases=0` |
+
+The two controls that keep this honest both did their job: the lease expiry was **proved** rather
+than waited for, and the occurrence was confirmed still claimable before the final claim, so its
+refusal is attributable and not a side effect of the sweep having ended it.
+
+## The causal chain, established from the database rather than inferred
+
+The third claim is refused. The question is *why*, and the answer is a chain that ties V01-013 to
+a second, separate symptom:
+
+1. `TRANSITION_OCCURRENCE_SQL` has no `attempt` in its SET list, so `automation_occurrences.attempt`
+   stays **0** forever.
+2. The re-claim therefore computes `let attempt = occurrence.attempt + 1` = **1** — the *same*
+   attempt number the first claim used.
+3. `ux_automation_occurrence_attempts` is `UNIQUE (occurrence_id, attempt, outcome)`. The first
+   claim left `(occ, 1, 'claimed')`, so the re-claim's attempt row **collides with it**.
+4. The collision aborts the whole batch, and `automations.rs`'s own
+   `service_unavailable` helper — `"The automation control-plane store is unavailable."` with
+   **`details: {}`** — is what the caller receives.
+
+The database shows the collision is real, and shows the schema anticipating a *real* counter: it
+holds **two** rows for one occurrence at `attempt = 1`, differing only in outcome —
+
+```
+att_3693d4f2…  occ_e5168f2a…  attempt=1  outcome=claimed
+job_92e3799c…  occ_e5168f2a…  attempt=1  outcome=expired  reason=lease_expired_…
+```
+
+— which is only possible because the index includes `outcome`. The schema clearly means "one
+attempt may have several outcomes", and it clearly means `attempt` to be a genuine counter. The
+code does not make it one.
+
+## Why this is worse than the bookkeeping defect V01-013 recorded
+
+V01-013's evidence was a dead column, which reads as an accounting problem. The chain above shows
+the same defect is also a **client-facing availability lie**:
+
+> a device that lost its lease, waited out the TTL, and dutifully retried, is told **the entire
+> control-plane store is unavailable** — with an empty `details`, so it cannot even tell that from
+> any other outage. It will back off and retry against a fiction.
+
+That is the V01-010 family exactly: a cause the server had and threw away, replaced with a
+detail-less "unavailable". And it is the **same root cause**, so the fix for V01-013 — advancing
+`attempt`, and stamping `started_at` — removes this symptom too. There is no second decision to
+make and no new contract to negotiate.
+
+## The probe bug this run found, which is the round's fourth
+
+My first version of the final assertion asked only for `third.status >= 400`, and it **passed on
+the 503**. That is the wrong-reason pass this campaign has now hit four times in three different
+places: a probe that reports a PASS for a check that did not test what its name says.
+
+It is fixed, and the fix is the general one: the assertion now requires a **4xx with a stable
+reason and never a 5xx**, because "refused" and "refused *correctly*" are different claims and only
+one of them is worth anything. The re-run reports 27/31 with this assertion failing, which is the
+truthful number; the first run's 28/31 was a pass bought by a weak predicate.
