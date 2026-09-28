@@ -305,6 +305,10 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
 | `pnpm smoke:p06` | the data-governance surface: a real export over HTTP to a real Worker and local D1, its tenant and permission boundaries, and its idempotent replay | a built Worker; **exits 2 here** because the local queue does not deliver a published body, so the R2 leg is BLOCKED |
 | `pnpm smoke:p08` | the cross-tenant boundary on the org-scoped routes the earlier gates never reached: a plain member of another organization, and that organization's owner, are both refused | a built Worker |
+| `pnpm verify:privilege-escalation` | a plain member and an admin both fail to obtain authority they did not already have, across 7 classes of client-supplied field — org, project, role, policy version, model alias/route, tool capability, entitlement/budget, credential id. Graded on the **stored state**, not the status: a 2xx that ignored the field is correct, a 2xx that granted it is a breach | nothing; it starts its own D1 and Worker |
+| `pnpm verify:adoption-privacy` | eight content classes — prompt, POSIX and Windows path, private-key body, API key, conversation history, MCP secret, arbitrary note — against every adoption write surface, proving nothing reaches `security_events` and that a path is refused at the API as well as in the database | nothing; it starts its own D1 and Worker |
+| `pnpm verify:budget-concurrency` | a hard budget's ceiling holds under concurrency: 8 simultaneous reservations for 240 against a limit of 100 grant 3 and hold 90, a released hold returns its capacity, and a denied request can then reserve it. The atomicity is **measured**, not inferred from the SQL being one statement | nothing; it starts its own D1 and Worker |
+| `pnpm verify:migration-prior-state` | the ledger applies to **populated** tables, not empty ones: the rows 0015 seeds by design survive 0016–0021, a stored idempotency claim survives 0020's rewrite, and `p08-invariants` still reports 17/17 on that path. Every existing migration gate starts from zero rows, and that is how `teams` stayed unwritable while all of them were green | nothing; ~60s |
 | `pnpm schema:bind-count` | every `prepare()` binds as many values as its SQL has placeholders, so D1 cannot reject a statement at execution time | nothing |
 | `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
 | `pnpm verify:campaign-preflight` | every campaign case's fault still occurs in the source it names, and applying it changes that source — so a case cannot fault nothing and spend a twenty-minute run discovering it | nothing |
@@ -359,10 +363,33 @@ proof, and each proof is rerunnable:
 | `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
 | `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
 | `smoke:p08` | `verify:mutation` case *"a project grant list is served without the project being org-scoped"* — the handler's organization check removed while **every SQL statement stays unchanged and correctly classified**. It is the only `VI-TEN-001` case that removes nothing from SQL, which is the whole point: the two cases above it drop a predicate from a statement, the tenant audit sees those, and it cannot see this |
+| `verify:privilege-escalation` | `evidence/v01-003-sensitivity.sh` — four cases, all detected. M4 re-introduces the critical co-owner defect verbatim and the probe reports `403 REFUSED → 200 ESCALATED`; the run verifies the source returned to its **snapshot**, not to `HEAD`, because the repair is itself an uncommitted change and "differs from HEAD" cannot tell a failed restore from a repair |
+| `verify:adoption-privacy` | `evidence/v01-001-sensitivity.sh` — M1 removes the path refusal at the API and M2 copies the client's workspace key into the audit row; both detected |
+| `verify:budget-concurrency` | `evidence/v01-006-sensitivity.sh` — B1 makes the ceiling unreachable and the burst oversells to 240 against a limit of 100; B2 stops the released hold from being reclaimed. B3 is an **expected MISSED**: the route resolves the inference request before the statement runs, so the SQL clause is a second line for the same rule |
+| `verify:migration-prior-state` | `evidence/v01-007-sensitivity.sh` — M1 deletes the seeded plans inside the window and M2 deletes the stored claims before 0020's rewrite; both detected, **on the first attempt** |
+| `smoke:passkey` | the three authentication attacks V01 added — wrong ceremony kind, identity-link conflict, recovery with active sessions — have their own proof in `evidence/v01-004-sensitivity.sh`. A2 is detected: removing the revoke statement from `password_reset`'s batch makes a pre-recovery session answer 200, which is the exact shape of a critical authentication defect. **A1 and A3 are honest MISSEDs** — two independent gates refuse a wrong-kind ceremony, and the email-conflict guard is unreachable (V01-005) |
 
 Running a gate against the product it is meant to fail on finds defects in the gate itself. It found
 three in `smoke:browser`: waits that tested for the repair, a crash on the very state the gate
 exists to detect, and an unbounded wait. None was visible while the gate passed.
+
+Three more appeared while the V01 gates were being written, all the same shape — a verdict with no
+evidence behind it, and all three of them **trusted** as MISSED rather than suspected:
+
+- a sensitivity script that reverted its fault with `mv`, which preserves the pre-fault mtime, so
+  the build was skipped and the next run measured the faulted binary against a clean tree;
+- a snapshot directory the script never created, so every restore was a no-op and three deliberate
+  faults stayed compiled in — while the script printed `RESTORE FAILED` and the grades carried on;
+- `set -uo pipefail`, which does not abort, so three mutations whose asserts failed reported three
+  MISSED verdicts for runs that never happened.
+
+The third is why a sensitivity harness needs `set -e` **and** an explicit check that the file it
+mutated actually changed. The one V01 harness written with both from the start worked first time.
+Two more rules the same campaign turned up: capture stderr when driving `wrangler`, because a
+`CHECK` failure goes to stderr while the confirmation banner goes to stdout, so a stdout-only capture
+reports every failing write as a success; and never let a negative assertion pass on an absence —
+assert that the thing happened before asserting the thing did not, or `0 reservations hold 0` reads
+as a passing budget gate on a budget that was never consulted.
 
 ## Git discipline
 
