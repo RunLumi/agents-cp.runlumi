@@ -1,0 +1,51 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01tenD
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:57681
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-ab6HSn/654513be04f600f0d675f61609a671556323e2a7-index_bg.wasm is 200s newer than src/repositories/budgets.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_d5a2c3001f5f451cb26bf02902e54bf9
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_9eda0c859dbf40548c07788bc45dc584
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_6653b3290f4c4773b0dca150e795ed1d
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_24554ae80ad7375431b4126c72b95a79
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_44fec6c31662c6fd06ce603a1e5dd4ec
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  Org A has a real project  — status=201 id=prj_dd9f26c9bae54ca282dbe21a85c263f3
+  PASS  the project's default_model_route holds a real value before the patch, so the preservation claim below is not vacuous  — default_model_route=v01-fixture-route
+  PASS  Org A has a real service account  — status=200 id=svc_df19e7b2f5a7454aa4cbe97c22a4b812
+  PASS  Org A has a real budget  — status=201 id=bud_c35f5872cdfc4253a7b934ef511b4372
+  PASS  Org A's membership ids are known  — members=2
+  PASS  no cross-tenant or intra-tenant mutation changed the targeted row: every write was either refused or inert  — 11 mutations, all left the state untouched
+  PASS  no mutation was answered with a 5xx, which would be a store fault wearing the costume of a refusal  — none
+  PASS  no cross-tenant or member mutation was accepted at all, so the refusals are refusals rather than clamps  — none accepted
+  PASS  a cross-tenant refusal does not vary between a resource that exists and one that does not, so the status is not an existence oracle  — absent id -> 404 resource_not_found; present id -> 404 resource_not_found
+  PASS  CONTROL: Org A's own owner can rename its own project, so the project route and the body are both sound  — status=200
+  PASS  the control's write is visible in the state, so a state comparison can tell the difference  — [{"name":"Renamed By Alice"}]
+  PASS  a rename leaves default_model_route alone: PatchProjectRequest has no model-route field, so patching a name must not clear the route  — before=v01-fixture-route after=v01-fixture-route
+  PASS  a rename writes a timestamp into updated_at, not the project's own id  — updated_at=2026-09-28T17:21:44.516Z
+  PASS  a successful patch bumps the optimistic version, which is the proof the WHERE clause matched  — version 1 -> 2
+  PASS  a PATCH carrying a stale version is refused with a conflict, so a second editor cannot silently overwrite the first  — status=409 version sent=1 current=2
+  PASS  the stale write changed nothing: the name is still the control's and the version did not advance  — name=Renamed By Alice version=2
+  PASS  the same write with the CURRENT version succeeds, so the conflict above was about the version and not about the route  — status=200
+  PASS  the attacker holds no access grant on the org's project  — grants=0
+  PASS  Org A still has exactly one owner and one admin-free membership set  — [{"email":"alice-mulikc0zirt6@example.com","role":"owner"},{"email":"mallory-mulikc0zirt6@example.com","role":"member"}]
+
+11 mutating cross-tenant and intra-tenant attacks across 5 classes
+  status distribution: 403 x5  404 x5  422 x1
+  state changed by: 0 of 11
+
+43/43 V01 mutating-tenancy cases hold

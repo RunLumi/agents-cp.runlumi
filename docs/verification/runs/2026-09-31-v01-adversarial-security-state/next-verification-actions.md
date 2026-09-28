@@ -22,6 +22,22 @@ second — the reverse order is how a verifier ends up weakened to match a probe
 
 Evidence: `findings/V01-001-…md`, `evidence/v01-001-stored-rows.txt`.
 
+## GAP-004 — `schema:bind-count` proves arithmetic, not correspondence
+
+It checks that each `prepare()` binds as many values as its SQL has placeholders. It cannot see
+a statement that has the *right number* of binds in the *wrong slots*, and it did not: V01-008's
+`UPDATE_PROJECT_SQL` used `?2..?6` in `SET` and `?1, ?7, ?8` in `WHERE` with `?1` bound to the
+project's **name**, and 8-for-8 passed. Every project PATCH was refused with
+`409 version_conflict` for the life of the route.
+
+Two cheap additions catch the whole shape: no placeholder may appear in both a `SET` target and a
+`WHERE` comparison, and no `SET` target may be a primary key or a tenant column. A placeholder
+used for two different columns is malformed whatever the count says.
+
+The stronger property — that the write actually lands and lands in the right columns — is now
+covered by `verify:mutating-tenancy`'s per-route positive controls. That is the honest division:
+a count proves arithmetic, a probe that requires success proves correspondence.
+
 ## GAP-003 — which reauth purpose guards identity linking is unspecified, and the feature is dead until it is
 
 `link_identity_start` requires a grant with purpose `identity_link`; `validate_reauth_purpose`

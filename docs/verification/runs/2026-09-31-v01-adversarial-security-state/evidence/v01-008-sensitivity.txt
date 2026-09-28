@@ -1,0 +1,18 @@
+baseline: 43/43 V01 mutating-tenancy cases hold
+P1 applied: SET and WHERE placeholders disagree again, with the count still correct
+restored the product (verified against the snapshot)
+P2 applied: a rename now clears default_model_route
+restored the product (verified against the snapshot)
+P3 applied: the version comparison is gone but the placeholder count is unchanged
+restored the product (verified against the snapshot)
+
+=== summary ===
+  P1 placeholders disagree (the V01-008 defect):  detected
+  P2 a rename clears default_model_route:         detected
+  P3 the optimistic guard is removed:              detected
+  FAIL  CONTROL: Org A's own owner can rename its own project, so the project route and the body are both sound  — status=409 reason=version_conflict (wanted 200) — 
+  FAIL  the control's write is visible in the state, so a state comparison can tell the difference  — [{"name":"V01 target project"}]
+  FAIL  a rename leaves default_model_route alone: PatchProjectRequest has no model-route field, so patching a name must not clear the route  — before=v01-fixture-ro
+  FAIL  a PATCH carrying a stale version is refused with a conflict, so a second editor cannot silently overwrite the first  — status=200 version sent=1 current=2
+  FAIL  the stale write changed nothing: the name is still the control's and the version did not advance  — name=Renamed Stale muli6wc49fjg version=3
+restored the product (verified against the snapshot)

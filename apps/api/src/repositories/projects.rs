@@ -23,11 +23,26 @@ WHERE project_id = ?1
 LIMIT 1
 "#;
 
+/// Placeholders are numbered per clause, and the binds follow the same order.
+///
+/// The statement previously read `SET name = ?2 … WHERE project_id = ?1`, with `?1` bound to
+/// the project's *name*. So `WHERE project_id` compared the primary key against a name, never
+/// matched, and **every project PATCH was refused with `409 version_conflict`** — the
+/// rename, visibility and archive path has never worked, and the error told clients the
+/// project "changed since you loaded it" when nothing had. See V01-008.
+///
+/// `default_model_route` is deliberately absent. `PatchProjectRequest` has no model-route
+/// field, so a rename must leave the route bound to the project alone; the previous statement
+/// would have overwritten it with a timestamp.
+///
+/// Seven placeholders for seven binds is what `schema:bind-count` already checks, and it
+/// passed: a count proves arithmetic, not correspondence. What catches this class is a probe
+/// that requires the write to SUCCEED, which is why `verify:mutating-tenancy` carries a
+/// positive control per route.
 const UPDATE_PROJECT_SQL: &str = r#"
 UPDATE projects
-SET name = ?2, visibility = ?3, archived_at = ?4, default_model_route = ?5,
-    version = version + 1, updated_at = ?6
-WHERE project_id = ?1 AND org_id = ?7 AND version = ?8
+SET name = ?1, visibility = ?2, archived_at = ?3, version = version + 1, updated_at = ?4
+WHERE project_id = ?5 AND org_id = ?6 AND version = ?7
 "#;
 
 const PROJECT_SLUG_COUNT_SQL: &str = r#"
@@ -348,7 +363,6 @@ LIMIT ?2"#,
                 BindValue::Text(update.name),
                 BindValue::Text(update.visibility),
                 archive_value,
-                BindValue::Null,
                 BindValue::Text(update.now.as_str()),
                 BindValue::Text(update.project_id),
                 BindValue::Text(update.org_id),

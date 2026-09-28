@@ -82,9 +82,13 @@ run_probe() {
 }
 
 # Did the claim's own assertion fail in the broken build?
+# The needle is matched as a SUBSTRING of the whole assertion, not anchored after the `FAIL`
+# marker. An anchoring that never fires is a verifier that reports the absence of a defect it
+# just watched occur -- which is the same failure as a verifier that cannot fail at all, only
+# quieter. V01-008's harness hit this three times before it was fixed, and the fix is that one
+# line.
 fired() {
-  local log="$1" needle="$2"
-  grep -E "^  FAIL  ${needle}" "$log" >/dev/null && echo "detected" || echo "MISSED"
+  grep -E "^  FAIL  " "$1" | grep -qF "$2" && echo "detected" || echo "MISSED"
 }
 
 report() {
