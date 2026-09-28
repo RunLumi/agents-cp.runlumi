@@ -2,7 +2,7 @@
 
 ## Status
 
-**attack written, not yet run.** The evidence and verdict sections are filled in by the run;
+**run, then repaired with V01-013. The attack now passes: 34/34, exit 0.** The evidence and verdict sections are filled in by the run;
 everything else is fixed in advance so the run cannot be reinterpreted afterwards.
 
 ## Severity if it reproduces
@@ -38,8 +38,8 @@ the TTL, let the sweep expire the lease, claim again.
 | **Expected** | the first claim advances the occurrence's `attempt` to 1; the second is refused and moves nothing; after the lease expires, the third is **refused as an exhausted attempt**, and the occurrence's `attempt` sits at 1. |
 | **Actual** | the arc ran to completion and every control held, but the final claim was refused for the **wrong reason and with the wrong shape**. The sweep expired the lease (`lse_…:expired`), the occurrence stayed `pending` and claimable, and the third claim answered **`503 {"code":"service_unavailable","message":"The automation control-plane store is unavailable.","details":{}}`** — not an exhausted-attempt refusal. |
 | **Evidence** | `evidence/v01-014-attempt-exhaustion.txt` (27/31; the 4 FAILs are V01-013 and the wrong-shape refusal) |
-| **Verdict** | **FAIL — product defect**, and the root cause is V01-013's with a second symptom |
-| **Regression gap** | asserted in `verify:attempt-exhaustion` and failing on purpose: 4 named assertions |
+| **Verdict** | **FAIL — repaired.** The repair is V01-013's, and the attack now passes unchanged |
+| **Regression gap** | none. `verify:attempt-exhaustion` is 34/34 with 1 named SKIP, and it stays the gate for this claim |
 | **Severity** | **high**, and higher than recorded before the run — see the causal chain below |
 
 ## The five choices that make this attack mean something
@@ -208,3 +208,77 @@ It is fixed, and the fix is the general one: the assertion now requires a **4xx 
 reason and never a 5xx**, because "refused" and "refused *correctly*" are different claims and only
 one of them is worth anything. The re-run reports 27/31 with this assertion failing, which is the
 truthful number; the first run's 28/31 was a pass bought by a weak predicate.
+
+---
+
+# Closure: the arc now holds end to end
+
+`pnpm verify:attempt-exhaustion` is **34/34, exit 0**, with **1 explicitly skipped**. The attack
+was re-run unchanged; the four failures it reported are gone and nothing was weakened to achieve
+that.
+
+| step | before | after |
+|---|---|---|
+| first claim | `occurrence_attempt 0 → 0` | **`0 → 1`** |
+| a `LEASED` occurrence and `started_at` | `null` (asserted as a defect — **it is not**) | `null`, and now a **control** |
+| second claim while leased | `409`, `attempt` unmoved | `409`, `attempt` unmoved |
+| the lease leaving `active` **by the sweep** | proved from D1 | proved from D1 |
+| the sweep's resolution | `pending`, `reason_code = null` | **`failed`, `reason_code = lease_expired_retry_exhausted`** |
+| third claim | **`503`, `details: {}`** | **`409 automation_invalid_state`** |
+| a refused final claim takes no lease | `active_leases=0` | `active_leases=0` |
+
+## The assertion I got wrong, and what it would have cost
+
+I asserted that a `LEASED` occurrence must carry a `started_at`, and recorded the absence as a
+defect with a severity. **It is not a defect.** `start_occurrence` is a separate registered route
+that mints the run, session and link, so the product deliberately distinguishes *has the lease* from
+*has begun work* — and the only reason to know that is to tell a lease that was taken and never
+used from one that started and stalled.
+
+Repairing what I asserted would have collapsed a correct two-phase design, and the symptom would
+have been invisible: every occurrence would look started, so the sweep could no longer distinguish a
+device that took a lease and did nothing from one that crashed. Reading the route table is what
+caught it — a second instance of the campaign's own rule that an assertion which disagrees with its
+context is more informative than one that agrees.
+
+The assertion is now a control, so the intent is pinned rather than merely un-violated.
+
+## The control I also got wrong, in the opposite direction
+
+I demanded the occurrence still be *claimable* after the sweep expired its lease, reasoning that
+otherwise the final refusal would be attributable to a terminal state rather than to the attempt
+bound.
+
+That would have **failed this correct repair and passed the defect.** With the dead column the sweep
+read `attempt = 0`, computed `0 + 1 <= 1`, concluded an attempt remained, and returned the slot to
+`pending` — precisely the wrong outcome. The requirement is that the sweep *resolve* the slot, and
+with `max_start_attempts: 1` it must resolve it terminally with a reason naming exhaustion.
+
+Both of those were false before the repair, **in opposite directions**, and only the second was
+visible. That is the sharpest instance of the round's recurring lesson: a control that asserts one
+particular wrong answer will fail a correct repair just as reliably as it passes a defect.
+
+## The one SKIP, and why it is named rather than dropped
+
+The two-phase `start_occurrence` transition is **not exercised**: `start_occurrence` re-reads the
+organization's entitlement immediately before creating the run and answers
+`403 permission_denied` / `entitlement_not_granted` for an organization without one. That is
+deliberate — the route's own comment says *"a value captured at schedule creation is never
+authority"* — and this probe's organization holds no automation entitlement.
+
+So the probe **skips with the reason** rather than dropping the assertion, because an unread
+assertion is an unmeasured claim and a silent drop shrinks the denominator without saying so. The
+`started_at` half of the fix therefore rests on reading the route plus the control in
+`verify:lease-contention`, and this is recorded as a gap rather than presented as verified.
+
+## A new observation the probe surfaced by accident
+
+**`claim_occurrence` does not check the entitlement; `start_occurrence` does.** So a device can
+take a real lease and consume an attempt on an automation its organization is not entitled to run,
+and only discovers it at start.
+
+That may well be the right placement — the gate is re-read at the moment work would actually
+happen, which is the stronger position — but under `max_start_attempts: 1` the slot is consumed by
+a start that can never succeed. Recorded as an **observation, not a finding**: no claim has been
+attacked, and the objective's escalation family explicitly names entitlements, so this is where the
+next attack should go.

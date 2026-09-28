@@ -2,7 +2,7 @@
 
 ## Status
 
-**open.** Found by the lease-contention probe on its first successful run. Root cause located
+**CLOSED.** Found by the lease-contention probe on its first successful run. Root cause located
 and confirmed; the repair is **not** applied, and it is not attempted here, because
 `TRANSITION_OCCURRENCE_SQL` is shared by four routes and needs its own attack.
 
@@ -157,3 +157,88 @@ each advance it themselves.
 
 That attack is blocked today by the fact that a lease expiry path needs a real device and a
 real occurrence, which now exist — so the next round can build it.
+
+---
+
+# Closure
+
+## The fix
+
+```sql
+SET state = ?3,
+    state_version = state_version + 1,
+    attempt = COALESCE(?14, attempt),
+    ...
+```
+
+with `?14` bound from a new `OccurrenceTransition.start_attempt: Option<i64>`: `Some(attempt)` from
+`claim_occurrence`, and `None` from `renew_lease`, `start_occurrence`, `settle_occurrence`,
+`release_occurrence` and the expiry sweep.
+
+**The COALESCE is the whole design, and it was forced by a fact the finding had to establish
+first.** The statement is prepared by six routes and only one of them starts an attempt.
+`start_occurrence` in particular *reads* `lease.attempt`, so an unconditional `attempt = ?14`
+would have spent **two** of a `max_start_attempts: 2` budget on one start — a defect introduced by
+the repair of a defect. Making the distinction a property of the *call* rather than of the SET list
+is what prevents that, and `None` means a route **physically cannot** advance the counter.
+
+The compiler enumerated all six call sites, which is the check I wanted: a new transition route
+cannot be added without stating its intent.
+
+## The attack, re-run unchanged: 34/34, exit 0 (was 27/31)
+
+| | before | after |
+|---|---|---|
+| first claim | `occurrence_attempt 0 → 0` | **`0 → 1`** |
+| third claim after the lease expired | **`503`, `details: {}`** | **`409 automation_invalid_state`** |
+| the sweep's resolution of the slot | `pending`, `reason_code = null` | **`failed`, `reason_code = lease_expired_retry_exhausted`** |
+| `pnpm check` / unit tests | 1010 | green / **1013** |
+
+## Two enforcement points came alive, not one
+
+The finding recorded that the claim's guard was dead. It did not record that the **sweep** reads
+the same column, and that was the larger consequence.
+
+With `attempt` permanently `0`, the sweep's own exhaustion test was `0 + 1 <= max_start_attempts`
+— always true. So an expired lease was resolved by **returning the slot to `pending`**, and the
+next claim recomputed attempt 1, collided with the first claim's `(occurrence, 1, 'claimed')` row
+on `ux_automation_occurrence_attempts`, and aborted the batch into a detail-less `503`.
+
+That is the whole causal chain, and the repair closes it at the source rather than at either end:
+a spent slot now becomes `failed` / `lease_expired_retry_exhausted`, and the device that retries
+is told the slot is spent.
+
+**The sweep's retry-exhaustion path had never executed in the product's life.** It is not new
+code; it is existing code that a dead column had made unreachable, which is the same failure shape
+as V01-011's batch and V01-008's PATCH.
+
+## The regression proof, and why two of the three tests are structural
+
+Three unit tests, on SQL and source text, no database, on every `cargo test`:
+
+- `the_transition_only_advances_the_counter_when_asked_to` — the `COALESCE` is present;
+- `exactly_one_route_starts_an_attempt_and_it_is_the_claim` — one `Some(..)`, and it is the claim;
+- `every_non_starting_transition_declares_none` — all six literals state their intent.
+
+The second and third read the route sources. That is deliberate: **a runtime assertion that a start
+does not double-count cannot distinguish "the counter is COALESCE'd" from "the counter is assigned
+but the routes happen to pass the current value"** — and that second case *is* this defect. Only
+reading the call sites distinguishes them.
+
+## Two of my own assertions were wrong, and the product was right
+
+Both probes asserted *"a LEASED occurrence records when the work started"*. **It should not.**
+`POST /api/v1/devices/automation-occurrences/{id}/start` is a separate registered route that mints
+the run, session and link, so "has the lease" and "has begun work" are deliberately different
+facts — and collapsing them would destroy the only signal that separates a lease taken and never
+used from one that started and stalled, which is what the sweep and any stuck-work report depend on.
+
+I would have "fixed" a correct two-phase design. Reading the route table caught it, and the
+assertion is now a **control** that pins the intent, so nobody repeats the mistake.
+
+The second: `verify:attempt-exhaustion` demanded the occurrence still be *claimable* after the
+sweep. That would have **failed this correct repair and passed the defect** — with the dead column
+the sweep believed an attempt remained and handed the slot back, which is exactly the wrong
+outcome. The requirement is that the sweep *resolve* the slot, and with a bound of 1 it must resolve
+it terminally naming exhaustion. Both of those were false before the repair, in opposite
+directions, and only the second was visible.
