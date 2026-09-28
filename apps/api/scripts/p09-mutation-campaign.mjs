@@ -34,6 +34,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -845,6 +846,41 @@ for (const testCase of CASES) {
       filter: (src) =>
         !src.includes("/target/") && !src.includes("/node_modules/") && !src.includes("/.git/"),
     });
+    // Link the real `node_modules` back in.
+    //
+    // The copy skips them because they are large, and because a mutated source
+    // directory with its own dependency tree is not what is under test. But three of
+    // this campaign's verifiers start a real Worker, and `wrangler` then bundles
+    // `apps/api/sentry-entry.mjs`, which imports `@sentry/cloudflare`. With no
+    // `node_modules` in the scratch tree that import cannot resolve, the build
+    // fails, and the probe reports "the Worker never became healthy" -- which the
+    // campaign grades as a kill for the wrong reason.
+    //
+    // That is worse than a red gate, because it looks like evidence about the
+    // product. It also went unnoticed for exactly the reason a gate nobody can
+    // trust gets ignored: `verify:mutation` is not in CI, and the three affected
+    // cases had last been run on a branch that predated the Sentry entry.
+    //
+    // A symlink rather than a copy: the point is to resolve the real packages, and
+    // a second copy would be gigabytes per case.
+    for (const dir of ["node_modules", "apps/api/node_modules", "apps/web/node_modules"]) {
+      const real = join(process.cwd(), dir);
+      if (!existsSync(real)) continue;
+      const link = join(scratch, dir);
+      try {
+        mkdirSync(dirname(link), { recursive: true });
+        rmSync(link, { force: true, recursive: true });
+        symlinkSync(real, link, "dir");
+      } catch (error) {
+        // A filesystem without symlinks would fail here. Say so rather than letting
+        // the build fail later with an unrelated-looking message.
+        throw new Error(
+          `could not link ${dir} into the scratch copy (${error.message}). A case that ` +
+            "builds a Worker needs the real dependencies, and without them the build " +
+            "fails in a way that reads like a product fault.",
+        );
+      }
+    }
     // A case injects one fault (`find`/`replace`) or several (`edits`).
     //
     // Multiple edits exist because a genuinely defended-in-depth invariant cannot

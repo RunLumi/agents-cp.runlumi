@@ -41,8 +41,8 @@ use crate::{
         authorization::authorize_org,
         errors,
         support::{
-            database, database_error, domain_error, idempotency_key, outbox_statement,
-            security_event_statement,
+            SecurityEventId, database, database_error, domain_error, idempotency_key,
+            outbox_statement, security_event_statement,
         },
     },
 };
@@ -1328,7 +1328,7 @@ pub async fn approve_enrollment(
         &context,
         Some(&access.principal),
         Some(org_id.as_str()),
-        &event_id,
+        SecurityEventId::new(event_id),
         "device.enrolled.v1",
         "device",
         Some(&device_id),
@@ -1522,7 +1522,7 @@ pub async fn revoke_device(
         &context,
         Some(&access.principal),
         Some(org_id.as_str()),
-        &event_id,
+        SecurityEventId::new(event_id),
         "device.revoked.v1",
         "device",
         Some(&device_id),

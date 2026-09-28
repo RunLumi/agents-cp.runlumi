@@ -79,6 +79,41 @@ The `pending` arm is closed by the same migration, even though the table's CHECK
 already got it right, so that a future edit to the CHECK cannot quietly open the
 other half.
 
+## Migration 0021: a CHECK that no identifier could satisfy
+
+`adapters::new_resource_id(prefix)` builds `{prefix}_{32 hex}`, so a prefix of N letters
+produces N + 1 + 32 characters. Migration `0002` declared:
+
+```sql
+teams.team_id                length = 36 AND substr(1, 4) = 'team'
+team_members.team_member_id  length = 36 AND substr(1, 5) = 'tmem_'
+```
+
+The prefix half matches — `team_` does begin with `team` — but `generated_id("team")` is
+**37** characters, and 37 is not 36. Every INSERT failed its CHECK, and because these writes
+go through `database.batch`, each failure took its whole transaction with it. So the F03 team
+surface has never worked: `POST /orgs/{id}/teams` answered 409, `POST /teams/{id}/members` could
+never run, and project access granted through team membership silently never applied, because
+`repositories/runs.rs` and `repositories/projects.rs` read a table that was always empty.
+
+The other 82 identifier CHECKs in this schema are written the same way, and 80 of them agree with
+the generator. Three spell their prefix with its underscore and are checked at **37** —
+`deletion_certificates`, `cost_records` and `credentials` — which is the consistent form. `teams`
+and `team_members` were the only two out.
+
+**Why a rebuild and not an edit.** Editing `0002` would fix a fresh database and nothing else: the
+ledger records `0002` as applied, so `d1_migrations apply` skips it. Staging, production and every
+developer's local state would keep the broken CHECK. A corrective migration is the only form that
+reaches them.
+
+**Why the child is rebuilt first.** `team_members` references `teams` on both `team_id` and
+`(org_id, team_id)`, both `ON DELETE CASCADE`. Dropping the parent while a child still references
+it would cascade-delete that child, so the order in the file is load-bearing rather than cosmetic.
+
+Both tables are empty, and provably so — the CHECK being corrected is what makes the insert
+impossible — but the migration still copies rows in full so it is correct for any database that
+somehow holds any.
+
 ## Rollback is forward-only, and the schema is why
 
 No migration from P02 onward alters a table created by an earlier phase; they
@@ -125,4 +160,5 @@ explicitly so the gap cannot reopen unnoticed.
 | `0017_p07_plugin_governance.sql` | 7 | 10 | 14 | Plugin governance: publishers, packages, versions, policies, installs, tool registrations, quarantines. **14 triggers.** |
 | `0018_p07_platform_operations.sql` | 4 | 8 | 14 | Platform operations: staff principals, support grants, feature flags, kill switches. **14 triggers.** `organization_id` here is the CUSTOMER a staff principal acts on, not a caller scope. |
 | `0019_p08_migration_adoption.sql` | 4 | 10 | 3 | Migration adoption: workspace adoption state, stage events, remediation, and the published client-compatibility policy. `client_compatibility_policy` is the only class whose owner scope is Platform and whose sensitivity is Public. |
-| `0020_p09_idempotency_null_safety.sql` | 0 | 0 | 4 | **P09. No new tables** — four triggers that close a NULL hole in `0001`'s idempotency CHECK. See below; this is the only migration in the repository that adds constraints to an existing table rather than creating a new one. |
+| `0020_p09_idempotency_null_safety.sql` | 0 | 0 | 4 | **P09. No new tables** — four triggers that close a NULL hole in `0001`'s idempotency CHECK. See below; it was the only migration in the repository that added constraints to an existing table rather than creating a new one, until `0021` below. |
+| `0021_p02_team_id_check_correction.sql` | 0 (2 rebuilt) | 2 (recreated) | 0 | **P02 correction.** Rebuilds `teams` and `team_members` with their primary-key CHECK corrected. See below. |
