@@ -1438,6 +1438,24 @@ pub enum DataJobOutcome {
 }
 
 impl DataJobOutcome {
+    /// A stable name with no identifier in it, for the one log line a durable job
+    /// emits per delivery.
+    ///
+    /// The data-job branch used to log nothing at all on success, which is why a
+    /// P06 job that was delivered and silently changed nothing looked identical to a
+    /// P06 job that was never delivered. A queue that cannot say what it did is
+    /// indistinguishable from a queue that is not running.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Completed => "completed",
+            Self::AlreadyComplete => "already_complete",
+            Self::RetryScheduled => "retry_scheduled",
+            Self::NeedsAttention => "needs_attention",
+            Self::Failed => "failed",
+        }
+    }
+
     fn from_export(outcome: ExportOutcome) -> Self {
         match outcome {
             ExportOutcome::Ready | ExportOutcome::AlreadyTerminal => Self::Ready,

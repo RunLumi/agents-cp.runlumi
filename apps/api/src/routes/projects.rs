@@ -630,6 +630,28 @@ pub async fn list_grants(
     )
     .await?;
     let database = database(&state, &context)?;
+    // The project must be resolved THROUGH the authorized organization before its
+    // grants are read. The `authorize_org` above proves the caller may act on
+    // `org_id`; it says nothing about `project_id`, which arrives from the path.
+    // Reading the grants by project id alone meant any organization's owner could
+    // substitute another organization's project id and read its access grants --
+    // member ids and team ids included. This is the same
+    // `.filter(|project| project.org_id == org_id)` guard that `patch_project`,
+    // `create_grant` and `readable_project` already carry; this handler was the one
+    // that did not. See VFY-011.
+    ProjectRepository::new(database)
+        .find_project(&project_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?
+        .filter(|project| project.org_id == org_id)
+        .ok_or_else(|| {
+            deny(
+                &context,
+                ApiErrorCode::NotFound,
+                "not_found",
+                "No such project.",
+            )
+        })?;
     let grants = ProjectRepository::new(database)
         .list_grants_by_project(&project_id, PAGE_LIMIT_MAX)
         .await

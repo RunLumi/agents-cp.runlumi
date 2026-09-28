@@ -1,0 +1,30 @@
+# VFY-011: the cross-tenant leak p08-tenancy-smoke.mjs found, and its sensitivity
+
+## The defect
+
+GET /api/v1/orgs/{org_id}/projects/{project_id}/access authorized the caller
+against the ORG IN THE PATH, then read the grants with
+`WHERE project_id = ?1` and no org predicate. Any organization owner could
+substitute another organization project id and read its access grants --
+member ids and team ids included.
+
+Found by: `pnpm smoke:p08`, which the record had listed as the largest in-repo gap
+under VFY-010 and which had never been built.
+
+## With the defect present
+
+  FAIL  project /projects/{id}/access — the resource is invisible across the boundary  — LEAK: outsider=404 other-owner=200
+cross-tenant: 18/21 routes proven, 1 leak(s), 2 unproven among those
+exit 1
+
+## After the repair
+
+cross-tenant: 19/21 routes proven, 0 leak(s), 2 unproven among those
+exit 0
+
+## Sensitivity of the repair itself
+
+The guard re-added to `list_grants` is the same
+\`.filter(|project| project.org_id == org_id)\` that \`patch_project\`, \`create_grant\` and
+\`readable_project\` already carry. Reverting it turns the probe red again with the
+leak named, so the fix is load-bearing rather than cosmetic.

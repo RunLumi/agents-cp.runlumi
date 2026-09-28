@@ -22,7 +22,7 @@ pub use error::{ApiError, ApiErrorBody, ApiErrorCode, CoreError};
 pub use event::{EventEnvelope, EventType};
 pub use idempotency::{
     IdempotencyKey, IdempotencyKeyDigest, IdempotencyRecord, IdempotencyScope, IdempotencyState,
-    RequestFingerprint, StoredSuccess,
+    RequestFingerprint, StoredSuccess, is_guard_abort,
 };
 pub use identifiers::{
     ActorId, AgentDefinitionId, AgentSessionId, ApiKeyId, ApprovalId, ArtifactRefId, AutomationId,

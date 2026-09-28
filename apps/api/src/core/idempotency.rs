@@ -5,6 +5,98 @@ use serde_json::Value;
 
 use super::{ActorId, CoreError, OrganizationId, Timestamp};
 
+/// The abort texts a **guard sentinel** can produce, and the schema version that
+/// produces each.
+///
+/// A guard sentinel is a deliberately invalid `idempotency_records` insert that
+/// aborts a D1 batch when a conditional write matched zero rows. 37 statements
+/// across 13 repository modules emit the identical row, and
+/// `apps/api/scripts/p02-guard-probe.mjs` counts them so a changed shape is
+/// noticed rather than silently unproved.
+///
+/// The batch error is the ONLY signal that a write was refused ON PURPOSE, as
+/// opposed to the store being unavailable, and the two must not be confused: a
+/// refusal means "re-read authoritative state and answer accordingly", an outage
+/// means "fail closed with 503". Reporting an outage for a deliberate refusal
+/// turns a settled 409 into a retryable 503; reporting a refusal for an outage
+/// invents a business answer for a system fault.
+///
+/// # Why a named list and not a substring test
+///
+/// V00-2026-09-27 (finding VFY-004) broke this by accident. The recogniser was
+/// `detail.contains("NOT NULL") || detail.contains("constraint")` -- a
+/// case-sensitive match on the text the schema produced before migration `0020`.
+/// That migration added `trg_idempotency_pending_has_no_result`, a `BEFORE
+/// INSERT` trigger, which fires before the column constraints and aborts with its
+/// own `RAISE` text. The error for the byte-identical statement therefore became
+///
+/// ```text
+/// a pending idempotency record carries no result and must hold a claim token:
+///   SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+/// ```
+///
+/// Neither half of the old test matches that, so every guard in the repository was
+/// silently reclassified as a store outage. `p05-smoke.mjs` began returning
+/// `status=503 reason=none` for a duplicate budget reservation, and P06 automation
+/// refusals became retryable job failures instead of settled ones.
+///
+/// The old test was ALSO too broad in the other direction. `contains
+/// ("constraint")` accepts a UNIQUE or FOREIGN KEY violation on ANY table, so an
+/// unrelated integrity failure could be reported as a deliberate guard and
+/// answered with business copy. Naming the texts is both narrower and correct.
+///
+/// # Why these two and not more
+///
+/// Only two texts are reachable, and that was measured rather than assumed: see
+/// `apps/api/scripts/p02-guard-probe.mjs`, which applies the real migrations to a
+/// real SQLite database and executes the real sentinel statement.
+///
+/// * `principal_id TEXT NOT NULL` is a COLUMN constraint, and SQLite evaluates
+///   column constraints before table-level `CHECK`s. So pre-`0020` the NOT NULL
+///   text always wins and the several `CHECK constraint failed: ...` texts on this
+///   table are unreachable. They are deliberately absent; adding them would be
+///   dead code a future edit could mistake for coverage.
+/// * All 37 sentinels set `state = 'pending'`, so the sibling trigger
+///   `trg_idempotency_completed_requires_status` and its message cannot fire
+///   either. Also absent, also deliberately.
+///
+/// # Keeping the list honest
+///
+/// `apps/api/scripts/p02-guard-probe.mjs` executes a real sentinel through a real
+/// database and requires the resulting text to appear in this list. A future
+/// migration that changes the abort text therefore fails a gate instead of
+/// silently reclassifying every guard. Adding an entry without such a change is a
+/// bug, and the probe says so at the point of failure.
+const GUARD_ABORT_TEXTS: &[&str] = &[
+    // Schema 0019 and earlier: the column NOT NULL constraint. Named down to the
+    // COLUMN, not the table, because the sentinel's only NULL-valued NOT NULL
+    // column is `principal_id` -- the other NULLs are `response_status`,
+    // `response_body`, and `claim_token`, which are nullable from 0020 onward and
+    // which the pre-0020 trigger/CHECK rules covered. Naming the table instead
+    // would classify a genuine bug that inserted a row with, say, a NULL
+    // `organization_id` as a deliberate guard, and hand the caller a business
+    // answer for a fault. Measured, not assumed: see the probe.
+    "NOT NULL constraint failed: idempotency_records.principal_id",
+    // Schema 0020 onward: `trg_idempotency_pending_has_no_result` and
+    // `trg_idempotency_pending_claim_is_unique` abort first, with this text.
+    "a pending idempotency record carries no result and must hold a claim token",
+];
+
+/// True when a D1 batch failed because a guard sentinel refused it, rather than
+/// because the store was unavailable.
+///
+/// Case-insensitive, because the runtime may render the message in either case
+/// depending on how the error is formatted. Every entry is a long, specific
+/// string, so case-folding costs nothing in precision.
+///
+/// See [`GUARD_ABORT_TEXTS`] for the evidence behind the list.
+pub fn is_guard_abort(detail: &str) -> bool {
+    let lowered = detail.to_ascii_lowercase();
+    GUARD_ABORT_TEXTS
+        .iter()
+        .any(|text| lowered.contains(&text.to_ascii_lowercase()))
+}
+
 /// Client-supplied key, validated at the request boundary and never persisted.
 #[derive(Clone, PartialEq, Eq)]
 pub struct IdempotencyKey(String);
@@ -264,6 +356,80 @@ mod tests {
         assert_eq!(value["state"]["result"]["status"], 202);
         assert!(value.get("raw_key").is_none());
         assert!(!format!("{record:?}").contains("pending"));
+    }
+
+    #[test]
+    fn every_text_a_guard_sentinel_can_produce_is_recognised() {
+        // The two shapes below are the REAL D1 output for the byte-identical
+        // sentinel statement, measured by applying the migrations to a database
+        // and running it: the column NOT NULL text before migration 0020, and
+        // the trigger text from 0020 onward. `apps/api/scripts/p02-guard-probe.mjs`
+        // re-measures this against the live schema, so the two halves cannot
+        // drift apart silently.
+        for text in [
+            "D1_ERROR: NOT NULL constraint failed: idempotency_records.principal_id",
+            "D1_ERROR: a pending idempotency record carries no result and must hold a claim token: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)",
+            // The runtime may or may not append the extended code, and may
+            // re-case the message; both are matched case-insensitively.
+            "Error: A Pending Idempotency Record Carries No Result And Must Hold A Claim Token",
+        ] {
+            assert!(is_guard_abort(text), "guard text not recognised: {text}");
+        }
+    }
+
+    #[test]
+    fn a_genuine_store_failure_is_not_mistaken_for_a_guard() {
+        // The over-broad half of the old test, and the more dangerous half.
+        // These are real D1 failures that must stay "unavailable", because
+        // treating one as a deliberate refusal reports a business answer for an
+        // outage: a caller would be told their budget is exhausted when in fact
+        // the store could not be reached, and would not retry.
+        for text in [
+            "D1_ERROR: UNIQUE constraint failed: outbox_events.event_id",
+            "D1_ERROR: FOREIGN KEY constraint failed",
+            "D1_ERROR: no such table: budget_reservations",
+            "D1_ERROR: too many SQL variables",
+            // The over-broad test matched this, because it contains
+            // "constraint". Nothing about it is a deliberate guard.
+            "D1_ERROR: CHECK constraint failed: state = 'completed' AND response_status BETWEEN 200 AND 299",
+            // Near misses on the sentinel TABLE that are still real failures.
+            // A NOT NULL violation on any other column of `idempotency_records`
+            // is a code bug, not a guard, and must be reported as unavailable.
+            "D1_ERROR: NOT NULL constraint failed: idempotency_records.organization_id",
+            "D1_ERROR: NOT NULL constraint failed: idempotency_records.method",
+        ] {
+            assert!(
+                !is_guard_abort(text),
+                "store failure read as a guard: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_abort_text_list_has_no_unreachable_entries() {
+        // Dead entries are a liability: a future reader cannot tell an entry that
+        // is measured from one that is guessed, and a guessed one invites
+        // "fixing" the recognizer by matching more. Both entries are measured by
+        // `apps/api/scripts/p02-guard-probe.mjs`; this test pins the count so
+        // adding a third requires noticing that it has no evidence behind it.
+        assert_eq!(
+            GUARD_ABORT_TEXTS.len(),
+            2,
+            "GUARD_ABORT_TEXTS grew to {} entries. Only two are reachable: the \
+             column NOT NULL text (schema 0019 and earlier) and the pending-trigger \
+             text (0020 onward). If a migration genuinely changed the abort text, \
+             prove it with the probe first, then update this count deliberately.",
+            GUARD_ABORT_TEXTS.len()
+        );
+    }
+
+    #[test]
+    fn an_empty_list_would_be_caught() {
+        // `is_guard_abort` must not degrade to "always false" if the list is
+        // emptied or the parse is broken. A guard that is never recognised turns
+        // into a 503 on every refusal, which is the original defect in a new coat.
+        assert!(!is_guard_abort(""));
+        assert!(GUARD_ABORT_TEXTS.iter().all(|text| !text.is_empty()));
     }
 
     #[test]

@@ -50,3 +50,79 @@ jobs:
         # actually refuse what the domain says they refuse. `pnpm check` cannot
         # reach that, because it never opens D1.
         run: pnpm --filter @runlumi/agents-cp-api p08:invariants
+
+      - name: Prove the passkey ceremonies on a real Worker
+        # F01 makes passkeys the PRIMARY authentication method, and until
+        # 2026-09-27 nothing here exercised a WebAuthn ceremony against a real
+        # Worker. That gap hid two critical defects in `passkey-auth`: a clock
+        # that panicked on wasm32, and a signature parser that rejected the
+        # encoding WebAuthn actually specifies. Every ceremony endpoint returned
+        # 500 while the unit tests, the WASM type check, and every other gate
+        # were green. See docs/adr/0008-vendored-passkey-auth-wasm-clock.md.
+        #
+        # Self-contained: its own fresh local D1 and its own development Worker,
+        # so it needs no service on :8787. It must run after `pnpm build`, so
+        # that `wrangler dev` serves a prebuilt Worker instead of running a
+        # release build inside the job.
+        run: pnpm smoke:passkey
+
+      - name: Install Chrome for the real-browser journey
+        # The browser probe drives Chrome over the DevTools Protocol with no
+        # Playwright/Puppeteer dependency, so it needs a Chrome to point at.
+        # Without this step the probe exits 2 with "no Chrome/Chromium found",
+        # which is deliberately distinct from a pass.
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Prove the real-browser journey
+        # Promoted out of
+        # `docs/verification/runs/2026-09-27-v00-independent-reconstruction/evidence/`
+        # after it found four product defects no other gate could see: every
+        # passkey endpoint 500ing, an email-verification step the UI could not
+        # submit, a create-organization panel that was a one-way latch, and a
+        # Members table that clipped its role control off a 390px screen.
+        #
+        # It needs two services: the Vite dev server (:5173) and the development
+        # Worker (:8787), both started in the background. It is the only gate that
+        # crosses a real DOM, a real WebAuthn authenticator, and a real layout, so
+        # it is the only one that can catch that class of defect.
+        run: |
+          pnpm --filter @runlumi/agents-cp-api db:migrations:apply:local
+          # Both services are backgrounded with their output redirected to a file.
+          # That is not tidiness: a background process holding the step's stdout
+          # keeps the step's output pipe open, so the runner waits for it long after
+          # the last command has finished and the step appears to hang until it is
+          # killed. Redirecting also leaves the service logs intact for a failure,
+          # which a bare `&` would have interleaved into the step's own log.
+          pnpm --filter @runlumi/agents-cp-web dev --port 5173 --strictPort >/tmp/vite.log 2>&1 &
+          pnpm --filter @runlumi/agents-cp-api dev --port 8787 >/tmp/worker.log 2>&1 &
+          # Wait for both to answer rather than sleeping a guessed interval. The
+          # original loop had no failure branch: it fell through after 90 tries and
+          # went on to run the probe against a service that was not there.
+          ready=0
+          for i in $(seq 1 120); do
+            web=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/ || true)
+            api=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/api/health || true)
+            if [ "$web" = "200" ] && [ "$api" = "200" ]; then
+              echo "both services are up after ${i}s"
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "1" ]; then
+            echo "::error::the web server and/or the Worker never came up"
+            echo "--- vite.log ---"; tail -40 /tmp/vite.log || true
+            echo "--- worker.log ---"; tail -40 /tmp/worker.log || true
+            exit 1
+          fi
+          pnpm smoke:browser || {
+            echo "::error::the real-browser journey failed"
+            echo "--- worker.log (tail) ---"; tail -40 /tmp/worker.log || true
+            exit 1
+          }
+        # A stuck journey is a failing journey, not a slow one. The probe's own
+        # per-condition timeouts plus this ceiling bound the step, so a hang is a
+        # failure with a reason rather than a job that never finishes.
+        timeout-minutes: 12

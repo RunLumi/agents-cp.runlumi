@@ -1,0 +1,59 @@
+P06 data-governance smoke — HTTP → Worker → D1 → R2
+
+Keeping the local D1/R2 state in /private/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/opencode/p06db4
+  PASS  fresh D1 applies the full migration ledger  — 20 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:62872
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_92a576cb807a4573ac705cfb86921c41
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_3878255c38d249a4946935da83f92bc5
+  PASS  signup Carol  — status=201
+  PASS  verify Carol  — status=200
+  PASS  login start Carol  — status=202
+  PASS  login complete Carol  — status=200
+  PASS  user Carol has an opaque ID  — usr_274e91b0079148e29c69df9e2df22def
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_fedc905545fbc826c2ac1b6193c19aab
+  PASS  create Carol Org  — status=201
+  PASS  Carol Org organization ID  — org_d11f89e9f8232b2b3712c65ab9868ab0
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  FAIL  request an organization export  — status=409 reason=conflict (wanted 201/202) — {"error":{"code":"[redacted]","message":"The request conflicts with current state.","request_id":"req_e792d74379d64e8ab243b001d5257712","details":{"reason":"conflict"}}}
+  FAIL  the export job has an opaque ID  — expected an opaque exp_… identifier, got undefined
+
+P06 probe harness failure: no export ID to follow
+
+--- Worker log (tail) ---
+","route":"/api/v1/auth/login/complete","status":200,"duration_ms":2}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (4ms)
+{"event":"http_request","request_id":"req_e8d83c520ef147b7a3af53ca7fbeb2a1","correlation_id":"req_e8d83c520ef147b7a3af53ca7fbeb2a1","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (6ms)
+{"event":"http_request","request_id":"req_426381c71db24729a2079b875195486a","correlation_id":"req_426381c71db24729a2079b875195486a","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":2}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (4ms)
+{"event":"http_request","request_id":"req_f88d5fa399014706a53a62c5df779b2b","correlation_id":"req_f88d5fa399014706a53a62c5df779b2b","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":2}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (4ms)
+{"event":"http_request","request_id":"req_7bc7175ae2ec4e8e96def0eafbba5c21","correlation_id":"req_7bc7175ae2ec4e8e96def0eafbba5c21","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":2}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (4ms)
+{"event":"http_request","request_id":"req_397ccd9107564c8d866bf8b485e5fac8","correlation_id":"req_397ccd9107564c8d866bf8b485e5fac8","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":6}
+[wrangler:info] POST /api/v1/orgs 201 Created (7ms)
+{"event":"http_request","request_id":"req_b894ec63462e47c2979e7be37757db49","correlation_id":"req_b894ec63462e47c2979e7be37757db49","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/orgs 201 Created (5ms)
+{"event":"http_request","request_id":"req_3a33fdd2479c4fe6b113f2af81d95d07","correlation_id":"req_3a33fdd2479c4fe6b113f2af81d95d07","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_fedc905545fbc826c2ac1b6193c19aab/invitations 201 Created (7ms)
+{"event":"http_request","request_id":"req_cede04f9bcd34cd89ba1f262a938223e","correlation_id":"req_cede04f9bcd34cd89ba1f262a938223e","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":18}
+[wrangler:info] POST /api/v1/invitations/inv_44668f522764700e14210421e0d3e4e4/accept 200 OK (20ms)
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mdbg_commit_mutation_failed: Some(D1(D1Error { cause: JsValue(Error: Wrong number of parameter bindings for SQL query.[0m
+
+  Error: Wrong number of parameter bindings for SQL query.
+      at D1DatabaseSessionAlwaysPrimary._sendOrThrow (cloudflare-internal:d1-api:189:24)
+      at null.<anonymous> (async cloudflare-internal:d1-api:137:19) }))
+
+
+{"event":"http_request","request_id":"req_e792d74379d64e8ab243b001d5257712","correlation_id":"req_e792d74379d64e8ab243b001d5257712","method":"POST","route":"/api/v1/orgs/{org_id}/exports","status":409,"duration_ms":12}
+

@@ -287,6 +287,83 @@ cargo test --workspace
 cargo check --workspace --target wasm32-unknown-unknown
 ```
 
+## Runtime proofs
+
+`pnpm check` proves compilation, types, unit behaviour, and the schema. It does **not** prove that
+the system works inside the Worker runtime or in a browser, and it cannot: it opens neither. These
+are the gates that do. Each is self-contained unless noted.
+
+| Command | What it proves | Needs |
+|---|---|---|
+| `pnpm db:migrate:local` | every migration applies to a real local D1 | — |
+| `pnpm smoke:local` | the P01 foundation surface answers | a Worker on `:8787` |
+| `pnpm smoke:p02` … `smoke:p05` | the P02–P05 surfaces answer | a Worker on `:8787` |
+| `pnpm smoke:passkey` | a real WebAuthn ceremony verifies end-to-end — registration and assertion, with hostile cases for challenge, origin, RP ID, replay, expiry, and revocation | nothing; it starts its own D1 and Worker. Needs `pnpm build` first, or it compiles one |
+| `pnpm guard:probe` | a guard sentinel's abort is recognised as a deliberate refusal, not a store outage | nothing; a real SQLite database |
+| `pnpm --filter @runlumi/agents-cp-api p08:invariants` | the migration's triggers and constraints refuse what the domain says they refuse | a local D1 |
+| `pnpm verify:restore` | a restored database still refuses every invalid write | nothing |
+| `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |
+| `pnpm smoke:p06` | the data-governance surface: a real export over HTTP to a real Worker and local D1, its tenant and permission boundaries, and its idempotent replay | a built Worker; **exits 2 here** because the local queue does not deliver a published body, so the R2 leg is BLOCKED |
+| `pnpm smoke:p08` | the cross-tenant boundary on the org-scoped routes the earlier gates never reached: a plain member of another organization, and that organization's owner, are both refused | a built Worker |
+| `pnpm schema:bind-count` | every `prepare()` binds as many values as its SQL has placeholders, so D1 cannot reject a statement at execution time | nothing |
+| `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
+| `pnpm verify:campaign-preflight` | every campaign case's fault still occurs in the source it names, and applying it changes that source — so a case cannot fault nothing and spend a twenty-minute run discovering it | nothing |
+| `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
+
+`smoke:p08` asks every route **three** times — as a member, as a plain member of another
+organization, and as that other organization's owner — because a handler that skipped the
+membership check and then found nothing returns the same 404 a correct handler does, and a
+two-call test cannot tell the two apart. It also reads `app.rs` and reports how many org-scoped
+routes still have **no** handler-level evidence, so a route added to the router moves that number
+instead of quietly inheriting the last one's.
+
+`verify:mutation` is the only command here that deliberately breaks code. It needs roughly **2.4 GB
+of scratch space per case**, built under `target/mutation-scratch` — deliberately on the same volume
+as the repository rather than in the system temp directory, because a run that fills the system
+volume fails its builds and the campaign then reports the mutants as *invalid*, which is a
+misdiagnosis of the machine as a property of the code. Set `$P09_SCRATCH` to move the scratch
+elsewhere.
+
+The default only helps if the **worktree** is on the same volume. A linked worktree under
+`/private/var/folders` puts the scratch there too, and there it failed with **every** case reported
+`target file(s) not found in the scratch copy` — the copy silently produced nothing, and a wall of
+BLOCKED verdicts looked like a wall of broken mutants. Put both on the volume that has room, and
+when a run fails on *every* case at once, believe the machine before the cases. The count is
+deliberately not written down here: it moves every time a case is added, and a paragraph that names
+it is wrong by the next one.
+
+It refuses to run outside a linked worktree for the same reason:
+
+```bash
+git worktree add ../verify HEAD
+cd ../verify && pnpm verify:mutation --apply
+git worktree remove ../verify
+```
+
+`smoke:browser` locates Chrome itself and honours `PROBE_CHROME`. A run with no browser exits **2**,
+never 0 — a verifier that could not find its browser has proven nothing. Note the difference between
+exit **1** (a check did not hold) and exit **2** (the harness could not run): the first is a
+statement about the product, the second is a statement about the harness, and collapsing them would
+let a broken probe read as a detected defect.
+
+### Showing that a gate can fail
+
+A gate nobody has watched fail is an assumption. Each runtime gate therefore has a sensitivity
+proof, and each proof is rerunnable:
+
+| Gate | Sensitivity proof |
+|---|---|
+| `smoke:passkey` | each of its two dependency patches reverted individually; the probe fails (5/7 and 33/35 against 55/55). The denominators are smaller because the probe returns early once a core step fails, so the later checks are never reached rather than passing |
+| `smoke:passkey` (revocation) | `evidence/vfy-revoked-credential-sensitivity.sh` — the `revoked_at` filter in the login path reverted; a revoked credential then authenticates with 200 and the probe reports 54/55 |
+| `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected — plus campaign case `GUARD-2`, which reverts `is_guard_abort` to the pre-VFY-004 substring matcher. The probe verifies the list behaviourally against real SQLite and the function's use of the list structurally; it does not execute the Rust function, so run-time evidence for the match itself comes from `smoke:p05` and `GUARD-1` |
+| `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
+| `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
+| `smoke:p08` | `verify:mutation` case *"a project grant list is served without the project being org-scoped"* — the handler's organization check removed while **every SQL statement stays unchanged and correctly classified**. It is the only `VI-TEN-001` case that removes nothing from SQL, which is the whole point: the two cases above it drop a predicate from a statement, the tenant audit sees those, and it cannot see this |
+
+Running a gate against the product it is meant to fail on finds defects in the gate itself. It found
+three in `smoke:browser`: waits that tested for the repair, a crash on the very state the gate
+exists to detect, and an unbounded wait. None was visible while the gate passed.
+
 ## Git discipline
 
 - Small cohesive commits.

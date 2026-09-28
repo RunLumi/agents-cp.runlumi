@@ -1,0 +1,61 @@
+VI-TEST-001 mutation campaign — APPLYING in a disposable worktree
+
+  VI-TEN-001 (tier 0)  a cross-tenant read loses its organization predicate
+      fault in  apps/api/src/repositories/plugins.rs
+      killed by tenant_audit + schema; reason must mention "PLUGIN_INSTALL"
+  VI-TEN-001 (tier 0)  a service-account page stops being org-scoped
+      fault in  apps/api/src/repositories/machine_identity.rs
+      killed by tenant_audit + schema; reason must mention "MACHINE"
+  VI-AUTHZ-001 (tier 0)  a human-only permission becomes grantable to a machine
+      fault in  apps/api/src/modules/machine_identity.rs
+      killed by cargo + machine_identity; reason must mention "HumanOnlyAction"
+  VI-INF-001 (tier 0)  a truncated stream is allowed to complete
+      fault in  apps/api/src/modules/inference.rs
+      killed by cargo + p09_failure_tests::a_truncated_stream; reason must mention "completion"
+  VI-BUD-001 (tier 0)  a hard budget stops being enforced at all
+      fault in  apps/api/src/modules/budget_p05.rs
+      killed by cargo + modules::budget_p05; reason must mention "soft_limit_notifies_but_hard_and_unavailable_are_closed"
+  VI-BUD-001 (tier 0)  a budget denial no longer consults its own decision (ordering)
+      fault in  apps/api/src/routes/inference.rs
+      killed by cargo + modules::p09_failure_tests::a_hard_budget_denial; reason must mention "is matched on its own value, not on a constant"
+  VI-IDEM-001 (tier 0)  a completed idempotency record is allowed to hold no status again
+      fault in  apps/api/migrations/0020_p09_idempotency_null_safety.sql
+      killed by schema; reason must mention "NO status is refused"
+  VI-MIG-001 (tier 1)  a terminal-state trigger stops enforcing
+      fault in  apps/api/migrations/0017_p07_plugin_governance.sql
+      killed by schema; reason must mention "a blocked install without a reason is refused"
+  VI-SEC-001 (tier 0)  an API key projection starts returning the secret hash
+      fault in  apps/api/src/routes/machine_identity.rs
+      killed by cargo + secret_canary; reason must mention "leak"
+mutating a linked worktree at /private/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/opencode/p09-mutant
+
+  ✓ [KILLED] VI-TEN-001  a cross-tenant read loses its organization predicate
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-TEN-001  a service-account page stops being org-scoped
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-AUTHZ-001  a human-only permission becomes grantable to a machine
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-INF-001  a truncated stream is allowed to complete
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-BUD-001  a hard budget stops being enforced at all
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-BUD-001  a budget denial no longer consults its own decision (ordering)
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-IDEM-001  a completed idempotency record is allowed to hold no status again
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-MIG-001  a terminal-state trigger stops enforcing
+      the verifier failed, and the failure names the invariant
+
+  ✓ [KILLED] VI-SEC-001  an API key projection starts returning the secret hash
+      the verifier failed, and the failure names the invariant
+
+tally: {"KILLED":9}
+9/9 mutations were killed by the verifier that is supposed to defend them
+EXIT=0

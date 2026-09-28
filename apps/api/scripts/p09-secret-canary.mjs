@@ -34,8 +34,17 @@
 //
 // Exits non-zero if any case does not behave as declared.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import path from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path, { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -181,12 +190,37 @@ function relative(file) {
   return path.relative(repoRoot, file).split(path.sep).join("/");
 }
 
+/**
+ * Directories that hold generated, git-ignored state rather than source.
+ *
+ * `.wrangler/` is the one that bites: it is where Wrangler keeps the local D1
+ * SQLite file, and that database legitimately contains argon2id password hashes
+ * for whatever fixture the developer or a smoke test just registered. Scanning it
+ * reports real hashes that were never committed as "committed secrets", which
+ * makes this harness NON-HERMETIC — it fails on any machine that has ever run
+ * `db:migrations:apply:local` and passes on a fresh CI checkout. A scan whose
+ * verdict depends on untracked local state is not evidence of anything, so the
+ * generated trees are excluded by name and the case `the committed-literal scan
+ * skips generated state but still catches a real one` proves the exclusion still
+ * holds.
+ *
+ * Kept in step with `.gitignore`. Adding an entry here is a judgement about
+ * generated state, not a way to hide a real credential: that case plants a
+ * credential-shaped literal inside `.wrangler/` and a second one outside it, and
+ * requires the first to be ignored and the second to be caught.
+ */
+const GENERATED_TREES = ["node_modules", "dist", "target", ".wrangler", "coverage", ".vite"];
+
+function isGeneratedTree(file) {
+  const segments = file.split(path.sep);
+  return segments.some((segment) => GENERATED_TREES.includes(segment));
+}
+
 /** Every source file under `dir`, excluding the obvious noise. */
 function sources(dir, extensions) {
   return walk(dir)
     .filter((file) => extensions.includes(path.extname(file)))
-    .filter((file) => !/(^|\/)node_modules\//.test(file))
-    .filter((file) => !/(^|\/)dist\//.test(file))
+    .filter((file) => !isGeneratedTree(file))
     .sort();
 }
 
@@ -363,29 +397,30 @@ check("no component holds a secret in React state outside the two reducers", () 
     : null;
 });
 
-check("no secret-shaped literal is committed outside the reviewed fixtures", () => {
-  // The wire FORMS, not the word "secret". A real credential in source is a leak
-  // that has already happened by the time anybody reviews the diff, and a leaked
-  // key in git history is a leaked key forever.
-  const forms = [
-    { name: "lumik wire value", pattern: /lumik_[0-9a-f]{12}_[A-Za-z0-9_-]{43}/ },
-    { name: "lumi_staff wire value", pattern: /lumi_staff_[0-9a-f]{16}_[A-Za-z0-9_-]{43}/ },
-    { name: "argon2id hash", pattern: /\$argon2id\$v=\d+\$m=\d+,t=\d+,p=\d+\$/ },
-    { name: "provider API key", pattern: /\bsk-[A-Za-z0-9]{32,}\b/ },
-    { name: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/ },
-    { name: "Slack token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/ },
-    { name: "private key block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
-    { name: "Cloudflare API token", pattern: /\bv1\.0-[A-Za-z0-9_-]{37}\b/ },
-  ];
+/**
+ * The credential-shaped wire forms this scan looks for, and where it looks.
+ *
+ * Extracted from the case below so the control case can run the SAME detector
+ * over a planted corpus. A scan whose ability to fail is asserted separately
+ * from its verdict is a scan whose verdict means nothing.
+ */
+const LITERAL_FORMS = [
+  { name: "lumik wire value", pattern: /lumik_[0-9a-f]{12}_[A-Za-z0-9_-]{43}/ },
+  { name: "lumi_staff wire value", pattern: /lumi_staff_[0-9a-f]{16}_[A-Za-z0-9_-]{43}/ },
+  { name: "argon2id hash", pattern: /\$argon2id\$v=\d+\$m=\d+,t=\d+,p=\d+\$/ },
+  { name: "provider API key", pattern: /\bsk-[A-Za-z0-9]{32,}\b/ },
+  { name: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/ },
+  { name: "Slack token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/ },
+  { name: "private key block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+  { name: "Cloudflare API token", pattern: /\bv1\.0-[A-Za-z0-9_-]{37}\b/ },
+];
 
-  const roots = [path.join(repoRoot, "apps"), path.join(repoRoot, "docs")];
-  const reviewed = new Set(REVIEWED_LITERALS.map((entry) => entry.file));
+/** Report every credential-shaped literal committed under `roots`. */
+function committedLiteralHits(roots, reviewed) {
   const hits = [];
   for (const root of roots) {
     for (const file of walk(root)) {
-      if (/(^|\/)node_modules\//.test(file)) continue;
-      if (/(^|\/)dist\//.test(file)) continue;
-      if (/(^|\/)target\//.test(file)) continue;
+      if (isGeneratedTree(file)) continue;
       if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf|zip|wasm)$/i.test(file)) continue;
       const name = relative(file);
       if (reviewed.has(name)) continue;
@@ -395,7 +430,7 @@ check("no secret-shaped literal is committed outside the reviewed fixtures", () 
       } catch {
         continue;
       }
-      for (const form of forms) {
+      for (const form of LITERAL_FORMS) {
         const lines = body.split("\n");
         for (const [index, text] of lines.entries()) {
           // A file whose own name says `test` is a fixture, not a credential.
@@ -407,6 +442,16 @@ check("no secret-shaped literal is committed outside the reviewed fixtures", () 
       }
     }
   }
+  return hits;
+}
+
+check("no secret-shaped literal is committed outside the reviewed fixtures", () => {
+  // The wire FORMS, not the word "secret". A real credential in source is a leak
+  // that has already happened by the time anybody reviews the diff, and a leaked
+  // key in git history is a leaked key forever.
+  const roots = [path.join(repoRoot, "apps"), path.join(repoRoot, "docs")];
+  const reviewed = new Set(REVIEWED_LITERALS.map((entry) => entry.file));
+  const hits = committedLiteralHits(roots, reviewed);
   return hits.length ? hits.join("\n  ") : null;
 });
 
@@ -548,6 +593,55 @@ check("the control case holds, so the detectors are not simply inverted", () => 
   }
   if (clean.some((entry) => /\bconsole\s*\./.test(entry.text))) {
     problems.push("the console detector flags a clean line");
+  }
+  return problems.length ? problems.join("\n  ") : null;
+});
+
+check("the committed-literal scan skips generated state but still catches a real one", () => {
+  // The hermeticity control, and the one that would have caught the `.wrangler`
+  // false failure. Two planted files carry the SAME credential-shaped literal:
+  // one inside a generated tree, one in ordinary source. The generated one must
+  // be ignored and the source one must be reported, or the exclusion has become
+  // a suppression instead of a judgement.
+  const PLANTED = `const key = "sk-${"a".repeat(40)}";\n`;
+  const scratch = mkdtempSync(join(tmpdir(), "p09-canary-corpus-"));
+  const problems = [];
+  try {
+    const insideGenerated = join(scratch, "apps", "api", ".wrangler", "state", "v3", "d1.sqlite");
+    const insideSource = join(scratch, "apps", "api", "src", "leak.ts");
+    for (const file of [insideGenerated, insideSource]) {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, PLANTED, "utf8");
+    }
+    const hits = committedLiteralHits([scratch], new Set());
+    const sawGenerated = hits.some((hit) => hit.includes(".wrangler"));
+    const sawSource = hits.some((hit) => hit.includes("leak.ts"));
+    if (sawGenerated) {
+      problems.push(
+        "a planted credential inside generated state is reported, so the scan is " +
+          "non-hermetic: its verdict depends on untracked local files such as " +
+          "apps/api/.wrangler/**/D1DatabaseObject/*.sqlite",
+      );
+    }
+    if (!sawSource) {
+      problems.push(
+        "a planted credential in ordinary source is NOT reported, so excluding " +
+          "generated state has turned the scan off",
+      );
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  // Ratchet: the generated trees this scan skips must stay skipped, and each
+  // one must be listed in `.gitignore`, or the exclusion has drifted from the
+  // repository's own definition of "not committed".
+  for (const tree of GENERATED_TREES) {
+    if (!isGeneratedTree(`/repo/${tree}/state/file`)) {
+      problems.push(`isGeneratedTree does not skip "${tree}/"`);
+    }
+  }
+  if (!GENERATED_TREES.includes(".wrangler")) {
+    problems.push('GENERATED_TREES no longer excludes ".wrangler"');
   }
   return problems.length ? problems.join("\n  ") : null;
 });

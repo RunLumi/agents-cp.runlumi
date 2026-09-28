@@ -63,6 +63,26 @@ export function presentApiError(error: unknown): ErrorPresentation {
   const p05Presentation = presentP05Error(error);
   if (p05Presentation) return p05Presentation;
 
+  // Before the generic 403 branch, because it is a 403 with a code of
+  // `permission_denied` and it is NOT a permissions problem. Found by
+  // V00-2026-09-27: a brand-new user could not create an organization, and the
+  // screen told them to "ask an administrator to grant access" when the real
+  // blocker was an unverified email they could fix themselves. F22-011 requires
+  // the message to say what failed and what can be retried.
+  // The status is checked too, not just the reason: a reason echoed on some
+  // other status must not be able to claim the user should go and verify their
+  // email. The server only ever sends this reason with 403.
+  if (error.status === 403 && error.details.reason === "email_verification_required") {
+    return {
+      title: "Verify your email first",
+      message:
+        "Confirm the code we sent to your email address, then try again. Your account works in the meantime, but you cannot create an organization or change settings until it is verified.",
+      code: error.code,
+      requestId: error.requestId,
+      retryable: true,
+    };
+  }
+
   if (error.status === 403 || error.code === "permission_denied") {
     return {
       title: "Access not permitted",

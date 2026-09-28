@@ -489,28 +489,28 @@ LIMIT ?3
 
 const RENEW_LEASE_SQL: &str = r#"
 UPDATE automation_leases
-SET expires_at = ?3,
+SET expires_at = ?4,
     lease_version = lease_version + 1,
     version = version + 1
 WHERE lease_id = ?1 AND occurrence_id = ?2 AND org_id = ?3
-  AND state = 'active' AND lease_version = ?4 AND lease_fence = ?5
+  AND state = 'active' AND lease_version = ?5 AND lease_fence = ?6
 "#;
 
 const SETTLE_LEASE_SQL: &str = r#"
 UPDATE automation_leases
-SET completed_at = ?3,
+SET completed_at = ?4,
     version = version + 1
 WHERE lease_id = ?1 AND occurrence_id = ?2 AND org_id = ?3
-  AND state = 'active' AND lease_version = ?4 AND lease_fence = ?5
+  AND state = 'active' AND lease_version = ?5 AND lease_fence = ?6
 "#;
 
 const CLOSE_LEASE_SQL: &str = r#"
 UPDATE automation_leases
-SET state = ?3,
-    released_at = ?4,
+SET state = ?4,
+    released_at = ?5,
     version = version + 1
 WHERE lease_id = ?1 AND occurrence_id = ?2 AND org_id = ?3
-  AND state = 'active' AND lease_version = ?5 AND lease_fence = ?6
+  AND state = 'active' AND lease_version = ?6 AND lease_fence = ?7
 "#;
 
 /// Expired leases are resolved only while their occurrence is still
@@ -983,9 +983,14 @@ impl std::error::Error for AutomationStoreError {}
 
 /// A guard statement aborts a D1 batch by violating a table constraint, so the
 /// batch error text is the only signal that a write was refused on purpose.
+///
+/// Delegates to the single definition in `core::idempotency`. This function used
+/// to carry its own copy of the matcher, and V00-2026-09-27 (VFY-004) showed what
+/// two copies cost: a migration changed the abort text, one copy would have been
+/// fixed and the other forgotten. There is now one place to change, and the
+/// sentinel-text list it reads is documented there.
 pub fn is_guard_violation(error: &worker::Error) -> bool {
-    let detail = format!("{error:?}");
-    detail.contains("NOT NULL") || detail.contains("constraint")
+    crate::core::is_guard_abort(&format!("{error:?}"))
 }
 
 // -----------------------------------------------------------------------------

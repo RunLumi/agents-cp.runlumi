@@ -10,6 +10,7 @@ mod routes;
 pub mod security;
 
 use crate::adapters::d1::D1Adapter;
+use crate::repositories::DataGovernanceRepository;
 
 use tower_service::Service;
 use worker::*;
@@ -35,7 +36,28 @@ async fn queue(batch: MessageBatch<serde_json::Value>, env: Env, _ctx: Context) 
     // envelope with its own dedupe key, generation, and lease version. Decoding
     // one as the other would let the source event's delivery status be mistaken
     // for job or webhook delivery state, so the split happens before any decode.
-    if batch.queue() == p06_jobs_queue_name(&env) {
+    // Which handler a message reaches is decided here, from configuration, and it
+    // was unobservable: a job delivered to the wrong queue was decoded as the wrong
+    // type, rejected, and acknowledged, which looks exactly like a job that was
+    // never delivered. One bounded line per batch, carrying only the route taken --
+    // no queue contents, no identifiers.
+    //
+    // The message COUNT is deliberately not read here. `batch.messages()` belongs to
+    // the consumer, and a routing decision has no business touching the batch it is
+    // routing. An earlier version read it, and the comment here claimed that doing so
+    // had consumed the batch -- a cause I never confirmed. The local simulator drops
+    // console output unreliably, so that claim was not checkable, and an unverified
+    // causal story in a comment is worse than none.
+    let route = if batch.queue() == p06_jobs_queue_name(&env) {
+        "jobs"
+    } else if batch.queue() == p06_jobs_dlq_name(&env) {
+        "jobs_dlq"
+    } else {
+        "outbox"
+    };
+    console_error!("p06_queue_routed:{route}");
+
+    if route == "jobs" {
         return consume_p06_jobs(&batch, &env).await;
     }
     // The jobs dead-letter queue is consumed too, and it is the ONLY path by
@@ -46,7 +68,7 @@ async fn queue(batch: MessageBatch<serde_json::Value>, env: Env, _ctx: Context) 
     // `wrangler.jsonc` with a consumer attached, and nothing in Rust ever read
     // it. A poison `webhook.deliver` or `export.run` therefore vanished, and
     // `consumers::dead_letter_statement` had no callers at all.
-    if batch.queue() == p06_jobs_dlq_name(&env) {
+    if route == "jobs_dlq" {
         return consume_p06_dead_letters(&batch, &env).await;
     }
     consume_p01_outbox(&batch, &env).await
@@ -223,6 +245,9 @@ async fn consume_p06_jobs(batch: &MessageBatch<serde_json::Value>, env: &Env) ->
                         // message is acknowledged. Only an explicit retry
                         // schedule or an unresolved failure is redelivered.
                         Ok(outcome) => {
+                            // One bounded line per delivery: the outcome name and
+                            // nothing else. No job id, no org id, no subject id.
+                            console_error!("p06_data_job_outcome:{}", outcome.as_str());
                             let retry = matches!(
                                 outcome,
                                 consumers::DataJobOutcome::RetryScheduled
@@ -317,10 +342,17 @@ fn is_webhook_job_type(job_type: &str) -> bool {
 /// by event ID.
 #[event(scheduled)]
 async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    if run_scheduled_sweep(env.clone()).await.is_err() {
+    if let Err(error) = run_scheduled_sweep(env.clone()).await {
         // ScheduledEvent's workers-rs bridge discards the Rust function's
-        // return value, so emit a stable redacted failure signal explicitly.
-        console_error!("outbox_retry_sweep_failed");
+        // return value, so emit a stable redacted failure signal explicitly --
+        // and say WHICH half failed, because one signal covering two faults is how
+        // a dead job pipeline reported itself as an outbox problem.
+        match error {
+            Error::RustError(message) if message.contains("due job envelope") => {
+                console_error!("p06_job_dispatch_failed:due_envelope_read_failed");
+            }
+            _ => console_error!("outbox_retry_sweep_failed"),
+        }
     }
     // P06: the two automation sweeps are the authoritative clock. The server
     // advances `schedule_cursor_at` and expires leases from D1 state, so a
@@ -409,7 +441,72 @@ async fn run_scheduled_sweep(env: Env) -> Result<()> {
     )
     .await
     .map(|_| ())
-    .map_err(|_| Error::RustError("outbox retry sweep failed".into()))
+    .map_err(|_| Error::RustError("outbox retry sweep failed".into()))?;
+
+    dispatch_due_data_jobs(&database, &env, now.as_str()).await
+}
+
+/// Publish the durable P06 job envelopes whose `next_attempt_at` has arrived.
+///
+/// This function is the producer half of the P06 job queue, and it did not exist.
+/// `JOBS_QUEUE` was declared as a producer binding, had a consumer attached, and a
+/// handler that routes on `batch.queue()` -- but no code anywhere obtained the
+/// binding, so nothing was ever sent. `queue_job_envelopes` gained a row per export
+/// and per deletion and nothing read it: the jobs never ran, in any environment.
+///
+/// The design already had the right shape for this and it is copied rather than
+/// invented. A mutation commits its envelope inside the same D1 transaction as its
+/// own writes, so the row is the durable record; this sweep is what turns a durable
+/// record into a delivery, exactly as `run_retry_sweep` does for the P01 outbox. The
+/// consumer claims the envelope on arrival, so a redelivery is harmless and a
+/// duplicate publish is absorbed rather than double-run.
+///
+/// Failures are per-envelope and never abort the sweep: one row that cannot be
+/// turned into a message must not strand every job behind it in the queue.
+async fn dispatch_due_data_jobs(database: &D1Adapter, env: &Env, now: &str) -> Result<()> {
+    let Ok(queue) = env.queue("JOBS_QUEUE") else {
+        // Silently returning here is how this subsystem stayed invisible: an
+        // environment without the binding cannot dispatch, and saying nothing made
+        // that indistinguishable from "nothing was due". One bounded line per cron
+        // tick, with no identifiers in it.
+        console_error!("p06_job_dispatch_skipped:jobs_queue_binding_unavailable");
+        return Ok(());
+    };
+    let repository = DataGovernanceRepository::new(database);
+    let rows = repository
+        .list_due_queue_envelopes(now, 100)
+        .await
+        .map_err(|_| Error::RustError("due job envelope read failed".into()))?;
+    if rows.is_empty() {
+        console_error!("p06_job_dispatch_empty:no_due_envelopes");
+        return Ok(());
+    }
+    for row in rows {
+        if !is_data_job_type(row.job_type.as_str()) {
+            // Only the data jobs have a producer. The automation and webhook job
+            // types are dispatched by their own subsystems; routing them through
+            // here would double-deliver.
+            continue;
+        }
+        let message = match row.to_message() {
+            Ok(message) => message,
+            Err(_) => {
+                console_error!("p06_job_dispatch_skipped:queue_job_envelope_invalid");
+                continue;
+            }
+        };
+        let body = match serde_json::to_value(&message) {
+            Ok(body) => body,
+            Err(_) => {
+                console_error!("p06_job_dispatch_skipped:queue_job_envelope_invalid");
+                continue;
+            }
+        };
+        if let Err(error) = queue.send(body).await {
+            console_error!("p06_job_dispatch_failed:{}", error.to_string().as_str());
+        }
+    }
+    Ok(())
 }
 
 fn outbox_retry_policy() -> modules::outbox::RetryPolicy {

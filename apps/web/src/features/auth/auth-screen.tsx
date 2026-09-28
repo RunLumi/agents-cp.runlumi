@@ -10,8 +10,10 @@ import {
   passwordReset,
   passwordForgot,
   passwordSignup,
+  verifyEmail,
   type ChallengeResponse,
 } from "@/lib/api";
+import { EmailVerificationForm } from "@/features/auth/email-verification-form";
 import { presentApiError } from "@/lib/errors";
 import { createPasskeyCredential, getPasskeyAssertion, passkeysSupported } from "@/lib/webauthn";
 
@@ -42,8 +44,9 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const presentation = error === null ? null : presentApiError(error);
   const passkeyAvailable = passkeysSupported();
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  /** `event` is optional so the extracted verification form can call this. */
+  async function submit(event?: { preventDefault: () => void }) {
+    event?.preventDefault();
     setBusy(true);
     setError(null);
     try {
@@ -83,6 +86,20 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       }
       if (mode === "login" && method === "password") {
         await passwordLogin({ email, password });
+        onAuthenticated();
+        return;
+      }
+      // F01-002: a session may exist before verification, but every mutating
+      // permission requires `email_verified`. Without this branch the user is
+      // handed a one-time code they cannot submit, so they can never verify, and
+      // the first thing they try afterwards — creating an organization — is
+      // refused with `email_verification_required`. Found by V00-2026-09-27:
+      // `verifyEmail` was exported from `lib/api.ts` with no call site anywhere.
+      if (method === "code" && challenge) {
+        await verifyEmail({ challenge_id: challenge.challenge_id, code });
+        setChallenge(null);
+        setCode("");
+        setMethod("passkey");
         onAuthenticated();
         return;
       }
@@ -177,21 +194,21 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         </div>
 
         {method === "code" && challenge ? (
-          <div className="space-y-4">
-            <p className="text-sm text-[var(--muted-strong)]">
-              Verification required for {email || "your email"}. Complete this step, then sign in
-              with your new passkey or password.
-            </p>
-            {challenge.development_code ? (
-              <div className="rounded-lg border border-[var(--lumi-blue)]/30 bg-[var(--lumi-blue-soft)] p-3 text-sm text-[var(--civic-navy)]">
-                <p className="font-medium">Development verification code</p>
-                <code className="mt-1 block break-all text-xs">{challenge.development_code}</code>
-              </div>
-            ) : null}
-            <button type="button" onClick={() => changeMode("login")} className={primaryClass}>
-              Continue to sign in
-            </button>
-          </div>
+          // A form, not a dead end. F01-002 lets a session exist before
+          // verification, but `requires_verified_email` refuses every mutating
+          // permission until `email_verified` is true, so "continue to sign in"
+          // alone left the user unable to do anything at all. Found by
+          // V00-2026-09-27 against a real Worker.
+          <EmailVerificationForm
+            email={email}
+            code={code}
+            busy={busy}
+            developmentCode={challenge.development_code ?? null}
+            error={presentation}
+            onCodeChange={setCode}
+            onSubmit={() => void submit()}
+            onSkip={() => changeMode("login")}
+          />
         ) : recoveryChallenge ? (
           <form onSubmit={(event) => void reset(event)} className="space-y-4">
             <Field label="Reset code" id={recoveryId}>
@@ -411,22 +428,12 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           </form>
         )}
 
-        {method === "code" && code ? (
-          <div className="mt-4">
-            <Field label="One-time code" id={codeId}>
-              <input
-                id={codeId}
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                className={inputClass}
-                placeholder="Enter code"
-              />
-            </Field>
-          </div>
-        ) : null}
+        {/*
+          The one-time code input used to live here, outside any form, with no
+          submit control anywhere on the screen. It is now inside the
+          verification form above, so `id={codeId}` must appear exactly once.
+          Two elements with the same id would also break the label association.
+        */}
 
         <p className="mt-6 text-center text-xs leading-5 text-[var(--muted)]">
           By continuing, you agree to your organization&apos;s access and security policies.

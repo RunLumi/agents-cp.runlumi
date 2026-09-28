@@ -419,6 +419,31 @@ export function OrgDashboard({ me, onSignOut, onOrganizationsChanged }: OrgDashb
                 ))}
               </select>
             ) : null}
+            {/*
+              F02-001: a verified user may create an organization. Until this
+              button existed, the create-organization panel was gated on
+              `me.organizations.length === 0` and `showCreateOrg` was only ever
+              set to `false`, so a user with one organization had no way to
+              create a second from the control plane at all — which also made the
+              organization switcher unreachable in practice. Found by
+              V00-2026-09-27. F22's tree has no top-level "create organization"
+              item, so it lives beside the switcher, which is where "which
+              organization am I in" is already answered.
+            */}
+            {me.organizations.length > 0 ? (
+              <button
+                type="button"
+                // Only the latch is touched. The create-organization branch is
+                // evaluated before `load`, so the panel appears immediately and
+                // no refetch is triggered — setting `load` here would discard
+                // the loaded organization and flash a loading state for no
+                // reason.
+                onClick={() => setShowCreateOrg(true)}
+                className={secondaryButton}
+              >
+                New organization
+              </button>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden text-xs text-[var(--muted)] sm:inline">{me.user.email}</span>
@@ -507,8 +532,10 @@ export function OrgDashboard({ me, onSignOut, onOrganizationsChanged }: OrgDashb
               </section>
             ) : me.organizations.length === 0 || showCreateOrg ? (
               <CreateOrganizationPanel
-                onCreated={async () => {
+                onCreated={async (created) => {
                   setShowCreateOrg(false);
+                  setSelectedId(created.org_id);
+                  setSection("overview");
                   await refreshOrganizations();
                 }}
               />
@@ -744,7 +771,11 @@ export function OrgDashboard({ me, onSignOut, onOrganizationsChanged }: OrgDashb
   );
 }
 
-function CreateOrganizationPanel({ onCreated }: { onCreated: () => Promise<void> }) {
+function CreateOrganizationPanel({
+  onCreated,
+}: {
+  onCreated: (created: Organization) => Promise<void>;
+}) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [busy, setBusy] = useState(false);
@@ -755,11 +786,11 @@ function CreateOrganizationPanel({ onCreated }: { onCreated: () => Promise<void>
     setBusy(true);
     setError(null);
     try {
-      await createOrganization(
+      const created = await createOrganization(
         { display_name: name, ...(slug ? { slug } : {}) },
         crypto.randomUUID(),
       );
-      await onCreated();
+      await onCreated(created.organization);
     } catch (requestError) {
       setError(requestError);
     } finally {
@@ -871,36 +902,84 @@ function MembersPanel({
           <ErrorPanel error={error} />
         </div>
       ) : null}
+      {/*
+        F22-008: critical admin actions must work on a phone. This table was
+        `min-w-[620px]` inside `overflow-x-auto`, so at 390 px the Role column
+        and the role control were clipped with only a thin scrollbar as an
+        affordance. Found by V00-2026-09-27 in a real browser.
+
+        The fix keeps ONE semantic table and reflows it: the two secondary
+        columns (Status, Joined) fold into the member cell as secondary lines
+        below `sm`, and the cells stop forcing a minimum width. Every column is
+        therefore reachable without horizontal scrolling, and nothing is
+        duplicated. `overflow-x-auto` stays as a safety net for very long
+        identifiers, not as the primary way to read the table.
+
+        The narrow-viewport measurement belongs to
+        `apps/api/scripts/browser-probe.mjs`, which asserts the SCROLL
+        CONTAINER's width, not the document's — a document-level check passed
+        while this was broken.
+      */}
       <div className="relative overflow-x-auto">
-        <table className="w-full min-w-[620px] text-left text-sm">
+        <table className="w-full text-left text-sm">
           <thead className="bg-[var(--panel-hover)] text-xs text-[var(--muted)]">
             <tr>
-              <th className="px-5 py-3 font-medium">Member</th>
-              <th className="px-5 py-3 font-medium">Role</th>
-              <th className="px-5 py-3 font-medium">Status</th>
-              <th className="px-5 py-3 font-medium">Joined</th>
-              {canManage ? <th className="px-5 py-3 font-medium">Action</th> : null}
+              <th scope="col" className="px-3 py-3 font-medium sm:px-5">
+                Member
+              </th>
+              {/* Role folds into the member cell below `sm`; see the row below. */}
+              <th scope="col" className="hidden px-3 py-3 font-medium sm:table-cell sm:px-5">
+                Role
+              </th>
+              <th scope="col" className="hidden px-5 py-3 font-medium sm:table-cell">
+                Status
+              </th>
+              <th scope="col" className="hidden px-5 py-3 font-medium sm:table-cell">
+                Joined
+              </th>
+              {canManage ? (
+                <th scope="col" className="px-3 py-3 font-medium sm:px-5">
+                  Action
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
             {members.map((member) => (
               <tr key={member.membership_id}>
-                <td className="px-5 py-4">
-                  <p className="font-medium text-[var(--civic-navy)]">{member.user_id}</p>
-                  <p className="mt-0.5 text-xs text-[var(--muted)]">{member.membership_id}</p>
+                <td className="min-w-0 px-3 py-4 sm:px-5">
+                  <p className="font-medium break-all text-[var(--civic-navy)]">{member.user_id}</p>
+                  <p className="mt-0.5 text-xs break-all text-[var(--muted)]">
+                    {member.membership_id}
+                  </p>
+                  {/* The folded copy of the two hidden columns. Screen readers
+                      read this at every width, so the information is never
+                      lost — it is only laid out differently. */}
+                  <p className="mt-1 text-xs text-[var(--muted)] sm:hidden">
+                    <span className="capitalize">{member.role}</span> · {member.status}
+                    {member.joined_at ? ` · joined ${formatDate(member.joined_at)}` : ""}
+                  </p>
                 </td>
-                <td className="px-5 py-4 capitalize">{member.role}</td>
-                <td className="px-5 py-4">
+                <td className="hidden px-3 py-4 capitalize sm:table-cell sm:px-5">{member.role}</td>
+                <td className="hidden px-5 py-4 sm:table-cell">
                   <StatusPill status={member.status} />
                 </td>
-                <td className="px-5 py-4 tabular-nums text-[var(--muted-strong)]">
+                <td className="hidden px-5 py-4 tabular-nums text-[var(--muted-strong)] sm:table-cell">
                   {member.joined_at ? formatDate(member.joined_at) : "—"}
                 </td>
                 {canManage ? (
-                  <td className="px-5 py-4">
+                  <td className="px-3 py-4 sm:px-5">
                     <label className="sr-only" htmlFor={`role-${member.membership_id}`}>
                       Change role for {member.user_id}
                     </label>
+                    {/*
+                      `min-w-[8.5rem]` is load-bearing, not cosmetic. Measured at 390px
+                      with three visible columns, the auto table layout squeezed this
+                      control to 36px wide and pushed it to x=422..458 inside a 390px
+                      viewport -- a control the user had to scroll a container to find,
+                      which is the exact defect F22-008 exists to prevent. The Action
+                      column cannot shrink below the control, so the Member cell wraps.
+                      */}
                     <select
                       id={`role-${member.membership_id}`}
                       value={member.role}
@@ -910,7 +989,7 @@ function MembersPanel({
                           setError,
                         );
                       }}
-                      className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                      className="min-h-11 w-full min-w-[8.5rem] max-w-44 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
                     >
                       <option value="owner">Owner</option>
                       <option value="admin">Admin</option>
