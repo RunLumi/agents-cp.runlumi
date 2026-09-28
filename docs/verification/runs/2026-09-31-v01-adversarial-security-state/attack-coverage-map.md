@@ -10,7 +10,7 @@ credited four families with less than they had and one — inference streaming �
 as little as they still have.
 | family | runtime attack today | what is NOT attacked |
 |---|---|---|
-| Tenant isolation | `smoke:p08` 47/47 (read) · `verify:mutating-tenancy` 43/43 (**write**, graded on stored state) | **Filter, pagination and nested substitution** are unattacked, and 28 org-scoped routes beyond the 11 driven. The positive control is what found V01-008, so every remaining route needs one. |
+| Tenant isolation | `smoke:p08` 47/47 (read) · `verify:mutating-tenancy` 43/43 (**write**, graded on stored state) · `verify:filter-tenancy` 54/54 (**query string**, plus a foreign keyset cursor and 5 nested paths) | **No leak found on any of the three surfaces.** Still open: 28 org-scoped routes beyond the 11 driven, and the audit route's **12 id filters** — the widest single substitution surface in the API, still unattacked. Runs, sessions, automations and usage are SKIPped for want of a run fixture, and `members/{id}` has no GET handler at all (405). |
 | Authentication | `smoke:passkey` **76/76** | A revoked **device** driven to a refusal; whether a revoked session's refresh token dies with it; the reauth grant's own ceremony kind. |
 | Client privilege escalation | `verify:privilege-escalation` **46/46** over 7 field classes, graded on stored state | 4 of 4 mutations detected. M4 found a **critical** co-owner escalation. GAP-004 remains: `schema:bind-count` proves arithmetic, not correspondence. |
 | Budget / cost | `smoke:p05` + `verify:budget-concurrency` **27/27** — the ceiling is **measured** | Usage attribution to org/project/principal/**run**, and whether upstream dispatch was *called* — instrumented nowhere. |

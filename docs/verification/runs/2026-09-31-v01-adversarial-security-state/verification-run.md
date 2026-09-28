@@ -28,6 +28,7 @@ Three new runtime gates:
 | `pnpm verify:privilege-escalation` | 46/46 | 4 of 4 detected |
 | `pnpm verify:budget-concurrency` | 27/27 | B1, B2 detected; B3 an expected MISSED |
 | `pnpm verify:idempotency` | 41/41 | 4 of 4 detected, 1 KNOWN MISSED with its reason recorded |
+| `pnpm verify:filter-tenancy` | 54/54, 5 skipped | 3 of 3 detected, each printing the identifiers it leaked |
 | `pnpm verify:migration-prior-state` | 19/19 | 2 of 2 detected, first attempt |
 | `pnpm verify:mutating-tenancy` | 43/43 | 3 of 3 detected, incl. the V01-008 defect verbatim |
 
