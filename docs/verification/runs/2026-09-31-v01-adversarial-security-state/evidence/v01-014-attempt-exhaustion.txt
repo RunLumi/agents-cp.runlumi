@@ -1,50 +1,51 @@
 
-Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01att2
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01att5
   PASS  fresh D1 applies the full migration ledger  — 21 migration rows
-  PASS  development Worker is healthy  — http://127.0.0.1:65235
-  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-EDe1bG/abc0fa43653133e0352a0880b92e40ad2f037dcb-index_bg.wasm is 400s newer than migrations/0021_p02_team_id_check_correction.sql
+  PASS  development Worker is healthy  — http://127.0.0.1:54873
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-jO7VBp/0b9af0ad04b040901382ba5e23963647825a010b-index_bg.wasm is 373s newer than src/repositories/automations.rs
   PASS  signup Alice  — status=201
   PASS  verify Alice  — status=200
   PASS  login start Alice  — status=202
   PASS  login complete Alice  — status=200
-  PASS  user Alice has an opaque ID  — usr_ab4a2ec124194cd49f48b598add03f5a
+  PASS  user Alice has an opaque ID  — usr_0b1aae4ec2dc4929ad961ee6d95962f4
   PASS  create Alice Org  — status=201
-  PASS  Alice Org organization ID  — org_a06b2ded8420ab651b10cec20fbe78f2
-  PASS  CONTROL: the organization's slug is known, so a device can be enrolled against it  — slug=v01-attempt-muluowgjk8br
+  PASS  Alice Org organization ID  — org_a8c35371de8f8891a92bf9a687d99659
+  PASS  CONTROL: the organization's slug is known, so a device can be enrolled against it  — slug=v01-attempt-mulvqk9tc6mi
   PASS  CONTROL: a real project  — status=201
   PASS  CONTROL: a real agent on it  — status=201
   PASS  CONTROL: enrollment begins for V01 attempt device  — status=201
   PASS  CONTROL: the V01 attempt device enrollment is approved  — status=201
   PASS  CONTROL: the V01 attempt device enrollment releases a proof challenge  — status=200
   PASS  CONTROL: the V01 attempt device enrollment completes with a real device proof  — status=201
-  PASS  CONTROL: an automation exists  — status=201 body={"agent_definition_id":"agd_4e2a3a3eb349429a8d97f05bd178e2b0","automation_id":"aut_4c14fef7d3d04ea091e7e71d4180c0e5","created_at":"2026-09-28T23:00:37.786Z","created_by_user_id":"usr_ab4a2ec124194cd49f48b598add03f5a","description":null,"exe
+  PASS  CONTROL: an automation exists  — status=201 body={"agent_definition_id":"agd_1009e40d27f24fc1a8c7eaba5bfd0cb8","automation_id":"aut_55c091a21d2e4e72b148695e5bd7ccd5","created_at":"2026-09-28T23:29:51.905Z","created_by_user_id":"usr_0b1aae4ec2dc4929ad961ee6d95962f4","description":null,"exe
   PASS  CONTROL: the STORED automation carries max_start_attempts = 1, so a second start must be refused  — stored max_start_attempts=1 lease_ttl_seconds=30 heartbeat_interval_seconds=10
-  PASS  CONTROL: run_now produced an occurrence  — status=201 body={"attempt":0,"automation_id":"aut_4c14fef7d3d04ea091e7e71d4180c0e5","created_at":"2026-09-28T23:00:40.571Z","kind":"manual","occurrence_id":"occ_e5168f2a0fe657a60a14f943bbdda214","org_id":"org_a06b2ded8420ab651b10cec20fbe78f2","project_id":
+  PASS  CONTROL: run_now produced an occurrence  — status=201 body={"attempt":0,"automation_id":"aut_55c091a21d2e4e72b148695e5bd7ccd5","created_at":"2026-09-28T23:29:54.594Z","kind":"manual","occurrence_id":"occ_ac8ef1040a780780765000b38edb595c","org_id":"org_a8c35371de8f8891a92bf9a687d99659","project_id":
   PASS  CONTROL: the occurrence is claimable BEFORE any claim, so the refusals after it are refusals of a claimed occurrence  — state=pending attempt=0
 
-  first claim: http=201 response_attempt=1 occurrence_attempt 0 -> 0 started_at=null active_leases=1
+  first claim: http=201 response_attempt=1 occurrence_attempt 0 -> 1 started_at=null active_leases=1
   PASS  CONTROL: the first claim succeeds and takes exactly one active lease, so the refusals after it are real refusals  — status=201 active_leases=1
-  FAIL  V01-013: the occurrence's attempt counter ADVANCES on a successful claim, so a second start is attempt 2 (it does not - TRANSITION_OCCURRENCE_SQL has no attempt in its SET list)  — occurrence attempt 0 -> 0 while the response said 1; max_start_attempts is 1, so this column alone decides the bound
-  FAIL  V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)  — started_at=null on a leased occurrence
-  second claim while leased: http=409 reason=automation_invalid_state occurrence_attempt=0 active_leases=1
+  PASS  V01-013: the occurrence's attempt counter ADVANCES on a successful claim, so a second start is attempt 2 (it does not - TRANSITION_OCCURRENCE_SQL has no attempt in its SET list)  — occurrence attempt 0 -> 1 while the response said 1; max_start_attempts is 1, so this column alone decides the bound
+  PASS  CONTROL: a LEASED-but-not-started occurrence has NO started_at, which is what distinguishes a lease taken and never used from one that started and stalled  — started_at=null on a leased occurrence -- a non-null value here would mean the claim and the start had been collapsed into one transition
+  PASS  CONTROL: run_now created an occurrence for the two-phase-start case  — status=201 body={"attempt":0,"automation_id":"aut_55c091a21d2e4e72b148695e5bd7ccd5","created_at":"2026-09-28T23:30:00.623Z","kind":"manual","occurrence_id":"occ_b005e7c906e6f483b35fe3b2716c7008","org_id":"org_a8c3537
+
+  two-phase: claim -> 201 state=leased attempt=1 started_at=null run_id=null
+  PASS  the claim allocated the attempt: the occurrence's own attempt column now records it, and that is the counter `max_start_attempts` reads  — occurrence attempt=1 while the response said 1 -- these used to agree only by accident, because the column was written by nothing
+  two-phase: start -> 403 state=leased attempt=1 started_at=null run_id=null reason=entitlement_not_granted
+  SKIP  V01-013: the START transition records started_at, so a lease that began work is distinguishable from one that never did  — status=403 code=permission_denied reason=entitlement_not_granted -- The organization entitlement does not allow automations.. start_occurrence re-reads the entitlement immediately before creating the run, and this organization holds none. The claim did NOT check it, which is why the lease was granted: see the finding. UNPROVEN until the probe has an entitled organization.
+  second claim while leased: http=409 reason=automation_invalid_state occurrence_attempt=1 active_leases=1
   PASS  a second claim while the first lease is still active is refused, and adds no second active lease  — status=409 active_leases=1
-  PASS  the refused second claim did not advance the attempt counter either  — occurrence attempt 0 -> 0 on a refused claim
+  PASS  the refused second claim did not advance the attempt counter either  — occurrence attempt 1 -> 1 on a refused claim
 
   waiting out the 30s lease TTL and the sweep that expires it (the schema's floor for lease_ttl_seconds)...
-  after the wait: active_leases=0 states=[lse_d50648ce:expired:attempt=1]
-  PASS  the first lease is no longer active before the final claim, so a refusal there is attributable to the attempt bound and not to a live lease  — leases: [{"lease_id":"lse_d50648cee8af4aefbb7802ec5925689c","attempt":1,"state":"expired"}]
-  PASS  the occurrence is still CLAIMABLE after the sweep expired its lease, so a refusal below is attributable to the attempt bound and not to a terminal state  — state=pending attempt=0 -- if the sweep moved it to a terminal state, the final claim would be refused for that reason and this case would be UNPROVEN rather than passing
-  third claim after expiry: http=503 reason=service_unavailable response_attempt=n/a occurrence_attempt 0 -> 0 active_leases=0
-    body={"error":{"code":"service_unavailable","message":"The automation control-plane store is unavailable.","request_id":"req_5b7717a4f5dd42fca51cc06aa6e4d217","details":{}}}
-  FAIL  V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time, and the refusal is a 4xx naming a reason (it is neither: the attempt column never advances, so the bound is never reached, AND the refusal is not a stable 4xx)  — the third claim answered 503 with body {"error":{"code":"service_unavailable","message":"The automation control-plane store is unavailable.","request_id":"req_5b7717a4f5dd42fca51cc06aa6e4d217","details":{}}} and left 0 active lease(s); a 503 tells a device that lost its lease that the control-plane store is down rather than that its attempt is spent, and a second start of an occurrence bound to one attempt would mean the same scheduled slot running its work twice
-  FAIL  the occurrence's attempt counter sits at 1, the number the refused second start would have used  — occurrence attempt=0 (0 means the counter is dead and every claim is attempt 1)
-  PASS  a refused final claim takes no lease, so the attempt bound and lease exclusivity do not disagree  — active_leases=0 after a 503 claim
-  distinct occurrence attempt values: [{"attempt":0,"n":1}] (a single value is itself the finding: no occurrence can ever record a second start)
+  after the wait: active_leases=0 states=[lse_8eaa7188:expired:attempt=1]
+  PASS  the first lease is no longer active before the final claim, so a refusal there is attributable to the attempt bound and not to a live lease  — leases: [{"lease_id":"lse_8eaa718895f1443a8538ba3844f210a4","attempt":1,"state":"expired"}]
+  PASS  after the sweep expired the lease, the slot is resolved: with max_start_attempts = 1 and attempt = 1 the bound is EXHAUSTED, so the sweep must make the slot terminal with a reason naming exhaustion  — state=failed attempt=1 reason_code=lease_expired_retry_exhausted -- before the repair this read state=pending attempt=0 reason=null, i.e. the sweep believed an attempt remained and handed the slot back, which is how a spent slot looked unspent
+  PASS  the exhaustion was reached by COUNTING the recorded attempt, so the counter the bound reads is the one the sweep used  — occurrence attempt=1; the sweep's own reason is lease_expired_retry_exhausted
+  third claim after expiry: http=409 reason=automation_invalid_state response_attempt=n/a occurrence_attempt 1 -> 1 active_leases=0
+    body={"error":{"code":"conflict","message":"The automation is not in a state that allows this operation.","request_id":"req_ef8a852d947d446b8d8a3434f1b19dec","details":{"reason":"automation_invalid_state"}}}
+  PASS  V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time, and the refusal is a 4xx naming a reason (it is neither: the attempt column never advances, so the bound is never reached, AND the refusal is not a stable 4xx)  — the third claim answered 409 with body {"error":{"code":"conflict","message":"The automation is not in a state that allows this operation.","request_id":"req_ef8a852d947d446b8d8a3434f1b19dec","details":{"reason":"automation_invalid_state"}}} and left 0 active lease(s); a 503 tells a device that lost its lease that the control-plane store is down rather than that its attempt is spent, and a second start of an occurrence bound to one attempt would mean the same scheduled slot running its work twice
+  PASS  the occurrence's attempt counter sits at 1, the number the refused second start would have used  — occurrence attempt=1 (0 means the counter is dead and every claim is attempt 1)
+  PASS  a refused final claim takes no lease, so the attempt bound and lease exclusivity do not disagree  — active_leases=0 after a 409 claim
+  distinct occurrence attempt values: [{"attempt":1,"n":2}] (a single value is itself the finding: no occurrence can ever record a second start)
 
-27/31 V01 attempt-exhaustion cases hold
-
-4 case(s) failed:
-  - V01-013: the occurrence's attempt counter ADVANCES on a successful claim, so a second start is attempt 2 (it does not - TRANSITION_OCCURRENCE_SQL has no attempt in its SET list)
-  - V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)
-  - V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time, and the refusal is a 4xx naming a reason (it is neither: the attempt column never advances, so the bound is never reached, AND the refusal is not a stable 4xx)
-  - the occurrence's attempt counter sits at 1, the number the refused second start would have used
+34/34 V01 attempt-exhaustion cases hold, 1 skipped

@@ -285,7 +285,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
 
   const occurrenceRow = () =>
     d1Rows(
-      `SELECT occurrence_id, state, attempt, started_at, state_version
+      `SELECT occurrence_id, state, attempt, started_at, state_version, reason_code
          FROM automation_occurrences WHERE occurrence_id = '${occurrenceId}'`,
       `V01 occurrence ${occurrenceId}`,
     );
@@ -295,14 +295,14 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
       `V01 leases for ${occurrenceId}`,
     );
   const activeLeases = async () => (await leases()).filter((l) => l.state === "active");
-  const claim = (label) =>
-    request(
-      anonJar(),
-      "POST",
-      `/api/v1/devices/automation-occurrences/${occurrenceId}/claim`,
-      undefined,
-      { Authorization: `DeviceToken ${device.token}` },
-    );
+  // The id is a PARAMETER, not a closure over the first occurrence. It was, and the two-phase
+  // case below therefore re-claimed the already-leased occurrence and read the resulting 409 as a
+  // product failure. One case's target must never be implied by another case's.
+  const claimOn = (id) =>
+    request(anonJar(), "POST", `/api/v1/devices/automation-occurrences/${id}/claim`, undefined, {
+      Authorization: `DeviceToken ${device.token}`,
+    });
+  const claim = () => claimOn(occurrenceId);
 
   // --- step 3: the first claim -----------------------------------------------
   probe.stage = "first-claim";
@@ -313,7 +313,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     `state=${before?.state} attempt=${before?.attempt}`,
   );
 
-  const first = await claim("first");
+  const first = await claim();
   const afterFirst = (await occurrenceRow())[0];
   const activeAfterFirst = await activeLeases();
   console.log(
@@ -333,15 +333,147 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     `occurrence attempt ${before?.attempt} -> ${afterFirst?.attempt} while the response said ` +
       `${first.payload?.attempt}; max_start_attempts is 1, so this column alone decides the bound`,
   );
+  // NOT a defect, and worth pinning so nobody "fixes" it later: a LEASED occurrence has no
+  // `started_at`, and that is correct. Starting work is a SEPARATE transition
+  // (`POST /devices/automation-occurrences/{id}/start`, which mints the run, session and link), so
+  // "has the lease" and "has begun work" are different facts. Collapsing them would destroy the
+  // only signal that distinguishes a lease that was taken and never used from one that started and
+  // stalled, which is what the expiry sweep and any stuck-work report depend on.
+  //
+  // My first version of this probe asserted the opposite -- that a leased occurrence SHOULD carry
+  // a start time -- and would have "fixed" a deliberate two-phase design. Reading the route table
+  // is what caught it.
   expect(
-    "V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)",
-    typeof afterFirst?.started_at === "string" && afterFirst.started_at.length === 24,
-    `started_at=${afterFirst?.started_at ?? "null"} on a ${afterFirst?.state} occurrence`,
+    "CONTROL: a LEASED-but-not-started occurrence has NO started_at, which is what distinguishes a lease taken and never used from one that started and stalled",
+    afterFirst?.started_at === null || afterFirst?.started_at === undefined,
+    `started_at=${afterFirst?.started_at ?? "null"} on a ${afterFirst?.state} occurrence -- a non-null ` +
+      `value here would mean the claim and the start had been collapsed into one transition`,
   );
+
+  // --- the two-phase start, on its OWN occurrence -----------------------------
+  //
+  // A separate occurrence, because calling `start_occurrence` moves this one to `started` and the
+  // expiry arc below needs it to stay `leased` and then `pending` again. One case's action must not
+  // be able to make the next case's precondition false.
+  probe.stage = "two-phase-start";
+  const newOccurrence = async (label) => {
+    const v = Number(
+      (
+        await d1Rows(
+          `SELECT version FROM automation_definitions WHERE automation_id = '${automationId}'`,
+          `V01 the automation version for ${label}`,
+        )
+      )[0]?.version ?? 1,
+    );
+    const runNow = await request(
+      alice.jar,
+      "POST",
+      `/api/v1/orgs/${org.orgId}/automations/${automationId}/run-now`,
+      { version: v },
+      browserMutation(alice.jar, `v01-attempt-runnow-${label}`),
+    );
+    const id = runNow.payload?.occurrence?.occurrence_id ?? runNow.payload?.occurrence_id;
+    expect(
+      `CONTROL: run_now created an occurrence for the ${label} case`,
+      typeof id === "string",
+      `status=${runNow.status} body=${probe.brief(runNow.payload, 200)}`,
+    );
+    return typeof id === "string" ? id : null;
+  };
+  const startOccurrence = (id, lease) =>
+    request(
+      anonJar(),
+      "POST",
+      `/api/v1/devices/automation-occurrences/${id}/start`,
+      {
+        lease_id: lease.lease_id,
+        lease_version: lease.lease_version,
+        lease_fence: lease.lease_fence,
+        lease_token: lease.lease_token,
+      },
+      { Authorization: `DeviceToken ${device.token}` },
+    );
+  const rowFor = (id) =>
+    d1Rows(
+      `SELECT occurrence_id, state, attempt, started_at, run_id, state_version
+         FROM automation_occurrences WHERE occurrence_id = '${id}'`,
+      `V01 occurrence ${id}`,
+    );
+
+  const startId = await newOccurrence("two-phase-start");
+  if (startId) {
+    const claimed = await claimOn(startId);
+    const lease = claimed.payload ?? {};
+    const afterClaim = (await rowFor(startId))[0];
+    console.log(
+      `\n  two-phase: claim -> ${claimed.status} state=${afterClaim?.state} ` +
+        `attempt=${afterClaim?.attempt} started_at=${afterClaim?.started_at ?? "null"} ` +
+        `run_id=${afterClaim?.run_id ?? "null"}`,
+    );
+    expect(
+      "the claim allocated the attempt: the occurrence's own attempt column now records it, and that is the counter `max_start_attempts` reads",
+      Number(afterClaim?.attempt) === 1 && Number(lease.attempt) === 1,
+      `occurrence attempt=${afterClaim?.attempt} while the response said ${lease.attempt} -- these ` +
+        `used to agree only by accident, because the column was written by nothing`,
+    );
+
+    const started = await startOccurrence(startId, lease);
+    const afterStart = (await rowFor(startId))[0];
+    console.log(
+      `  two-phase: start -> ${started.status} state=${afterStart?.state} ` +
+        `attempt=${afterStart?.attempt} started_at=${afterStart?.started_at ?? "null"} ` +
+        `run_id=${afterStart?.run_id ?? "null"}` +
+        (started.status === 403
+          ? ` reason=${started.payload?.error?.details?.reason ?? "n/a"}`
+          : ""),
+    );
+
+    // `start_occurrence` re-reads the entitlement immediately before creating the run, and refuses
+    // with `permission_denied` / `entitlement_not_granted` when the organization does not hold it.
+    // That is deliberate -- the route's own comment says "a value captured at schedule creation is
+    // never authority" -- and this probe's organization has no automation entitlement, so the
+    // two-phase transition is UNPROVEN here rather than failing.
+    //
+    // It is reported as a skip with the reason, not quietly dropped: an unread assertion is an
+    // unmeasured claim, and a silent drop would shrink the denominator without saying so. The gap
+    // is recorded -- this probe needs an entitled organization to test the START transition, and
+    // the recorded severity of the `started_at` half of V01-013 rests on reading the route until
+    // that exists.
+    const entitlementBlocked =
+      started.status === 403 &&
+      (started.payload?.error?.code === "permission_denied" ||
+        /entitlement/i.test(started.payload?.error?.message ?? ""));
+    if (entitlementBlocked) {
+      probe.skip(
+        "V01-013: the START transition records started_at, so a lease that began work is distinguishable from one that never did",
+        `status=403 code=${started.payload?.error?.code} ` +
+          `reason=${started.payload?.error?.details?.reason ?? "n/a"} -- ${started.payload?.error?.message ?? ""}. ` +
+          `start_occurrence re-reads the entitlement immediately before creating the run, and this ` +
+          `organization holds none. The claim did NOT check it, which is why the lease was granted: ` +
+          `see the finding. UNPROVEN until the probe has an entitled organization.`,
+      );
+    } else {
+      expect(
+        "V01-013: the START transition records started_at, so a lease that began work is distinguishable from one that never did",
+        started.status >= 200 &&
+          started.status < 300 &&
+          typeof afterStart?.started_at === "string" &&
+          afterStart.started_at.length === 24,
+        `start status=${started.status} state=${afterStart?.state} ` +
+          `started_at=${afterStart?.started_at ?? "null"} body=${probe.brief(started.payload, 200)}`,
+      );
+      expect(
+        "V01-013: the START transition does NOT advance the attempt counter -- it transitions an attempt that already exists, and an unconditional assignment would spend a second attempt on one start",
+        Number(afterStart?.attempt) === Number(afterClaim?.attempt),
+        `attempt ${afterClaim?.attempt} -> ${afterStart?.attempt} across the start; with ` +
+          `max_start_attempts: 1 an accidental increment here would consume the whole budget`,
+      );
+    }
+  }
 
   // --- step 4: a second claim while the first lease is live -------------------
   probe.stage = "second-claim-while-leased";
-  const second = await claim("second");
+  const second = await claim();
   const afterSecond = (await occurrenceRow())[0];
   const activeAfterSecond = await activeLeases();
   console.log(
@@ -418,16 +550,39 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
   // the one-shot sweep above, one level up. So the state is asserted to be claimable first,
   // and a terminal state is reported as UNPROVEN rather than as a pass.
   const beforeThird = (await occurrenceRow())[0];
-  const claimable = beforeThird?.state === "pending" || beforeThird?.state === "dispatching";
+  // The requirement is NOT "the occurrence is still claimable". With `max_start_attempts: 1` and
+  // the occurrence's attempt correctly recorded as 1, exhausting the bound IS the correct outcome,
+  // and the sweep's job is to make the slot terminal rather than hand it back. My first version
+  // demanded `pending`, which would have failed a CORRECT repair and passed the DEFECT -- because
+  // with the dead column the sweep saw `attempt = 0`, computed `0 + 1 <= 1`, concluded there were
+  // attempts left, and returned the slot to `pending`. Then the third claim hit the attempt-row
+  // collision and answered a detail-less 503.
+  //
+  // So the control states the real requirement: the sweep must resolve the slot EITHER way, and
+  // with a bound of 1 it must be the terminal way, with the reason naming exhaustion. Both of
+  // those were false before the repair, in opposite directions, and only the second was visible.
+  const terminal = ["failed", "succeeded", "cancelled", "skipped"].includes(beforeThird?.state);
+  const exhaustedForBound =
+    terminal &&
+    Number(beforeThird?.attempt) >= 1 &&
+    typeof beforeThird?.reason_code === "string" &&
+    /exhaust|retry/i.test(beforeThird.reason_code);
   expect(
-    "the occurrence is still CLAIMABLE after the sweep expired its lease, so a refusal below is attributable to the attempt bound and not to a terminal state",
-    claimable,
-    `state=${beforeThird?.state} attempt=${beforeThird?.attempt} -- if the sweep moved it to a ` +
-      `terminal state, the final claim would be refused for that reason and this case would be ` +
-      `UNPROVEN rather than passing`,
+    "after the sweep expired the lease, the slot is resolved: with max_start_attempts = 1 and attempt = 1 the bound is EXHAUSTED, so the sweep must make the slot terminal with a reason naming exhaustion",
+    exhaustedForBound,
+    `state=${beforeThird?.state} attempt=${beforeThird?.attempt} ` +
+      `reason_code=${beforeThird?.reason_code ?? "null"} -- before the repair this read ` +
+      `state=pending attempt=0 reason=null, i.e. the sweep believed an attempt remained and handed ` +
+      `the slot back, which is how a spent slot looked unspent`,
+  );
+  expect(
+    "the exhaustion was reached by COUNTING the recorded attempt, so the counter the bound reads is the one the sweep used",
+    Number(beforeThird?.attempt) === 1,
+    `occurrence attempt=${beforeThird?.attempt}; the sweep's own reason is ` +
+      `${beforeThird?.reason_code ?? "null"}`,
   );
 
-  const third = await claim("third");
+  const third = await claim();
   const afterThird = (await occurrenceRow())[0];
   const activeAfterThird = await activeLeases();
   console.log(

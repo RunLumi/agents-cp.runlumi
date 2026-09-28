@@ -2536,6 +2536,11 @@ pub async fn claim_occurrence(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // The ONE route that starts an attempt, so the ONE route that advances the
+            // counter. See TRANSITION_OCCURRENCE_SQL on why that is the caller's decision
+            // and not the statement's: a shared SET list cannot tell a start from a
+            // transition of an attempt that already exists.
+            start_attempt: Some(attempt),
         })
         .map_err(|error| database_error(&context, error))?;
     let lease = repository
@@ -2753,6 +2758,11 @@ pub async fn renew_lease(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let audit = device_audit(
@@ -2990,6 +3000,11 @@ pub async fn start_occurrence(
             now: &context.received_at,
             expected_state: OccurrenceState::Leased.as_str(),
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let record = repository
@@ -3222,6 +3237,11 @@ pub async fn settle_occurrence(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let mut writes = vec![lease_guard, occurrence_guard, settle, cas];
@@ -3409,6 +3429,11 @@ pub async fn release_occurrence(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let record = repository

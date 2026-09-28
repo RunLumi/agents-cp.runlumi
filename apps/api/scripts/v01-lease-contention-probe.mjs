@@ -419,10 +419,22 @@ await runProbe("V01 automation-lease", async (probe) => {
       Number(after?.attempt) > Number(before?.attempt),
       `attempt ${before?.attempt} -> ${after?.attempt} after a successful claim; the lease row carries attempt=1 while the occurrence still says ${after?.attempt}, and TRANSITION_OCCURRENCE_SQL has no attempt in its SET list`,
     );
+    // NOT a defect. A LEASED occurrence has no `started_at`, and that is correct: starting work is
+    // a separate transition (`POST /devices/automation-occurrences/{id}/start`), so "has the lease"
+    // and "has begun work" are different facts. Collapsing them would destroy the only signal that
+    // separates a lease taken and never used from one that started and stalled -- which is exactly
+    // what the expiry sweep and any stuck-work report depend on.
+    //
+    // This probe asserted the OPPOSITE for a while, and would have driven a "fix" that collapsed a
+    // deliberate two-phase design. Reading the route table caught it; `verify:attempt-exhaustion`
+    // now carries the two-phase case, and it is SKIPPED there for want of an entitled
+    // organization, so this control is currently the only statement in the campaign that the
+    // leased-but-unstarted state is intentional.
     expect(
-      "V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)",
-      typeof after?.started_at === "string" && after.started_at.length === 24,
-      `started_at=${after?.started_at ?? "null"} on a ${after?.state} occurrence`,
+      "CONTROL: a LEASED-but-not-started occurrence has NO started_at -- starting work is a separate transition, and this is what distinguishes a lease never used from one that started and stalled",
+      after?.started_at === null || after?.started_at === undefined,
+      `started_at=${after?.started_at ?? "null"} on a ${after?.state} occurrence; a non-null value here ` +
+        `would mean the claim and the start had been collapsed into one transition`,
     );
 
     // The losers must learn nothing about the winner.
