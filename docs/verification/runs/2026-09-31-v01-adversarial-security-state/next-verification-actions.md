@@ -22,6 +22,16 @@ second — the reverse order is how a verifier ends up weakened to match a probe
 
 Evidence: `findings/V01-001-…md`, `evidence/v01-001-stored-rows.txt`.
 
+## GAP-003 — which reauth purpose guards identity linking is unspecified, and the feature is dead until it is
+
+`link_identity_start` requires a grant with purpose `identity_link`; `validate_reauth_purpose`
+allows only `passkey_management`, `password_change`, `account_recovery`. No grant with that
+purpose can be minted, so `POST /me/identities/link` can never be completed and the
+`identity_conflict` guard that implements **FR-F01-012's MUST NOT** is unreachable code.
+V01-005. The fix is one line in either of two places, but the two are not equivalent — one
+widens what a single security check can authorise, the other reuses an existing purpose — and
+`f01` does not say which is intended. Deliberate change process, not a patch.
+
 ## GAP-002 — the last-owner rules have no HTTP-layer attack
 
 `f02` requires that removing or demoting the last owner fails transactionally. `can_leave` and
@@ -49,7 +59,12 @@ removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner
   added so it cannot recur silently.
 - **V01-003** an admin could mint unlimited co-owners — **critical, fixed**, the original
   attack re-run unchanged at 0 escalated, four of four mutations detected.
-- **V01-004** three authentication attacks the family names and nothing had run — 75/75.
+- **V01-004** three authentication attacks the family names and nothing had run — 76/76.
+- **V01-005** the identity-link feature cannot be completed, leaving FR-F01-012's MUST NOT
+  enforced by unreachable code — low, fails closed, recorded for the deliberate change process
+  as GAP-003. Found while proving the probe can fail: the section had been asserting the
+  email conflict while actually measuring the challenge, because both share the reason code
+  `identity_conflict`.
 
 ## Carried forward from V00, still open
 

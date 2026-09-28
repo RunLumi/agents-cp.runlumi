@@ -1446,15 +1446,49 @@ async function probeIdentityLinkConflict(identity) {
     return;
   }
 
+  // --- the CHALLENGE, not the email ------------------------------------------
+  //
+  // A first version of this section claimed to attack the "identity-link conflict" and
+  // posted a dummy challenge, then read the `403 identity_conflict` as proof. It is not
+  // proof of that at all. `link_identity` uses the same reason code for two different
+  // things, and the one that fires for a bad challenge is:
+  //
+  //     "identity_conflict", "The identity link challenge is invalid or expired."
+  //
+  // The EMAIL conflict -- "That identity is already linked to an account." -- lives in
+  // `link_identity_start`, and that route cannot be reached: it requires a reauth grant
+  // with purpose `identity_link`, and `validate_reauth_purpose` allows only
+  // `passkey_management`, `password_change` and `account_recovery`. No such grant can be
+  // minted. So the email-conflict guard is unreachable code, and FR-F01-012's MUST NOT is
+  // enforced by a check that cannot run. V01-005.
+  //
+  // What IS reachable, and is a real attack the family did not name, is the challenge
+  // itself: `link_identity` checks the challenge's kind AND that it belongs to the caller.
+  // A challenge minted for one user must not complete a link for another.
   const link = await call(jar, "POST", "/api/v1/me/identities/link", {
-    challenge_id: "chl_unused",
+    challenge_id: "idn_unused",
     code: "unused",
   });
   expect(
-    "a link attempt for another user's address is refused, or refused for want of a step-up grant rather than granted",
+    "a link attempt with no valid challenge is refused",
     link.status >= 400,
     `status=${link.status} reason=${reasonOf(link)}`,
   );
+
+  // The precondition, asserted rather than assumed, so the scope of what this section can
+  // reach is visible in the output instead of only in a comment.
+  const reauthPurpose = await call(jar, "POST", "/api/v1/account/reauth/password", {
+    purpose: "identity_link",
+    password: identity.password,
+  });
+  expect(
+    "a reauth grant for purpose `identity_link` cannot be minted, so the EMAIL-conflict guard is unreachable and its claim is UNPROVEN rather than proven",
+    reauthPurpose.status >= 400,
+    `status=${reauthPurpose.status} reason=${reasonOf(reauthPurpose)}`,
+  );
+
+  // And the precondition, asserted rather than assumed, so the scope of the claim above
+  // is visible in the output rather than only in a comment.
 
   // The load-bearing read-back: the victim must be untouched, and the attacker must not
   // have gained a path to them. A 4xx from a missing-parameter check says nothing about
