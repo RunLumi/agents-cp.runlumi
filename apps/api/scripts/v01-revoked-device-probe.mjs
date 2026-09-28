@@ -200,9 +200,14 @@ await runProbe("V01 revoked device", async (probe) => {
     policyBefore.status === 200,
     `status=${policyBefore.status} body=${probe.brief(policyBefore.payload, 200)}`,
   );
+  // 200, not 201: the refresh replaces an existing credential rather than creating a new
+  // resource, so it is not a creation. Written as a set because guessing the wrong member of it
+  // is how the first run of this probe refused to grade for a reason that had nothing to do with
+  // revocation.
   expect(
     "CONTROL: the device can fetch a nonce and exchange it for a REAL second token before revocation, so a refusal after it is attributable to the revocation",
-    refreshBefore.minted === true && refreshBefore.response.status === 201,
+    refreshBefore.minted === true &&
+      (refreshBefore.response.status === 200 || refreshBefore.response.status === 201),
     `nonce status=${refreshBefore.nonceResponse.status}, refresh status=${refreshBefore.response.status}, ` +
       `minted=${refreshBefore.minted} body=${probe.brief(refreshBefore.response.payload, 200)}`,
   );
@@ -232,8 +237,8 @@ await runProbe("V01 revoked device", async (probe) => {
   );
   const revoke = await request(
     admin.jar,
-    "POST",
-    `/api/v1/orgs/${org.orgId}/devices/${deviceId}/revoke`,
+    "DELETE",
+    `/api/v1/orgs/${org.orgId}/devices/${deviceId}`,
     {},
     browserMutation(admin.jar, "v01-rev-revoke"),
   );
