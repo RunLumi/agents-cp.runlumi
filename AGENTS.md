@@ -324,10 +324,12 @@ misdiagnosis of the machine as a property of the code. Set `$P09_SCRATCH` to mov
 elsewhere.
 
 The default only helps if the **worktree** is on the same volume. A linked worktree under
-`/private/var/folders` puts the scratch there too, and there it failed with every case reported
-`target file(s) not found in the scratch copy` — the copy silently produced nothing, and twelve
-BLOCKED verdicts looked like twelve broken mutants. Put both on the volume that has room, and
-when a run fails on all twelve cases at once, believe the machine before the cases.
+`/private/var/folders` puts the scratch there too, and there it failed with **every** case reported
+`target file(s) not found in the scratch copy` — the copy silently produced nothing, and a wall of
+BLOCKED verdicts looked like a wall of broken mutants. Put both on the volume that has room, and
+when a run fails on *every* case at once, believe the machine before the cases. The count is
+deliberately not written down here: it moves every time a case is added, and a paragraph that names
+it is wrong by the next one.
 
 It refuses to run outside a linked worktree for the same reason:
 
