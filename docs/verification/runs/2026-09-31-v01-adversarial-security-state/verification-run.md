@@ -72,7 +72,7 @@ Fixed by making the requested role an argument and renaming the parameter
 
 ## The pattern that produced the findings
 
-**Four of eight findings were found by an assertion that disagreed with itself or with its own
+**Six of the ten findings were found by an assertion that disagreed with itself or with its own
 context, not by a code review.** In every case the same discipline found it:
 
 1. **Read the state, not the response.** A 2xx that ignored the field is correct; a 2xx that
@@ -91,6 +91,24 @@ context, not by a code review.** In every case the same discipline found it:
    in this repository of the shape *"a route that answers a plausible response and has never
    succeeded"*, after `teams` and the 15 `evt_` audit writes. None is a logic error, and none is
    visible to a gate that only reads responses.
+6. **When a batch fails and every statement in it is provably valid, submit LESS of it.**
+   V01-011's second fault — `INSERT_AUTOMATION_SQL` naming 34 columns against 33 values — was
+   read past, executed by hand against the real database individually and inside one transaction
+   with foreign keys on, and executed again through D1's own layer. All five attempts said the
+   statement was fine. The thing that found it was removing that one statement from the
+   product's own batch: the route answered `201`. The reasoning is that a defect which survives
+   "run it by hand" is usually not in what the statement *says* but in what the *batch* is, and
+   subtracting from a batch is cheap where more reading is not.
+   V01-011's first fault is the same shape one layer out: a route that built its 201 body by
+   reading back a row the un-run batch was about to write. A response assembled from the database
+   is a response that can be assembled from the wrong moment.
+
+**Two counts agreeing is not a correspondence.** `INSERT_AUTOMATION_SQL` bound 30 values and
+named 30 distinct placeholders, so `pnpm schema:bind-count` was green while the statement could
+not be prepared at all. That is GAP-004 — recorded before the defect was found — with a
+concrete instance, and it is the sharpest available statement of why a structural check and a
+behavioural one are both necessary: the count proves arithmetic, and only a probe that requires
+the write to succeed proves correspondence.
 
 ## Gates on the merged tree
 
