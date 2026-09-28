@@ -101,7 +101,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     if (typeof enrollmentId !== "string") {
       probe.skip(
         `the ${label} device could not be enrolled, so any race using it would be unproven`,
-        `status=${enrollment.status} body=${JSON.stringify(enrollment.payload).slice(0, 200)}`,
+        `status=${enrollment.status} body=${probe.brief(enrollment.payload, 200)}`,
       );
       return null;
     }
@@ -118,7 +118,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     if (typeof status.payload?.challenge !== "string") {
       probe.skip(
         `the ${label} enrollment released no challenge, so its device token cannot be obtained`,
-        `status=${status.status} body=${JSON.stringify(status.payload).slice(0, 200)}`,
+        `status=${status.status} body=${probe.brief(status.payload, 200)}`,
       );
       return null;
     }
@@ -138,7 +138,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     if (typeof token !== "string" || typeof deviceId !== "string") {
       probe.skip(
         `the ${label} device returned no token, so the race below could not be driven`,
-        `status=${finished.status} body=${JSON.stringify(finished.payload).slice(0, 200)}`,
+        `status=${finished.status} body=${probe.brief(finished.payload, 200)}`,
       );
       return null;
     }
@@ -276,7 +276,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     "CONTROL: Org A has a real automation",
     automation.status === 201 && typeof automationId === "string",
     `sent ${automation.method} ${automation.path} -> status=${automation.status} ` +
-      `body=${JSON.stringify(automation.payload).slice(0, 240)}` +
+      `body=${probe.brief(automation.payload, 240)}` +
       (automation.status >= 400
         ? `\n  --- FULL worker log, unfiltered, because the filtered version hid the answer ---\n${FULLLOG}`
         : ""),
@@ -344,7 +344,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     expect(
       `CONTROL: run_now creates a claimable occurrence for the ${label} case`,
       typeof id === "string",
-      `status=${runNow.status} body=${JSON.stringify(runNow.payload).slice(0, 240)}`,
+      `status=${runNow.status} body=${probe.brief(runNow.payload, 240)}`,
     );
     return typeof id === "string" ? id : null;
   };
@@ -387,7 +387,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       leases.length === 1,
       leases.length === 1
         ? `lease=${leases[0].lease_id} attempt=${leases[0].attempt} fence=${leases[0].lease_fence}`
-        : `${leases.length} ACTIVE LEASES: ${JSON.stringify(leases).slice(0, 400)}`,
+        : `${leases.length} ACTIVE LEASES: ${probe.brief(leases, 400)}`,
     );
 
     const after = (await occurrenceRow(occ1))[0];
@@ -439,7 +439,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       lossyLeak.length === 0,
       lossyLeak.length === 0
         ? `${losers.length} loser(s) answered ${[...new Set(losers.map((r) => r.status))].join(" ")} with no winner lease material`
-        : `${lossyLeak.length} loser response(s) carried the winner's lease: ${JSON.stringify(lossyLeak[0].payload).slice(0, 300)}`,
+        : `${lossyLeak.length} loser response(s) carried the winner's lease: ${probe.brief(lossyLeak[0].payload, 300)}`,
     );
     expect(
       "every losing response is an explicit refusal with a stable reason, never a 2xx and never a bare 500",
@@ -475,7 +475,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       attempts.length === 1,
       attempts.length === 1
         ? `attempt=${attempts[0].attempt} outcome=${attempts[0].outcome}`
-        : `${attempts.length} attempt rows: ${JSON.stringify(attempts).slice(0, 300)}`,
+        : `${attempts.length} attempt rows: ${probe.brief(attempts, 300)}`,
     );
   }
 
@@ -506,7 +506,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       leases.length === 1,
       leases.length === 1
         ? `held by device ${leases[0].device_id}`
-        : `${leases.length} ACTIVE LEASES: ${JSON.stringify(leases).slice(0, 300)}`,
+        : `${leases.length} ACTIVE LEASES: ${probe.brief(leases, 300)}`,
     );
     const winnerToken = winners[0]?.payload?.lease_token;
     const winnerLeaseId = winners[0]?.payload?.lease_id;
@@ -543,7 +543,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     expect(
       "CONTROL: the first claim succeeds, so the refusals below are refusals of an ALREADY-CLAIMED occurrence",
       first.status >= 200 && first.status < 300,
-      `status=${first.status} body=${JSON.stringify(first.payload).slice(0, 200)}`,
+      `status=${first.status} body=${probe.brief(first.payload, 200)}`,
     );
     expect(
       "a second device cannot claim an already-leased occurrence, however many times it tries",
@@ -600,7 +600,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       expect(
         "another organization's device is refused an occurrence it does not own, with the org id nowhere in the path",
         attack.status >= 400,
-        `status=${attack.status} body=${JSON.stringify(attack.payload).slice(0, 240)}`,
+        `status=${attack.status} body=${probe.brief(attack.payload, 240)}`,
       );
       expect(
         "the refused cross-tenant claim changed NOTHING: the occurrence is in the same state at the same version",
@@ -613,7 +613,7 @@ await runProbe("V01 automation-lease", async (probe) => {
         leases.length === 0,
         leases.length === 0
           ? "no lease exists for this occurrence, so the refusal left nothing behind"
-          : `${leases.length} lease(s) exist: ${JSON.stringify(leases).slice(0, 300)}`,
+          : `${leases.length} lease(s) exist: ${probe.brief(leases, 300)}`,
       );
       // And the existence of the occurrence must not be distinguishable from a missing one.
       const missing = await claim(intruder, "occ_00000000000000000000000000000000");
@@ -638,7 +638,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     everyActive.length === 0,
     everyActive.length === 0
       ? "the uniqueness held for every occurrence this probe created"
-      : `MULTIPLE ACTIVE LEASES: ${JSON.stringify(everyActive).slice(0, 400)}`,
+      : `MULTIPLE ACTIVE LEASES: ${probe.brief(everyActive, 400)}`,
   );
 
   probe.finish(probe.failures.length > 0 ? 1 : 0);

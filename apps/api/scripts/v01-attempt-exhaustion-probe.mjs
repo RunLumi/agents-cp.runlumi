@@ -97,7 +97,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     if (typeof enrollmentId !== "string") {
       probe.skip(
         `the ${label} device could not be enrolled, so no attempt claim would be testable`,
-        `status=${enrollment.status} body=${JSON.stringify(enrollment.payload).slice(0, 200)}`,
+        `status=${enrollment.status} body=${probe.brief(enrollment.payload, 200)}`,
       );
       return null;
     }
@@ -114,7 +114,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     if (typeof status.payload?.challenge !== "string") {
       probe.skip(
         `the ${label} enrollment released no challenge, so its device token cannot be obtained`,
-        `status=${status.status} body=${JSON.stringify(status.payload).slice(0, 200)}`,
+        `status=${status.status} body=${probe.brief(status.payload, 200)}`,
       );
       return null;
     }
@@ -133,7 +133,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     if (typeof token !== "string") {
       probe.skip(
         `the ${label} device returned no token, so the claims below could not be driven`,
-        `status=${finished.status} body=${JSON.stringify(finished.payload).slice(0, 200)}`,
+        `status=${finished.status} body=${probe.brief(finished.payload, 200)}`,
       );
       return null;
     }
@@ -219,7 +219,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
   expect(
     "CONTROL: an automation exists",
     automation.status === 201 && typeof automationId === "string",
-    `status=${automation.status} body=${JSON.stringify(automation.payload).slice(0, 240)}`,
+    `status=${automation.status} body=${probe.brief(automation.payload, 240)}`,
   );
   if (typeof automationId !== "string") {
     probe.finish(
@@ -276,7 +276,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
   expect(
     "CONTROL: run_now produced an occurrence",
     typeof occurrenceId === "string",
-    `status=${runNow.status} body=${JSON.stringify(runNow.payload).slice(0, 240)}`,
+    `status=${runNow.status} body=${probe.brief(runNow.payload, 240)}`,
   );
   if (typeof occurrenceId !== "string") {
     probe.finish(2, "no occurrence, so no claim is testable. A harness outcome, not a verdict.");
@@ -436,7 +436,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
       `response_attempt=${third.payload?.attempt ?? "n/a"} ` +
       `occurrence_attempt ${beforeThird?.attempt} -> ${afterThird?.attempt} ` +
       `active_leases=${activeAfterThird.length}\n` +
-      `    body=${JSON.stringify(third.payload).slice(0, 300)}`,
+      `    body=${probe.brief(third.payload, 300)}`,
   );
 
   // THE CLAIM. `max_start_attempts` is 1 and the lease is gone, so a second START of this
@@ -451,7 +451,7 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
   expect(
     "V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time, and the refusal is a 4xx naming a reason (it is neither: the attempt column never advances, so the bound is never reached, AND the refusal is not a stable 4xx)",
     third.status >= 400 && third.status < 500,
-    `the third claim answered ${third.status} with body ${JSON.stringify(third.payload).slice(0, 240)} ` +
+    `the third claim answered ${third.status} with body ${probe.brief(third.payload, 240)} ` +
       `and left ${activeAfterThird.length} active lease(s); a 503 tells a device that lost its lease that the ` +
       `control-plane store is down rather than that its attempt is spent, and a second start of an ` +
       `occurrence bound to one attempt would mean the same scheduled slot running its work twice`,

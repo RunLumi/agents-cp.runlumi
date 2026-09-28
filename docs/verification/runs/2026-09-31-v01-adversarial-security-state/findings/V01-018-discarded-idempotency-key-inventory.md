@@ -39,11 +39,16 @@ plausible 76 into the real 3.
 
 ## The three sites
 
-| # | route | what a retry does, read from the code | attacked by |
+| # | route | **measured** outcome of a retry on the same key | attacked by |
 |---|---|---|---|
-| 1 | `devices.rs:1267` `approve_enrollment` | **unknown — must be measured.** It runs `generated_id("dvc")` per call and `INSERT_DEVICE_SQL` under `UNIQUE (org_id, key_fingerprint)`, and it never checks `rows_affected`, so the batch is expected to abort. A prediction, not a finding. | **V01-015** |
-| 2 | `devices.rs:1468` `revoke_device` | answers **differently** — `REVOKE_DEVICE_SQL` is `WHERE … status = 'active'`, so a second revoke matches nothing, returns early, and replies *"The device was already revoked."* Incidental state guard, not idempotency. | **V01-015** |
-| 3 | `projects.rs:876` `delete_project_binding` | answers **`404`** — the binding is gone, so the pre-read 404s before the audit write is reached. No duplicated state, but a retried request that already succeeded reports *"not found"*. | **not yet attacked** |
+| 1 | `devices.rs:1267` `approve_enrollment` | **`409 conflict` "The enrollment is no longer pending."** — not the `503` reading predicted, and not a duplicate. One device, one audit row, unchanged. | **V01-015, confirmed** |
+| 2 | `devices.rs:1468` `revoke_device` | **`409 conflict` "The device was already revoked."** `revoked_at` unchanged, tokens not re-dropped, no extra audit event. | **V01-015, confirmed** |
+| 3 | `projects.rs:876` `delete_project_binding` | **`404`** — the binding is gone, so the pre-read 404s before the audit write. No duplicated state, but a retried request that already succeeded reports *"not found"*. **read from code, not measured** | **not attacked** |
+
+Sites 1 and 2 are the *only* ones with runtime evidence, and note what the measurement changed: the
+`503` I predicted from the schema did not happen, because both routes have clean state guards. The
+defect is narrower and sharper than predicted — **only** the missing replay — and the recorded
+severity stays at medium for the right reason rather than by assumption.
 
 ## What all three share, and what differs
 

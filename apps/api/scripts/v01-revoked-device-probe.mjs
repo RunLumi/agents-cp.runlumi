@@ -112,7 +112,7 @@ await runProbe("V01 revoked device", async (probe) => {
   expect(
     "CONTROL: an enrollment begins",
     enrollment.status === 201 && typeof enrollmentId === "string",
-    `status=${enrollment.status} body=${JSON.stringify(enrollment.payload).slice(0, 200)}`,
+    `status=${enrollment.status} body=${probe.brief(enrollment.payload, 200)}`,
   );
   if (typeof enrollmentId !== "string") {
     probe.finish(2, "no enrollment, so no device, so nothing to revoke. A harness outcome.");
@@ -142,7 +142,7 @@ await runProbe("V01 revoked device", async (probe) => {
   expect(
     "CONTROL: the enrollment completes and yields a real device token",
     completed.status === 201 && typeof token === "string" && typeof deviceId === "string",
-    `status=${completed.status} body=${JSON.stringify(completed.payload).slice(0, 200)}`,
+    `status=${completed.status} body=${probe.brief(completed.payload, 200)}`,
   );
   if (typeof token !== "string" || typeof deviceId !== "string") {
     probe.finish(2, "no device token, so nothing to revoke. A harness outcome.");
@@ -198,13 +198,13 @@ await runProbe("V01 revoked device", async (probe) => {
   expect(
     "CONTROL: a device-authenticated READ works before revocation",
     policyBefore.status === 200,
-    `status=${policyBefore.status} body=${JSON.stringify(policyBefore.payload).slice(0, 200)}`,
+    `status=${policyBefore.status} body=${probe.brief(policyBefore.payload, 200)}`,
   );
   expect(
     "CONTROL: the device can fetch a nonce and exchange it for a REAL second token before revocation, so a refusal after it is attributable to the revocation",
     refreshBefore.minted === true && refreshBefore.response.status === 201,
     `nonce status=${refreshBefore.nonceResponse.status}, refresh status=${refreshBefore.response.status}, ` +
-      `minted=${refreshBefore.minted} body=${JSON.stringify(refreshBefore.response.payload).slice(0, 200)}`,
+      `minted=${refreshBefore.minted} body=${probe.brief(refreshBefore.response.payload, 200)}`,
   );
   if (refreshBefore.minted !== true) {
     probe.finish(
@@ -295,14 +295,14 @@ await runProbe("V01 revoked device", async (probe) => {
     expect(
       `the revoked device is refused: ${r.method} ${r.path}`,
       r.status >= 400,
-      `status=${r.status} body=${JSON.stringify(r.payload).slice(0, 200)}`,
+      `status=${r.status} body=${probe.brief(r.payload, 200)}`,
     );
   }
   expect(
     "a revoked device cannot MINT a new token: the refresh did not return a device_token even with a real nonce and a real signature",
     refreshAfter.minted !== true,
     `refresh status=${refreshAfter.response.status} minted=${refreshAfter.minted} ` +
-      `body=${JSON.stringify(refreshAfter.response.payload).slice(0, 200)} -- if this minted, the ` +
+      `body=${probe.brief(refreshAfter.response.payload, 200)} -- if this minted, the ` +
       `revocation rotated the credential instead of ending it`,
   );
   expect(

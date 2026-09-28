@@ -103,6 +103,27 @@ export class SmokeHarness {
 
   // --- redaction -----------------------------------------------------------
 
+  /**
+   * A short, printable rendering of any value, for an assertion's detail string.
+   *
+   * `JSON.stringify(undefined).slice(0, 200)` throws, because `JSON.stringify(undefined)` is
+   * `undefined` and not a string. That is not a cosmetic hazard: an assertion's detail argument
+   * is evaluated EAGERLY, so a probe building its own diagnostic on a response with no body -- a
+   * 204, or any response whose payload did not parse -- dies with `Cannot read properties of
+   * undefined` before the assertion it was about to explain. The reader then gets a TypeError
+   * instead of the finding, and the whole run is reported as a harness failure with no clue which
+   * check was in flight.
+   *
+   * It bit `verify:device-idempotency` on a real 204 from the revoke route. Every probe should
+   * use this rather than composing `JSON.stringify` and `slice` by hand.
+   */
+  brief(value, max = 240) {
+    if (value === undefined) return "(no body)";
+    if (value === null) return "null";
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text === undefined ? String(value) : text.slice(0, max);
+  }
+
   redact(value) {
     let out = String(value);
     for (const secret of this.secrets) {

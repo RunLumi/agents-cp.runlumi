@@ -107,7 +107,7 @@ await runProbe("V01 device-route idempotency", async (probe) => {
     if (typeof enrollmentId !== "string") {
       probe.skip(
         `the ${label} enrollment could not be begun`,
-        `status=${created.status} body=${JSON.stringify(created.payload).slice(0, 200)}`,
+        `status=${created.status} body=${probe.brief(created.payload, 200)}`,
       );
       return null;
     }
@@ -133,7 +133,7 @@ await runProbe("V01 device-route idempotency", async (probe) => {
     if (typeof status.payload?.challenge !== "string") {
       probe.skip(
         `the ${label} enrollment released no challenge`,
-        `status=${status.status} body=${JSON.stringify(status.payload).slice(0, 200)}`,
+        `status=${status.status} body=${probe.brief(status.payload, 200)}`,
       );
       return null;
     }
@@ -170,7 +170,33 @@ await runProbe("V01 device-route idempotency", async (probe) => {
   /** Compare two responses as bodies, not as statuses. */
   const sameBody = (a, b) =>
     JSON.stringify(a?.payload ?? null) === JSON.stringify(b?.payload ?? null);
-  const describe = (r) => `status=${r.status} body=${JSON.stringify(r.payload).slice(0, 200)}`;
+
+  /**
+   * Compare two bodies IGNORING `request_id`.
+   *
+   * This exists because `sameBody` is the wrong tool for the different-key control, and using it
+   * there made the control **vacuous**. Every error body carries its own `request_id`, so two
+   * refusals identical in every respect a caller can act on still compare as different -- and the
+   * control, whose whole job is to notice that a replay and a genuinely new request are answered
+   * the same way, could never fire. It reported PASS on a defect it is structurally unable to see,
+   * which is the fifth wrong-reason pass of this round.
+   *
+   * So the control compares everything EXCEPT the per-request correlation id. If the replay and
+   * the different-key call differ only in `request_id`, they are the same answer -- which is
+   * exactly the question the control asks.
+   */
+  const withoutRequestId = (payload) => {
+    if (!payload || typeof payload !== "object") return payload;
+    const { request_id: _ignored, ...rest } = payload;
+    if (rest.error && typeof rest.error === "object") {
+      const { request_id: _alsoIgnored, ...errorRest } = rest.error;
+      return { ...rest, error: errorRest };
+    }
+    return rest;
+  };
+  const sameAnswer = (a, b) =>
+    JSON.stringify(withoutRequestId(a?.payload)) === JSON.stringify(withoutRequestId(b?.payload));
+  const describe = (r) => `status=${r.status} body=${probe.brief(r.payload, 200)}`;
 
   // =========================================================================
   // Case 1 — approve_enrollment, replayed on one key
@@ -246,7 +272,7 @@ await runProbe("V01 device-route idempotency", async (probe) => {
   expect(
     "the two outcomes are distinguishable: the replay and the different-key call do not both answer the same thing, or the route is refusing repeats for a reason unrelated to the key",
     !(
-      sameBody(replayApproval, differentKeyApproval) &&
+      sameAnswer(replayApproval, differentKeyApproval) &&
       replayApproval.status === differentKeyApproval.status
     ) || afterReplay.events.length !== afterDifferentKey.events.length,
     `replay ${describe(replayApproval)} vs different-key ${describe(differentKeyApproval)}; ` +
@@ -268,7 +294,7 @@ await runProbe("V01 device-route idempotency", async (probe) => {
   expect(
     "CONTROL: the second device was really approved, so there is something to revoke",
     typeof revokeDeviceId === "string",
-    `status=${revokeCase.approval?.status} body=${JSON.stringify(revokeCase.approval?.payload).slice(0, 200)}`,
+    `status=${revokeCase.approval?.status} body=${probe.brief(revokeCase.approval?.payload, 200)}`,
   );
   if (typeof revokeDeviceId !== "string") {
     probe.finish(2, "no device id, so the revoke case is untestable");
@@ -290,8 +316,8 @@ await runProbe("V01 device-route idempotency", async (probe) => {
   const beforeTokens = await tokensFor();
   const firstRevoke = await request(
     admin.jar,
-    "POST",
-    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}/revoke`,
+    "DELETE",
+    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}`,
     {},
     browserMutation(admin.jar, "v01-dev-revoke-1"),
   );
@@ -314,8 +340,8 @@ await runProbe("V01 device-route idempotency", async (probe) => {
 
   const replayRevoke = await request(
     admin.jar,
-    "POST",
-    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}/revoke`,
+    "DELETE",
+    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}`,
     {},
     browserMutation(admin.jar, "v01-dev-revoke-1"),
   );
@@ -337,8 +363,8 @@ await runProbe("V01 device-route idempotency", async (probe) => {
 
   const differentKeyRevoke = await request(
     admin.jar,
-    "POST",
-    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}/revoke`,
+    "DELETE",
+    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}`,
     {},
     browserMutation(admin.jar, "v01-dev-revoke-2"),
   );
@@ -352,7 +378,7 @@ await runProbe("V01 device-route idempotency", async (probe) => {
   expect(
     "CONTROL: a DIFFERENT key on the already-revoked device is answered DIFFERENTLY from the replay, so the key is what distinguishes them",
     !(
-      sameBody(replayRevoke, differentKeyRevoke) &&
+      sameAnswer(replayRevoke, differentKeyRevoke) &&
       replayRevoke.status === differentKeyRevoke.status
     ),
     `replay ${describe(replayRevoke)} vs different-key ${describe(differentKeyRevoke)}; identical answers ` +
@@ -369,8 +395,8 @@ await runProbe("V01 device-route idempotency", async (probe) => {
   const eventsAfterFirstRevoke = await revokeEvents();
   await request(
     admin.jar,
-    "POST",
-    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}/revoke`,
+    "DELETE",
+    `/api/v1/orgs/${org.orgId}/devices/${revokeDeviceId}`,
     {},
     browserMutation(admin.jar, "v01-dev-revoke-1"),
   );
