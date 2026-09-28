@@ -23,6 +23,7 @@ so neither can be mistaken for the other:
 
 | | Commit | What it means |
 |---|---|---|
+| Squash on `main` | `ae284e7` | **the only hash above that is reachable from `main`.** The single commit this campaign became after PR #35. It contains every change in the table below, in one commit, with the reasoning in this record |
 | Reconstruction | `ecbdac1` | the state the reconstruction judged. Every "before" figure in this record belongs to it |
 | Repair | `ece860b` | the state the five product-repair verdicts were re-derived from |
 | Repair, guard recognition | `70ff568` | the state the guard-probe and mutation-campaign verdicts were re-derived from |
@@ -40,8 +41,8 @@ git log v00-independent-verification --oneline      # the 36 rounds, in order
 git log v00-independent-verification --oneline -S'<finding text>'
 ```
 
-Every hash in the table above resolves there and is reachable from any checkout with the branch
-fetched. The squash commit on `main` carries the whole campaign, so `git log ecbdac1..main` shows
+Every hash in the table above except the squash row resolves there, and is reachable from any
+checkout with the branch fetched. The squash row is the one that resolves from `main` alone. The squash commit on `main` carries the whole campaign, so `git log ecbdac1..main` shows
 **one** commit and is **not** the way to enumerate the rounds — which is why the note this replaced
 said `git log ecbdac1..HEAD` was the authority, and why that sentence had to change before the merge
 rather than after it.
