@@ -1,0 +1,45 @@
+baseline: 27/27 V01 budget-concurrency cases hold
+B1 applied: the ceiling limit is unreachable, the statement stays valid (line 165)
+
+=== B1: the hard ceiling is removed ===
+  PASS  the burst granted at least one reservation, so the ceiling assertion below is measuring a budget and not an absence  — 8 of 8 granted against a limit of 100
+  FAIL  concurrent reservations do not collectively exceed the hard limit: outstanding reservations stay within limit_minor  — OVERSOLD: 8 reservations hold 240 against a limit of 100
+  PASS  the burst is refused by a budget decision, not answered by a store fault  — no 5xx
+  PASS  a denied reservation leaves no row, so the ceiling only counts holds a caller can use  — 8 rows for 8 grants (denied: 0)
+  PASS  a granted reservation can be released when the work it held for fails  — status=200
+  PASS  releasing a reservation returns its capacity, so a failed dispatch does not permanently consume the budget  — held 240 -> 210 after releasing bud_81e625faa8bc4e82a606e06f06e71a9f
+  PASS  a reservation against a budget that does not exist is refused, not treated as unlimited  — status=404 reason=budget_not_found
+  8 concurrent reservations of 30 against a limit of 100: 8 granted, 0 denied, 0 5xx
+restored the product (verified against the snapshot)
+B1/B2 applied: the outstanding-reservation sum ignores status (line 183)
+
+=== B2: released capacity is not reclaimed ===
+  PASS  the burst granted at least one reservation, so the ceiling assertion below is measuring a budget and not an absence  — 3 of 8 granted against a limit of 100
+  PASS  concurrent reservations do not collectively exceed the hard limit: outstanding reservations stay within limit_minor  — 8 concurrent requests asked for 240 against a limit of 100; 3 reservations hold 90
+  PASS  the burst is refused by a budget decision, not answered by a store fault  — no 5xx
+  PASS  a denied reservation leaves no row, so the ceiling only counts holds a caller can use  — 3 rows for 3 grants (denied: 5)
+  PASS  a granted reservation can be released when the work it held for fails  — status=200
+  PASS  releasing a reservation returns its capacity, so a failed dispatch does not permanently consume the budget  — held 90 -> 60 after releasing bud_1493a3b27d4e4a45ba0c59ff26a2f44d
+  FAIL  a request denied during the burst can reserve the capacity freed by a failed one  — request_id=req_6b37cdbe955a3a4858796f3d3b23a304 status=403 reason=budget_exceeded
+  PASS  a reservation against a budget that does not exist is refused, not treated as unlimited  — status=404 reason=budget_not_found
+  8 concurrent reservations of 30 against a limit of 100: 3 granted, 5 denied, 0 5xx
+restored the product (verified against the snapshot)
+B3 applied: a reservation no longer needs a correlated inference request
+
+=== B3: no inference correlation ===
+  PASS  the burst granted at least one reservation, so the ceiling assertion below is measuring a budget and not an absence  — 3 of 8 granted against a limit of 100
+  PASS  concurrent reservations do not collectively exceed the hard limit: outstanding reservations stay within limit_minor  — 8 concurrent requests asked for 240 against a limit of 100; 3 reservations hold 90
+  PASS  the burst is refused by a budget decision, not answered by a store fault  — no 5xx
+  PASS  a denied reservation leaves no row, so the ceiling only counts holds a caller can use  — 3 rows for 3 grants (denied: 5)
+  PASS  a granted reservation can be released when the work it held for fails  — status=200
+  PASS  releasing a reservation returns its capacity, so a failed dispatch does not permanently consume the budget  — held 90 -> 60 after releasing bud_1338aeb2d1034b8eb5a2f7f895855ef1
+  PASS  a request denied during the burst can reserve the capacity freed by a failed one  — request_id=req_e99b3a0095da29c20b3b7b197ad69e7e status=201 reason=null
+  PASS  a reservation against a budget that does not exist is refused, not treated as unlimited  — status=404 reason=budget_not_found
+  8 concurrent reservations of 30 against a limit of 100: 3 granted, 5 denied, 0 5xx
+restored the product (verified against the snapshot)
+
+=== summary ===
+  B1 the hard ceiling is removed:        detected
+  B2 released capacity is not reclaimed: detected
+  B3 no inference correlation:           MISSED
+restored the product (verified against the snapshot)

@@ -20,6 +20,7 @@
     "smoke:p08": "node scripts/p08-tenancy-smoke.mjs",
     "verify:adoption-privacy": "node scripts/v01-adoption-privacy-probe.mjs",
     "verify:privilege-escalation": "node scripts/v01-privilege-escalation-probe.mjs",
+    "verify:budget-concurrency": "node scripts/v01-budget-concurrency-probe.mjs",
     "p08:invariants": "bash scripts/p08-invariants.sh"
   },
   "dependencies": {
