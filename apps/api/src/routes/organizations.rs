@@ -949,6 +949,10 @@ pub async fn change_role(
             .unwrap_or(crate::modules::authorization::MembershipRole::Viewer),
         crate::modules::authorization::MembershipStatus::parse(&target.status)
             .unwrap_or(crate::modules::authorization::MembershipStatus::Removed),
+        // The role being REQUESTED, not the one the target already has. Passing the
+        // current role here is what let an admin promote anyone -- including itself --
+        // to owner: the decision never saw the value being written. See V01-003.
+        role,
     ) {
         return Err(domain_error(
             &context,

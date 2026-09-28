@@ -1,0 +1,8 @@
+# V01-003 — Org A's memberships after the attack run. Three owners, none of them
+# the only one that was there before.
+
+             email                role   status
+--------------------------------  -----  ------
+alice-mul6319wa4z7@example.com    owner  active
+mallory-mul6319wa4z7@example.com  owner  active
+abel-mul6319wa4z7@example.com     owner  active

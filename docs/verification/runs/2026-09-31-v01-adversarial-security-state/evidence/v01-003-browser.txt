@@ -1,0 +1,49 @@
+
+> lumi-agents-control-plane@0.0.0 smoke:browser /Volumes/SSD/agents-cp.runlumi
+> pnpm --filter @runlumi/agents-cp-web smoke:browser
+
+
+> @runlumi/agents-cp-web@0.0.0 smoke:browser /Volumes/SSD/agents-cp.runlumi/apps/web
+> node scripts/browser-probe.mjs
+
+PASS  a real CTAP2 virtual authenticator (resident key + UV) is attached
+PASS  sign-in's first submit control is the passkey CTA  — submit="Sign in with passkey" primary=true
+PASS  the passkey CTA precedes the email field (passkey-first, not password-first)  — submit@0 email@1
+PASS  POST /api/v1/auth/passkey/signup/start returns server-side creation options  — status=201 {"ceremony_id":"cer_828d9e580bd149c8ad279289df21d3ef","expires_at":"2026-09-28T12:50:40.679Z","public_key":{"attestation":"none","authenticatorSelection":{"requireResidentKey":true,"residentKey":"requ
+PASS  POST /api/v1/auth/passkey/login/start returns server-side request options  — status=201 {"ceremony_id":"cer_3345af81139f4326a041378fe94bc054","expires_at":"2026-09-28T12:50:40.687Z","public_key":{"challenge":"PPV7AxUSrvBy2kJmelIlPUkTCP0TJU7c21F_UZ6Y6Ts","rpId":"localhost","timeout":60000
+PASS  both ceremony options carry a distinct server-issued challenge  — signup.challenge=string login.challenge=string
+PASS  the login ceremony options name the relying party explicitly  — rpId=localhost
+PASS  the registration ceremony options bind the account to the ceremony  — user.id=string
+PASS  the two ceremonies have DIFFERENT challenges  — a shared challenge would let one ceremony's response satisfy the other
+PASS  email + password registration reaches a terminal screen
+PASS  registration hands the user a verification step to complete
+PASS  the verification step renders a submittable form, not a dead end  — {"found":true,"inputNamed":true,"labelled":true,"submitText":"Verify email and continue","disabledBeforeTyping":false}
+PASS  the one-time code field is named and labelled  — {"found":true,"inputNamed":true,"labelled":true,"submitText":"Verify email and continue","disabledBeforeTyping":false}
+PASS  the verification submit is disabled while the field is empty  — {"before":false,"afterEmpty":true}
+PASS  the verification submit stays disabled for an implausibly short code  — disabled=true
+PASS  the development build surfaces the verification code to the operator  — code=e1b22f… (64 chars)
+PASS  submitting the form calls POST /api/v1/auth/verify-email  — typed=true status=200 {"user":{"created_at":"2026-09-28T12:45:40.710Z","display_name":"VFY Verifier","email":"vfy-1790599539294@example.test",
+PASS  the UI completes verification successfully  — status=200 {"user":{"created_at":"2026-09-28T12:45:40.710Z","display_name":"VFY Verifier","email":"vfy-1790599539294@example.test","email_verified":true,"id":"usr_c54d5cfb
+PASS  the session now reports a verified email  — email_verified=true
+PASS  a password session renders the authenticated organization shell
+PASS  an organization can be created through the UI  — A=true
+PASS  a control exists to open the create-organization panel again  — {"present":true,"visible":true}
+PASS  a SECOND organization can be created through the UI
+PASS  the organization switcher lists both organizations after the UI created the second  — options=2
+PASS  the switcher always names the current organization and lists both  — ["VFY Org A 1790599539294","VFY Org B 1790599539294"]
+PASS  after switching to org B no sample of the DOM ever shows org A's name  — samples=24 leaks=0
+PASS  switching back restores org A and org B's name is never left behind  — samples=24 leaks=0
+PASS  a hand-edited deep link resolves to a real panel, not a silent Overview  — /org/vfy-org-a-1790599539294-93d14917/settings/data (VFY Org A 1790599539294)
+PASS  the organization switcher is keyboard focusable  — {"active":true,"boxShadow":"rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(0, 96, 147) 0px 0px 0px 2px, rgba(0, 0, 0, 0) 0px 0px 0px 0px","outline":"none/1px"}
+PASS  focus on the primary navigation control is visible (ring or outline)  — box-shadow=rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(0, 96, 147) 0px 0px 0px 2px, rgba(0, 0, 0, 0) 0px 0px 0px 0px
+PASS  no interactive control outside a roving tablist is removed from the tab order  — total=47 roving=3 tabstrips=1 unreachable=[]
+PASS  a tablist's unselected tabs are reachable with the keyboard (arrow keys)  — {"before":"Retention policies","after":"Export history","moved":true}
+PASS  the document itself does not scroll sideways at 390px  — no section overflows the document
+PASS  no interactive control is clipped inside a scroll container at 390px  — checked 0 scroll containers, 0 non-interactive nodes clipped (which is allowed: a long identifier may scroll)
+PASS  the Members table shows each member's role on a 390px screen  — headers=["Member","Action"] column=false folded=true
+PASS  the role control is fully inside the viewport at 390px, with no scrolling to reach it  — {"table":true,"headers":["Member","Action"],"viewport":390,"roleControlPresent":true,"roleControlReachable":true,"roleControlBox":{"left":225,"right":361,"width":136,"height":44},"roleControlMeetsTouchTarget":true}
+PASS  the role control meets a 44x44 touch target at 390px  — {"table":true,"headers":["Member","Action"],"viewport":390,"roleControlPresent":true,"roleControlReachable":true,"roleControlBox":{"left":225,"right":361,"width":136,"height":44},"roleControlMeetsTouchTarget":true}
+PASS  the shell's own session is the one the browser presents to /api/v1/me  — orgs=2
+PASS  the browser console produced no errors during the journey
+
+39/39 browser checks passed

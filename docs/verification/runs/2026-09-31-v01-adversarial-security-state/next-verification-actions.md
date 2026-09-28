@@ -22,6 +22,14 @@ second — the reverse order is how a verifier ends up weakened to match a probe
 
 Evidence: `findings/V01-001-…md`, `evidence/v01-001-stored-rows.txt`.
 
+## GAP-002 — the last-owner rules have no HTTP-layer attack
+
+`f02` requires that removing or demoting the last owner fails transactionally. `can_leave` and
+`can_remove_member` are unit-tested, and V01-003 proved `can_change_role` had a real defect
+behind a correct-looking test. Nothing attacks the *routes*: can the last owner be demoted,
+removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner-actor class to
+`verify:privilege-escalation` that tries to end with zero active owners.
+
 ## Unattacked, by family
 
 | # | family | what is missing | why it is next |

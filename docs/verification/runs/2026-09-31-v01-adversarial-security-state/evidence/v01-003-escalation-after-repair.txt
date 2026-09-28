@@ -1,0 +1,54 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01escE
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:54388
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-eIZx5W/e073e80193aef29545827448a0e41b31a35be035-index_bg.wasm is 76s newer than src/modules/memberships.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_e8b8dd5eaca64e6a8439f52dfd02a1be
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_c0cb64cb157545d293dd4983afefca9c
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_e6a1a37983e9455991bd43fffafa8342
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_47290f34444354dd5522107a0409a21e
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_a4c870d9a8615111c19fd97c7259baeb
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  signup Abel  — status=201
+  PASS  verify Abel  — status=200
+  PASS  login start Abel  — status=202
+  PASS  login complete Abel  — status=200
+  PASS  user Abel has an opaque ID  — usr_1d70601d747e466fb0f4aa06af111b5e
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  the attacker is stored as a plain active member, not an outsider and not an admin  — {"role":"member","status":"active","email":"mallory-mul67uuo56v5@example.com"}
+  PASS  a plain member can read its own organization, so the attacker's session works  — status=200
+  PASS  the second attacker is stored as an admin, who passes the route's permission check and is still bound by the domain  — abel role=admin
+  PASS  id extraction note: three routes name their resource id differently (project `id`, service_account `id`, budget `budget_id`), which is why a missing id is reported with the body that produced it rather than as `undefined`  — recorded
+  PASS  Org A has a real project to attack  — project_id=prj_6a8b457da4e948239ababa7d49e3ca69
+  PASS  Org A has a real budget to attack  — budget_id=bud_84e7874ae883437aa21cf519f1276bcd
+  PASS  Org A has a real service account to attack  — service_account_id=svc_b86d0befa7d9413fbe2405f1a573ac7f
+  PASS  Org B has a real service account for the credential-id class  — foreign=svc_1374a7eb9d2541b09e34d3e80dbd19cf
+  PASS  the attacker's own membership_id is known, so self-promotion can be aimed precisely  — membership_id=mem_aaf500b9874745f6bf463b314e9eb454
+  PASS  the admin's own membership_id is known, so admin self-promotion can be aimed precisely  — membership_id=mem_ed03e2f915fb4138b7281389806c10f7
+  PASS  no client-supplied field is honoured: every escalation attempt left the stored state with less authority than the client asked for  — 19 attacks, 19 refused, 0 accepted but inert, 0 escalated
+  PASS  no escalation attempt is answered with a 5xx, which would be a store fault dressed as a refusal  — none
+  PASS  every attack was actually completed, so a clean sheet is a clean sheet  — 19/19
+  PASS  every refused attack was refused by an authorization or validation decision, not because the route is absent  — no 404/405/501 among the refusals
+  PASS  the attacker is still a plain member after the whole campaign  — role=member
+
+19 privilege-escalation attacks across 7 classes: org x3, role x8, budget x2, capability x2, model x2, credential x1, policy-version x1
+  refused 19, accepted-but-inert 0, escalated 0
+  status distribution: 403 x14  422 x5
+
+46/46 V01 privilege-escalation cases hold

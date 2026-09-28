@@ -1,0 +1,95 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-esc-sensitivity/m4
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:55116
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-1NGUTh/009a89bc583f9611a1518a004c1090747766aa1b-index_bg.wasm is 78s newer than src/routes/organizations.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_49f0ad848f31497c83bd55b77244df38
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_2a503f0c31844059abad4c71b48073d7
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_9f6cea6aff1d49e48875d5dc2a3b7480
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_8a5b484e2c8a00ab099166bbf94c1d6f
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_a39ff07421c5afeaa45476afecd969d8
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  signup Abel  — status=201
+  PASS  verify Abel  — status=200
+  PASS  login start Abel  — status=202
+  PASS  login complete Abel  — status=200
+  PASS  user Abel has an opaque ID  — usr_e0b37ea01e3a4c92adb6652c15c6509f
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  the attacker is stored as a plain active member, not an outsider and not an admin  — {"role":"member","status":"active","email":"mallory-mul7zcyg94lf@example.com"}
+  PASS  a plain member can read its own organization, so the attacker's session works  — status=200
+  PASS  the second attacker is stored as an admin, who passes the route's permission check and is still bound by the domain  — abel role=admin
+  PASS  id extraction note: three routes name their resource id differently (project `id`, service_account `id`, budget `budget_id`), which is why a missing id is reported with the body that produced it rather than as `undefined`  — recorded
+  PASS  Org A has a real project to attack  — project_id=prj_3cd809acc7ab4481bb81a2a6b2dc0955
+  PASS  Org A has a real budget to attack  — budget_id=bud_4fcbb57908bc443aa50373999fffdaf5
+  PASS  Org A has a real service account to attack  — service_account_id=svc_b3817f4b735340d1ad867a9ab1d45831
+  PASS  Org B has a real service account for the credential-id class  — foreign=svc_b4147aeb5ef44ce1889ac7cb55965480
+  PASS  the attacker's own membership_id is known, so self-promotion can be aimed precisely  — membership_id=mem_d4aba568418b46e2a74d8a5595c5c1d6
+  PASS  the admin's own membership_id is known, so admin self-promotion can be aimed precisely  — membership_id=mem_740e5a527144453c8ad2dda87e415616
+  FAIL  no client-supplied field is honoured: every escalation attempt left the stored state with less authority than the client asked for  — role: an admin promotes a member to owner (HTTP 200) | role: an admin promotes itself to owner (HTTP 200) | budget: a member raises the organization budget and clears the hard limit (HTTP 200) | capability: a member mints a service account with every capability (HTTP 200)
+  PASS  no escalation attempt is answered with a 5xx, which would be a store fault dressed as a refusal  — none
+  PASS  every attack was actually completed, so a clean sheet is a clean sheet  — 19/19
+  FAIL  every refused attack was refused by an authorization or validation decision, not because the route is absent  — model: a member adds a catalog model with wildcard capabilities -> 404 | credential: a member patches another organization's service account by id -> 404
+  FAIL  the attacker is still a plain member after the whole campaign  — role=owner
+
+19 privilege-escalation attacks across 7 classes: org x3, role x8, budget x2, capability x2, model x2, credential x1, policy-version x1
+  refused 13, accepted-but-inert 0, escalated 4, route-absent 2
+  status distribution: 200 x4  403 x5  404 x2  409 x2  422 x6
+
+  class          status  grade              attack
+  org            403     REFUSED           a member renames the organization
+                         reason: permission_denied — You do not have permission to perform this action.
+  org            422     REFUSED           a member rewrites the tool policy to allow everything
+                         reason: validation_failed — The request contains invalid fields.
+  org            422     REFUSED           a body-supplied org_id is accepted as authoritative over the path
+                         reason: validation_failed — The request contains invalid fields.
+  role           403     REFUSED           a member invites a new member as owner
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           403     REFUSED           a member invites a new member as admin
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           403     REFUSED           a member promotes itself to owner
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           403     REFUSED           a member promotes itself to admin
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           422     REFUSED           an admin invites a new member as owner
+                         reason: role_invalid — Choose a valid invitation role.
+  role           200     ESCALATED         an admin promotes a member to owner
+  role           200     ESCALATED         an admin promotes itself to owner
+  role           422     REFUSED           a member transfers ownership to itself
+                         reason: validation_failed — The request contains invalid fields.
+  budget         200     ESCALATED         a member raises the organization budget and clears the hard limit
+  budget         409     REFUSED           a member creates a second, larger budget
+                         reason: budget_conflict — A budget already exists for this scope and period.
+  capability     200     ESCALATED         a member mints a service account with every capability
+  capability     409     REFUSED           a member rewrites its own service account's capabilities
+                         reason: version_conflict — The service account changed. Refresh and try again.
+  model          422     REFUSED           a member publishes a route whose candidates carry a foreign credential_id
+                         reason: route_unavailable — One or more route candidates are not available.
+  model          404     ROUTE_ABSENT      a member adds a catalog model with wildcard capabilities
+                         reason: resource_not_found — The provider was not found.
+  credential     404     ROUTE_ABSENT      a member patches another organization's service account by id
+                         reason: resource_not_found — The requested resource was not found.
+  policy-version 422     REFUSED           a member rewrites the tool policy with an invented schema version
+                         reason: validation_failed — The request contains invalid fields.
+
+43/46 V01 privilege-escalation cases hold
+
+3 case(s) failed:
+  - no client-supplied field is honoured: every escalation attempt left the stored state with less authority than the client asked for
+  - every refused attack was refused by an authorization or validation decision, not because the route is absent
+  - the attacker is still a plain member after the whole campaign

@@ -814,7 +814,11 @@ export class SmokeHarness {
       "POST",
       `/api/v1/orgs/${orgId}/invitations`,
       { email: member.user.email, role },
-      this.browserMutation(admin.jar, `invite-${orgId}`),
+      // One key per (organization, invitee, role). A single `invite-${orgId}` key makes
+      // the second invite to the same organization a 409 idempotency conflict against a
+      // different body -- which is correct API behaviour and a broken helper, and the
+      // difference between the two is invisible unless you are adding a second invitee.
+      this.browserMutation(admin.jar, `invite-${orgId}-${member.user.email}-${role}`),
     );
     this.expectStatus(`invite a ${role}`, invite, 201);
     const invitation = this.requirePayload(invite, `invite a ${role}`).invitation;
