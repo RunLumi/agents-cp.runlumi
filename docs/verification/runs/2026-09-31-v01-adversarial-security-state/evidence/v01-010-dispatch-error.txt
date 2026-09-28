@@ -1,0 +1,39 @@
+
+  local fault server listening on http://localhost:56257
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01flt9
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:56258
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-V5FGr1/8e2682c563d3a5d41cf77f5248cf5fa67343b70a-index_bg.wasm is 66s newer than src/adapters/providers.rs
+  PASS  signup Fault Owner  — status=201
+  PASS  verify Fault Owner  — status=200
+  PASS  login start Fault Owner  — status=202
+  PASS  login complete Fault Owner  — status=200
+  PASS  user Fault Owner has an opaque ID  — usr_5b77ff6792dc4b249c9e22096888be89
+  PASS  create Fault Org  — status=201
+  PASS  Fault Org organization ID  — org_518be4acfc182fda5b14e3075f02e438
+  PASS  CONTROL: a hard budget exists, so a reservation is taken and the finalisation claims are not vacuous  — status=201 budget_id=bud_98d1f6a98ce245baabefb7fd4b99dfcc
+  PASS  CONTROL: a provider pointing at the local ok endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-28T20:23:49.270Z","display_name":"V01 local ok","endpoint_id":"pe_180901ee8c613e625fc8a22286d36dd9","endpoint_url":"http://localhost:56257/v1/ok","lifecycl
+  PASS  CONTROL: a model exists for the local ok provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-28T20:23:49.282Z","display_name":"V01 local ok model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_ca319161aa9c68cb671d1547
+  PASS  CONTROL: a provider pointing at the local 429 endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-28T20:23:49.340Z","display_name":"V01 local 429","endpoint_id":"pe_658e2a46712c790c11e6c6cc6fefe350","endpoint_url":"http://localhost:56257/v1/429","lifecy
+  PASS  CONTROL: a model exists for the local 429 provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-28T20:23:49.349Z","display_name":"V01 local 429 model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_4d0032af7c909e3081f0586
+  PASS  CONTROL: a provider pointing at the local 503 endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-28T20:23:49.391Z","display_name":"V01 local 503","endpoint_id":"pe_c68e5027729c01d2818a692752b2e361","endpoint_url":"http://localhost:56257/v1/503","lifecy
+  PASS  CONTROL: a model exists for the local 503 provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-28T20:23:49.400Z","display_name":"V01 local 503 model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_b3a6ede7b17608c84959a78
+  PASS  CONTROL: a provider pointing at the local malformed endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-28T20:23:49.442Z","display_name":"V01 local malformed","endpoint_id":"pe_507b6a408ca61db69f1f7721884a127b","endpoint_url":"http://localhost:56257/v1/malfor
+  PASS  CONTROL: a model exists for the local malformed provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-28T20:23:49.451Z","display_name":"V01 local malformed model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_2c55a6188193634c6
+  PASS  CONTROL: a provider pointing at the local 429 endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-28T20:23:49.496Z","display_name":"V01 local 429","endpoint_id":"pe_a0ad6cb18b283c65396b26f443b35688","endpoint_url":"http://localhost:56257/v1/429","lifecy
+  PASS  CONTROL: a model exists for the local 429 provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-28T20:23:49.505Z","display_name":"V01 local 429 model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_318d0b9ffcc8255279d943d
+
+  CONTROL ok: http=503 server_calls=0
+  FAIL  CONTROL: the local provider was actually REACHED over a real socket, so the fault cases below are testing a dispatch and not a refusal  — server saw 0 request(s) on /v1/ok; a count of 0 would mean the endpoint was never used and every fault case below would be vacuous
+
+  BLOCKED: the Worker's outbound fetch never reached the local server.
+  Every case in this probe is graded on that server's call tally, so none of them
+  can run. Exiting 2 — the harness could not run, which is not a product verdict.
+  the Worker logged NO cause for the failed dispatch. providers.rs maps every
+  fetch error to transport_error(); V01-010 makes it log, and this run was built
+  before that fix reached the binary, so its absence here is expected.
+
+21/22 V01 provider-http-faults cases hold, the local fault server was never reached, so no 429/5xx/malformed case was measured
+
+1 case(s) failed:
+  - CONTROL: the local provider was actually REACHED over a real socket, so the fault cases below are testing a dispatch and not a refusal

@@ -77,6 +77,7 @@ first written.
 | # | gap | what it is | why it is not a patch |
 |---|---|---|---|
 | GAP-005 | `devices.rs` and `foundation_checks.rs` also require an `Idempotency-Key` and ignore it | the same defect as V01-009 on two further route modules, found by reading for the pattern rather than by an attack | they need their own probe to know whether their side effects compose safely into one batch. Copying `projects.rs`'s repair would be assuming the answer. `foundation_checks` is development-only, so its severity is lower. |
+| GAP-007 | 429, 5xx and a malformed chunk over a real HTTP provider | `v01-provider-fault-probe.mjs` is written and committed, runs a real server that counts the requests reaching it, and asserts `max_retries: 0` costs exactly one upstream call. It **exits 2** in this environment because `wrangler dev` does not route a Worker's outbound fetch to a host-local endpoint | an environment blocker, not a product defect. Run it where the socket is reachable. V01-010 is what made it nameable: the transport error used to be discarded, so the blocker and a provider outage looked identical |
 | GAP-006 | `organizations.rs` invitations use a read-then-write on a deterministic identifier | `find_invitation` after deriving `invitation_id` from the key. A **race**, not an absence — correct in sequence, wrong under concurrency, which is the budget-ceiling shape | it has not been attacked concurrently. Replacing a proven-in-sequence mechanism with an unproven one without an attack would be the wrong repair. |
 
 ## Done in V01, for the record

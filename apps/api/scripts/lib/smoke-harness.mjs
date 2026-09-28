@@ -467,7 +467,26 @@ export class SmokeHarness {
     );
   }
 
+  // `--var NAME:VALUE` pairs a probe wants the Worker to see as a binding.
+  //
+  // A probe cannot set a Worker variable by assigning to `process.env`: `wrangler dev` does
+  // not expose the process environment as Worker vars, so a var set that way is silently
+  // absent and the Worker behaves as if it were never set. That is a harness trap rather
+  // than a product one, and it cost a run before it was understood.
+  //
+  // This is a TEST affordance in the TEST harness. It does not relax any guard in the
+  // product: naming a host the operator has chosen is what `LUMI_PROVIDER_ALLOWLIST` is for,
+  // and a probe that needed a production check disabled in order to run would be replacing
+  // production security semantics with test-only logic.
+  setWorkerVars(vars = {}) {
+    this.workerVars = { ...(this.workerVars ?? {}), ...vars };
+  }
+
   startWorker(port) {
+    const varArgs = Object.entries(this.workerVars ?? {}).flatMap(([name, value]) => [
+      "--var",
+      `${name}:${value}`,
+    ]);
     const child = spawn(
       wranglerBin,
       [
@@ -482,6 +501,7 @@ export class SmokeHarness {
         "--show-interactive-dev-session=false",
         // Exposes /__scheduled so `triggerSweep` can fire the cron on demand.
         "--test-scheduled",
+        ...varArgs,
       ],
       {
         cwd: apiDir,

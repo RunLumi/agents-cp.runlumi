@@ -351,6 +351,23 @@ fn ssrf_error() -> AdapterError {
     }
 }
 
+/// The log line for a dispatch that never reached the provider.
+///
+/// Split out so the claim can be tested. Before this existed the arm was
+/// `Err(_) => return Err(transport_error())`: the cause was discarded, so a refused
+/// connection, a DNS failure, a TLS problem and a misconfigured endpoint were one answer to
+/// the operator — `provider_unavailable`, and nothing in any log. That is the same shape as
+/// the P07 `service-accounts` 503, which hid a real failure for a whole campaign round
+/// because the error never reached a log line.
+///
+/// The endpoint is included and the headers are not. The credential travels in a header, so
+/// no secret can reach this line, and `validate_endpoint_url` rejects a base URL carrying a
+/// query or a fragment precisely because those are dropped from the URL that gets built — so
+/// there is no query string here to carry a token either.
+fn provider_dispatch_failure_message(url: &str, error: &worker::Error) -> String {
+    format!("provider_dispatch_failed: endpoint={url} error={error:?}")
+}
+
 fn transport_error() -> AdapterError {
     AdapterError {
         kind: AdapterErrorKind::ConnectionFailed,
@@ -441,7 +458,21 @@ pub async fn dispatch(
                 status_code: None,
             });
         }
-        Err(_) => return Err(transport_error()),
+        // LOGGED, not swallowed. This arm used to be `Err(_) => return Err(transport_error())`,
+        // which discards the cause, so a refused connection, a DNS failure, a TLS problem and a
+        // misconfigured endpoint were all one answer to the operator: `provider_unavailable`, and
+        // nothing in the log. That is the same shape as the P07 `service-accounts` 503, which
+        // hid a real failure for a whole campaign round because the error never reached a log
+        // line.
+        //
+        // The URL is safe to log and the headers are not, so only the URL is. `validate_endpoint_url`
+        // rejects a base URL carrying a query or a fragment precisely because they are dropped
+        // from the request URL that gets built, so no token can be hiding in it -- and the
+        // credential travels in a header, which is never written here.
+        Err(error) => {
+            worker::console_error!("{}", provider_dispatch_failure_message(&url, &error));
+            return Err(transport_error());
+        }
     };
     let status = response.status_code();
     if !(200..300).contains(&status) {
@@ -824,5 +855,62 @@ mod tests {
             Some("mock-request")
         );
         assert_eq!(dispatch.content_type.as_deref(), Some("text/event-stream"));
+    }
+
+    /// The dispatch failure must be LOGGED, and the log line must be safe to emit.
+    ///
+    /// This is the whole of V01-010. The arm used to be `Err(_) => return
+    /// Err(transport_error())`, so a refused connection, a DNS failure, a TLS problem and a
+    /// misconfigured endpoint were one indistinguishable answer, and nothing reached a log.
+    ///
+    /// Testing the message rather than the log call is deliberate: whether a given test harness
+    /// surfaces a Worker's `console_error!` is a property of the harness, and asserting on it
+    /// would make this test pass or fail for reasons that have nothing to do with the product.
+    /// What the product owes is that the cause is turned into a string at all, and that the
+    /// string cannot carry a credential.
+    #[test]
+    fn a_failed_dispatch_is_reported_with_its_endpoint_and_cause() {
+        let cause = worker::Error::RustError(
+            "dispatch failed: client error (Connect): tcp connect error: Connection refused"
+                .to_string(),
+        );
+        let line = provider_dispatch_failure_message("https://api.example.test/v1", &cause);
+        assert!(
+            line.contains("provider_dispatch_failed"),
+            "the line must be greppable by its prefix, or it is not a log anyone can find: {line}"
+        );
+        assert!(
+            line.contains("api.example.test"),
+            "the endpoint must be named, because 'the provider failed' is not actionable and the \
+             operator cannot tell four causes apart without it: {line}"
+        );
+        assert!(
+            line.contains("Connection refused"),
+            "the cause must survive into the line, which is the entire point: {line}"
+        );
+    }
+
+    /// The credential travels in a header, so the message cannot contain one. This is a
+    /// regression guard on the log line itself rather than a comment about it.
+    #[test]
+    fn the_dispatch_failure_line_carries_no_authorization_material() {
+        let line = provider_dispatch_failure_message(
+            "https://api.example.test/v1",
+            &worker::Error::RustError("boom".to_string()),
+        );
+        for forbidden in [
+            "authorization",
+            "bearer",
+            "api-key",
+            "x-api-key",
+            "secret",
+            "token",
+        ] {
+            assert!(
+                !line.to_ascii_lowercase().contains(forbidden),
+                "the dispatch failure line must not mention {forbidden}, because it is written \
+                 unconditionally and a future edit could start formatting one: {line}"
+            );
+        }
     }
 }
