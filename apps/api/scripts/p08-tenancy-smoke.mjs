@@ -439,6 +439,19 @@ await runProbe("P08 cross-tenant", async (probe) => {
       "\nOPEN LEADS — resources this probe could not create, so their routes are unproven:",
     );
     for (const lead of seedFailures) console.log(`  - ${lead}`);
+    // The Worker's own log, and specifically because a lead you cannot diagnose
+    // is a lead you cannot act on. The response body read "the usage store is
+    // unavailable" for a request that never touched the usage store, and the
+    // reason was being discarded before it reached a log line -- so the probe
+    // reported a symptom and nothing could be done with it. The product now logs
+    // it; without printing it here, that line is written and never read.
+    //
+    // Only when there are leads, and only the tail: a diagnostic, not a transcript.
+    const log = probe.workerLog();
+    if (log.trim()) {
+      console.log("\n--- Worker log (tail) — the leads above, with their causes ---");
+      console.log(log);
+    }
   }
 
   probe.finish(probe.failures.length > 0 ? 1 : 0);
