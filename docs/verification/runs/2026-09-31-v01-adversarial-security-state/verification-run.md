@@ -2,8 +2,8 @@
 
 ## Status
 
-**in progress.** Five families attacked, seven findings, one **critical** product defect
-found and fixed, and three claims proven that had no evidence at all. The remaining families and every open item are listed below with what is missing
+**in progress.** Six families attacked, eight findings, two product defects found and fixed
+(one **critical**, one **high**), and three claims proven that had no evidence at all. The remaining families and every open item are listed below with what is missing
 and why it is still missing.
 
 ## What this campaign has produced
@@ -14,6 +14,7 @@ and why it is still missing.
 | **V01-005** the identity-link feature cannot be completed, so FR-F01-012's MUST NOT is enforced by unreachable code | low | functional defect | **open** — GAP-003, deliberate change process, no MUST violated |
 | **V01-006** concurrent reservations cannot overspend a hard budget | none found | absent evidence | **closed** — 8 for 240 yields 3 grants holding 90; B1 oversells to 240 when the ceiling is neutralised |
 | **V01-007** the migration ledger had only ever been applied to an empty database | none found | absent evidence | **closed** — two populated prior states, 19/19, both mutations detected |
+| **V01-008** every project PATCH was refused with 409, because `SET` and `WHERE` disagreed | **high** | product defect | **closed** — the rename/visibility/archive path had never worked; 3 of 3 mutations detected |
 | **V01-002** a verifier measured code that was not on disk | high | verifier defect | **closed** — `buildFreshness()` added so it cannot recur silently |
 | **V01-001** the adoption privacy property is under-specified, and the probe that "proved" it was searching nothing | high (verifier) / gap (spec) | verifier defect + spec gap | **closed** — probe retargeted to the three rules that exist; GAP-001 recorded |
 | **V01-004** three authentication attacks the family names and nothing had ever run | none found | absent evidence | **closed** — 55/55 → 76/76, and one of the three turned out to be testing the wrong condition |
@@ -26,6 +27,7 @@ Three new runtime gates:
 | `pnpm verify:privilege-escalation` | 46/46 | 4 of 4 detected |
 | `pnpm verify:budget-concurrency` | 27/27 | B1, B2 detected; B3 an expected MISSED |
 | `pnpm verify:migration-prior-state` | 19/19 | 2 of 2 detected, first attempt |
+| `pnpm verify:mutating-tenancy` | 43/43 | 3 of 3 detected, incl. the V01-008 defect verbatim |
 
 ## The one that mattered
 
@@ -55,8 +57,8 @@ Fixed by making the requested role an argument and renaming the parameter
 
 ## The pattern that produced the findings
 
-**Three of five findings were found by an assertion that disagreed with itself or with its
-own context, not by a code review.** In every case the same discipline found it:
+**Four of eight findings were found by an assertion that disagreed with itself or with its own
+context, not by a code review.** In every case the same discipline found it:
 
 1. **Read the state, not the response.** A 2xx that ignored the field is correct; a 2xx that
    granted it is a breach. Only the second is a failure, and only reading D1 tells them apart.
@@ -68,6 +70,12 @@ own context, not by a code review.** In every case the same discipline found it:
 4. **Let a refused prerequisite stop the section.** The recovery probe reported that sessions
    survive a password reset — the exact shape of a critical defect — because its own reset
    request was malformed and the three assertions after it kept running anyway.
+5. **Require a write to SUCCEED.** V01-008 was found by the positive control of a probe built
+   for a different purpose: every cross-tenant attack was correctly refused, and the one call
+   that had to work — an owner renaming its own project — answered 409. This is the third defect
+   in this repository of the shape *"a route that answers a plausible response and has never
+   succeeded"*, after `teams` and the 15 `evt_` audit writes. None is a logic error, and none is
+   visible to a gate that only reads responses.
 
 ## Gates on the merged tree
 
@@ -85,6 +93,7 @@ own context, not by a code review.** In every case the same discipline found it:
 | `v01-004-sensitivity.sh` | 1 of 3 detected; **A1 and A3 are honest MISSEDs** — see below |
 | `v01-006-sensitivity.sh` | 2 of 2 gating cases detected; B3 an expected MISSED, exit 0 |
 | `v01-007-sensitivity.sh` | 2 of 2 detected, first attempt, exit 0 |
+| `v01-008-sensitivity.sh` | 3 of 3 detected, exit 0 |
 
 ## What is still UNPROVEN, and why
 
@@ -100,7 +109,8 @@ Nothing below is claimed as a pass. Each names the specific evidence that is mis
 | a reservation's SQL inference-correlation clause | **redundant second line** | the route resolves the request first and returns 404. B3 is an expected MISSED, recorded in V01-006 |
 | inference streaming: 429, 5xx, malformed chunk, timeout, client disconnect | **UNPROVEN** | unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker. `mock_dispatch` has five fault modes selectable by `endpoint` (mock://lumi-fail, mock://lumi-timeout, mock://lumi-post-output-failure, mock://lumi-success) and is a ready-made surface |
 | ~~migrations on **representative prior state**~~ | **CLOSED in V01-007** | two cut points only, no assertion about the *content* of a backfill, and foreign keys are not exercised. Those limits are listed in the finding |
-| 82 of 104 org-scoped routes | **UNPROVEN** | `smoke:p08` drives 20 and reads only. No **mutating** cross-tenant call is made anywhere, and no filter, pagination or nested route is substituted |
+| ~~mutating cross-tenant calls~~ | **CLOSED in V01-008's probe** | 11 mutations from another tenant's owner and from a plain member of the same tenant, across role, capability, project, budget and org. 0 of 11 changed state; refusals are 404 for both an existing and an absent id, so there is no existence oracle. **Still open**: list/**filter**, **pagination** and **nested** substitution, and 28 more mutating routes |
+| 82 of 104 org-scoped routes | **partly closed** | 20 read routes in `smoke:p08` plus 11 mutating routes in `verify:mutating-tenancy`. No filter, pagination or nested substitution anywhere |
 | 14 of the 15 repaired audit call sites | **UNPROVEN** | repaired in #39; only some have individual runtime evidence |
 | a **revoked device** driven to a refusal | **UNPROVEN** | `p03` and `p05` mention device revocation; neither attacks it |
 | a revoked session's **refresh** token | **UNPROVEN** | the recovery section proves the session dies; not that its refresh token does |
@@ -145,8 +155,9 @@ blank: it sends the next reader looking for a defect that is not there.
 
 1. ~~Budget: concurrent reservations against a hard ceiling.~~ **Done** — V01-006.
 2. ~~Migrations on representative prior state.~~ **Done** — V01-007.
-3. **Mutating cross-tenant calls**, then filter, pagination and nested routes. The most
-   developed probe in the repository only reads, and this is the largest untouched surface.
+3. ~~Mutating cross-tenant calls.~~ **Done** — V01-008's probe, and it found a high-severity
+   defect on its first run. Still open in this family: **filter**, **pagination** and **nested**
+   substitution, and 28 more mutating routes.
 4. **Inference streaming through a real Worker.** Four `mock://` fault modes exist and have
    never been driven over HTTP; 429, 5xx and malformed chunks additionally need a local fake
    provider, which `allow_local_provider_endpoints` makes reachable in development.
