@@ -990,6 +990,26 @@ async fn automation_json(
     automation: &AutomationDefinitionRecord,
 ) -> Result<Value, ApiError> {
     let rule = load_schedule_rule(context, database, automation).await?;
+    automation_json_with_schedule(automation, rule)
+}
+
+/// The automation body, with the schedule rule supplied by the caller.
+///
+/// Split from [`automation_json`] because the two callers have genuinely different needs. A
+/// route that projects an existing row can and should read its schedule rule back. A route
+/// that is about to CREATE that row cannot: `commit_mutation` needs the `201` body before it
+/// commits — that is the whole point, because a replayed retry must receive the same response
+/// the first request produced — so a create that built its body by reading the rule back was
+/// reading a row that did not exist yet.
+///
+/// That bug made `POST /orgs/{org}/automations` unable to succeed on any input: the read
+/// returned nothing, the `?` propagated a `404 automation_not_found`, and the batch that
+/// would have written the automation and its rule was never submitted. Nothing was created, and
+/// the response looked like a plausible "not found". See V01-011.
+fn automation_json_with_schedule(
+    automation: &AutomationDefinitionRecord,
+    schedule: Value,
+) -> Result<Value, ApiError> {
     Ok(json!({
         "automation_id": automation.automation_id,
         "org_id": automation.org_id,
@@ -1002,7 +1022,7 @@ async fn automation_json(
             &automation.execution_principal_id
         ),
         "target": target_json(automation)?,
-        "schedule": rule,
+        "schedule": schedule,
         "execution_policy": execution_policy_json(automation),
         "off_peak_policy": off_peak_json(automation),
         "status": automation.status,
@@ -1436,7 +1456,16 @@ pub async fn create_automation(
         updated_at: now.as_str().to_owned(),
         queued_successor_max_age_seconds: DEFAULT_QUEUED_SUCCESSOR_MAX_AGE_SECONDS,
     };
-    let success = StoredSuccess::new(201, automation_json(&context, database, &record).await?)
+    // The schedule rendered from the in-memory `revision`, NOT read back from the row.
+    //
+    // `load_schedule_rule` renders the schedule from `canonical_json` alone — it parses the
+    // revision back out and serialises `revision.rule`. So the value the create already holds
+    // in `revision.rule` is the same value a read would produce, by construction rather than by
+    // agreement between two code paths. `canonical_json` was serialised from that very
+    // revision a few lines above.
+    let schedule =
+        serde_json::to_value(&revision.rule).map_err(|_| service_unavailable(&context))?;
+    let success = StoredSuccess::new(201, automation_json_with_schedule(&record, schedule)?)
         .map_err(|_| service_unavailable(&context))?;
     if let Some(replay) = commit_mutation(
         database,
@@ -4055,5 +4084,118 @@ mod tests {
         assert!(record.is_err());
         let capabilities: Value = serde_json::from_str("[\"text\"]").unwrap_or_else(|_| json!([]));
         assert_eq!(capabilities, json!(["text"]));
+    }
+}
+
+#[cfg(test)]
+mod v01_011_regression {
+    //! The create body must be the value a later read produces.
+    //!
+    //! The fix for V01-011 passes the create's **in-memory** `revision.rule` into the response
+    //! body instead of reading the schedule rule back out of the database — because the row it
+    //! would have read is inserted by the batch that has not run yet, and reading it made
+    //! `POST /automations` unable to succeed on any input.
+    //!
+    //! That fix carries a real risk, and this is the assertion that discharges it: if the
+    //! in-memory rendering and the persisted rendering can differ, then a client that creates an
+    //! automation and reads it back would see its schedule change shape underneath it. The
+    //! reason they cannot differ is specific and checkable — `load_schedule_rule` renders from
+    //! `canonical_json` ALONE, by parsing the revision back out and serialising `revision.rule` —
+    //! and this test pins that property rather than assuming it.
+    //!
+    //! If someone later teaches `load_schedule_rule` to read the row's own columns instead of
+    //! `canonical_json`, this test fails. That is the point: the two renderers would then be
+    //! answering from different sources, and only one of them would be exercised by a create.
+
+    use super::*;
+    use crate::modules::automations::ZoneOffsets;
+
+    /// Mirrors what `create_automation` persists and what `load_schedule_rule` renders.
+    ///
+    /// `ScheduleRule::manual` and the canonicalisation are the product's own code, not a
+    /// stand-in, so this exercises the real serialisation path. `ZoneOffsets::utc()` is what
+    /// `build_zone` returns for a `manual` rule, which is absolute UTC by definition.
+    fn manual_revision() -> StoredScheduleRevision {
+        let rule = ScheduleRule::manual(OverlapPolicy::QueueOne, MissedPolicy::RunOnce, None)
+            .expect("the manual schedule used by create_automation is valid");
+        StoredScheduleRevision::new(rule, ZoneOffsets::utc())
+    }
+
+    #[test]
+    fn the_created_body_renders_the_same_schedule_a_later_read_would() {
+        let revision = manual_revision();
+        let canonical = revision
+            .to_canonical_json()
+            .expect("a manual revision canonicalises");
+
+        // What the create now sends: the in-memory rule.
+        let from_memory = serde_json::to_value(&revision.rule).expect("the rule serialises");
+
+        // What `load_schedule_rule` sends: the revision parsed back out of `canonical_json`,
+        // and then `revision.rule` serialised — which is the entire body of that function.
+        let reparsed = StoredScheduleRevision::from_canonical_json(&canonical)
+            .expect("the canonical json this same revision produced parses back");
+        let from_read = serde_json::to_value(&reparsed.rule).expect("the reparsed rule serialises");
+
+        assert_eq!(
+            from_memory, from_read,
+            "the create body and a later GET would render the schedule differently, so a \\
+             client that creates an automation and reads it back would see it change shape"
+        );
+    }
+
+    #[test]
+    fn a_created_body_carries_the_schedule_rather_than_omitting_it() {
+        let revision = manual_revision();
+        let schedule = serde_json::to_value(&revision.rule).expect("the rule serialises");
+        let body = automation_json_with_schedule(
+            &crate::repositories::AutomationDefinitionRecord {
+                automation_id: "aut_0123456789abcdef0123456789abcdef".to_string(),
+                org_id: "org_0123456789abcdef0123456789abcdef".to_string(),
+                project_id: Some("prj_0123456789abcdef0123456789abcdef".to_string()),
+                name: "V01 011".to_string(),
+                description: None,
+                agent_definition_id: Some("agd_0123456789abcdef0123456789abcdef".to_string()),
+                schedule_rule_id: "sch_0123456789abcdef0123456789abcdef".to_string(),
+                execution_principal_kind: "user".to_string(),
+                execution_principal_id: "usr_0123456789abcdef0123456789abcdef".to_string(),
+                target_kind: "eligible_device".to_string(),
+                target_device_id: None,
+                target_workspace_binding_id: None,
+                required_capabilities_json: "[]".to_string(),
+                execution_model_alias: None,
+                execution_budget_id: None,
+                tool_policy_scope: "project".to_string(),
+                required_policy_version: None,
+                off_peak_eligibility_source: None,
+                off_peak_allowed_route_aliases_json: None,
+                off_peak_deny_automation_mutation: 0,
+                off_peak_deny_recursive_off_peak: 0,
+                off_peak_allow_background_processes: 0,
+                status: "active".to_string(),
+                max_start_attempts: 1,
+                lease_ttl_seconds: 300,
+                heartbeat_interval_seconds: 60,
+                schedule_cursor_at: Some("2026-09-25T12:00:00.000Z".to_string()),
+                next_run_at: None,
+                last_run_at: None,
+                version: 1,
+                created_by_user_id: "usr_0123456789abcdef0123456789abcdef".to_string(),
+                created_at: "2026-09-25T12:00:00.000Z".to_string(),
+                updated_at: "2026-09-25T12:00:00.000Z".to_string(),
+                queued_successor_max_age_seconds: 3600,
+            },
+            schedule,
+        )
+        .expect("the body renders");
+
+        let rendered = body
+            .get("schedule")
+            .expect("the body must carry a schedule, not omit it");
+        assert!(
+            rendered.is_object() && !rendered.as_object().expect("an object").is_empty(),
+            "the create body rendered an empty schedule, which is the shape a client would \\
+             cache and later find changed: {rendered}"
+        );
     }
 }

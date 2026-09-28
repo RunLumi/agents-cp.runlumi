@@ -26,7 +26,16 @@
 // `waitForD1` does once before it gives up.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -498,7 +507,21 @@ export class SmokeHarness {
         String(port),
         "--persist-to",
         this.persistDir,
-        "--show-interactive-dev-session=false",
+        // NOT passed: `--show-interactive-dev-session=false` suppresses the Worker's own
+        // console output, so a `console_error!` from inside the Worker never reaches these
+        // pipes. `commit_mutation` and `providers.rs` both log the failing statement's SQLite
+        // error there and nowhere else, so with the flag a 503 is undiagnosable from a probe --
+        // which is the same class of problem as V01-010, one layer out. Omitting it costs a
+        // little console noise and buys the only stream that explains a failure.
+        // `--log-level debug` is what makes a `console_error!` from INSIDE the Worker reach
+        // these pipes. Without it wrangler forwards its own request log and its own banner and
+        // silently drops the Worker's, so `commit_mutation`'s "the commit batch failed"
+        // line — the one place the failing statement's SQLite error is written — is invisible
+        // to every probe. Diagnosing a 503 in this repository is otherwise guesswork, and
+        // V01-010 and V01-011 both hit it.
+        "--log-level",
+        process.env.PROBE_WORKER_LOG_LEVEL ?? "debug",
+        ...(process.env.PROBE_QUIET_WORKER === "1" ? ["--show-interactive-dev-session=false"] : []),
         // Exposes /__scheduled so `triggerSweep` can fire the cron on demand.
         "--test-scheduled",
         ...varArgs,
@@ -511,8 +534,29 @@ export class SmokeHarness {
       },
     );
     let output = "";
+    // The Worker's OWN log, teed to a file the probe can read.
+    //
+    // `workerLog()` returns what wrangler's own stdout/stderr pipes carried, and that is NOT
+    // the same thing as what the Worker logged. A `console_error!` inside the Worker never
+    // appears there under `--show-interactive-dev-session=false`, so a probe cannot see the one
+    // line that names a failing statement. That is not a cosmetic gap: `commit_mutation` and
+    // `providers.rs` both log their failure reasons precisely so the 503 is diagnosable, and a
+    // harness that cannot read them makes the log lines unprovable.
+    //
+    // The file is truncated per run and capped, so it cannot grow without bound across a
+    // campaign that runs dozens of probes.
+    const logFile = join(this.persistDir, "worker-console.log");
+    writeFileSync(logFile, "");
     const capture = (chunk) => {
       output = `${output}${chunk}`.slice(-20_000);
+      try {
+        const text = chunk.toString();
+        const existing = statSync(logFile, { throwIfNoEntry: false })?.size ?? 0;
+        if (existing > 2_000_000) return;
+        appendFileSync(logFile, text);
+      } catch {
+        // A probe that cannot read the console log is a limitation, never a verdict.
+      }
     };
     child.stdout.on("data", capture);
     child.stderr.on("data", capture);
@@ -756,6 +800,25 @@ export class SmokeHarness {
   workerLog() {
     const service = this.services.find((entry) => entry.label === "Worker") ?? this._lastWorker;
     return this.redact(service?.output ?? "").slice(-this.workerLogTail);
+  }
+
+  /**
+   * What the WORKER logged, as opposed to what wrangler's own pipes carried.
+   *
+   * These are different streams, and only this one contains a `console_error!` written from
+   * inside the Worker. That matters because `commit_mutation` and `providers.rs` both log the
+   * failing statement's SQLite error there and nowhere else, so without this a 503 is
+   * undiagnosable from a probe -- and a log line nobody can read is not evidence that it
+   * exists.
+   */
+  workerConsole(tail = 8_000) {
+    try {
+      return this.redact(readFileSync(join(this.persistDir, "worker-console.log"), "utf8")).slice(
+        -tail,
+      );
+    } catch {
+      return "";
+    }
   }
 
   rememberWorker() {

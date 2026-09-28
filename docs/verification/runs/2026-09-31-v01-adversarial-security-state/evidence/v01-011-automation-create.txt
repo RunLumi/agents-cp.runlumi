@@ -1,0 +1,29 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01lease2
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:58513
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-vDc6eM/b3981c4526a2885d6b3970ada670138e1c48a2d8-index_bg.wasm is 1166s newer than src/adapters/providers.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_e8a9737a78d04ff096e2ce3678866fb5
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_aed1e44de6acf1f3deca4350fc641f40
+  PASS  CONTROL: the organization's slug is known, which is how a device enrollment names its org  — slug=v01-lease-mulpuusmbubk
+  PASS  CONTROL: Org A has a real project  — status=201
+  PASS  CONTROL: Org A has a real agent on it  — status=201
+  PASS  CONTROL: enrollment begins for V01 device A  — status=201
+  PASS  CONTROL: the V01 device A enrollment is approved  — status=201
+  PASS  CONTROL: the V01 device A enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 device A enrollment completes with a real device proof  — status=201
+  PASS  CONTROL: enrollment begins for V01 device B  — status=201
+  PASS  CONTROL: the V01 device B enrollment is approved  — status=201
+  PASS  CONTROL: the V01 device B enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 device B enrollment completes with a real device proof  — status=201
+  FAIL  CONTROL: Org A has a real automation  — status=404 reason=automation_not_found (wanted 201) — {"error":{"code":"[redacted]","message":"The requested resource was not found.","request_id":"req_66a7be23cd9f499898c40a36e11c8f96","details":{"reason":"automation_not_found"}}}
+
+21/22 V01 automation-lease cases hold, the automation fixture could not be created, so no contention case is testable
+
+1 case(s) failed:
+  - CONTROL: Org A has a real automation
