@@ -1,50 +1,52 @@
 
-Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01rev2
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01rev5
   PASS  fresh D1 applies the full migration ledger  — 21 migration rows
-  PASS  development Worker is healthy  — http://127.0.0.1:52086
-  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-8CWKrk/abc0fa43653133e0352a0880b92e40ad2f037dcb-index_bg.wasm is 1013s newer than migrations/0021_p02_team_id_check_correction.sql
+  PASS  development Worker is healthy  — http://127.0.0.1:56593
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-THzeAU/b0f0e6ad0b05e517d05648ec62128ba9dfd602dc-index_bg.wasm is 162s newer than src/routes/authorization.rs
   PASS  signup Alice  — status=201
   PASS  verify Alice  — status=200
   PASS  login start Alice  — status=202
   PASS  login complete Alice  — status=200
-  PASS  user Alice has an opaque ID  — usr_8854598d83254a92befcd0d77ee1a3fa
+  PASS  user Alice has an opaque ID  — usr_76d5ef9bf087459eadcd95c515903c58
   PASS  create Alice Org  — status=201
-  PASS  Alice Org organization ID  — org_ee4bcbbd7ac6ffec2b0f730286cc5ab7
-  PASS  CONTROL: the organization's slug is known, so a device can be enrolled against it  — slug=v01-rev-mulv219uh5t4
-  PASS  CONTROL: an enrollment begins  — status=201 body={"enrollment_id":"enr_6cf175b2824b41569c245b21770f5499","user_code":"33cfe162e0f70d37693cff82b1475692d49cd698c67bf85a7c8d8ecde24fd8f7","verification_uri":"/devices","expires_at":"2026-09-28T23:25:49.2
+  PASS  Alice Org organization ID  — org_ed6a858f103ee96de0d00651b1ad8d88
+  PASS  CONTROL: the organization's slug is known, so a device can be enrolled against it  — slug=v01-rev-mulwb7u8cgdo
+  PASS  CONTROL: an enrollment begins  — status=201 body={"enrollment_id":"enr_255f21fd27df4c04a7294382a639af28","user_code":"eca6231024c0fbede80142c8acac6b3a2eb215545c4786d23d47a442b4da9ee8","verification_uri":"/devices","expires_at":"2026-09-29T00:00:56.3
   PASS  CONTROL: the enrollment is approved  — status=201
-  PASS  CONTROL: the enrollment completes and yields a real device token  — status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-09-28T23:10:49.271Z","enrolled_by_user_id":"usr_8854598d83254a92befcd0d77ee1a3fa","id":"dvc_8187a05657d14f2b900a8a0e62e8246c","l
+  PASS  CONTROL: the enrollment completes and yields a real device token  — status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-09-28T23:45:56.405Z","enrolled_by_user_id":"usr_76d5ef9bf087459eadcd95c515903c58","id":"dvc_43be34176ceb4baf829c565c78414704","l
+  anonymous GET /devices/token/nonce (before revocation) -> 401
 
   before revocation:
     GET  /devices/policy        -> 200
     GET  /devices/token/nonce   -> 200 (nonce issued)
     POST /devices/token         -> 200 minted=true
-  PASS  CONTROL: a device-authenticated READ works before revocation  — status=200 body={"expires_at":"2026-09-29T23:10:49.290Z","issued_at":"2026-09-28T23:10:49.290Z","license":{"available":false,"reason":"license_key_unknown","signature_algorithm":"ed25519"},"org_id":"org_ee4bcbbd7ac6f
-  PASS  CONTROL: the device can fetch a nonce and exchange it for a REAL second token before revocation, so a refusal after it is attributable to the revocation  — nonce status=200, refresh status=200, minted=true body={"device_token":"74f10db2bad00b282427b121c163cc7d4a9d0462d81ecfaca46f254e3fc3f0a6","token_expires_at":"2026-09-28T23:25:49.317Z","policy_version":1}
+  PASS  V01-019: a caller with NO credential at all is refused a nonce, before and after any revocation  — an anonymous GET /devices/token/nonce answered 401 body={"error":{"code":"authentication_required","message":"A device token is required.","request_id":"req_2fb5054758304f1991b4b95653d9c75e","details":{"reason":"device_token_expired"}}}; before the fix this route took no HeaderMap and minted server-issued secret material for anyone who asked
+  PASS  the anonymous refusal carries a stable code, and never a nonce  — status=401 code=authentication_required nonce=absent
+  PASS  CONTROL: a device-authenticated READ works before revocation  — status=200 body={"expires_at":"2026-09-29T23:45:56.424Z","issued_at":"2026-09-28T23:45:56.424Z","license":{"available":false,"reason":"license_key_unknown","signature_algorithm":"ed25519"},"org_id":"org_ed6a858f103ee
+  PASS  CONTROL: the device can fetch a nonce and exchange it for a REAL second token before revocation, so a refusal after it is attributable to the revocation  — nonce status=200, refresh status=200, minted=true body={"device_token":"6683c398ca5e11539b97bacd5a0f9508891634609cfeefd4f2a54e1cc6c78969","token_expires_at":"2026-09-29T00:00:56.456Z","policy_version":1}
 
   revocation: status=204
-    stored: device status active -> revoked, revoked_at=2026-09-28T23:10:51.340Z
+    stored: device status active -> revoked, revoked_at=2026-09-28T23:45:59.240Z
     stored: token rows 2 -> 0
-  PASS  CONTROL: the revocation took effect in the DATABASE -- status is revoked and every token row for the device is gone  — status=revoked revoked_at=2026-09-28T23:10:51.340Z token rows 2 -> 0
+  PASS  CONTROL: the revocation took effect in the DATABASE -- status is revoked and every token row for the device is gone  — status=revoked revoked_at=2026-09-28T23:45:59.240Z token rows 2 -> 0
+    anonymous GET /devices/token/nonce (after revocation)  -> 401
+  PASS  V01-019: the anonymous caller is still refused after the revocation, so the refusal is the route's own gate and not a side effect of the device being revoked  — an anonymous GET /devices/token/nonce answered 401 body={"error":{"code":"authentication_required","message":"A device token is required.","request_id":"req_17e0f59a4f2745128887e5a7880864c9","details":{"reason":"device_token_expired"}}}
 
   after revocation:
     GET  /devices/policy (first token)  -> 401
-    GET  /devices/token/nonce (first)   -> 200
-    POST /devices/token (first)         -> 403 minted=false
+    GET  /devices/token/nonce (first)   -> 401
+    POST /devices/token (first)         -> 401 minted=false
     GET  /devices/policy (second token) -> 401
-  PASS  the revoked device is refused: GET /api/v1/devices/policy  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_b1cb364277a04874b481dd721b0f426c","details":{"reason":"device_token_expired"}}}
-  FAIL  the revoked device is refused: GET /api/v1/devices/token/nonce  — status=200 body={"nonce":"0c0aa7ca809b1371fd4d7a5a02a0069556ca6648178e7b2a4bbe8514807e26fc","expires_at":"2026-09-28T23:25:53.517Z"}
-  PASS  the revoked device is refused: POST /api/v1/devices/token  — status=403 body={"error":{"code":"permission_denied","message":"The device has been revoked.","request_id":"req_fdfff5c6c22d44d6a96cabb0bdd847d5","details":{"reason":"device_revoked"}}}
-  PASS  the revoked device is refused: GET /api/v1/devices/policy  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_a1e1bd7f48c44af8a68042f42ec03b8f","details":{"reason":"device_token_expired"}}}
-  PASS  a revoked device cannot MINT a new token: the refresh did not return a device_token even with a real nonce and a real signature  — refresh status=403 minted=false body={"error":{"code":"permission_denied","message":"The device has been revoked.","request_id":"req_fdfff5c6c22d44d6a96cabb0bdd847d5","details":{"reason":"device_revoked"}}} -- if this minted, the revocation rotated the credential instead of ending it
-  PASS  a refusal after revocation is an explicit 4xx with a stable error code, never a 2xx and never a bare 500  — policy=401/authentication_required refresh=403/permission_denied
-  PASS  the refusals do not leak the device's stored detail  — the device id dvc_8187a05657d14f2b900a8a0e62e8246c appears in a refused body, so the refusal discloses which device was presented
+  PASS  the revoked device is refused: GET /api/v1/devices/policy  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_860d5afa55774ee0b74250d9cec24ca5","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/token/nonce  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_1d90fad6ee394769a42b18b4d8bdcd43","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/token/nonce  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_1d90fad6ee394769a42b18b4d8bdcd43","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/policy  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_0b0c1aa29c774be4ae8428b78a4b5b40","details":{"reason":"device_token_expired"}}}
+  PASS  a revoked device cannot MINT a new token: the refresh did not return a device_token even with a real nonce and a real signature  — refresh status=401 minted=false body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_1d90fad6ee394769a42b18b4d8bdcd43","details":{"reason":"device_token_expired"}}} -- if this minted, the revocation rotated the credential instead of ending it
+  PASS  a refusal after revocation is an explicit 4xx with a stable error code, never a 2xx and never a bare 500  — policy=401/authentication_required refresh=401/authentication_required
+  PASS  the refusals do not leak the device's stored detail  — the device id dvc_43be34176ceb4baf829c565c78414704 appears in a refused body, so the refusal discloses which device was presented
 
   mechanism: the device-token lookup does NOT reference the devices table; 1 DELETE FROM device_tokens statement(s) and 1 writer(s) of status = 'revoked' exist in the device repository
   PASS  STRUCTURAL: the device-token lookup does not join devices, so the refusal above is attributable to the token rows being deleted and there is no second status check  — DEVICE_TOKEN_BY_HASH_SQL = "SELECT token_hash, device_id, expires_at, created_at FROM device_tokens WHERE token_hash = ?1 AND device_id = ?2 AND expires_at > ?3 LIMIT 1"
   PASS  STRUCTURAL: revocation and token deletion are coupled -- one statement writes status = 'revoked' and one deletes the tokens, in the same batch  — 1 DELETE FROM device_tokens and 1 status='revoked' writers; any count other than 1 and 1 means the coupling this claim rests on is not what it was read to be
 
-25/26 V01 revoked device cases hold
-
-1 case(s) failed:
-  - the revoked device is refused: GET /api/v1/devices/token/nonce
+29/29 V01 revoked device cases hold

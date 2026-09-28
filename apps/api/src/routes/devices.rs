@@ -654,7 +654,16 @@ pub struct NonceResponse {
 pub async fn token_nonce(
     State(state): State<Arc<AppState>>,
     Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
+    // A nonce is the fresh half of a proof of possession, so issuing one to a party that has proved
+    // nothing is incoherent. This route took no `HeaderMap` at all and authenticated nothing, which
+    // meant it minted server-generated secret material for anonymous callers AND for a revoked
+    // device (V01-019). `authorize_device` checks the token, the enrollment membership, the
+    // organization, and -- since that finding -- the device's own status, so a revoked device is
+    // refused here exactly as it is on every other device route.
+    let _access =
+        crate::routes::authorization::authorize_device(&state, &headers, &context).await?;
     // Binding existence is validated so the route stays unavailable when the
     // D1 binding is missing (consistent with other storage-backed routes).
     database(&state, &context)?;

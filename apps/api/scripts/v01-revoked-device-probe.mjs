@@ -185,6 +185,17 @@ await runProbe("V01 revoked device", async (probe) => {
     };
   };
 
+  // The ANONYMOUS leg, which is the other half of V01-019. Before the fix this route took no
+  // `HeaderMap` at all, so a caller with NO credential received a fresh 64-hex server-issued
+  // secret. The revoked-device leg alone would not have caught that -- a revoked device still
+  // *had* a credential once -- so the two are separate assertions and both are required.
+  const anonymousNonce = () =>
+    request(anonJar(), "GET", "/api/v1/devices/token/nonce", undefined, {});
+  const anonymousBefore = await anonymousNonce();
+  console.log(
+    `  anonymous GET /devices/token/nonce (before revocation) -> ${anonymousBefore.status}`,
+  );
+
   const policyBefore = await readPolicy();
   const refreshBefore = await refresh();
   console.log(
@@ -194,6 +205,20 @@ await runProbe("V01 revoked device", async (probe) => {
       `(nonce ${typeof refreshBefore.nonce === "string" ? "issued" : "absent"})\n` +
       `    POST /devices/token         -> ${refreshBefore.response.status} ` +
       `minted=${refreshBefore.minted}`,
+  );
+  expect(
+    "V01-019: a caller with NO credential at all is refused a nonce, before and after any revocation",
+    anonymousBefore.status >= 400 && anonymousBefore.status < 500,
+    `an anonymous GET /devices/token/nonce answered ${anonymousBefore.status} ` +
+      `body=${probe.brief(anonymousBefore.payload, 200)}; before the fix this route took no ` +
+      `HeaderMap and minted server-issued secret material for anyone who asked`,
+  );
+  expect(
+    "the anonymous refusal carries a stable code, and never a nonce",
+    typeof anonymousBefore.payload?.error?.code === "string" &&
+      typeof anonymousBefore.payload?.nonce !== "string",
+    `status=${anonymousBefore.status} code=${anonymousBefore.payload?.error?.code ?? "none"} ` +
+      `nonce=${typeof anonymousBefore.payload?.nonce === "string" ? "PRESENT" : "absent"}`,
   );
   expect(
     "CONTROL: a device-authenticated READ works before revocation",
@@ -283,6 +308,16 @@ await runProbe("V01 revoked device", async (probe) => {
     "/api/v1/devices/policy",
     undefined,
     secondAuth,
+  );
+  const anonymousAfter = await anonymousNonce();
+  console.log(
+    `    anonymous GET /devices/token/nonce (after revocation)  -> ${anonymousAfter.status}`,
+  );
+  expect(
+    "V01-019: the anonymous caller is still refused after the revocation, so the refusal is the route's own gate and not a side effect of the device being revoked",
+    anonymousAfter.status >= 400 && anonymousAfter.status < 500,
+    `an anonymous GET /devices/token/nonce answered ${anonymousAfter.status} ` +
+      `body=${probe.brief(anonymousAfter.payload, 200)}`,
   );
   console.log(
     `\n  after revocation:\n` +
