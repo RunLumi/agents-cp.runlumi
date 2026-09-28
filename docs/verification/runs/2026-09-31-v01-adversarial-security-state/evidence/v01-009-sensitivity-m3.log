@@ -1,0 +1,67 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-009-scratch/db-m3
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:56553
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-CAKsXD/24e8fbd47103b18a239071603b5dbb4d77f75af9-index_bg.wasm is 67s newer than src/repositories/idempotency.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_3a1aa4b0450744928a9dd13384be15cb
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_95039698231f454aba5798806af837e7
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_8b94e6e973d248efda354d9fa5e898eb
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_aa3228a7ffb738cda23c2e056d7c40bf
+  FAIL  CONTROL: a project is created with a fresh key  — status=503 reason=null (wanted 201) — {"error":{"code":"[redacted]","message":"The usage store is unavailable.","request_id":"req_036ba44303524ff79e8bb3777c6b0564","details":{}}}
+  FAIL  CONTROL: a distinct idempotency key produces a distinct project, so the route honours keys and a replay below means something  — projects 0 -> 0
+  FAIL  the first request with a key succeeds  — status=503 reason=null (wanted 201) — {"error":{"code":"[redacted]","message":"The usage store is unavailable.","request_id":"req_bba054836b434d9cb27cec52993af79e","details":{}}}
+  FAIL  a replayed request creates NO second project: one key with one payload is one side effect  — projects 0 -> 0; rows named 'V01 replayed': 0
+  FAIL  the replay returns the FIRST request's response, byte for byte, which is what makes a client retry safe  — status 503 vs 503; reason=service_unavailable; first_body={"error":{"code":"service_unavailable","message":"The usage store is unavailable.","request_id":"req_bba054836b434d9cb27cec52993af79e","details":{}}}; replay_body={"error":{"code":"service_unavailable","message":"The usage store is unavailable.","request_id":"req_85dd279a841b45f6b56b543a992af465","details":{}}}
+  FAIL  the first request with the conflict key succeeds  — status=503 reason=null (wanted 201) — {"error":{"code":"[redacted]","message":"The usage store is unavailable.","request_id":"req_b09aa3b15e924b21803ff76412f75e04","details":{}}}
+  FAIL  the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite  — status=503 reason=service_unavailable
+  FAIL  the refused conflicting payload created no project, and the first request's project is untouched  — projects 0 -> 0; first=0 second=0
+
+  8 CONCURRENT requests, one key, one payload -> statuses 503
+  FAIL  a burst of 8 concurrent requests with the SAME key and the SAME payload creates exactly ONE project  — projects 0 -> 0; rows named 'V01 burst': 0 (statuses 503)
+  FAIL  every response in the burst is either the first request's replay or an explicit 409, so a retrying client can interpret all of them  — 8 were neither: 503 503 503 503 503 503 503 503
+  6 CONCURRENT requests, ONE key, 6 DIFFERENT payloads -> statuses 503; 0 payload(s) landed
+  FAIL  a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project  — projects 0 -> 0
+  FAIL  exactly one of the conflicting payloads is stored, and no payload is stored twice  — landed: []
+  PASS  signup Member  — status=201
+  PASS  verify Member  — status=200
+  PASS  login start Member  — status=202
+  PASS  login complete Member  — status=200
+  PASS  user Member has an opaque ID  — usr_20dc7d4854084b078f44d3f31b170577
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  FAIL  Alice writes with a key  — status=503 reason=null (wanted 201) — {"error":{"code":"[redacted]","message":"The usage store is unavailable.","request_id":"req_5573d447524d4db58757bca707656b5d","details":{}}}
+  FAIL  CONTROL: the invited member CAN create a project in this org, so the shared-key request below is refused by the key scope and not by membership  — status=503 reason=null (wanted 201) — {"error":{"code":"[redacted]","message":"The usage store is unavailable.","request_id":"req_f881770c2cd14a539a8e73f58ff0c113","details":{}}}
+  FAIL  another principal's use of the SAME key in the same org is not a replay of the first principal's write  — status=503 rows=0 alice_id=undefined member_id=undefined
+  PASS  the same key in another org is refused by the organization boundary, which is a sufficient answer and is reported as such rather than as key-scope evidence  — status=404 rows=0 — the key scope was never consulted, so this case says nothing about it
+
+  projects in the database at the end: 0
+  PASS  no project name appears twice anywhere in the database after the whole campaign, which is the whole claim in one assertion  — 0 projects, all distinct
+
+26/41 V01 idempotency cases hold
+
+15 case(s) failed:
+  - CONTROL: a project is created with a fresh key
+  - CONTROL: a distinct idempotency key produces a distinct project, so the route honours keys and a replay below means something
+  - the first request with a key succeeds
+  - a replayed request creates NO second project: one key with one payload is one side effect
+  - the replay returns the FIRST request's response, byte for byte, which is what makes a client retry safe
+  - the first request with the conflict key succeeds
+  - the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite
+  - the refused conflicting payload created no project, and the first request's project is untouched
+  - a burst of 8 concurrent requests with the SAME key and the SAME payload creates exactly ONE project
+  - every response in the burst is either the first request's replay or an explicit 409, so a retrying client can interpret all of them
+  - a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project
+  - exactly one of the conflicting payloads is stored, and no payload is stored twice
+  - Alice writes with a key
+  - CONTROL: the invited member CAN create a project in this org, so the shared-key request below is refused by the key scope and not by membership
+  - another principal's use of the SAME key in the same org is not a replay of the first principal's write

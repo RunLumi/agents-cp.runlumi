@@ -1,0 +1,50 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01idem4
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:63008
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-pDNanq/93654a8cabe59414d8a936d035953a3c79929ebb-index_bg.wasm is 82s newer than src/routes/projects.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_96f360737f04448da5efecf04bca1627
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_26e5ec5793724bcf998e1ef95f9b17fb
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_687d82afba53c2acd9ca4458ccbd8d30
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_06ffe3b86de2a62495083c3837080f32
+  PASS  CONTROL: a project is created with a fresh key  — status=201
+  PASS  CONTROL: a distinct idempotency key produces a distinct project, so the route honours keys and a replay below means something  — projects 0 -> 1
+  PASS  the first request with a key succeeds  — status=201
+  PASS  a replayed request creates NO second project: one key with one payload is one side effect  — projects 1 -> 2; rows named 'V01 replayed': 1
+  PASS  the replay returns the FIRST request's response, which is what makes a client retry safe  — first id=prj_2d890b0b9e0648deb632adc924e37651 replay id=prj_2d890b0b9e0648deb632adc924e37651 status=201 reason=(no error) first_body_keys=archived,created_at,created_by_user_id,id,name,org_id,slug,updated_at,version,visibility second_body_keys=archived,created_at,created_by_user_id,id,name,org_id,slug,updated_at,version,visibility
+  PASS  the first request with the conflict key succeeds  — status=201
+  PASS  the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite  — status=409 reason=idempotency_conflict
+  PASS  the refused conflicting payload created no project, and the first request's project is untouched  — projects 2 -> 3; first=1 second=0
+
+  8 CONCURRENT requests, one key, one payload -> statuses 201
+  PASS  a burst of 8 concurrent requests with the SAME key and the SAME payload creates exactly ONE project  — projects 3 -> 4; rows named 'V01 burst': 1 (statuses 201)
+  PASS  every response in the burst is either the first request's replay or an explicit 409, so a retrying client can interpret all of them  — all 8 were the replay (8) or a 409 (0)
+  6 CONCURRENT requests, ONE key, 6 DIFFERENT payloads -> statuses 201 409; 1 payload(s) landed
+  PASS  a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project  — projects 4 -> 5
+  PASS  exactly one of the conflicting payloads is stored, and no payload is stored twice  — landed: [{"name":"V01 race 0","rows":1}]
+  PASS  signup Member  — status=201
+  PASS  verify Member  — status=200
+  PASS  login start Member  — status=202
+  PASS  login complete Member  — status=200
+  PASS  user Member has an opaque ID  — usr_a654fde3c55b4cd082a6a8e69155be76
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  Alice writes with a key  — status=201
+  PASS  CONTROL: the invited member CAN create a project in this org, so the shared-key request below is refused by the key scope and not by membership  — status=201
+  PASS  another principal's use of the SAME key in the same org is not a replay of the first principal's write  — status=201 rows=1 alice_id=prj_0ec481b9cbc34e54aab29b041ca57a5b member_id=prj_73d00432b5324fa39e79b9152df92207
+  PASS  the same key in another org is refused by the organization boundary, which is a sufficient answer and is reported as such rather than as key-scope evidence  — status=404 rows=0 — the key scope was never consulted, so this case says nothing about it
+
+  projects in the database at the end: 8
+  PASS  no project name appears twice anywhere in the database after the whole campaign, which is the whole claim in one assertion  — 8 projects, all distinct
+
+41/41 V01 idempotency cases hold

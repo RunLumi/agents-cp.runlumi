@@ -1,0 +1,47 @@
+
+=== baseline: the repaired route must pass the gate
+  baseline PASS (exit 0)
+restored both files (sha256 route=4198d0a3fc37ecbe8f5e924ed72c4dd7f1605d5214c487d7357112c6514b48a7)
+
+=== M1: create_project claims no key - the pre-repair defect, verbatim
+  restored the pre-V01-009 two-batch, unclaimed write
+mutation applied
+  probe exit=1, FAIL lines=5
+  DETECTED  m1
+  DETECTED  m1
+  MISSED    m1
+            expected MISSED: UNIQUE (org_id, slug) produces the single row with or without a claim, so this assertion is satisfied by an unrelated constraint. The payload-varying cases above are what make the difference visible.
+restored both files (sha256 route=4198d0a3fc37ecbe8f5e924ed72c4dd7f1605d5214c487d7357112c6514b48a7)
+
+=== M2: the claim is resolved after the slug pre-condition (the fault I introduced)
+  moved the slug pre-condition ahead of the claim
+mutation applied
+  probe exit=1, FAIL lines=1
+  DETECTED  m2
+restored both files (sha256 route=4198d0a3fc37ecbe8f5e924ed72c4dd7f1605d5214c487d7357112c6514b48a7)
+
+=== M3: the fence leaves the commit batch — the claim stays, only the guard goes
+  commit_success no longer prepares ASSERT_CLAIM_SQL
+mutation applied
+  probe exit=1, FAIL lines=15
+  DETECTED  m3
+  DETECTED  m3
+restored both files (sha256 route=4198d0a3fc37ecbe8f5e924ed72c4dd7f1605d5214c487d7357112c6514b48a7)
+
+=== M4: the stored success carries a different body than the live response
+  the replay now answers a body the live path never sent
+mutation applied
+  probe exit=1, FAIL lines=2
+  DETECTED  m4
+restored both files (sha256 route=4198d0a3fc37ecbe8f5e924ed72c4dd7f1605d5214c487d7357112c6514b48a7)
+
+=== verdicts
+  OK    m1 -> DETECTED
+  OK    m1 -> DETECTED
+  KNOWN m1 -> MISSED, expected and explained
+  OK    m2 -> DETECTED
+  OK    m3 -> DETECTED
+  OK    m3 -> DETECTED
+  OK    m4 -> DETECTED
+
+SENSITIVITY OK — every mutation was detected. The gate can fail.

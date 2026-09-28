@@ -1,0 +1,51 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01idem1
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:60139
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-4qELGA/654513be04f600f0d675f61609a671556323e2a7-index_bg.wasm is 789s newer than src/repositories/budgets.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_ced1e0583f0a4a9596224c6c2ab72d4e
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_1b230bd4da0547a5a3e8f41246bd44da
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_93c9eb738b753499d1419285327bed07
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_0bec0d453eb3d94fcf44680e77fdd077
+  PASS  CONTROL: a project is created with a fresh key  — status=201
+  PASS  CONTROL: a distinct idempotency key produces a distinct project, so the route honours keys and a replay below means something  — projects 0 -> 1
+  PASS  the first request with a key succeeds  — status=201
+  PASS  a replayed request creates NO second project: one key with one payload is one side effect  — projects 1 -> 2; rows named 'V01 replayed': 1
+  FAIL  the replay returns the FIRST request's response, which is what makes a client retry safe  — first id=prj_b711d99738cb48b3b82a45ca19cb8649 replay id=undefined status=409
+  PASS  the first request with the conflict key succeeds  — status=201
+  FAIL  the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite  — status=201 reason=undefined
+  FAIL  the refused conflicting payload created no project, and the first request's project is untouched  — projects 2 -> 4; first=1 second=1
+
+  8 CONCURRENT requests, one key, one payload -> statuses 201 409
+  PASS  a burst of 8 concurrent requests with the SAME key and the SAME payload creates exactly ONE project  — projects 4 -> 5; rows named 'V01 burst': 1 (statuses 201 409)
+  PASS  every response in the burst is either the first request's replay or an explicit 409, so a retrying client can interpret all of them  — all 8 were the replay (1) or a 409 (7)
+  6 CONCURRENT requests, ONE key, 6 DIFFERENT payloads -> statuses 201; 6 payload(s) landed
+  FAIL  a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project  — projects 5 -> 11
+  FAIL  exactly one of the conflicting payloads is stored, and no payload is stored twice  — landed: [{"name":"V01 race 0","rows":1},{"name":"V01 race 1","rows":1},{"name":"V01 race 2","rows":1},{"name":"V01 race 3","rows":1},{"name":"V01 race 4","rows":1},{"name":"V01 race 5","rows":1}]
+  PASS  Alice writes with a key  — status=201
+  FAIL  another principal's use of the SAME key in the same org is not a replay of the first principal's write  — status=404 rows=0 alice_id=prj_36a8ed30b1984459a9ade7a306264d74 bob_id=undefined
+  FAIL  the same key in a DIFFERENT org is not a replay: the organization is part of the claim's scope  — status=404 rows=0
+
+  projects in the database at the end: 12
+  PASS  no project name appears twice anywhere in the database after the whole campaign, which is the whole claim in one assertion  — 12 projects, all distinct
+
+26/33 V01 idempotency cases hold
+
+7 case(s) failed:
+  - the replay returns the FIRST request's response, which is what makes a client retry safe
+  - the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite
+  - the refused conflicting payload created no project, and the first request's project is untouched
+  - a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project
+  - exactly one of the conflicting payloads is stored, and no payload is stored twice
+  - another principal's use of the SAME key in the same org is not a replay of the first principal's write
+  - the same key in a DIFFERENT org is not a replay: the organization is part of the claim's scope

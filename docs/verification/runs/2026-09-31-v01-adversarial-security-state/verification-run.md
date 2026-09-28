@@ -15,6 +15,7 @@ and why it is still missing.
 | **V01-006** concurrent reservations cannot overspend a hard budget | none found | absent evidence | **closed** — 8 for 240 yields 3 grants holding 90; B1 oversells to 240 when the ceiling is neutralised |
 | **V01-007** the migration ledger had only ever been applied to an empty database | none found | absent evidence | **closed** — two populated prior states, 19/19, both mutations detected |
 | **V01-008** every project PATCH was refused with 409, because `SET` and `WHERE` disagreed | **high** | product defect | **closed** — the rename/visibility/archive path had never worked; 3 of 3 mutations detected |
+| **V01-009** four route modules require an `Idempotency-Key` and then discard it, so every retry executes again | **critical** | product defect | **closed for `projects.rs`** — 6 racers on one key made 6 projects, now 1; 41/41, 4 mutations detected; 3 modules open as GAP-005/006 |
 | **V01-002** a verifier measured code that was not on disk | high | verifier defect | **closed** — `buildFreshness()` added so it cannot recur silently |
 | **V01-001** the adoption privacy property is under-specified, and the probe that "proved" it was searching nothing | high (verifier) / gap (spec) | verifier defect + spec gap | **closed** — probe retargeted to the three rules that exist; GAP-001 recorded |
 | **V01-004** three authentication attacks the family names and nothing had ever run | none found | absent evidence | **closed** — 55/55 → 76/76, and one of the three turned out to be testing the wrong condition |
@@ -26,6 +27,7 @@ Three new runtime gates:
 | `pnpm verify:adoption-privacy` | 20/20 | 2 of 2 detected |
 | `pnpm verify:privilege-escalation` | 46/46 | 4 of 4 detected |
 | `pnpm verify:budget-concurrency` | 27/27 | B1, B2 detected; B3 an expected MISSED |
+| `pnpm verify:idempotency` | 41/41 | 4 of 4 detected, 1 KNOWN MISSED with its reason recorded |
 | `pnpm verify:migration-prior-state` | 19/19 | 2 of 2 detected, first attempt |
 | `pnpm verify:mutating-tenancy` | 43/43 | 3 of 3 detected, incl. the V01-008 defect verbatim |
 

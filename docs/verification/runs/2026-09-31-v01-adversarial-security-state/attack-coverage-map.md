@@ -4,18 +4,23 @@ What each required family already has, and what it does not. Built by reading th
 the records: a family counts as covered only when a *runtime* attack exists, and a Rust unit test
 does not count as an attack across a router.
 
-Recalculated from the tree at `de3d559`.
-
+Recalculated from the tree at `875b5ee` plus the V01-009 repair. The previous
+revision of this table was written at `de3d559`, before V01-003 through V01-008, and it
+credited four families with less than they had and one — inference streaming — with exactly
+as little as they still have.
 | family | runtime attack today | what is NOT attacked |
 |---|---|---|
-| Tenant isolation | `smoke:p08` — 20 of 23 driven org-scoped routes, 0 leaks | 82 of 104 org-scoped routes still have no handler-level evidence. No **mutating** cross-tenant call is made at all: every substitution is a GET. No list/**filter** substitution, no **pagination** substitution, no **nested** route. |
-| Authentication | `smoke:passkey` — 55/55 | **wrong ceremony kind** (0 mentions), **identity-link conflict** (0), **recovery with active sessions** (the one "recovery" hit is about last-login-method removal, not recovery). |
-| Client privilege escalation | **none** | No probe anywhere attempts a client-supplied role, permission, `org_id`, or policy version and checks whether the server's authority wins. |
-| Budget / cost | `smoke:p05` — hard-budget denial, correlated reservation, monotonic reconciliation, replay refusal, and **attribution** (it asserts `reservation.org_id`, `reservation.run_id`, `usage.org_id`, `usage.run_id`, `usage.project_id` against the values it seeded) | **Concurrent reservations against a hard ceiling.** The concurrency p05 exercises is `max_concurrent_requests` — a rate limit that denies the second of two simultaneous requests. That is not the same claim as two concurrent requests each passing the budget check and collectively exceeding `limit_minor`, which nothing attacks. |
-| Inference streaming | Rust unit tests (`p09_failure_tests`) | No HTTP-level provider-fault attack. 429 / 5xx / malformed chunk / timeout / client disconnect are not driven through a real Worker. |
-| Idempotency / races | `smoke:p05`, `guard:probe` (13/13) | Concurrent same-key requests, and automation **lease contention** (1 mention, not a contention test). |
-| D1 / migrations | `schema:p07` 125/125, `p08:invariants` 17/17, `verify:restore` | **Representative prior state** — every run is a fresh database. A migration that only works on empty tables is not tested. |
-| Adoption / privacy | `p08:invariants` at the **durable schema** layer | The **API and parser** layer is unattacked. The schema refuses a free-text telemetry reason and one containing a path; nothing shows what the *client* is told when the API accepts one and the batch then refuses it. |
+| Tenant isolation | `smoke:p08` 47/47 (read) · `verify:mutating-tenancy` 43/43 (**write**, graded on stored state) | **Filter, pagination and nested substitution** are unattacked, and 28 org-scoped routes beyond the 11 driven. The positive control is what found V01-008, so every remaining route needs one. |
+| Authentication | `smoke:passkey` **76/76** | A revoked **device** driven to a refusal; whether a revoked session's refresh token dies with it; the reauth grant's own ceremony kind. |
+| Client privilege escalation | `verify:privilege-escalation` **46/46** over 7 field classes, graded on stored state | 4 of 4 mutations detected. M4 found a **critical** co-owner escalation. GAP-004 remains: `schema:bind-count` proves arithmetic, not correspondence. |
+| Budget / cost | `smoke:p05` + `verify:budget-concurrency` **27/27** — the ceiling is **measured** | Usage attribution to org/project/principal/**run**, and whether upstream dispatch was *called* — instrumented nowhere. |
+| Inference streaming | Rust unit tests (`p09_failure_tests`) | **Unchanged and the largest single gap.** No HTTP-level provider-fault attack: 429, 5xx, malformed chunk, timeout, client disconnect, emit-then-fail. Four `mock://` fault modes exist and have never been driven over HTTP. |
+| Idempotency / races | `verify:idempotency` **41/41** — replay, incompatible payload, 6 and 8 concurrent on one key, cross-principal key reuse, all graded on **row counts read from D1** | Automation **lease contention** (`ux_automation_leases_active` is a partial unique index and the claim runs in the sweep — the budget-ceiling shape again) and **outbox/webhook retry** side effects. Optimistic concurrency is covered by `verify:mutating-tenancy`. |
+| D1 / migrations | `schema:p07` 125/125, `p08:invariants` 17/17, `verify:restore`, `verify:migration-prior-state` **19/19** on **populated** prior state | Only two cut points, no assertion about a backfill's *content*, foreign keys not exercised. |
+| Adoption / privacy | `verify:adoption-privacy` **20/20** across 8 content classes, at the API **and** the durable schema | GAP-001: adoption *identifiers* may carry user content and no MUST forbids it. That is a spec gap, not a code gap. |
+
+**Six of eight families now have a gate whose failure has been watched.** The map is
+recalculated at `875b5ee` + the V01-009 repair.
 
 ## CORRECTION — this map was wrong about budgets, and the error is instructive
 

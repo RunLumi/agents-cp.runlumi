@@ -55,17 +55,28 @@ widens what a single security check can authorise, the other reuses an existing 
 behind a correct-looking test. Nothing attacks the *routes*: can the last owner be demoted,
 removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner-actor class to
 `verify:privilege-escalation` that tries to end with zero active owners.
-
 ## Unattacked, by family
+
+Refreshed after V01-009. Six of the eleven families are now closed or partly closed; the
+table below says what is still missing **now**, not what was missing when this list was
+first written.
 
 | # | family | what is missing | why it is next |
 |---|---|---|---|
-| 1 | client privilege escalation | **no runtime attack at all.** No probe anywhere attempts a client-supplied role, permission, `org_id`, policy version, or model alias and checks whether the server's authority wins. | A whole Tier-0 family with zero attacks. VFY-011 was exactly this class of defect and was found by accident. |
-| 2 | budget / cost | usage attribution to org/project/principal/run: 0 mentions. Concurrent overspend: 0 mentions. Whether upstream dispatch was *called* is instrumented nowhere. | Money, and neither claim has been touched. |
-| 3 | authentication | **closed in V01-004** — wrong ceremony kind (both directions, with a control), identity-link conflict, and recovery with active sessions all now have runtime evidence. `smoke:passkey` is 75/75, up from 55/55. Still open: a **revoked device** driven to a refusal, whether a revoked session's **refresh** token dies with it, and the reauth grant's own ceremony kind. | The three named attacks are done; three adjacent claims are not. |
-| 4 | inference streaming | provider faults are unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker: 429, 5xx, malformed chunk, timeout, client disconnect. | A unit test is not an attack across a router. |
-| 5 | ~~D1 / migrations~~ | **closed in V01-007** — 0015 (the ledger seeds rows by design) and 0019 with stored idempotency claims, 19/19, both mutations detected. Still open: only two cut points, no assertion about a backfill's *content*, foreign keys not exercised | |
-| 6 | tenant isolation | 82 of 104 org-scoped routes have no handler-level evidence, and **no mutating cross-tenant call is made at all** — every substitution is a GET. No filter, no pagination, no nested route. | The most developed probe in the repo, and it only reads. |
+| 1 | ~~client privilege escalation~~ | **closed in V01-003** — 46/46 over 7 field classes (org, project, role, policy version, model alias/route, tool capability, entitlement/budget, credential id), graded on the **stored state** and not the status, 4 of 4 mutations detected. M4 was a critical co-owner escalation the probe found by measuring what was stored rather than what was answered. | closed |
+| 2 | ~~budget / cost~~ | **the ceiling closed in V01-006** — 27/27, 8 simultaneous reservations for 240 against a limit of 100 grant 3 holding 90, measured not inferred. **Still missing:** usage attribution to org/project/principal/**run**, and whether upstream dispatch was *called* is instrumented nowhere. | Money, and the remaining half is attribution rather than the ceiling. |
+| 3 | ~~authentication~~ | **closed in V01-004** — wrong ceremony kind both ways with a control, identity-link conflict, recovery with active sessions; `smoke:passkey` 55/55 -> 76/76. Still open: a revoked **device** driven to a refusal, whether a revoked session's **refresh** token dies with it, the reauth grant's own ceremony kind. | three of nine cases, then the rest |
+| 4 | inference streaming | provider faults are unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker: **429, 5xx, malformed chunk, timeout, client disconnect**, and emit-content-then-fail. Four `mock://` fault modes exist and have never been driven over HTTP. | A unit test is not an attack across a router. |
+| 5 | ~~D1 / migrations~~ | **closed in V01-007** — 0015 and 0019 with stored idempotency claims, 19/19, both mutations detected first attempt. Still open: only two cut points, no assertion about a backfill's *content*, foreign keys not exercised. | mostly closed |
+| 6 | ~~tenant isolation~~ | **mutating half closed in V01-008** — 43/43, 11 mutations across role, capability, project, budget and org, graded on stored state, with a per-route positive control. **Still missing and untouched:** filter, pagination and **nested** substitution, and the 28 org-scoped routes beyond the 11 driven. | the largest untouched surface |
+| 7 | idempotency / races | **the three required cases with no attack anywhere are now closed in V01-009** — same key + incompatible payload, concurrent same-key (6 and 8, one and different payloads), and a key reused by a different principal, all graded on row counts read from D1. **Still missing:** automation **lease contention** (`ux_automation_leases_active` is a partial unique index and the claim runs in the sweep, so it is the budget-ceiling shape again and has never been measured), and **outbox/webhook retry** side effects. | the same shape as V01-006, one layer down |
+
+## New gaps recorded by V01-009
+
+| # | gap | what it is | why it is not a patch |
+|---|---|---|---|
+| GAP-005 | `devices.rs` and `foundation_checks.rs` also require an `Idempotency-Key` and ignore it | the same defect as V01-009 on two further route modules, found by reading for the pattern rather than by an attack | they need their own probe to know whether their side effects compose safely into one batch. Copying `projects.rs`'s repair would be assuming the answer. `foundation_checks` is development-only, so its severity is lower. |
+| GAP-006 | `organizations.rs` invitations use a read-then-write on a deterministic identifier | `find_invitation` after deriving `invitation_id` from the key. A **race**, not an absence — correct in sequence, wrong under concurrency, which is the budget-ceiling shape | it has not been attacked concurrently. Replacing a proven-in-sequence mechanism with an unproven one without an attack would be the wrong repair. |
 
 ## Done in V01, for the record
 

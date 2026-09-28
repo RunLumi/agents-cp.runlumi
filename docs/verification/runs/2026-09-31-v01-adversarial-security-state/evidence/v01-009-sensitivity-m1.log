@@ -1,0 +1,57 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-009-scratch/db-m1
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:55914
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-rrBQ7B/a53080bdc0a2af36ea0514751ccd7343ea5041e0-index_bg.wasm is 67s newer than src/routes/projects.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_a5f06f8827d444c5ad900f21e035f280
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_c83727163c7c47eca3c18c8466dc6902
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_8099e2e042edba5cd13ae9ebb4fa44ac
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_a2914809198f4e57c8e3ff091a98b939
+  PASS  CONTROL: a project is created with a fresh key  — status=201
+  PASS  CONTROL: a distinct idempotency key produces a distinct project, so the route honours keys and a replay below means something  — projects 0 -> 1
+  PASS  the first request with a key succeeds  — status=201
+  PASS  a replayed request creates NO second project: one key with one payload is one side effect  — projects 1 -> 2; rows named 'V01 replayed': 1
+  FAIL  the replay returns the FIRST request's response, byte for byte, which is what makes a client retry safe  — status 201 vs 409; reason=project_slug_conflict; first_body={"archived":false,"created_at":"2026-09-28T18:55:25.036Z","created_by_user_id":"usr_a5f06f8827d444c5ad900f21e035f280","id":"prj_479d6393823c469bb15ce86a08ac4436","name":"V01 replayed","org_id":"org_8099e2e042edba5cd13ae9ebb4fa44ac","slug":"; replay_body={"error":{"code":"conflict","message":"A project with this slug already exists.","request_id":"req_a81bf0dd4e4948acb4a2973a8ecef61d","details":{"reason":"project_slug_conflict"}}}
+  PASS  the first request with the conflict key succeeds  — status=201
+  FAIL  the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite  — status=201 reason=undefined
+  FAIL  the refused conflicting payload created no project, and the first request's project is untouched  — projects 2 -> 4; first=1 second=1
+
+  8 CONCURRENT requests, one key, one payload -> statuses 201 409
+  PASS  a burst of 8 concurrent requests with the SAME key and the SAME payload creates exactly ONE project  — projects 4 -> 5; rows named 'V01 burst': 1 (statuses 201 409)
+  PASS  every response in the burst is either the first request's replay or an explicit 409, so a retrying client can interpret all of them  — all 8 were the replay (1) or a 409 (7)
+  6 CONCURRENT requests, ONE key, 6 DIFFERENT payloads -> statuses 201; 6 payload(s) landed
+  FAIL  a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project  — projects 5 -> 11
+  FAIL  exactly one of the conflicting payloads is stored, and no payload is stored twice  — landed: [{"name":"V01 race 0","rows":1},{"name":"V01 race 1","rows":1},{"name":"V01 race 2","rows":1},{"name":"V01 race 3","rows":1},{"name":"V01 race 4","rows":1},{"name":"V01 race 5","rows":1}]
+  PASS  signup Member  — status=201
+  PASS  verify Member  — status=200
+  PASS  login start Member  — status=202
+  PASS  login complete Member  — status=200
+  PASS  user Member has an opaque ID  — usr_e0d76913eec14a38a4010401331efa55
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  Alice writes with a key  — status=201
+  PASS  CONTROL: the invited member CAN create a project in this org, so the shared-key request below is refused by the key scope and not by membership  — status=201
+  PASS  another principal's use of the SAME key in the same org is not a replay of the first principal's write  — status=201 rows=1 alice_id=prj_8263e252cd9a49a18249561f93c60978 member_id=prj_8a7f726573ba415aab3cbed889a23de1
+  PASS  the same key in another org is refused by the organization boundary, which is a sufficient answer and is reported as such rather than as key-scope evidence  — status=404 rows=0 — the key scope was never consulted, so this case says nothing about it
+
+  projects in the database at the end: 14
+  PASS  no project name appears twice anywhere in the database after the whole campaign, which is the whole claim in one assertion  — 14 projects, all distinct
+
+36/41 V01 idempotency cases hold
+
+5 case(s) failed:
+  - the replay returns the FIRST request's response, byte for byte, which is what makes a client retry safe
+  - the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite
+  - the refused conflicting payload created no project, and the first request's project is untouched
+  - a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project
+  - exactly one of the conflicting payloads is stored, and no payload is stored twice

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use crate::{
     adapters::new_resource_id,
     app::AppState,
-    core::{ApiError, ApiErrorCode, RequestContext},
+    core::{ApiError, ApiErrorCode, RequestContext, StoredSuccess},
     http::auth::require_csrf,
     modules::{
         authorization::Permission,
@@ -28,10 +28,15 @@ use crate::{
     },
     repositories::{AiRepository, ProjectGrantRecord, ProjectRepository},
     routes::{
+        agents::replay_response,
         ai_catalog,
         authorization::authorize_org,
         errors,
         support::{database, database_error, domain_error, idempotency_key, outbox_statement},
+        usage::{
+            PreparedScopedMutation, ScopedMutationCommit, commit_scoped_mutation,
+            prepare_scoped_mutation,
+        },
     },
 };
 
@@ -199,7 +204,11 @@ pub async fn create_project(
     )
     .await?;
     require_csrf(&headers, &access.session, &context).await?;
-    idempotency_key(&headers, &context)?;
+    // The key is CLAIMED, not merely checked. This call used to validate the header and
+    // discard the string, so every retry created a second project while the API answered
+    // `400 idempotency_key_required` when the header was absent — telling clients their
+    // retries were safe when they were not. See V01-009.
+    let key = idempotency_key(&headers, &context)?;
     let name = validate_project_name(&body.name).map_err(|_| {
         validation_error(
             &context,
@@ -223,12 +232,43 @@ pub async fn create_project(
         })?,
     };
     let database = database(&state, &context)?;
+    // The key is resolved BEFORE every pre-condition, and that order is the whole point.
+    //
+    // Checking the slug first looks tidier and is wrong: a genuine retry re-sends the
+    // payload the first request already created, so the pre-condition answers
+    // `409 project_slug_conflict` and the client never receives the response it is
+    // retrying for. The claim is the only thing that can distinguish "you already sent
+    // this exact request" from "you sent a different request that happens to want the
+    // same slug", and it can only do that when it is consulted first.
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "POST",
+        &format!("/api/v1/orgs/{org_id}/projects"),
+        &json!({
+            "name": name,
+            "slug": slug,
+            "visibility": visibility.as_str(),
+        }),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
     if ProjectRepository::new(database)
         .project_slug_count(org_id.as_str(), &slug)
         .await
         .map_err(|error| database_error(&context, error))?
         > 0
     {
+        // The claim goes back, so the client's next attempt with this key is answered
+        // `project_slug_conflict` again rather than `idempotency_in_progress` for the
+        // length of the TTL.
+        claim.release(database, &context).await;
         return Err(deny(
             &context,
             ApiErrorCode::Conflict,
@@ -250,15 +290,6 @@ pub async fn create_project(
             &context.received_at,
         )
         .map_err(|error| database_error(&context, error))?;
-    database
-        .batch(vec![insert])
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    let project = ProjectRepository::new(database)
-        .find_project(&project_id)
-        .await
-        .map_err(|_| service_unavailable(&context))?
-        .ok_or_else(|| service_unavailable(&context))?;
     let event = outbox_statement(
         database,
         &context,
@@ -267,11 +298,64 @@ pub async fn create_project(
         "project.created.v1",
         &json!({ "project_id": project_id, "visibility": visibility.as_str() }),
     )?;
-    database
-        .batch(vec![event])
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    Ok((StatusCode::CREATED, Json(project_json(&project))).into_response())
+    // The insert, the outbox row and the claim's completion go in ONE batch, with the
+    // claim's guard ahead of the business write. That is what makes a duplicate
+    // impossible rather than merely unlikely: a worker that lost the race has its guard
+    // row rejected by `idempotency_records.principal_id NOT NULL`, the whole transaction
+    // rolls back, and its project never lands.
+    //
+    // The stored success is the SAME value the live path returns, built from the same
+    // inputs the insert binds, so a replayed retry receives a byte-identical body. A
+    // replay that answered a different shape from the original would be a second defect
+    // hidden inside the fix for the first.
+    let response = project_create_json(
+        &project_id,
+        org_id.as_str(),
+        &name,
+        &slug,
+        visibility.as_str(),
+        access.principal.user_id.as_str(),
+        context.received_at.as_str(),
+    );
+    let success =
+        StoredSuccess::new(201, response.clone()).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![insert], event).await? {
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+        ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
+            Ok((StatusCode::CREATED, Json(response)).into_response())
+        }
+    }
+}
+
+/// The 201 body of `create_project`, built from the same values the insert binds.
+///
+/// `INSERT_PROJECT_SQL` pins `version = 1`, `archived_at = NULL`, and
+/// `created_at = updated_at = ?8`, which is `now` — the same `context.received_at` the
+/// repository binds. Constructing the body here rather than re-reading the row is what
+/// makes the stored success and the live response the same value by construction rather
+/// than by two code paths agreeing today.
+#[allow(clippy::too_many_arguments)]
+fn project_create_json(
+    project_id: &str,
+    org_id: &str,
+    name: &str,
+    slug: &str,
+    visibility: &str,
+    created_by_user_id: &str,
+    now: &str,
+) -> Value {
+    json!({
+        "id": project_id,
+        "org_id": org_id,
+        "name": name,
+        "slug": slug,
+        "visibility": visibility,
+        "archived": false,
+        "version": 1,
+        "created_by_user_id": created_by_user_id,
+        "created_at": now,
+        "updated_at": now,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -905,4 +989,65 @@ pub async fn org_policy(
         }
     }
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repositories::ProjectRecord;
+
+    /// The create body is constructed rather than read back, because the stored success and
+    /// the live response must be the same value. This asserts the construction agrees with
+    /// the projection a re-read would produce, so a change to `INSERT_PROJECT_SQL` cannot
+    /// silently make a replayed retry answer a different shape from the original.
+    #[test]
+    fn created_project_body_matches_the_row_it_would_read_back() {
+        let constructed = project_create_json(
+            "prj_0123456789abcdef0123456789abcdef",
+            "org_0123456789abcdef0123456789abcdef",
+            "Ops",
+            "ops",
+            "org",
+            "usr_0123456789abcdef0123456789abcdef",
+            "2026-09-25T12:00:00.000Z",
+        );
+        let record = ProjectRecord {
+            project_id: "prj_0123456789abcdef0123456789abcdef".to_string(),
+            org_id: "org_0123456789abcdef0123456789abcdef".to_string(),
+            name: "Ops".to_string(),
+            slug: "ops".to_string(),
+            visibility: "org".to_string(),
+            archived_at: None,
+            default_model_route: None,
+            version: 1,
+            created_by_user_id: "usr_0123456789abcdef0123456789abcdef".to_string(),
+            created_at: "2026-09-25T12:00:00.000Z".to_string(),
+            updated_at: "2026-09-25T12:00:00.000Z".to_string(),
+        };
+        assert_eq!(
+            constructed,
+            project_json(&record),
+            "the constructed create body diverged from the projection of the row the \
+             insert produces, so a replayed retry would answer a different shape"
+        );
+    }
+
+    /// `INSERT_PROJECT_SQL` pins `version = 1`, `archived_at = NULL` and
+    /// `created_at = updated_at = ?8`. If that changes, the create body is wrong, and this
+    /// fails on the SQL text rather than waiting for a probe to notice.
+    #[test]
+    fn the_project_insert_pins_the_values_the_create_body_assumes() {
+        let sql = include_str!("../../src/repositories/projects.rs");
+        let statement = sql
+            .split("const INSERT_PROJECT_SQL")
+            .nth(1)
+            .and_then(|rest| rest.split("r#\"").nth(1))
+            .and_then(|rest| rest.split("\"#").next())
+            .expect("INSERT_PROJECT_SQL is present");
+        assert!(
+            statement.contains("NULL, ?6, 1, ?7, ?8, ?8"),
+            "the insert no longer pins archived_at=NULL, version=1, created_at=updated_at=now \
+             the way the create body assumes: {statement}"
+        );
+    }
 }

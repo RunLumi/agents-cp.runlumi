@@ -309,6 +309,7 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm verify:adoption-privacy` | eight content classes — prompt, POSIX and Windows path, private-key body, API key, conversation history, MCP secret, arbitrary note — against every adoption write surface, proving nothing reaches `security_events` and that a path is refused at the API as well as in the database | nothing; it starts its own D1 and Worker |
 | `pnpm verify:budget-concurrency` | a hard budget's ceiling holds under concurrency: 8 simultaneous reservations for 240 against a limit of 100 grant 3 and hold 90, a released hold returns its capacity, and a denied request can then reserve it. The atomicity is **measured**, not inferred from the SQL being one statement | nothing; it starts its own D1 and Worker |
 | `pnpm verify:mutating-tenancy` | the **write** half of tenant isolation, which every other gate only reads: 11 mutations from another organization's owner and from a plain member of the same one, across role, capability, project, budget and org. Graded on the **stored state** read from D1, because the handler this probe exists for answers 200 and passes every status-based gate. Includes a per-route **positive control** — a probe in which every body is malformed would otherwise report a perfect sheet, and the control is what found the never-working project PATCH (V01-008) | nothing; it starts its own D1 and Worker |
+| `pnpm verify:idempotency` | that a retried mutation is still ONE mutation: a replayed request returns the first response, a same-key different-body is a conflict, and 6 or 8 *simultaneous* requests on one key create exactly one row. Graded on **row counts read from D1**, never on status, and every case carries a control proving the route honours keys at all | nothing; it starts its own D1 and Worker |
 | `pnpm verify:migration-prior-state` | the ledger applies to **populated** tables, not empty ones: the rows 0015 seeds by design survive 0016–0021, a stored idempotency claim survives 0020's rewrite, and `p08-invariants` still reports 17/17 on that path. Every existing migration gate starts from zero rows, and that is how `teams` stayed unwritable while all of them were green | nothing; ~60s |
 | `pnpm schema:bind-count` | every `prepare()` binds as many values as its SQL has placeholders, so D1 cannot reject a statement at execution time | nothing |
 | `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
@@ -363,6 +364,7 @@ proof, and each proof is rerunnable:
 | `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected — plus campaign case `GUARD-2`, which reverts `is_guard_abort` to the pre-VFY-004 substring matcher. The probe verifies the list behaviourally against real SQLite and the function's use of the list structurally; it does not execute the Rust function, so run-time evidence for the match itself comes from `smoke:p05` and `GUARD-1` |
 | `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
 | `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
+| `verify:idempotency` | `evidence/v01-009-sensitivity.sh` — four mutations, all detected. M1 re-introduces the pre-repair defect verbatim; M2 re-introduces the ordering fault the repair itself introduced; M3 removes **only** the guard statement, leaving the claim, the scope, the fingerprint and the `UNIQUE` constraint all intact, and reports 15 failing cases; M4 returns a stored body that differs from the live one. One honest **KNOWN MISSED** is recorded rather than dropped: the 8-way same-payload burst is satisfied by `UNIQUE (org_id, slug)` with or without a claim, which is the whole reason the payload-varying case is the one that finds the defect |
 | `smoke:p08` | `verify:mutation` case *"a project grant list is served without the project being org-scoped"* — the handler's organization check removed while **every SQL statement stays unchanged and correctly classified**. It is the only `VI-TEN-001` case that removes nothing from SQL, which is the whole point: the two cases above it drop a predicate from a statement, the tenant audit sees those, and it cannot see this |
 | `verify:privilege-escalation` | `evidence/v01-003-sensitivity.sh` — four cases, all detected. M4 re-introduces the critical co-owner defect verbatim and the probe reports `403 REFUSED → 200 ESCALATED`; the run verifies the source returned to its **snapshot**, not to `HEAD`, because the repair is itself an uncommitted change and "differs from HEAD" cannot tell a failed restore from a repair |
 | `verify:adoption-privacy` | `evidence/v01-001-sensitivity.sh` — M1 removes the path refusal at the API and M2 copies the client's workspace key into the audit row; both detected |
@@ -384,6 +386,23 @@ evidence behind it, and all three of them **trusted** as MISSED rather than susp
   faults stayed compiled in — while the script printed `RESTORE FAILED` and the grades carried on;
 - `set -uo pipefail`, which does not abort, so three mutations whose asserts failed reported three
   MISSED verdicts for runs that never happened.
+
+A fourth round of the same shape turned up while `verify:idempotency` was being proven, and it
+generalises into a rule: **a sensitivity harness must not be able to report a verdict for a run it
+did not perform.** Three ways it did, all in one script. A mutation that did not compile left the
+probe exiting **2**, and the harness counted that as MISSED — the exit-1-is-the-product /
+exit-2-is-the-harness distinction read backwards, so "the gate did not detect it" was really
+"nothing was measured". An `exit 1` in the middle of a mutation skipped the restore, so the next
+run's snapshot faithfully captured a faulted tree and the repository was left not compiling;
+restoration is now an `EXIT` trap, not a line at the end of a case. And `set -u` aborting a helper
+on an unbound optional argument left an **empty verdict list** that the trap reported as exit
+**0** — success, for a run that never finished. So: build explicitly and abort on failure, restore
+in a trap, and treat an empty verdict list as a failure.
+
+Separately, a mutation can be *weak* rather than the harness broken. One returned a stored body
+that kept `id` and dropped everything else, and passed only because the assertion compared `id`
+alone — the same "satisfied by an unrelated property" trap as `UNIQUE (org_id, slug)` doing
+idempotency's job by accident, caught from the other direction.
 
 The third is why a sensitivity harness needs `set -e` **and** an explicit check that the file it
 mutated actually changed. The one V01 harness written with both from the start worked first time.

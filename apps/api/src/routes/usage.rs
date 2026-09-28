@@ -94,6 +94,38 @@ pub(crate) enum PreparedScopedMutation {
     Claim(ScopedMutationClaim),
 }
 
+impl ScopedMutationClaim {
+    /// Give the key back when the request will never complete.
+    ///
+    /// A pre-condition decided entirely from state the server already has -- a slug that
+    /// is already taken, a name that fails a rule -- rejects the request without writing
+    /// anything. Leaving the claim `pending` in that case means every later retry of the
+    /// same key is answered `idempotency_in_progress` for the length of the TTL, which is
+    /// a false statement: nothing is in progress. Releasing lets the client's own retry
+    /// get the honest answer again.
+    ///
+    /// Best effort, and deliberately so. A failed release must not turn a clean rejection
+    /// into a 503; the claim expires on its own, which is slower but still correct.
+    pub(crate) async fn release(
+        self,
+        database: &crate::adapters::d1::D1Adapter,
+        context: &RequestContext,
+    ) {
+        if let Err(error) = IdempotencyRepository::new(database)
+            .release_pending_claim(&self.record, &self.token)
+            .await
+        {
+            report_error(
+                context,
+                &format!(
+                    "release_idempotency_claim: the claim could not be released and will \
+                     expire instead; error={error:?}"
+                ),
+            );
+        }
+    }
+}
+
 /// Look up/claim an idempotency key for a tenant-scoped mutation.  The
 /// fingerprint is derived from the normalized command, never from a raw body.
 #[allow(clippy::too_many_arguments)]
