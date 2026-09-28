@@ -173,6 +173,10 @@ const REVIEWED_LITERALS = [
     file: "apps/web/src/features/identity/one-time-secret.test.tsx",
     why: "A fixture inside a Vitest file, asserting the reducer's storage invariants.",
   },
+  {
+    file: "apps/api/scripts/v01-adoption-privacy-probe.mjs",
+    why: "The adoption/privacy attack needs a private-key-shaped payload, because refusing one IS the case: the probe POSTs it to every adoption write surface and then proves, by reading D1 rather than by trusting a status code, that no payload class reaches the audit trail. The value is synthetic and is prefixed FILEX so it cannot be mistaken for a credential. Weakening the payload to satisfy this canary would delete the attack instead of recording a judgement, which is the opposite of what a secret scan is for.",
+  },
 ];
 
 // --- Corpus helpers ---------------------------------------------------------

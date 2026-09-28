@@ -26,7 +26,7 @@
 // `waitForD1` does once before it gives up.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -322,6 +322,15 @@ export class SmokeHarness {
     }
   }
 
+  /**
+   * Rows from one D1 statement.
+   *
+   * D1 refuses a result set wider than 100 columns -- 100 is accepted, 101 returns
+   * "too many columns in result set". Measured against the `wrangler` binary this
+   * harness uses; `npx wrangler` is blocked in this repository by `pkg-age-guard`, so
+   * a limit measured with it is a measurement of the guard. Compound SELECT is not
+   * restricted. A probe that needs a wide single-row aggregate must chunk.
+   */
   async d1Rows(sql, label) {
     const output = this.runWrangler(
       [
@@ -527,6 +536,113 @@ export class SmokeHarness {
    * evidence. A diagnostic that deletes its own state makes every future run
    * start over.
    */
+  /**
+   * Is the Worker about to be served built from the source on disk right now?
+   *
+   * Nothing else in this harness establishes this, and getting it wrong does not look
+   * like an error -- it looks like a result.
+   *
+   * Found by V01-001. A sensitivity run applies a fault, builds, drives the probe, then
+   * undoes the fault by moving a saved copy back over the file. `mv` preserves the
+   * saved copy's mtime, which is the mtime from *before* the fault was applied -- so
+   * after the restore the source looks older than the artifact built from it, the build
+   * tool declines to rebuild, and the next probe run measures the FAULTED binary while
+   * reading source that says otherwise. Observed directly: the adoption privacy probe
+   * reported five payload classes leaked into the audit trail against a tree where
+   * `git status` was clean, because the previous run's fault was still compiled in.
+   *
+   * Read as a product defect, that is a serious false positive. Read as what it was, it
+   * is the failure the whole campaign is about: a verdict with no evidence behind it.
+   *
+   * The fix has two halves and both are needed. Reverting with `cp` rather than `mv`
+   * gives the file a fresh mtime, so the next build happens. This check is the other
+   * half: it makes "the code under test is the code on disk" a verified property rather
+   * than an assumption, so a stale artifact is reported instead of believed.
+   */
+  buildFreshness() {
+    const newest = (dir, filter) => {
+      let newestMtime = 0;
+      let newestFile = "";
+      const walk = (current) => {
+        let entries;
+        try {
+          entries = readdirSync(current, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (
+            entry.name === "target" ||
+            entry.name === "node_modules" ||
+            entry.name.startsWith(".")
+          ) {
+            continue;
+          }
+          const full = join(current, entry.name);
+          if (entry.isDirectory()) {
+            walk(full);
+            continue;
+          }
+          if (filter && !filter(full)) continue;
+          const mtime = statSync(full).mtimeMs;
+          if (mtime > newestMtime) {
+            newestMtime = mtime;
+            newestFile = full;
+          }
+        }
+      };
+      walk(dir);
+      return { mtime: newestMtime, file: newestFile };
+    };
+
+    const source = newest(apiDir, (f) => /\.(rs|toml)$/.test(f) && !f.includes("/build/"));
+    const migrations = newest(join(apiDir, "migrations"));
+    const newestSource = source.mtime > migrations.mtime ? source : migrations;
+    // `wrangler dev` compiles into a fresh `.wrangler/tmp/dev-*` directory per run and
+    // copies the same bundle to `apps/api/build/`. Both are candidates; the NEWEST is
+    // the one being served, because the run that just started wrote the newest one.
+    // Taking the oldest of the candidates, as the first version did, reports the
+    // previous run's build and calls it this one's.
+    const candidates = [];
+    const collect = (dir, depth) => {
+      if (depth < 0) return;
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          collect(full, depth - 1);
+        } else if (entry.name.endsWith("index_bg.wasm")) {
+          candidates.push({ mtime: statSync(full).mtimeMs, file: full });
+        }
+      }
+    };
+    collect(join(apiDir, ".wrangler", "tmp"), 3);
+    collect(join(apiDir, "build"), 1);
+
+    if (candidates.length === 0) {
+      return { ok: null, reason: "no compiled Worker found to compare against the source" };
+    }
+    const oldestArtifact = candidates.sort((a, b) => b.mtime - a.mtime)[0];
+
+    const age = oldestArtifact.mtime - newestSource.mtime;
+    return {
+      ok: age >= 0,
+      artifact: oldestArtifact,
+      source: newestSource,
+      behindMs: -age,
+      reason:
+        age >= 0
+          ? null
+          : `the built Worker is ${Math.round(-age / 1000)}s older than ` +
+            `${newestSource.file.replace(apiDir + "/", "")}, so it was not built from the current source`,
+    };
+  }
+
   async setup({ persistEnvVar = "P06_PERSIST_TO", portEnvVar = "P06_PORT" } = {}) {
     if (!existsSync(wranglerBin)) {
       throw new Error(
@@ -580,6 +696,34 @@ export class SmokeHarness {
     this.worker = this.startWorker(port);
     await this.waitForHealth(this.worker);
     this.pass("development Worker is healthy", this.baseUrl);
+
+    // After the Worker answers, not before. `wrangler dev` compiles on spawn, so a
+    // check placed before the health wait compares the source against the PREVIOUS
+    // run's bundle and reports a stale build on a run that is about to rebuild. The
+    // first version of this check sat in exactly that position and fired on a
+    // sensitivity run whose own fault it was supposed to be able to see.
+    const freshness = this.buildFreshness();
+    if (freshness.ok === false) {
+      this.fail(
+        "the Worker under test was built from the current source",
+        `${freshness.reason}. Evidence from this run would describe different code than the tree, ` +
+          "so a result here is not a result about this code. Rebuild, or touch the source so the " +
+          "artifact is regenerated.",
+      );
+    } else if (freshness.ok === null) {
+      this.pass(
+        "build freshness could not be established (not a failure, but not evidence either)",
+        freshness.reason,
+      );
+    } else {
+      const seconds = (freshness.artifact.mtime - freshness.source.mtime) / 1000;
+      this.pass(
+        "the Worker under test was built from the current source",
+        `newest artifact ${freshness.artifact.file.replace(apiDir + "/", "")} is ` +
+          `${Math.abs(Math.round(seconds))}s ${seconds >= 0 ? "newer" : "OLDER"} than ` +
+          `${freshness.source.file.replace(apiDir + "/", "")}`,
+      );
+    }
   }
 
   cleanup() {

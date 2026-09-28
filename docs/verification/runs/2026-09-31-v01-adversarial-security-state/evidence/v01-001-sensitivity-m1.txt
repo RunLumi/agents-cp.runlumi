@@ -1,0 +1,36 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-sensitivity
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:52526
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-mE2IdE/4e3e751b0aedde4330c387407555a02999ca15c7-index_bg.wasm is 74s newer than src/modules/migration/adoption.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_96898e1192774521a9cc8ea2e7ba1e50
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_dc1984ca9b9ce1881d9b6f630ff97cd5
+  PASS  a clean adoption binding is recorded  — status=201
+  PASS  the baseline write produced a stored binding the injections can be compared against  — external_workspace_key=v01-baseline-workspace
+  PASS  every adoption table this probe searches exists, so the search cannot be quietly narrower than it claims  — 4 tables present
+  PASS  the content search covers every column of every adoption table, read from the schema  — 56 columns across 4 tables
+  PASS  the content search can actually find a marker planted in the table it searches  — planted CTRLX in workspace_adoption_states.display_name and the search found it, then restored the row
+  PASS  every payload class was searched for in every column of every adoption table (56 columns)  — 12 landings
+  content classes that reached a stored column: workspace_adoption_states.external_workspace_key x5, workspace_adoption_states.display_name x7
+  (reported as GAP-001, not failed: no requirement forbids it, and these are the
+   client's own strings in the client's own organisation)
+  FAIL  a filesystem path sent as workspace_key is refused by the API as a 4xx, not accepted and left to the database  — file path -> 503, file path (windows) -> 503
+  PASS  no filesystem path is stored in external_workspace_key, which the migration states can never be one  — neither path class is present in any of the 56 searched columns
+  PASS  no payload class reaches the security_events audit trail, which retains and exports on a different schedule from a display name  — 19 audit columns searched for 8 classes, 0 hits
+  FAIL  no injection is answered with a 5xx, which would be a batch refusing after the API accepted  — file path payload as workspace_key -> 503 {"error":{"code":"service_unavailable","message":"The control-plane store is unavailable.","request_id":"req_4bdf4770eab | file path (windows) payload as workspace_key -> 503 {"error":{"code":"service_unavailable","message":"The control-plane store is unavailable.","request_id":"req_a0b6a7c8670
+  12 injections were accepted and stored in the client's own organisation: as workspace_key, as display_name
+
+64 injections attempted across the adoption write surfaces
+status distribution: 201x12  422x50  503x2
+bindings stored: 13 (1 baseline + 12 from injections)
+
+18/20 V01 adoption-privacy cases hold
+
+2 case(s) failed:
+  - a filesystem path sent as workspace_key is refused by the API as a 4xx, not accepted and left to the database
+  - no injection is answered with a 5xx, which would be a batch refusing after the API accepted

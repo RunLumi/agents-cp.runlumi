@@ -18,6 +18,7 @@
     "smoke:p05": "pnpm --filter @runlumi/agents-cp-api smoke:p05",
     "smoke:p06": "node apps/api/scripts/p06-data-smoke.mjs",
     "smoke:p08": "node apps/api/scripts/p08-tenancy-smoke.mjs",
+    "verify:adoption-privacy": "pnpm --filter @runlumi/agents-cp-api verify:adoption-privacy",
     "format": "oxfmt apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all",
     "format:check": "oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all -- --check",
     "lint": "oxlint --type-aware apps/web/src apps/web/vite.config.ts",
