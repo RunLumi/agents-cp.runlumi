@@ -18,6 +18,7 @@ ADRs preserve decisions beyond any one human or agent context window.
 - [0006 Private R2 artifacts for exports](0006-r2-private-export-artifacts.md)
 - [0007 Three actor kinds and three authorization boundaries](0007-three-actor-kinds.md)
 - [0008 Vendor `passkey-auth` and patch its clock](0008-vendored-passkey-auth-wasm-clock.md)
+- [0009 Sentry error reporting via the Cloudflare JS SDK](0009-sentry-cloudflare-error-reporting.md)
 - [Research references](REFERENCES.md)
 
 When a durable decision changes, add a new ADR or explicitly supersede the old one. Do not silently rewrite history.

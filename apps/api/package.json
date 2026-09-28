@@ -19,6 +19,9 @@
     "schema:p07": "node scripts/p07-schema-invariants.mjs",
     "p08:invariants": "bash scripts/p08-invariants.sh"
   },
+  "dependencies": {
+    "@sentry/cloudflare": "10.74.0"
+  },
   "devDependencies": {
     "wrangler": "4.137.0"
   }
