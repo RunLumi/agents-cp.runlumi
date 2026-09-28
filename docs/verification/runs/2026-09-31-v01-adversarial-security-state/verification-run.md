@@ -2,8 +2,8 @@
 
 ## Status
 
-**in progress.** Four families attacked, six findings, one **critical** product defect found
-and fixed, and two claims proven that had no evidence at all. The remaining families and every open item are listed below with what is missing
+**in progress.** Five families attacked, seven findings, one **critical** product defect
+found and fixed, and three claims proven that had no evidence at all. The remaining families and every open item are listed below with what is missing
 and why it is still missing.
 
 ## What this campaign has produced
@@ -13,6 +13,7 @@ and why it is still missing.
 | **V01-003** an admin can mint unlimited co-owners, bypassing the security-check-gated ownership transfer | **critical** | product defect | **closed** — fixed, original attack re-run unchanged at 0 escalated, 4 of 4 mutations detected |
 | **V01-005** the identity-link feature cannot be completed, so FR-F01-012's MUST NOT is enforced by unreachable code | low | functional defect | **open** — GAP-003, deliberate change process, no MUST violated |
 | **V01-006** concurrent reservations cannot overspend a hard budget | none found | absent evidence | **closed** — 8 for 240 yields 3 grants holding 90; B1 oversells to 240 when the ceiling is neutralised |
+| **V01-007** the migration ledger had only ever been applied to an empty database | none found | absent evidence | **closed** — two populated prior states, 19/19, both mutations detected |
 | **V01-002** a verifier measured code that was not on disk | high | verifier defect | **closed** — `buildFreshness()` added so it cannot recur silently |
 | **V01-001** the adoption privacy property is under-specified, and the probe that "proved" it was searching nothing | high (verifier) / gap (spec) | verifier defect + spec gap | **closed** — probe retargeted to the three rules that exist; GAP-001 recorded |
 | **V01-004** three authentication attacks the family names and nothing had ever run | none found | absent evidence | **closed** — 55/55 → 76/76, and one of the three turned out to be testing the wrong condition |
@@ -24,6 +25,7 @@ Three new runtime gates:
 | `pnpm verify:adoption-privacy` | 20/20 | 2 of 2 detected |
 | `pnpm verify:privilege-escalation` | 46/46 | 4 of 4 detected |
 | `pnpm verify:budget-concurrency` | 27/27 | B1, B2 detected; B3 an expected MISSED |
+| `pnpm verify:migration-prior-state` | 19/19 | 2 of 2 detected, first attempt |
 
 ## The one that mattered
 
@@ -82,6 +84,7 @@ own context, not by a code review.** In every case the same discipline found it:
 | `v01-003-sensitivity.sh` | 4 of 4 detected, source verified back to its snapshot |
 | `v01-004-sensitivity.sh` | 1 of 3 detected; **A1 and A3 are honest MISSEDs** — see below |
 | `v01-006-sensitivity.sh` | 2 of 2 gating cases detected; B3 an expected MISSED, exit 0 |
+| `v01-007-sensitivity.sh` | 2 of 2 detected, first attempt, exit 0 |
 
 ## What is still UNPROVEN, and why
 
@@ -92,10 +95,11 @@ Nothing below is claimed as a pass. Each names the specific evidence that is mis
 | FR-F01-012's MUST NOT — conflicting identities must not auto-merge | **UNPROVEN** | the guard is unreachable code; `link_identity_start` needs a reauth grant whose purpose cannot be minted (V01-005, GAP-003) |
 | wrong-kind ceremony: the single-layer mutation | **not load-bearing** | two independent gates refuse it, so weakening one is invisible through HTTP. Recorded as defence in depth, and the reason the lower gate is proven by unit tests |
 | the email-conflict guard | **not load-bearing** | same, and it is unreachable in any case (V01-005) |
+| ~~migrations on **representative prior state**~~ | **CLOSED in V01-007** | 19/19. Two cut points: 0015 (the ledger seeds rows by design) and 0019 with stored idempotency claims. `p08-invariants` still 17/17 on the populated path |
 | ~~concurrent reservations against a hard budget ceiling~~ | **CLOSED in V01-006** | 8 concurrent requests for 240 against a limit of 100 yield 3 grants holding 90. `verify:budget-concurrency`, 27/27, sensitivity-proven. A released hold returns its capacity and a denied request can then reserve it |
 | a reservation's SQL inference-correlation clause | **redundant second line** | the route resolves the request first and returns 404. B3 is an expected MISSED, recorded in V01-006 |
 | inference streaming: 429, 5xx, malformed chunk, timeout, client disconnect | **UNPROVEN** | unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker. `mock_dispatch` has five fault modes selectable by `endpoint` (mock://lumi-fail, mock://lumi-timeout, mock://lumi-post-output-failure, mock://lumi-success) and is a ready-made surface |
-| migrations on **representative prior state** | **UNPROVEN** | every run is a fresh database. A migration that only works on empty tables is untested, and `teams` was found broken *because* nobody ran it against a populated `team_members` |
+| ~~migrations on **representative prior state**~~ | **CLOSED in V01-007** | two cut points only, no assertion about the *content* of a backfill, and foreign keys are not exercised. Those limits are listed in the finding |
 | 82 of 104 org-scoped routes | **UNPROVEN** | `smoke:p08` drives 20 and reads only. No **mutating** cross-tenant call is made anywhere, and no filter, pagination or nested route is substituted |
 | 14 of the 15 repaired audit call sites | **UNPROVEN** | repaired in #39; only some have individual runtime evidence |
 | a **revoked device** driven to a refusal | **UNPROVEN** | `p03` and `p05` mention device revocation; neither attacks it |
@@ -129,16 +133,23 @@ blank: it sends the next reader looking for a defect that is not there.
 - **A sensitivity harness must restore with `cp` and verify against a snapshot.** `mv`
   preserves the pre-fault mtime and the build is skipped (V01-002); a snapshot directory that
   was never created makes every restore a no-op and leaves faults compiled in (V01-003).
+- **A sensitivity harness needs `set -e` and an explicit "did the mutation apply" check.**
+  `set -uo pipefail` does not abort, so three mutations whose asserts failed reported three
+  MISSED verdicts for runs that never happened (V01-006). The one harness written with
+  `set -e` and that guard from the start — V01-007's — worked on its first attempt.
+- **Capture stderr when driving wrangler.** A `CHECK` failure goes to stderr while the
+  confirmation banner goes to stdout, so a stdout-only capture reports every failing write as
+  a success (V01-007).
 
 ## Order of the remaining work
 
 1. ~~Budget: concurrent reservations against a hard ceiling.~~ **Done** — V01-006.
-2. **Inference streaming through a real Worker.** Five fault modes exist in `mock_dispatch`
-   and have never been driven over HTTP.
-3. **Migrations on representative prior state.** The cheapest way to find a class of defect
-   that has produced one already.
-4. **Mutating cross-tenant calls**, then filter, pagination and nested routes. The most
-   developed probe in the repository only reads.
+2. ~~Migrations on representative prior state.~~ **Done** — V01-007.
+3. **Mutating cross-tenant calls**, then filter, pagination and nested routes. The most
+   developed probe in the repository only reads, and this is the largest untouched surface.
+4. **Inference streaming through a real Worker.** Four `mock://` fault modes exist and have
+   never been driven over HTTP; 429, 5xx and malformed chunks additionally need a local fake
+   provider, which `allow_local_provider_endpoints` makes reachable in development.
 5. GAP-002 (last-owner rules at the HTTP layer) and the three residual authentication claims.
 
 ## Provenance

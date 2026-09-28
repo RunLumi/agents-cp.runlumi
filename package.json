@@ -21,6 +21,7 @@
     "verify:adoption-privacy": "pnpm --filter @runlumi/agents-cp-api verify:adoption-privacy",
     "verify:privilege-escalation": "pnpm --filter @runlumi/agents-cp-api verify:privilege-escalation",
     "verify:budget-concurrency": "pnpm --filter @runlumi/agents-cp-api verify:budget-concurrency",
+    "verify:migration-prior-state": "bash docs/verification/runs/2026-09-31-v01-adversarial-security-state/evidence/v01-007-migration-prior-state.sh",
     "format": "oxfmt apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all",
     "format:check": "oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all -- --check",
     "lint": "oxlint --type-aware apps/web/src apps/web/vite.config.ts",

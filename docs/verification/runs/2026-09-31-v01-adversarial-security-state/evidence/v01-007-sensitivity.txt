@@ -1,0 +1,12 @@
+baseline: passed: 19  failed: 0
+M1 applied: 0018 now deletes the seeded plans
+restored the ledger (verified against the snapshot)
+M2 applied: 0020 now deletes the stored idempotency claims
+restored the ledger (verified against the snapshot)
+
+=== summary ===
+  M1 a migration drops the seeded plans:   detected
+  M2 0020 drops the stored claims:         detected
+  FAIL  the seeded plans survive 0016-0021
+  FAIL  the stored idempotency claim survives the 0020 null-safety rewrite
+restored the ledger (verified against the snapshot)

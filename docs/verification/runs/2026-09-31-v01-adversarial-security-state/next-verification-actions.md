@@ -48,7 +48,7 @@ removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner
 | 2 | budget / cost | usage attribution to org/project/principal/run: 0 mentions. Concurrent overspend: 0 mentions. Whether upstream dispatch was *called* is instrumented nowhere. | Money, and neither claim has been touched. |
 | 3 | authentication | **closed in V01-004** — wrong ceremony kind (both directions, with a control), identity-link conflict, and recovery with active sessions all now have runtime evidence. `smoke:passkey` is 75/75, up from 55/55. Still open: a **revoked device** driven to a refusal, whether a revoked session's **refresh** token dies with it, and the reauth grant's own ceremony kind. | The three named attacks are done; three adjacent claims are not. |
 | 4 | inference streaming | provider faults are unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker: 429, 5xx, malformed chunk, timeout, client disconnect. | A unit test is not an attack across a router. |
-| 5 | D1 / migrations | every run is a **fresh** database. A migration that only works on empty tables is not tested. | `verify:restore` exists and passes; "representative prior state" does not. |
+| 5 | ~~D1 / migrations~~ | **closed in V01-007** — 0015 (the ledger seeds rows by design) and 0019 with stored idempotency claims, 19/19, both mutations detected. Still open: only two cut points, no assertion about a backfill's *content*, foreign keys not exercised | |
 | 6 | tenant isolation | 82 of 104 org-scoped routes have no handler-level evidence, and **no mutating cross-tenant call is made at all** — every substitution is a GET. No filter, no pagination, no nested route. | The most developed probe in the repo, and it only reads. |
 
 ## Done in V01, for the record
@@ -60,6 +60,12 @@ removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner
 - **V01-003** an admin could mint unlimited co-owners — **critical, fixed**, the original
   attack re-run unchanged at 0 escalated, four of four mutations detected.
 - **V01-004** three authentication attacks the family names and nothing had run — 76/76.
+- **V01-006** concurrent reservations against a hard budget ceiling — 27/27, and the atomicity
+  is measured: 8 for 240 yields 3 grants holding 90. B1 oversells to 240 when the ceiling is
+  neutralised, so the assertion is load-bearing.
+- **V01-007** the migration ledger had only ever been applied to an empty database — 19/19
+  over two populated prior states. That gap is how `teams` stayed unwritable while every gate
+  was green.
 - **V01-005** the identity-link feature cannot be completed, leaving FR-F01-012's MUST NOT
   enforced by unreachable code — low, fails closed, recorded for the deliberate change process
   as GAP-003. Found while proving the probe can fail: the section had been asserting the

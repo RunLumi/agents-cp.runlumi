@@ -1,0 +1,33 @@
+V01 D1 migrations — representative prior state
+
+A representative prior state is one the ledger actually produces. 0015_p06_baseline_seed
+seeds rows on purpose, so every database past it is non-empty by design.
+
+prior state A: through 0015, which seeds entitlement_definitions and plans
+  ok    the prior state is genuinely populated (1 plans, 19 entitlements)
+  ok    the prior state can hold a user
+  ok    the prior state can hold an organization
+  ok    0016-0021 apply over a populated database (109 tables)
+  ok    the seeded plans survive 0016-0021 (1)
+  ok    the seeded entitlements survive 0016-0021 (19)
+  ok    the user row survives 0016-0021 (1)
+  ok    the organization row survives 0016-0021 (1)
+  ok    a second organization with the same slug is refused over a populated database
+  ok    0018's platform tables exist on the migrated database
+
+prior state B: through 0019, with stored idempotency claims for 0020 to rewrite
+  ok    the prior state can hold a second user
+  ok    the prior state can hold a stored idempotency claim
+  ok    the prior state holds stored idempotency claims (1)
+  ok    0020 and 0021 apply over stored idempotency claims (109 tables)
+  ok    the stored idempotency claim survives the 0020 null-safety rewrite (1)
+  ok    an idempotency claim with no organization is refused after the 0020 rewrite
+  ok    a completed idempotency claim with a non-2xx response_status is refused, and by the trigger rather than the CHECK -- the row is otherwise valid
+
+A prior state that cannot be constructed, recorded rather than faked
+  ok    a 36-character team id is refused, which is why no prior state can hold a team row
+
+Rerunnable probes, same meaning, on a database that migrated through a populated state
+  ok    p08-invariants holds on a database that migrated through a populated state (passed: 17  failed: 0)
+
+passed: 19  failed: 0
