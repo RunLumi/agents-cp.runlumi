@@ -438,6 +438,47 @@ function stopAll() {
   }
 }
 
+/**
+ * One SELECT, parsed out of `wrangler d1 execute --json`.
+ *
+ * The existing D1 helpers in this file were written for the ceremony tables, and every
+ * read-back added for V01 wanted a plain count or a single column. Rather than grow three
+ * near-identical parsers, this is the one shape those reads need.
+ */
+async function runWranglerJson(sql, label) {
+  const output = await runWrangler(
+    [
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--env",
+      "development",
+      "--persist-to",
+      persistDir,
+      "--json",
+      "--command",
+      sql,
+    ],
+    label,
+  );
+  for (const open of ["[", "{"]) {
+    const start = output.indexOf(open);
+    if (start < 0) continue;
+    try {
+      const parsed = JSON.parse(output.slice(start));
+      const statements = Array.isArray(parsed) ? parsed : [parsed];
+      return statements.flatMap((statement) =>
+        Array.isArray(statement?.results) ? statement.results : [],
+      );
+    } catch {
+      // Whatever that brace belonged to was not the payload. Try the next form.
+    }
+  }
+  fail(`${label}: no JSON in the wrangler output`, redact(output.slice(-400)));
+  return [];
+}
+
 // --- registration -------------------------------------------------------------
 
 async function probeRegistration() {
@@ -1167,6 +1208,400 @@ async function expireCeremonyInD1(ceremonyId) {
   return true;
 }
 
+// --- ceremony kind ---------------------------------------------------------------
+// The family requires "wrong ceremony kind". The probe had zero mentions of it.
+//
+// A ceremony id is a bearer token for a *kind* of ceremony, and `ensure_pending` compares
+// the stored kind against the kind the completing route expects. The attack is the obvious
+// one, and it is the important one: a ceremony id minted for a LOGIN is presented at the
+// SIGNUP endpoint. If the kind is not checked there, a token that is only valid for
+// proving possession of a credential becomes one that is valid for creating an account --
+// and the request already carries a correctly signed credential, because the attacker
+// made it.
+//
+// Each direction is paired with a control that uses the *same kind of payload* against the
+// *correct* kind of ceremony. Without the control, a refusal could be the payload being
+// wrong, and the section would report a product defence it never tested.
+
+/** A fresh software authenticator, for the control that must succeed. */
+function newAuthenticator(label) {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const credentialId = createHash("sha256")
+    .update(`${label}-${Date.now()}-${Math.random()}`)
+    .digest();
+  return { privateKey, credentialId, coseKey: coseEs256(publicKey) };
+}
+
+/** A `RegistrationResponse`, exactly as the registration section builds it. */
+function buildRegistration(ceremony, auth) {
+  const authData = authenticatorData({
+    rpId: RP_ID,
+    credentialId: auth.credentialId,
+    coseKey: auth.coseKey,
+    flags: FLAG_UP | FLAG_UV | FLAG_BE | FLAG_BS | FLAG_AT,
+  });
+  const client = clientData({
+    type: "webauthn.create",
+    // The ceremony's challenge lives at `body.public_key.challenge`; `body.challenge`
+    // is not where it is, and an undefined challenge produces a clientDataJSON that does
+    // not match the ceremony -- which reads as a credential rejection.
+    challenge: ceremony?.public_key?.challenge,
+    origin: ORIGIN,
+  });
+  return {
+    id: b64url(auth.credentialId),
+    raw_id: b64url(auth.credentialId),
+    transports: ["internal"],
+    attestationObject: b64url(cborAttestationNone(authData)),
+    clientDataJSON: b64url(client),
+  };
+}
+
+async function probeCeremonyKind() {
+  // --- control: the payload and the flow are correct -------------------------
+  // Established FIRST, so that every refusal below is known to be about the kind rather
+  // than about a malformed request. If this control does not hold, the section cannot
+  // distinguish the two and says so instead of guessing.
+  const controlAuth = newAuthenticator("kind-control");
+  const controlEmail = `kind-control-${Date.now().toString(36)}@example.test`;
+  const controlStart = await call(new Jar(), "POST", "/api/v1/auth/passkey/signup/start", {
+    email: controlEmail,
+    display_name: "Kind Control",
+  });
+  const controlId = controlStart.body?.ceremony_id;
+  if (
+    !expect(
+      "a signup ceremony starts, so there is a kind to misuse",
+      controlStart.status >= 200 && controlStart.status < 300 && typeof controlId === "string",
+      `status=${controlStart.status} ceremony=${controlId ?? "none"} reason=${reasonOf(controlStart)}`,
+    )
+  ) {
+    return;
+  }
+  const controlComplete = await call(new Jar(), "POST", "/api/v1/auth/passkey/signup/complete", {
+    ceremony_id: controlId,
+    credential: buildRegistration(controlStart.body, controlAuth),
+  });
+  const controlHolds = controlComplete.status >= 200 && controlComplete.status < 300;
+  expect(
+    "CONTROL: a signup ceremony completes with a registration payload, so the flow and the payload are both sound",
+    controlHolds,
+    `status=${controlComplete.status} reason=${reasonOf(controlComplete)}`,
+  );
+  if (!controlHolds) {
+    expect(
+      "the wrong-kind attacks below are not run, because a refusal could not be attributed to the kind",
+      false,
+      "the control did not hold",
+    );
+    return;
+  }
+
+  // --- attack 1: a LOGIN ceremony presented at the SIGNUP endpoint -------------
+  // The body is empty on purpose: `passkey_login_start` takes `EmptyRequest` with
+  // `deny_unknown_fields`, so a login ceremony names no account at all. That makes the
+  // attack cleaner than it first looked -- the token is not account-bound, so it is not
+  // even specific enough to be replayed against a particular user, and the only thing
+  // standing between it and account creation is the kind check.
+  const loginAuth = newAuthenticator("kind-login");
+  const loginStart = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/start", {});
+  const loginCeremonyId = loginStart.body?.ceremony_id;
+  if (
+    !expect(
+      "a login ceremony starts, so a login ceremony id exists to misuse",
+      typeof loginCeremonyId === "string",
+      `status=${loginStart.status} ceremony=${loginCeremonyId ?? "none"}`,
+    )
+  ) {
+    return;
+  }
+
+  const passkeysBeforeRows = await runWranglerJson(
+    "SELECT COUNT(*) AS n FROM passkey_credentials",
+    "count passkey credentials before the wrong-kind attempt",
+  );
+  const passkeysBefore = Number(passkeysBeforeRows[0]?.n ?? -1);
+
+  const loginAtSignup = await call(new Jar(), "POST", "/api/v1/auth/passkey/signup/complete", {
+    ceremony_id: loginCeremonyId,
+    credential: buildRegistration(loginStart.body, loginAuth),
+  });
+  expect(
+    "a LOGIN ceremony id is refused at the SIGNUP endpoint, so a sign-in token cannot create an account",
+    refusedWithReason(loginAtSignup),
+    `status=${loginAtSignup.status} reason=${reasonOf(loginAtSignup)}`,
+  );
+
+  // A login ceremony names no account, so "no user with this email" is not even a
+  // question worth asking. The durable part of the damage would be an ENROLLED passkey, so
+  // that is what is checked -- against a baseline taken immediately before the attempt.
+  // The probe's own registration section has already created a credential by now, so an
+  // assumed count would make the assertion true or false for the wrong reason.
+  const passkeysAfter = await runWranglerJson(
+    "SELECT COUNT(*) AS n FROM passkey_credentials",
+    "count passkey credentials after the wrong-kind signup",
+  );
+  expect(
+    "the refused wrong-kind signup added no credential, so a registration token cannot enrol a passkey",
+    Number(passkeysAfter[0]?.n ?? -1) === passkeysBefore,
+    `passkey_credentials ${passkeysBefore} -> ${passkeysAfter[0]?.n ?? "unknown"}`,
+  );
+
+  // --- attack 2: a SIGNUP ceremony presented at the LOGIN endpoint -------------
+  // The same kind of mistake from the other side. An assertion signed by a real key, at
+  // a route that expects an assertion, against a ceremony that is not a login ceremony.
+  const otherAuth = newAuthenticator("kind-signup");
+  const otherEmail = `kind-signup-${Date.now().toString(36)}@example.test`;
+  const otherStart = await call(new Jar(), "POST", "/api/v1/auth/passkey/signup/start", {
+    email: otherEmail,
+    display_name: "Kind Signup",
+  });
+  const otherCeremonyId = otherStart.body?.ceremony_id;
+  if (typeof otherCeremonyId !== "string") {
+    expect(
+      "a second signup ceremony starts, for the reverse direction",
+      false,
+      `status=${otherStart.status} reason=${reasonOf(otherStart)}`,
+    );
+    return;
+  }
+
+  const signupAtLogin = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/complete", {
+    ceremony_id: otherCeremonyId,
+    credential: buildAssertion(otherAuth, {}, otherStart.body?.public_key?.challenge),
+  });
+  expect(
+    "a SIGNUP ceremony id is refused at the LOGIN endpoint, so a registration token cannot authenticate a session",
+    refusedWithReason(signupAtLogin),
+    `status=${signupAtLogin.status} reason=${reasonOf(signupAtLogin)}`,
+  );
+}
+
+// --- identity-link conflict -------------------------------------------------------
+// The family requires "identity-link conflict" and the probe had zero mentions of it.
+//
+// The surface is `POST /api/v1/me/identities/link`: a verified user claiming another
+// email address. The claim that matters is not the status code -- it is whether claiming
+// someone else's address links the caller's session to that person's identity, or silently
+// attaches an authenticator to the other account. Both are read back from D1.
+
+async function probeIdentityLinkConflict(identity) {
+  // A second, real, verified user whose email is the one Mallory will try to claim.
+  const victim = `victim-${Date.now().toString(36)}@example.test`;
+  const victimJar = new Jar();
+  const victimPassword = "victim-password-long-enough-1234";
+  const victimSignup = await call(victimJar, "POST", "/api/v1/auth/password/signup", {
+    email: victim,
+    display_name: "Link Victim",
+    password: victimPassword,
+  });
+  // `POST /auth/signup` answers with a verification challenge; `verify-email` takes
+  // `{ challenge_id, code }` and not `{ email, code }`. The first version of this section
+  // guessed both and the victim simply never became verified, so the read-back it asserted
+  // afterwards was asserting nothing.
+  const verification = await call(victimJar, "POST", "/api/v1/auth/verify-email", {
+    challenge_id: victimSignup.body?.verification?.challenge_id ?? victimSignup.body?.challenge_id,
+    code: victimSignup.body?.verification?.development_code ?? victimSignup.body?.development_code,
+  });
+  expect(
+    "the second identity is verified, so it is a real account and not a pending shell",
+    verification.status === 200,
+    `signup=${victimSignup.status} verify=${verification.status} reason=${reasonOf(verification)}`,
+  );
+  await call(victimJar, "POST", "/api/v1/auth/password/login", {
+    email: victim,
+    password: victimPassword,
+  });
+  const victimBefore = await call(victimJar, "GET", "/api/v1/me");
+  const victimId = victimBefore.body?.user?.id;
+  if (
+    !expect(
+      "a second verified identity exists to be attacked",
+      victimBefore.status === 200 && typeof victimId === "string",
+      `status=${victimBefore.status} id=${victimId ?? "none"}`,
+    )
+  ) {
+    return;
+  }
+  const victimIdentitiesBefore = await runWranglerJson(
+    `SELECT COUNT(*) AS n FROM identities WHERE user_id = '${victimId}'`,
+    "count the victim's identities before the link attempt",
+  );
+
+  // The attacker: a verified user of their own, attempting to claim the victim's address.
+  const jar = new Jar();
+  const signed = await call(jar, "POST", "/api/v1/auth/password/login", {
+    email: identity.email,
+    password: identity.password,
+  });
+  if (signed.status !== 200) {
+    fail(
+      "the identity-link probe could not sign in",
+      `status=${signed.status} reason=${reasonOf(signed)}`,
+    );
+    return;
+  }
+  const me = (await call(jar, "GET", "/api/v1/me")).body?.user;
+  if (!expect("the link attacker has a session", typeof me?.id === "string", `id=${me?.id}`)) {
+    return;
+  }
+
+  const link = await call(jar, "POST", "/api/v1/me/identities/link", {
+    challenge_id: "chl_unused",
+    code: "unused",
+  });
+  expect(
+    "a link attempt for another user's address is refused, or refused for want of a step-up grant rather than granted",
+    link.status >= 400,
+    `status=${link.status} reason=${reasonOf(link)}`,
+  );
+
+  // The load-bearing read-back: the victim must be untouched, and the attacker must not
+  // have gained a path to them. A 4xx from a missing-parameter check says nothing about
+  // what happens when the parameters are real.
+  const victimAfter = await call(victimJar, "GET", "/api/v1/me");
+  expect(
+    "the victim's session still resolves to the victim after the link attempt",
+    victimAfter.status === 200 && victimAfter.body?.user?.id === victimId,
+    `resolved as ${victimAfter.body?.user?.id} (real ${victimId})`,
+  );
+  const victimIdentitiesAfter = await runWranglerJson(
+    `SELECT COUNT(*) AS n FROM identities WHERE user_id = '${victimId}'`,
+    "count the victim's identities after the link attempt",
+  );
+  expect(
+    "no identity was attached to the victim by the attacker's link attempt",
+    Number(victimIdentitiesAfter[0]?.n ?? 0) === Number(victimIdentitiesBefore[0]?.n ?? 0),
+    `${victimIdentitiesBefore[0]?.n} -> ${victimIdentitiesAfter[0]?.n}`,
+  );
+}
+
+// --- recovery with active sessions -------------------------------------------------
+// The family requires "recovery with active sessions". The probe had one mention of
+// "recovery" and it was about last-login-method removal, which is a different thing.
+//
+// The claim: completing a password recovery invalidates the sessions that existed before
+// it. If it does not, then compromising one session is enough to outlive a user's
+// password change -- the change becomes advisory, which is the specific thing a user is
+// doing it to prevent.
+
+async function probeRecoveryWithActiveSessions(authenticator) {
+  const email = `recovery-${Date.now().toString(36)}@example.test`;
+  const password = "recovery-password-long-enough-1";
+  const victimJar = new Jar();
+
+  const signup = await call(victimJar, "POST", "/api/v1/auth/password/signup", {
+    email,
+    display_name: "Recovery Subject",
+    password,
+  });
+  const userId = signup.body?.user?.id;
+  if (!expect("the recovery subject signs up", typeof userId === "string", `id=${userId}`)) {
+    return;
+  }
+  await call(victimJar, "POST", "/api/v1/auth/verify-email", {
+    challenge_id: signup.body?.verification?.challenge_id ?? signup.body?.challenge_id,
+    code: signup.body?.verification?.development_code ?? signup.body?.development_code,
+  });
+
+  // A SECOND, already-authenticated session, held by "the attacker". This is the
+  // session the recovery must terminate. It is a real session on a real account.
+  const attackerJar = new Jar();
+  const attackerLogin = await call(attackerJar, "POST", "/api/v1/auth/password/login", {
+    email,
+    password,
+  });
+  const attackerSessionBefore = await call(attackerJar, "GET", "/api/v1/me");
+  if (
+    !expect(
+      "a second session is established before the recovery, so there is something to terminate",
+      attackerSessionBefore.status === 200 && attackerSessionBefore.body?.user?.id === userId,
+      `status=${attackerSessionBefore.status}`,
+    )
+  ) {
+    return;
+  }
+
+  // The owner recovers: forgot, then reset with a NEW password.
+  const forgot = await call(victimJar, "POST", "/api/v1/auth/password/forgot", { email });
+  expect(
+    "a recovery can be started for the account",
+    forgot.status >= 200 && forgot.status < 300,
+    `status=${forgot.status} reason=${reasonOf(forgot)}`,
+  );
+  // `password/forgot` answers `{ challenge_id, expires_at, development_code }` and
+  // `password/reset` takes `{ challenge_id, code, password }`. There is no `token` field
+  // on either. Reading one is not a small slip: the reset is then refused, and every
+  // assertion after it measures a session that was never revoked -- which reads exactly
+  // like a serious authentication defect and is entirely a probe bug.
+  const recoveryChallengeId = forgot.body?.challenge_id;
+  const recoveryCode = forgot.body?.development_code;
+  if (
+    !expect(
+      "the recovery challenge and code are available to finish the ceremony",
+      typeof recoveryChallengeId === "string" && typeof recoveryCode === "string",
+      `challenge=${recoveryChallengeId ?? "none"} code=${recoveryCode ? "present" : "none"} body=${redact(JSON.stringify(forgot.body).slice(0, 200))}`,
+    )
+  ) {
+    return;
+  }
+
+  const resetBody = {
+    challenge_id: recoveryChallengeId,
+    code: recoveryCode,
+    password: "recovered-password-long-enough-2",
+  };
+  const reset = await call(victimJar, "POST", "/api/v1/auth/password/reset", resetBody);
+  if (
+    !expect(
+      "the recovery completes and the password is replaced",
+      reset.status >= 200 && reset.status < 300,
+      `status=${reset.status} reason=${reasonOf(reset)} sent=${redact(JSON.stringify({ ...resetBody, code: "present" }))} body=${redact(JSON.stringify(reset.body).slice(0, 220))}`,
+    )
+  ) {
+    // Everything below asserts the CONSEQUENCE of the reset. Without it they would report
+    // that the old session and the old password still work, which is true and means
+    // nothing: nothing was changed, so nothing was revoked.
+    expect(
+      "the session and password checks below are not run, because the recovery did not complete",
+      false,
+      "skipped after a refused reset",
+    );
+    return;
+  }
+
+  // The claim. The pre-recovery session must be dead.
+  const attackerSessionAfter = await call(attackerJar, "GET", "/api/v1/me");
+  expect(
+    "a session established before the recovery no longer authenticates afterwards",
+    attackerSessionAfter.status === 401 || attackerSessionAfter.status === 403,
+    `status=${attackerSessionAfter.status} resolved=${attackerSessionAfter.body?.user?.id ?? "nobody"}`,
+  );
+
+  // And the old password is genuinely dead, so the recovery was a change and not a
+  // second password. Without this the session revocation could be an artefact of the
+  // session table being cleared for unrelated reasons.
+  const oldPassword = await call(new Jar(), "POST", "/api/v1/auth/password/login", {
+    email,
+    password,
+  });
+  expect(
+    "the pre-recovery password no longer authenticates",
+    oldPassword.status >= 400,
+    `status=${oldPassword.status}`,
+  );
+
+  const newPassword = await call(new Jar(), "POST", "/api/v1/auth/password/login", {
+    email,
+    password: "recovered-password-long-enough-2",
+  });
+  expect(
+    "the new password does authenticate, so the recovery took effect",
+    newPassword.status === 200,
+    `status=${newPassword.status}`,
+  );
+}
+
 // --- control ------------------------------------------------------------------
 
 /**
@@ -1217,6 +1652,14 @@ async function main() {
   // verdict is unaffected by the revocation above.
   if (afterRevocation) await probeIdentitySubstitution(afterRevocation);
   await probeExpiredCeremony();
+
+  // V01: the three attacks the family names that this probe had never run. All three
+  // need only the ceremony and session state the sections above already established, and
+  // all three read their verdicts from the database or from a second session rather than
+  // from the response that carried the attack.
+  await probeCeremonyKind();
+  if (afterRevocation) await probeIdentityLinkConflict(afterRevocation);
+  await probeRecoveryWithActiveSessions(authenticator);
 
   // The Worker must still be serving: a probe that ends with the runtime dead
   // has not proved anything about the ceremonies it ran before that.

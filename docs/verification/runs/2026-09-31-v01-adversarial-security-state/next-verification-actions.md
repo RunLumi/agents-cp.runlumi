@@ -36,10 +36,20 @@ removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner
 |---|---|---|---|
 | 1 | client privilege escalation | **no runtime attack at all.** No probe anywhere attempts a client-supplied role, permission, `org_id`, policy version, or model alias and checks whether the server's authority wins. | A whole Tier-0 family with zero attacks. VFY-011 was exactly this class of defect and was found by accident. |
 | 2 | budget / cost | usage attribution to org/project/principal/run: 0 mentions. Concurrent overspend: 0 mentions. Whether upstream dispatch was *called* is instrumented nowhere. | Money, and neither claim has been touched. |
-| 3 | authentication | wrong ceremony kind (0 mentions), identity-link conflict (0), recovery with active sessions (the single "recovery" hit is about last-login-method removal, not recovery). | Three named attacks in the family's own list that have never been run. |
+| 3 | authentication | **closed in V01-004** — wrong ceremony kind (both directions, with a control), identity-link conflict, and recovery with active sessions all now have runtime evidence. `smoke:passkey` is 75/75, up from 55/55. Still open: a **revoked device** driven to a refusal, whether a revoked session's **refresh** token dies with it, and the reauth grant's own ceremony kind. | The three named attacks are done; three adjacent claims are not. |
 | 4 | inference streaming | provider faults are unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker: 429, 5xx, malformed chunk, timeout, client disconnect. | A unit test is not an attack across a router. |
 | 5 | D1 / migrations | every run is a **fresh** database. A migration that only works on empty tables is not tested. | `verify:restore` exists and passes; "representative prior state" does not. |
 | 6 | tenant isolation | 82 of 104 org-scoped routes have no handler-level evidence, and **no mutating cross-tenant call is made at all** — every substitution is a GET. No filter, no pagination, no nested route. | The most developed probe in the repo, and it only reads. |
+
+## Done in V01, for the record
+
+- **V01-001** adoption/privacy at the API and parser layer — 64 injections, 20/20, the three
+  real rules proven, GAP-001 recorded for the deliberate change process.
+- **V01-002** a verifier measured code that was not on disk — repaired, `buildFreshness()`
+  added so it cannot recur silently.
+- **V01-003** an admin could mint unlimited co-owners — **critical, fixed**, the original
+  attack re-run unchanged at 0 escalated, four of four mutations detected.
+- **V01-004** three authentication attacks the family names and nothing had run — 75/75.
 
 ## Carried forward from V00, still open
 
