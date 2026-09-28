@@ -63,6 +63,7 @@ TRACKED=("$AUTOS" "$ROUTE")
 MIG_FILES=("$MIGRATIONS"/*.sql)
 
 snapshot_all() {
+  assert_git_clean "before snapshot"
   rm -rf "$SNAPSHOT"
   for f in "${TRACKED[@]}"; do
     mkdir -p "$SNAPSHOT/$(dirname "$f")"
@@ -75,6 +76,38 @@ snapshot_all() {
 }
 
 sha_of() { cat "$SNAPSHOT/$(echo "$1" | tr '/.' '__').sha"; }
+
+# THE INDEPENDENT REFERENCE. A snapshotting harness has no way to know what "clean" means --
+# the snapshot is the only reference it has. So a fault ALREADY PRESENT when the snapshot is
+# taken is laundered into the baseline, and every later compare and every restore is faithfully
+# correct about a wrong reference. That happened here: three runs reported "restored both source
+# files", every compare passed, and the M1 mutation was still in the tree at the end, because
+# the snapshot it was restoring to had been taken with the mutation already in it. Only `git`
+# could have known, and it did -- via a `git diff` after a run whose verdicts all read DETECTED.
+#
+# So the tree this harness mutates is checked against the repository, at snapshot time AND after
+# every restore. Scoped to the files it touches, because unrelated uncommitted work elsewhere is
+# not a finding.
+assert_git_clean() {
+  local when="$1" f dirty=()
+  for f in "${TRACKED[@]}" "${MIG_FILES[@]}"; do
+    git diff --quiet -- "$f" 2>/dev/null || dirty+=("$f")
+  done
+  if [ "${#dirty[@]}" -ne 0 ]; then
+    echo "TREE NOT CLEAN ($when) in a file this harness touches:" >&2
+    printf '  %s\n' "${dirty[@]}" >&2
+    if [ "$when" = "after restore" ]; then
+      echo "This is not a mutation of the claim: it means a deliberate fault survived, or the" >&2
+      echo "snapshot was taken from an already-faulted tree. Every verdict from this run is void" >&2
+      echo "until the tree is verified against git by hand." >&2
+    else
+      echo "Snapshotting now would launder whatever is in there into the baseline for every" >&2
+      echo "comparison and every restore below." >&2
+    fi
+    exit 1
+  fi
+  echo "  git agrees the tree is clean ($when)"
+}
 
 restore_all() {
   local f after want
@@ -98,6 +131,7 @@ restore_all() {
     exit 1
   fi
   echo "restored both source files and all $(ls "${MIG_FILES[@]}" | wc -l | tr -d ' ') migrations"
+  assert_git_clean "after restore"
 }
 
 assert_changed() {
@@ -108,10 +142,14 @@ assert_changed() {
       return 0
     fi
   done
-  # Recompute the CURRENT fingerprint before comparing. Comparing against the one `restore_all`
-  # wrote on the previous case is how a real migration edit reports as "nothing changed" --
-  # which is the false MISSED this harness exists to prevent, committed by the harness itself.
-  migration_fingerprint "$MIGRATIONS/migrations.now"
+  # Recompute the CURRENT fingerprint before comparing, and write it to the path this function
+  # then READS. Two versions of this guard were wrong in the same way: the first compared
+  # against the file `restore_all` wrote on the previous case, and the second recomputed the
+  # fingerprint but wrote it into the migrations directory and still read the stale copy from
+  # the snapshot. Both report a real edit as "nothing changed", which is the false MISSED this
+  # guard exists to prevent -- manufactured by the guard itself. A recomputed fingerprint is
+  # only evidence if it lands in the file that is compared.
+  migration_fingerprint "$SNAPSHOT/migrations.now"
   if ! diff -q "$SNAPSHOT/migrations.sha" "$SNAPSHOT/migrations.now" >/dev/null 2>&1; then
     echo "mutation applied to the migration directory"
     return 0
