@@ -32,6 +32,7 @@
     "verify:mutation": "node apps/api/scripts/p09-mutation-campaign.mjs",
     "verify:restore": "node apps/api/scripts/p09-restore-rehearsal.mjs",
     "verify:campaign-selftest": "node apps/api/scripts/p09-mutation-campaign.mjs --self-test",
+    "verify:campaign-preflight": "node apps/api/scripts/p09-mutation-campaign.mjs --preflight",
     "schema:bind-count": "node apps/api/scripts/p09-bind-count-scan.mjs"
   },
   "devDependencies": {

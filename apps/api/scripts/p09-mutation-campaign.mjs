@@ -70,7 +70,7 @@ const CASES = [
     // cross-tenant read of another organization's access grants. See VFY-011.
     title: "a project grant list is served without the project being org-scoped",
     file: "apps/api/src/routes/projects.rs",
-    find: '.filter(|project| project.org_id == org_id)\n        .ok_or_else(|| {\n            deny(\n                &context,\n                ApiErrorCode::NotFound,\n                "not_found",\n                "No such project.",\n            )\n        })?;\n    let grants = ProjectRepository::new(database)',
+    find: '    ProjectRepository::new(database)\n        .find_project(&project_id)\n        .await\n        .map_err(|_| service_unavailable(&context))?\n        .filter(|project| project.org_id == org_id)\n        .ok_or_else(|| {\n            deny(\n                &context,\n                ApiErrorCode::NotFound,\n                "not_found",\n                "No such project.",\n            )\n        })?;\n    let grants = ProjectRepository::new(database)',
     replace: "let grants = ProjectRepository::new(database)",
     verifier: ["smoke:p08"],
     expect: "/projects/{id}/access",
@@ -523,6 +523,93 @@ const SELF_TEST = [
   ["guard", "Error: ENOENT\n  at boot (x.mjs:1:1)", null],
 ];
 
+/**
+ * Do every case's fault still apply to the source it names?
+ *
+ * WHY THIS IS A PREFLIGHT AND NOT A COMMENT. A case's `find` is a literal slice of a
+ * source file. Nothing forces that slice to still be there: rename a column, rewrap a
+ * line, move a statement, and the fault simply stops matching. The campaign then
+ * reports the case as NOT_A_VALID_MUTATION -- or, for a source edit that still
+ * compiles, as a mutant that suspiciously changes nothing -- and a twenty-minute run
+ * is spent discovering it.
+ *
+ * That is not hypothetical. The first version of the VFY-011 case began its `find` at
+ * the `.filter(...)` line rather than at the whole statement, so removing it left a
+ * dangling `?` and the mutant did not compile. The campaign reported that honestly,
+ * which is the behaviour it should have, but the whole run was spent finding out.
+ *
+ * WHAT IT CHECKS, AND WHAT IT DELIBERATELY DOES NOT.
+ *
+ *   1. `find` occurs at least once in the target file.
+ *   2. Applying it changes that file.
+ *
+ * It does NOT require the fault text to be gone afterwards, because the campaign
+ * applies `String.prototype.replace` with a string pattern -- the FIRST occurrence
+ * only -- so a case whose `find` legitimately occurs three times is correct and still
+ * leaves the same text further down. Two pre-existing cases do exactly that. The
+ * occurrence count is reported instead, because a case that depends on which match
+ * comes first depends on the source's shape rather than on the case.
+ *
+ * It also cannot check that the mutant COMPILES. That is the more valuable check and it
+ * costs a full `cargo check` per case, so it stays the campaign's job; this preflight
+ * is the cheap half, and it catches the far more common cause.
+ */
+function preflightFaults() {
+  const broken = [];
+  const notes = [];
+  for (const testCase of CASES) {
+    const faults = testCase.edits ?? [{ find: testCase.find, replace: testCase.replace }];
+    for (const fault of faults) {
+      const file = fault.file ?? testCase.file;
+      if (!file || !fault.find) continue;
+      let source;
+      try {
+        source = readFileSync(join(process.cwd(), file), "utf8");
+      } catch {
+        broken.push(`${testCase.id} ${testCase.title}: ${file} does not exist`);
+        continue;
+      }
+      const occurrences = source.split(fault.find).length - 1;
+      if (occurrences === 0) {
+        broken.push(
+          `${testCase.id} ${testCase.title}: the fault text is not in ${file}. The source ` +
+            "moved and the case is now inert.",
+        );
+        continue;
+      }
+      if (occurrences > 1) {
+        notes.push(
+          `${testCase.id} ${testCase.title}: the fault text occurs ${occurrences} times in ` +
+            `${file}; the first is replaced, so the case depends on the source's shape`,
+        );
+      }
+      if (source.replace(fault.find, fault.replace) === source) {
+        broken.push(`${testCase.id} ${testCase.title}: applying the fault changes nothing`);
+      }
+    }
+  }
+  return { broken, notes };
+}
+
+if (process.argv.includes("--preflight")) {
+  const { broken, notes } = preflightFaults();
+  for (const note of notes) console.log(`  note  ${note}`);
+  for (const problem of broken) console.log(`  BROKEN ${problem}`);
+  const total = CASES.length;
+  console.log(
+    `\n${total - broken.length}/${total} cases have a fault that still applies to the source`,
+  );
+  if (broken.length > 0) {
+    console.log(
+      "\nA case whose fault no longer applies proves nothing and costs a full campaign run to\n" +
+        "discover. Fix the case's `find` against the current source -- do not remove the case and\n" +
+        "do not widen the text until it matches, because a fault that matches something it was\n" +
+        "not written for is not the invariant it claims to be.",
+    );
+  }
+  process.exit(broken.length > 0 ? 1 : 0);
+}
+
 if (process.argv.includes("--self-test")) {
   let failed = 0;
   for (const [name, output, wantClean] of SELF_TEST) {
@@ -696,9 +783,27 @@ for (const c of CASES) {
   );
   console.log(`      killed by ${c.verifier.join(" + ")}; reason must mention "${c.expect}"`);
 }
+
 if (!APPLY) {
   console.log("\nNothing was mutated. The cases above are the campaign.");
   process.exit(0);
+}
+
+// Refuse to spend the run on a case whose fault no longer matches its source. The
+// dry run above is where a reader wants to be told this, and doing it here rather
+// than leaving it to `--preflight` means nobody can start the expensive mode past
+// it by forgetting the cheap one.
+{
+  const { broken, notes } = preflightFaults();
+  for (const note of notes) console.log(`  note  ${note}`);
+  if (broken.length > 0) {
+    for (const problem of broken) console.log(`  BROKEN ${problem}`);
+    console.log(
+      `\nRefusing to apply: ${broken.length} case(s) would fault nothing. Fix the \`find\` text\n` +
+        "against the current source. `pnpm verify:campaign-preflight` checks this on its own.",
+    );
+    process.exit(1);
+  }
 }
 
 // --- execute --------------------------------------------------------------
