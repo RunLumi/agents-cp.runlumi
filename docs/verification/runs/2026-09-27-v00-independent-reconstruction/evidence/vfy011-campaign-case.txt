@@ -1,0 +1,81 @@
+# VFY-011 sensitivity: as a mutation campaign case, not a one-off rollback
+
+The first sensitivity proof for the cross-tenant leak was a hand-run revert: remove the
+organization guard from `list_grants`, run the probe, watch it report the leak, put the guard
+back. That is real evidence, but it is not rerunnable by anyone else and it is not keyed off by
+anything, so it would have quietly stopped being true the next time `projects.rs` changed.
+
+`verify:mutation` now owns it.
+
+## The case
+
+```
+VI-TEN-001 (tier 0)  a project grant list is served without the project being org-scoped
+    fault in  apps/api/src/routes/projects.rs
+    killed by smoke:p08; reason must mention "/projects/{id}/access"
+```
+
+It is the only `VI-TEN-001` case in the campaign that **removes nothing from SQL**. The two
+cases above it drop an `org_id` predicate from a statement, and the tenant audit sees them,
+because the audit classifies statements. This one leaves every statement unchanged and still
+correctly classified, and removes only the handler's check that the project belongs to the
+organization the caller was authorized for.
+
+That is the whole reason the defect reached a handler. `GRANTS_BY_PROJECT_SQL` is classified
+`ReturnsOrg` — true of the statement, useless for the handler — and the audit says itself it
+"does not prove routes call the right statement". A mutation that exercises that gap is the only
+kind that can prove a new probe is load-bearing against it.
+
+## The kill
+
+```
+✓ [KILLED] VI-TEN-001  a project grant list is served without the project being org-scoped
+    the verifier failed, and the failure names the invariant:
+    FAIL  project /projects/{id}/access — the resource is invisible across the boundary
+    — LEAK: outsider=404 other-owner=200
+```
+
+The verdict names the route and shows both outsiders: the plain non-member is refused (`404`) and
+the other organization's owner is not (`200`). That pair *is* the defect — authorization passed
+for an organization the resource does not belong to.
+
+## The full campaign on the same tree
+
+```
+tally: {"KILLED":13}
+13/13 mutations were killed by the verifier that is supposed to defend them
+```
+
+## What the campaign itself got wrong first
+
+The first version of this case began its `find` at the `.filter(|project| project.org_id == org_id)`
+line rather than at the whole statement. Removing it left:
+
+```rust
+    ProjectRepository::new(database)
+        .find_project(&project_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?      // an expression with no `;`
+    let grants = ProjectRepository::new(database)           // immediately followed by a statement
+```
+
+which does not compile. The campaign reported it honestly —
+
+```
+VI-TEN-001: a project grant list is served without the project being org-scoped
+(NOT_A_VALID_MUTATION) — the mutant did not compile, so no verifier could have caught the fault
+```
+
+— which is the right behaviour and a twenty-minute run spent finding out. The repair is
+`pnpm verify:campaign-preflight`, which checks every case's fault against its source in about a
+second, and `--apply` now refuses to start a run that would fault nothing. Proved by pointing a
+case at text its target does not contain:
+
+```
+BROKEN VI-TEN-001 a cross-tenant read loses its organization predicate: the fault text is not in
+apps/api/src/repositories/plugins.rs. The source moved and the case is now inert.
+
+12/13 cases have a fault that still applies to the source
+```
+
+exit 1.

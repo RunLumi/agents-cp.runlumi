@@ -307,6 +307,7 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm smoke:p08` | the cross-tenant boundary on the org-scoped routes the earlier gates never reached: a plain member of another organization, and that organization's owner, are both refused | a built Worker |
 | `pnpm schema:bind-count` | every `prepare()` binds as many values as its SQL has placeholders, so D1 cannot reject a statement at execution time | nothing |
 | `pnpm verify:campaign-selftest` | the mutation campaign can still recognise a clean, a failing, and an absent verdict from each runtime probe it drives | nothing |
+| `pnpm verify:campaign-preflight` | every campaign case's fault still occurs in the source it names, and applying it changes that source — so a case cannot fault nothing and spend a twenty-minute run discovering it | nothing |
 | `pnpm smoke:browser` | the real journey in a real browser: passkey-first sign-in, a CTAP2 authenticator, email verification, two organizations, switching without stale data, keyboard focus, and a 390 px layout | a Vite dev server on `:5173`, a Worker on `:8787`, and Chrome |
 
 `smoke:p08` asks every route **three** times — as a member, as a plain member of another
@@ -357,6 +358,7 @@ proof, and each proof is rerunnable:
 | `guard:probe` | `evidence/vfy004-guard-sensitivity.sh` — five targeted reverts, all detected — plus campaign case `GUARD-2`, which reverts `is_guard_abort` to the pre-VFY-004 substring matcher. The probe verifies the list behaviourally against real SQLite and the function's use of the list structurally; it does not execute the Rust function, so run-time evidence for the match itself comes from `smoke:p05` and `GUARD-1` |
 | `smoke:browser` | `evidence/vfy-browser-sensitivity.sh` — run against the pre-repair product, where it reports 12 named failures |
 | `smoke:p05` | `verify:mutation` case `GUARD-1` — the reservation sentinel bypassed |
+| `smoke:p08` | `verify:mutation` case *"a project grant list is served without the project being org-scoped"* — the handler's organization check removed while **every SQL statement stays unchanged and correctly classified**. It is the only `VI-TEN-001` case that removes nothing from SQL, which is the whole point: the two cases above it drop a predicate from a statement, the tenant audit sees those, and it cannot see this |
 
 Running a gate against the product it is meant to fail on finds defects in the gate itself. It found
 three in `smoke:browser`: waits that tested for the repair, a crash on the very state the gate

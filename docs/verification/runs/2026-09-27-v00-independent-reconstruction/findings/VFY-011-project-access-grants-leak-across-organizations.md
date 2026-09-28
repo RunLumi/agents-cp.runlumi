@@ -110,6 +110,22 @@ respectively.
 Evidence: `evidence/vfy011-project-access-leak.txt`. The fix is load-bearing: reverting just that
 guard turns the probe red again with the leak named (18/21, 1 leak, exit 1).
 
+**That is now a campaign case rather than a hand-run revert**, so it is rerunnable by anyone and
+keyed off by something. `verify:mutation` carries *"a project grant list is served without the
+project being org-scoped"*, and the whole campaign is **13/13 KILLED**. It is the only
+`VI-TEN-001` case that removes nothing from SQL: the statements stay unchanged and correctly
+classified, and only the handler's organization check goes, which is the one mutation the tenant
+audit is structurally unable to see. Its kill names the route and both outsiders:
+
+```
+✓ [KILLED] VI-TEN-001  a project grant list is served without the project being org-scoped
+    the verifier failed, and the failure names the invariant:
+    FAIL  project /projects/{id}/access — the resource is invisible across the boundary
+    — LEAK: outsider=404 other-owner=200
+```
+
+Evidence: `evidence/vfy011-campaign-case.txt`.
+
 `pnpm smoke:p05` 185/0 and `pnpm check` exit 0 after the change; p05 exercises the project routes,
 so the added lookup is covered by a gate that was already passing.
 
