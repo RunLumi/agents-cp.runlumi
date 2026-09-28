@@ -88,11 +88,33 @@ assertion beside it, and the probe states both. This is the same structure as V0
 control and as V01-015's different-key call: **a state assertion that a constraint satisfies for
 free cannot be the one that decides the verdict.**
 
-## What a fix would have to decide, and the contract question behind it
+## The contract question is already settled — inside the same file
 
-Distinguishing "this address is already invited to this organization" from "this key was already
-used" needs a **stable error code**, and the spec's vocabulary may not have one. If it does not,
-that is a deliberate-change-process item rather than something to invent here — the same position
-taken on GAP-001 and GAP-003, where the right move was to record the gap and stop rather than
-mint a code and call the claim green. The attack establishes the defect's shape first so that the
-decision, when it is made, is made against evidence.
+I recorded earlier that the repair might need a new stable code, and that if the spec's vocabulary
+lacked one this would be a deliberate-change-process item rather than something to invent. **It
+does not need one, and no contract change is required.** The invitation routes already establish
+the pattern three times over, in the same module:
+
+| route | what it does on a duplicate |
+|---|---|
+| `accept` | `domain_error(context, Conflict, "invitation_replayed", "The invitation is no longer available.")` |
+| `resend`, `revoke` | checks `D1Adapter::changes(&results[0]) != 1` and returns `Conflict` |
+| **`invite`** | **neither** — no rows-affected check, and the batch's failure is mapped to a bare `503` |
+
+Two facts follow, and they change the finding:
+
+1. **The vocabulary exists.** `ApiErrorCode::Conflict` serialises as `"conflict"`, and the codebase
+   already carries 28 uses of `version_conflict`, 13 of `idempotency_conflict` and 4 of
+   `invitation_replayed` under it, each distinguished by `details.reason`. A duplicate invite is
+   the same shape as an already-used invitation, so `conflict` + a reason is the file's own
+   convention rather than an invention.
+
+2. **The rows-affected check is already written, twice, next door.** `resend` and `revoke` both
+   do `changes(&results[0]) != 1` → `Conflict`. `invite` does not — which is precisely why a
+   constraint violation becomes an opaque 503 rather than a refusal. **The handler is the outlier
+   in its own module**, which is the strongest available form of "the intended behaviour is
+   clear": the repair is not a design decision, it is internal consistency.
+
+So this does not go to the deliberate change process. It is an implementation defect with an
+existing in-file precedent, and the attack exists to establish its shape and its severity before
+the repair is written.

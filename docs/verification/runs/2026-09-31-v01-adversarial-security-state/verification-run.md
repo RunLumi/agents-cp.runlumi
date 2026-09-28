@@ -25,6 +25,7 @@ Nothing is carried as "probably fine".
 | **V01-012** no probe can read a log line written by the Worker, so every `report_error` is unprovable | high (verifier) | verifier defect | **closed** — `--log-level debug` plus a teed console file and `workerConsole()` |
 | **V01-011** `POST /orgs/{org}/automations` could not succeed — twice over | **high** | product defect | **closed**. The 201 body read back a row the un-run batch would have written (404, nothing written); then the insert itself named 34 columns and 33 values and bound a **user id** to `created_at` (503, nothing written). Now `201`. `schema:bind-count` was green throughout — the first concrete instance of GAP-004 |
 | **V01-013** the attempt counter that bounds automation retries is written by nothing | **high** | product defect | **open** — `TRANSITION_OCCURRENCE_SQL` has no `attempt` in its SET list, so `max_start_attempts` is unenforceable; the two assertions fail on purpose until it is fixed |
+| **V01-018** the discarded-`Idempotency-Key` class, enumerated exactly | **medium** | product defect, unproven per site | **3 sites, not 76.** A substring pattern counting `idempotency_key(...)?;` matched both the discarded statement and the tail of `let key = idempotency_key(...)?;`, so 71 correct sites were counted as broken. Requiring the call to be the whole line gives 3: `approve_enrollment`, `revoke_device` (V01-015 attacks both) and `delete_project_binding` (unattacked). The defect is that **no route replays its first response**; two of the three are protected by incidental state guards, which is the dangerous shape, because a naturally-idempotent operation looks correct to a state-graded gate |
 | **V01-002** a verifier measured code that was not on disk | high | verifier defect | **closed** — `buildFreshness()` added so it cannot recur silently |
 | **V01-001** the adoption privacy property is under-specified, and the probe that "proved" it was searching nothing | high (verifier) / gap (spec) | verifier defect + spec gap | **closed** — probe retargeted to the three rules that exist; GAP-001 recorded |
 | **V01-004** three authentication attacks the family names and nothing had ever run | none found | absent evidence | **closed** — 55/55 → 76/76, and one of the three turned out to be testing the wrong condition |
@@ -103,6 +104,43 @@ context, not by a code review.** In every case the same discipline found it:
    reading back a row the un-run batch was about to write. A response assembled from the database
    is a response that can be assembled from the wrong moment.
 
+## A gate that dies is not a gate that passed, and this harness made that invisible
+
+The most consequential defect of the round was not in the product at all.
+`verify:lease-contention` had been reporting **32/34** since the moment it was written, and the
+campaign record had closed the automation-lease family on that basis. In fact the probe **died
+inside its first case**, on `no such table: automation_attempts` — the table is
+`automation_occurrence_attempts` — and three of its four cases had never executed.
+
+What made it invisible was the harness, in exactly the way this campaign's own rules forbid:
+
+```rust
+if (this.failures.length === 0) process.exit(2);
+process.exit(1);
+```
+
+A probe that died **after** recording a failure exited **1**, the code that means "the product is
+broken". So a run that stopped in its first case was indistinguishable from a run that graded
+every case and found two defects, and the numbers a reader could see were a fraction whose
+denominator silently excluded everything that never ran.
+
+Three things had to be true for that to pass unnoticed, and each is now a check:
+
+1. **the failure was real but boring** — a SQL typo, the kind that reads as a product bug for
+   exactly as long as you do not check the table name;
+2. **the fraction still looked like a fraction** — 32/34 is a plausible number, and nothing in
+   it says "three cases did not run";
+3. **the harness reported the run as finished** — no summary line, no exit-2, nothing.
+
+The fixes are general rather than specific: `bail()` now **always** exits 2 and states how many
+cases were reached and that everything after the failure was never run; and every caller that
+drives a probe requires the probe's own summary line before it will accept the log, so a partial
+run cannot be a verdict whatever the exit code claims.
+
+The generalisation is the part worth keeping: **a gate's denominator is a claim about what ran.**
+A verifier that reports a ratio must make the denominator checkable, or the ratio can be made to
+look like evidence by the simple expedient of not running the hard part.
+
 **Two counts agreeing is not a correspondence.** `INSERT_AUTOMATION_SQL` bound 30 values and
 named 30 distinct placeholders, so `pnpm schema:bind-count` was green while the statement could
 not be prepared at all. That is GAP-004 — recorded before the defect was found — with a
@@ -159,6 +197,7 @@ Nothing below is claimed as a pass. Each names the specific evidence that is mis
 | ~~mutating cross-tenant calls~~ | **CLOSED in V01-008's probe** | 11 mutations from another tenant's owner and from a plain member of the same tenant, across role, capability, project, budget and org. 0 of 11 changed state; refusals are 404 for both an existing and an absent id, so there is no existence oracle. **Still open**: list/**filter**, **pagination** and **nested** substitution, and 28 more mutating routes |
 | 82 of 104 org-scoped routes | **partly closed** | 20 read routes in `smoke:p08` plus 11 mutating routes in `verify:mutating-tenancy`. No filter, pagination or nested substitution anywhere |
 | 14 of the 15 repaired audit call sites | **UNPROVEN** | repaired in #39; only some have individual runtime evidence |
+| `delete_project_binding` discards its `Idempotency-Key` | **UNPROVEN — V01-018 site 3** | a retried delete answers **`404`** because the binding is gone, so the pre-read 404s before the audit write. No duplicated state, and **that is the problem**: the operation is naturally idempotent, so a state-graded gate passes it and only a **response-replay** check can see the defect. `verify:idempotency` grades on row counts and is structurally unable to. It is named here because the *corrected* inventory found it — the uncorrected one reported 76 sites and would have sent a sweep after the 71 that are already right |
 | a **revoked device** driven to a refusal | **UNPROVEN — attack written** | `p03` and `p05` mention device revocation; neither attacks it. **V01-016** (`verify:revoked-device`) drives it, and the sharp leg is a credential **mint** rather than a dead token: a read, the nonce, and a refresh signed over a real server-issued nonce, each controlled by a success — including a real pre-revocation mint — before the revocation |
 | a revoked session's **refresh** token | **UNPROVEN** | the recovery section proves the session dies; not that its refresh token does |
 | the reauth grant's own ceremony kind | **UNPROVEN** | a reauth grant is a ceremony; the kind attack does not cover it |
