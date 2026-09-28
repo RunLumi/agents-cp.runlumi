@@ -1,0 +1,33 @@
+
+=== baseline: the repaired product must pass the gate
+  baseline PASS (exit 0)
+restored both files
+
+=== M1: the failure path drops the reservation update — the request finalises, the money stays held
+  finalize_request no longer reconciles the reservation
+mutation applied to apps/api/src/routes/inference.rs
+  probe exit=1, FAIL lines=10
+  FAIL  success (control): the reservation is not left 'reserved' after the request finished  — STRANDED 1 reservation(s) still 'reserved': [{"reservation_id":"bud_a0c9ce081a68438593478af70a4487ed","s
+  DETECTED  m1
+restored both files
+
+=== M2: the same batch drops the REQUEST state write — the money is released, the run never closes
+  finalize_request no longer writes the request's terminal state
+mutation applied to apps/api/src/routes/inference.rs
+  probe exit=1, FAIL lines=5
+  DETECTED  m2
+restored both files
+
+=== M3: the reservation compare-and-set stops matching — a one-token change in the SQL
+  UPDATE_BUDGET_RESERVATION_SQL: the compare-and-set now requires 'committed'
+mutation applied to apps/api/src/repositories/ai.rs
+  probe exit=1, FAIL lines=10
+  DETECTED  m3
+restored both files
+
+=== verdicts
+  OK    m1 -> DETECTED
+  OK    m2 -> DETECTED
+  OK    m3 -> DETECTED
+
+SENSITIVITY OK — every mutation was detected. The gate can fail.

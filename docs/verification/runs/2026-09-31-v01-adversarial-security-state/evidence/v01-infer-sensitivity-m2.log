@@ -1,0 +1,89 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-infer-scratch/db-m2
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:53731
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-BCWaoS/478a44e098b2ed783dc95dc87874dabaf66c1554-index_bg.wasm is 68s newer than src/routes/inference.rs
+  PASS  signup Inference Owner  — status=201
+  PASS  verify Inference Owner  — status=200
+  PASS  login start Inference Owner  — status=202
+  PASS  login complete Inference Owner  — status=200
+  PASS  user Inference Owner has an opaque ID  — usr_11e731e0dd994bb9aa938b0c9be4dc49
+  PASS  create Inference Org  — status=201
+  PASS  Inference Org organization ID  — org_7d91408ec6df1cfdae183c88f0bfa228
+  PASS  CONTROL: a hard organization budget exists, so a reservation is actually taken and a release claim means something  — status=201 budget_id=bud_ca76ccd632464f8193e27f24c0c7bde1
+  PASS  CONTROL: the catalog is readable  — status=200
+  PASS  CONTROL: the seeded catalog provides mock-success  — provider=true model=true
+  PASS  CONTROL: the seeded catalog provides mock-fail  — provider=true model=true
+  PASS  CONTROL: the seeded catalog provides mock-timeout  — provider=true model=true
+  PASS  CONTROL: the seeded catalog provides mock-post-output-failure  — provider=true model=true
+  PASS  CONTROL: a credential exists for mock-success  — status=201 credential_id=cred_11c1c9fe1c05e79c776ecbfc622e95b2
+  PASS  CONTROL: a route exists for mock-success  — status=201 alias=v01-success
+  PASS  CONTROL: the mock-success route is published  — status=200
+  PASS  CONTROL: a credential exists for mock-fail  — status=201 credential_id=cred_00d554e30c79986c679b23e5627df1d2
+  PASS  CONTROL: a route exists for mock-fail  — status=201 alias=v01-fails
+  PASS  CONTROL: the mock-fail route is published  — status=200
+  PASS  CONTROL: a credential exists for mock-timeout  — status=201 credential_id=cred_2c7288d814561b91544c92b45b4a005b
+  PASS  CONTROL: a route exists for mock-timeout  — status=201 alias=v01-timesout
+  PASS  CONTROL: the mock-timeout route is published  — status=200
+  PASS  CONTROL: a credential exists for mock-post-output-failure  — status=201 credential_id=cred_dae2a7da3fcfb03ae16af1645dfdc6e9
+  PASS  CONTROL: a route exists for mock-post-output-failure  — status=201 alias=v01-postoutput
+  PASS  CONTROL: the mock-post-output-failure route is published  — status=200
+  PASS  CONTROL: a healthy provider answers 200  — status=200
+  PASS  CONTROL: the healthy response returns a request id, so its final state can be read back  — request_id=req_f228a160d2944ab597796284e447dd13
+  PASS  success (control): an inference_requests row exists, so the request was really dispatched  — request_id=req_f228a160d2944ab597796284e447dd13 rows=1
+  PASS  success (control): a budget_reservations row was taken, so "not left reserved" is a claim about a real reservation  — request_id=req_f228a160d2944ab597796284e447dd13 reservations=1 http status=200
+  PASS  success (control): the reservation is not left 'reserved' after the request finished  — status(es)=committed reason=n/a http=200
+  FAIL  success (control): the inference request reaches a TERMINAL state  — response_state=stream_committed error_code=none first_output_at=null completed_at=null http=200
+  PASS  success (control): a usage row exists, because this request DID produce output  — usage rows=1 tokens=4/3
+
+  fail-before-output: http=503 reason=provider_unavailable
+  PASS  fail-before-output: the failure is reported, not silently swallowed into a 200  — status=503 body={"error":{"code":"service_unavailable","message":"The inference request could not be completed.","request_id":"req_6605cc300fbd4c6aafefa94b304c0814","details":{"reason":"provider_unavailable"}}}
+  PASS  fail-before-output: an inference_requests row exists, so the request was really dispatched  — request_id=req_6605cc300fbd4c6aafefa94b304c0814 rows=1
+  PASS  fail-before-output: a budget_reservations row was taken, so "not left reserved" is a claim about a real reservation  — request_id=req_6605cc300fbd4c6aafefa94b304c0814 reservations=1 http status=503
+  PASS  fail-before-output: the reservation is not left 'reserved' after the request finished  — status(es)=released reason=n/a http=503
+  FAIL  fail-before-output: the inference request reaches a TERMINAL state  — response_state=not_dispatched error_code=none first_output_at=null completed_at=null http=503
+  PASS  fail-before-output: NO usage row is recorded, because this request produced no output to bill for  — response_state=not_dispatched error_code=none http=503
+
+  timeout: http=503 reason=request_timeout
+  PASS  timeout: the probe's own hard ceiling was not reached, so this is a product answer and not a gate hang  — answered in under 30s with status 503
+  PASS  timeout: an inference_requests row exists, so the request was really dispatched  — request_id=req_413130fc0b52443492a2a9b57c950f98 rows=1
+  PASS  timeout: a budget_reservations row was taken, so "not left reserved" is a claim about a real reservation  — request_id=req_413130fc0b52443492a2a9b57c950f98 reservations=1 http status=503
+  PASS  timeout: the reservation is not left 'reserved' after the request finished  — status(es)=released reason=n/a http=503
+  FAIL  timeout: the inference request reaches a TERMINAL state  — response_state=dispatched_no_output error_code=none first_output_at=null completed_at=null http=503
+  PASS  timeout: NO usage row is recorded, because this request produced no output to bill for  — response_state=dispatched_no_output error_code=none http=503
+
+  post-output-failure: http=200 partial=true error_frames=3 done=true leaked_other_output=false
+  PASS  post-output-failure: the partial output IS delivered, so the client learns the provider committed before failing  — http=200 body=data: {"alias":"v01-postoutput","choices":[{"delta":{"role":"assistant"},"finish_reason":null,"index":0}],"error":null,"id":"req_84f377d0f26b47c39ea25c67881dc332","model":"v01-postoutput","model_id":"
+  post-output-failure: frames=3 error_frames=1 finish_reasons=[error] done=true
+  PASS  post-output-failure: the partial output IS delivered, so the client learns the provider committed before failing  — http=200 body=data: {"alias":"v01-postoutput","choices":[{"delta":{"role":"assistant"},"finish_reason":null,"index":0}],"error":null,"id":"req_84f377d0f26b47c39ea25c67881dc332","model":"v01-postoutput","model_id":"
+  PASS  post-output-failure: EXACTLY ONE frame carries a non-null "error", so a client cannot be told twice that the same stream failed  — frames=3 error frames=1 errors="error":{"code":"upstream_invalid_response","message":"The provider stream failed."}
+  PASS  post-output-failure: the terminal finish_reason is "error" and never "stop", so a client cannot mistake this for a completed response  — finish_reasons=[error] — `[DONE]` closes the stream either way, so it is the finish_reason that carries the verdict
+  PASS  post-output-failure: the stream does not leak another candidate's output, so no fallback happened after output was committed  — leaked: false
+  PASS  fail-before-output: an inference_requests row exists, so the request was really dispatched  — request_id=req_84f377d0f26b47c39ea25c67881dc332 rows=1
+  PASS  fail-before-output: a budget_reservations row was taken, so "not left reserved" is a claim about a real reservation  — request_id=req_84f377d0f26b47c39ea25c67881dc332 reservations=1 http status=200
+  PASS  fail-before-output: the reservation is not left 'reserved' after the request finished  — status(es)=released reason=n/a http=200
+  FAIL  fail-before-output: the inference request reaches a TERMINAL state  — response_state=stream_committed error_code=none first_output_at=null completed_at=null http=200
+  PASS  fail-before-output: NO usage row is recorded, because this request produced no output to bill for  — response_state=stream_committed error_code=none http=200
+
+  client-disconnect: http=200 saw_output_before_abort=true
+  PASS  client-disconnect: the probe really did receive output before aborting, so the request had committed and the abort was not a pre-flight cancellation  — http=200 — if no chunk arrived, the abort landed before any output and the claim below is weaker
+  PASS  client-disconnect: an inference request row exists to inspect  — latest={"request_id":"req_ff160572183449eea1c7a7a97ee9d2df","response_state":"stream_committed","error_code":null,"completed_at":null}
+  PASS  client-disconnect: an inference_requests row exists, so the request was really dispatched  — request_id=req_ff160572183449eea1c7a7a97ee9d2df rows=1
+  PASS  client-disconnect: a budget_reservations row was taken, so "not left reserved" is a claim about a real reservation  — request_id=req_ff160572183449eea1c7a7a97ee9d2df reservations=1 http status=200
+  PASS  client-disconnect: the reservation is not left 'reserved' after the request finished  — status(es)=committed reason=n/a http=200
+  FAIL  client-disconnect: the inference request reaches a TERMINAL state  — response_state=stream_committed error_code=none first_output_at=null completed_at=null http=200
+  client-disconnect: usage rows=1 (4/3) — observed, not asserted
+  client-disconnect: usage rows for the abandoned request = 1 (4/3)
+  PASS  client-disconnect: any usage recorded for the abandoned request is attributed to THAT request, never to another one  — rows=1 — attribution is by request_id, which is what this read used
+
+  reservations still 'reserved' for this org: 0 (across every outcome above)
+  PASS  no reservation anywhere in the database is left 'reserved' after every outcome in this probe, which is the whole money claim in one assertion  — every reservation taken was committed or released
+
+60/65 V01 inference-failure cases hold
+
+5 case(s) failed:
+  - success (control): the inference request reaches a TERMINAL state
+  - fail-before-output: the inference request reaches a TERMINAL state
+  - timeout: the inference request reaches a TERMINAL state
+  - fail-before-output: the inference request reaches a TERMINAL state
+  - client-disconnect: the inference request reaches a TERMINAL state
