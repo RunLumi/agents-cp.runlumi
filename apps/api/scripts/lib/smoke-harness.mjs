@@ -36,7 +36,25 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const apiDir = resolve(here, "..", "..");
-const wranglerBin = join(apiDir, "node_modules", ".bin", "wrangler");
+
+/**
+ * Where wrangler is, resolvable from OUTSIDE this tree.
+ *
+ * `PROBE_WRANGLER` is the same override `p02-passkey-smoke.mjs` and
+ * `p05-smoke.mjs` already take (`P02_PASSKEY_WRANGLER`, `P05_WRANGLER`), and it
+ * exists for one reason: the mutation campaign runs a probe against a MUTATED
+ * COPY of the repository, and that copy carries no `node_modules` of its own.
+ *
+ * Without it this harness hard-failed on the mutant for the VFY-011 case with
+ * "wrangler is not installed at <scratch>/apps/api/node_modules/.bin/wrangler"
+ * -- so the campaign reported `KILLED_FOR_THE_WRONG_REASON`, which is correct
+ * and unhelpful: the case stopped testing what it was written to test because of
+ * a missing binary path, and the tally said nothing about the product.
+ *
+ * The first version of this harness had no override and nothing here mentioned
+ * the campaign, so the regression was invisible until a case actually used it.
+ */
+const wranglerBin = process.env.PROBE_WRANGLER ?? join(apiDir, "node_modules", ".bin", "wrangler");
 
 /**
  * A probe's own state: its tally, its services, its redaction set.
@@ -511,7 +529,11 @@ export class SmokeHarness {
    */
   async setup({ persistEnvVar = "P06_PERSIST_TO", portEnvVar = "P06_PORT" } = {}) {
     if (!existsSync(wranglerBin)) {
-      throw new Error(`wrangler is not installed at ${wranglerBin}; run pnpm install first`);
+      throw new Error(
+        `wrangler is not installed at ${wranglerBin}. Run pnpm install, or point ` +
+          "PROBE_WRANGLER at one -- the mutation campaign runs this probe against a mutated " +
+          "copy of the repository that has no node_modules of its own.",
+      );
     }
     if (process.env[persistEnvVar]) {
       this.persistDir = resolve(process.env[persistEnvVar]);

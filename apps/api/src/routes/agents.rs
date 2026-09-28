@@ -134,11 +134,18 @@ pub(crate) fn validation_error(context: &RequestContext, reason: &str, message: 
     domain_error(context, ApiErrorCode::ValidationFailed, reason, message)
 }
 
+/// A store failure, for any store.
+///
+/// Named for the store rather than for the module that happens to call this.
+/// The message used to read "The agent control-plane store is unavailable", and
+/// because this helper is `pub(crate)` and shared it told a data-governance or
+/// webhook caller that the *agent* store was down. A client cannot retry its way
+/// out of a message that names the wrong subsystem.
 pub(crate) fn service_unavailable(context: &RequestContext) -> ApiError {
     errors::api_error(
         context,
         ApiErrorCode::ServiceUnavailable,
-        "The agent control-plane store is unavailable.",
+        "The control-plane store is unavailable.",
     )
 }
 
@@ -436,28 +443,69 @@ fn agent_body_value<T: Serialize>(context: &RequestContext, body: &T) -> Result<
     })
 }
 
+/// Why the commit batch did not report success.
+///
+/// The distinction is load-bearing, and the previous code did not make it: it
+/// discarded the batch's error and derived the response from the idempotency
+/// record alone, so a genuine store fault and a deliberate guard sentinel both
+/// produced the same "this key is in progress" answer. One of those is a conflict
+/// and the other is an outage, and a client cannot act correctly on the second
+/// while being told the first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BatchOutcome {
+    /// A guard sentinel deliberately violated a constraint. It fires when the
+    /// claim was not actually held, which IS a conflict with current state, and
+    /// it is the one failure here that a 409 describes truthfully.
+    GuardLost,
+    /// Any other batch failure. This request's own transaction did not commit and
+    /// nothing in the record can say why.
+    StoreFault,
+}
+
 fn map_idempotency_lookup(
     context: &RequestContext,
     lookup: IdempotencyLookup,
+    outcome: BatchOutcome,
 ) -> Result<Option<StoredSuccess>, ApiError> {
     match lookup {
-        IdempotencyLookup::Missing => Err(domain_error(
-            context,
-            ApiErrorCode::Conflict,
-            "conflict",
-            "The request conflicts with current state.",
-        )),
-        IdempotencyLookup::InProgress => Err(errors::api_error(
-            context,
-            ApiErrorCode::IdempotencyInProgress,
-            "A request with this Idempotency-Key is still in progress.",
-        )),
+        // A completed record is the one outcome that survives either story. The
+        // batch can commit and lose its reply, and this is how that is noticed.
+        IdempotencyLookup::Replay(success) => Ok(Some(success)),
+
+        // A live record with a different fingerprint is a real conflict whichever
+        // story we are in, so it keeps its answer.
         IdempotencyLookup::FingerprintConflict => Err(errors::api_error(
             context,
             ApiErrorCode::IdempotencyConflict,
             "This Idempotency-Key was already used for a different request.",
         )),
-        IdempotencyLookup::Replay(success) => Ok(Some(success)),
+
+        IdempotencyLookup::InProgress => match outcome {
+            BatchOutcome::GuardLost => Err(errors::api_error(
+                context,
+                ApiErrorCode::IdempotencyInProgress,
+                "A request with this Idempotency-Key is still in progress.",
+            )),
+            // "Still in progress" is a lie here. WE are the request, we held the
+            // claim, and our own transaction just failed -- so there is no request
+            // running and none is going to finish. Answering 409 told the client to
+            // wait for something that would never arrive, and buried the only
+            // evidence of what actually failed.
+            BatchOutcome::StoreFault => Err(service_unavailable(context)),
+        },
+
+        IdempotencyLookup::Missing => match outcome {
+            BatchOutcome::GuardLost => Err(domain_error(
+                context,
+                ApiErrorCode::Conflict,
+                "conflict",
+                "The request conflicts with current state.",
+            )),
+            // The claim row we were about to complete is gone. Purging only removes
+            // expired rows, so a record this fresh disappearing is a store fault
+            // rather than a conflict with anything.
+            BatchOutcome::StoreFault => Err(service_unavailable(context)),
+        },
     }
 }
 
@@ -569,9 +617,23 @@ pub(crate) async fn commit_mutation(
             outbox,
         )
         .await;
-    if result.is_ok() {
-        return Ok(None);
-    }
+    let outcome = match result {
+        Ok(_) => return Ok(None),
+        // One shared recogniser: see `core::idempotency::GUARD_ABORT_TEXTS`.
+        Err(error) if crate::core::is_guard_abort(&format!("{error:?}")) => BatchOutcome::GuardLost,
+        // Logged, not swallowed. This is the only place the reason a mutation
+        // failed reaches anything at all: `worker::Error` carries SQLite's message
+        // and the failing statement, never the bound values, so it is the
+        // difference between a diagnosable 503 and one nobody can explain. A
+        // request id is included so the line joins up with the response.
+        Err(error) => {
+            worker::console_error!(
+                "commit_mutation: the commit batch failed and the outcome is unknown;                  request_id={} error={error:?}",
+                context.request_id.as_str()
+            );
+            BatchOutcome::StoreFault
+        }
+    };
     let repository = IdempotencyRepository::new(database);
     let lookup = repository
         .lookup(
@@ -582,7 +644,7 @@ pub(crate) async fn commit_mutation(
         )
         .await
         .map_err(|_| service_unavailable(context))?;
-    map_idempotency_lookup(context, lookup)
+    map_idempotency_lookup(context, lookup, outcome)
 }
 
 pub(crate) fn replay_response(success: StoredSuccess) -> Response<Body> {
@@ -1655,4 +1717,140 @@ pub async fn close_session(
         return Ok(replay_response(replay));
     }
     Ok((StatusCode::OK, Json(success.body)).into_response())
+}
+
+#[cfg(test)]
+mod commit_outcome_tests {
+    //! What a failed commit batch is allowed to say.
+    //!
+    //! The defect these pin is a discarded error. `commit_mutation` used to hold
+    //! the D1 batch's result, throw it away, and answer from the idempotency record
+    //! alone -- so a genuine store fault and a deliberate guard sentinel both came
+    //! back as `409 idempotency_in_progress`, "this key is still in progress",
+    //! naming a request that was not running. The evidence of what actually failed
+    //! went with it.
+    //!
+    //! This is the cheapest correct layer for the change: `map_idempotency_lookup`
+    //! is a pure function of the lookup result and the batch outcome, so the whole
+    //! decision can be pinned without a database. What is NOT proven here is that
+    //! a real D1 fault reaches this function -- that is `p05-smoke`'s 36 guard
+    //! sentinels travelling the same path, and `p06-data-smoke`'s replay leg, and
+    //! both are re-run by `pnpm check` and CI.
+
+    use super::{BatchOutcome, map_idempotency_lookup};
+    use crate::core::{ApiErrorCode, CorrelationId, RequestContext, StoredSuccess};
+    use crate::repositories::IdempotencyLookup;
+
+    fn context() -> RequestContext {
+        RequestContext::new(
+            "req_0123456789abcdef0123456789abcdef".parse().unwrap(),
+            CorrelationId::new("trace-commit").unwrap(),
+            "2026-09-28T00:00:00.000Z".parse().unwrap(),
+        )
+    }
+
+    fn success() -> StoredSuccess {
+        StoredSuccess::new(201, serde_json::json!({ "id": "agt_1" })).unwrap()
+    }
+
+    /// The lookups that must not produce a 2xx, as a function.
+    ///
+    /// A function rather than an array because `IdempotencyLookup` is not `Copy`:
+    /// iterating an array of it moves the element on the first pass, and the
+    /// second pass would be reading a moved-from value.
+    fn terminal_lookups() -> [IdempotencyLookup; 3] {
+        [
+            IdempotencyLookup::InProgress,
+            IdempotencyLookup::Missing,
+            IdempotencyLookup::FingerprintConflict,
+        ]
+    }
+
+    fn non_replay_lookups() -> [IdempotencyLookup; 2] {
+        [IdempotencyLookup::InProgress, IdempotencyLookup::Missing]
+    }
+
+    /// The whole point of the fix: a store fault is not an in-progress request.
+    #[test]
+    fn a_store_fault_is_never_reported_as_a_request_still_in_progress() {
+        for outcome in [BatchOutcome::StoreFault] {
+            for lookup in non_replay_lookups() {
+                let label = format!("{lookup:?} under {outcome:?}");
+                let error = map_idempotency_lookup(&context(), lookup, outcome).unwrap_err();
+                assert_eq!(
+                    error.error.code,
+                    ApiErrorCode::ServiceUnavailable,
+                    "{label} must be a 503, not a 409"
+                );
+            }
+        }
+    }
+
+    /// The guard sentinel fires when the claim was not held, and a lost claim IS a
+    /// conflict with current state. Reverting this would break all 36 sentinels,
+    /// which is why the two outcomes cannot be collapsed.
+    #[test]
+    fn a_guard_abort_keeps_its_conflict_answer() {
+        let error = map_idempotency_lookup(
+            &context(),
+            IdempotencyLookup::InProgress,
+            BatchOutcome::GuardLost,
+        )
+        .unwrap_err();
+        assert_eq!(error.error.code, ApiErrorCode::IdempotencyInProgress);
+    }
+
+    /// A lost reply after a successful commit is the one ambiguity a lookup
+    /// resolves, and it must survive in both stories or idempotent replay breaks.
+    #[test]
+    fn a_completed_record_replays_under_either_outcome() {
+        for outcome in [BatchOutcome::GuardLost, BatchOutcome::StoreFault] {
+            // Matched rather than `.ok().expect()`: `ok()` throws the error away, and
+            // the error is the thing this test exists to notice. If the replay arm
+            // ever starts failing, the panic should say which way.
+            let replayed = match map_idempotency_lookup(
+                &context(),
+                IdempotencyLookup::Replay(success()),
+                outcome,
+            ) {
+                Ok(Some(success)) => success,
+                Ok(None) => {
+                    panic!("{outcome:?}: a completed record fell through instead of replaying")
+                }
+                Err(error) => {
+                    panic!("{outcome:?}: a completed record failed instead of replaying: {error:?}")
+                }
+            };
+            assert_eq!(replayed.status, 201);
+        }
+    }
+
+    /// A different fingerprint is a real conflict whichever story we are in.
+    #[test]
+    fn a_fingerprint_conflict_is_a_conflict_under_either_outcome() {
+        for outcome in [BatchOutcome::GuardLost, BatchOutcome::StoreFault] {
+            let error =
+                map_idempotency_lookup(&context(), IdempotencyLookup::FingerprintConflict, outcome)
+                    .unwrap_err();
+            assert_eq!(error.error.code, ApiErrorCode::IdempotencyConflict);
+        }
+    }
+
+    /// Every terminal answer is a 5xx or a 409 -- never a 2xx, and never a status
+    /// that invites the client to mint a NEW key. Minting a fresh key after a
+    /// failed transaction is how a duplicate side effect happens.
+    #[test]
+    fn no_outcome_answers_with_a_success_or_a_client_fault() {
+        for outcome in [BatchOutcome::GuardLost, BatchOutcome::StoreFault] {
+            for lookup in terminal_lookups() {
+                let label = format!("{lookup:?} under {outcome:?}");
+                let error = map_idempotency_lookup(&context(), lookup, outcome).unwrap_err();
+                let status = error.error.code.status_code();
+                assert!(
+                    status == 409 || (500..600).contains(&status),
+                    "{label} answered {status}"
+                );
+            }
+        }
+    }
 }

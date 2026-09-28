@@ -221,7 +221,18 @@ pub(crate) async fn commit_scoped_mutation(
         Err(error) if crate::core::is_guard_abort(&format!("{error:?}")) => {
             Ok(ScopedMutationCommit::Guarded)
         }
-        Err(_) => {
+        Err(error) => {
+            // Logged, not swallowed. This arm is reached by every non-guard batch
+            // failure, and it used to drop the error on the floor and answer from the
+            // record alone -- so a P07 create that failed inside its batch returned
+            // 503 "The usage store is unavailable." and nothing else, for as long as
+            // it took to notice. `worker::Error` carries SQLite's message and the
+            // failing statement, never the bound values.
+            worker::console_error!(
+                "commit_scoped_mutation: the commit batch failed and the outcome is \
+                 unknown; request_id={} error={error:?}",
+                context.request_id.as_str()
+            );
             let repository = IdempotencyRepository::new(database);
             let lookup = repository
                 .lookup(
@@ -233,18 +244,21 @@ pub(crate) async fn commit_scoped_mutation(
                 .await
                 .map_err(|_| service_unavailable(context))?;
             match lookup {
+                // A completed record is the one outcome that survives a lost reply.
                 IdempotencyLookup::Replay(success) => Ok(ScopedMutationCommit::Replayed(success)),
-                IdempotencyLookup::InProgress => Err(errors::api_error(
-                    context,
-                    ApiErrorCode::IdempotencyInProgress,
-                    "A request with this Idempotency-Key is still in progress.",
-                )),
                 IdempotencyLookup::FingerprintConflict => Err(errors::api_error(
                     context,
                     ApiErrorCode::IdempotencyConflict,
                     "This Idempotency-Key was already used for a different request.",
                 )),
-                IdempotencyLookup::Missing => Err(service_unavailable(context)),
+                // Both of these used to be a 409 on this arm, or a 409 with no
+                // distinction from the guard case. Neither describes what happened:
+                // we held the claim, our own transaction failed, and no request is
+                // running. The store fault is the answer, and it is already what
+                // `Missing` gave.
+                IdempotencyLookup::InProgress | IdempotencyLookup::Missing => {
+                    Err(service_unavailable(context))
+                }
             }
         }
     }
