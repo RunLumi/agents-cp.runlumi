@@ -63,6 +63,8 @@ TRACKED=("$AUTOS" "$ROUTE")
 MIG_FILES=("$MIGRATIONS"/*.sql)
 
 snapshot_all() {
+  HEAD_BEFORE="$(git rev-parse HEAD)"
+  echo "  HEAD at snapshot: $HEAD_BEFORE"
   assert_git_clean "before snapshot"
   rm -rf "$SNAPSHOT"
   for f in "${TRACKED[@]}"; do
@@ -107,6 +109,24 @@ assert_git_clean() {
     exit 1
   fi
   echo "  git agrees the tree is clean ($when)"
+
+  # A COMMIT DURING THE RUN CAPTURES THE FAULT. This is the dangerous variant of the snapshot
+  # hazard, and it is worse, because it is permanent and it defeats the obvious repair: a
+  # `git add -A` while this harness is mutating staged a deliberate fault, `git checkout --
+  # <file>` then restored THE FAULT and reported the tree clean, and `git diff --quiet` above
+  # cannot see it because the fault is in the index's HEAD rather than in the working tree. It
+  # surfaced here as a baseline that failed for a reason the campaign record did not contain,
+  # which is the only reason it was found at all.
+  #
+  # So HEAD moving while a mutation is applied is itself a fault, checked independently of the
+  # file contents. The mutation is reverted by the trap either way, but a commit that captured
+  # it has to be undone by a human and the run's verdicts are void until they are.
+  if [ -n "${HEAD_BEFORE:-}" ] && [ "$(git rev-parse HEAD)" != "$HEAD_BEFORE" ]; then
+    echo "HEAD MOVED DURING THIS RUN ($HEAD_BEFORE -> $(git rev-parse HEAD))." >&2
+    echo "A commit made while a deliberate fault was applied has captured it, so the working" >&2
+    echo "tree can be clean and still faulted. Every verdict from this run is void." >&2
+    exit 1
+  fi
 }
 
 restore_all() {
