@@ -1385,7 +1385,7 @@ pub async fn create_automation(
                 created_by_user_id: access.principal.user_id.as_str(),
                 queued_successor_max_age_seconds: DEFAULT_QUEUED_SUCCESSOR_MAX_AGE_SECONDS,
             },
-            &now,
+            now,
         )
         .map_err(|error| database_error(&context, error))?;
     let audit = security_statement(

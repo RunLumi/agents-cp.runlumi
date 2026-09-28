@@ -432,7 +432,7 @@ LIMIT ?4
 const TRANSITION_OCCURRENCE_SQL: &str = r#"
 UPDATE automation_occurrences
 SET state = ?3,
-    state_version = state_version + 1,
+    state_version = state_version, // MUTATION M1
     reason_code = ?4,
     run_id = COALESCE(?5, run_id),
     lease_expires_at = ?6,
