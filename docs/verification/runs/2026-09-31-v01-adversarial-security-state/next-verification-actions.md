@@ -34,9 +34,35 @@ Two cheap additions catch the whole shape: no placeholder may appear in both a `
 `WHERE` comparison, and no `SET` target may be a primary key or a tenant column. A placeholder
 used for two different columns is malformed whatever the count says.
 
-The stronger property — that the write actually lands and lands in the right columns — is now
-covered by `verify:mutating-tenancy`'s per-route positive controls. That is the honest division:
-a count proves arithmetic, a probe that requires success proves correspondence.
+**This gap now has a second, and much stronger, instance — and part of it is already closed.**
+`INSERT_AUTOMATION_SQL` shipped with **34 columns and 33 values**, and bound `?29` (a `usr_` + 32
+hex **user id**, 36 characters) to `created_at` **and** `updated_at`, which are `CHECK (length(…)
+= 24)`. SQLite refused the statement at prepare, so every `POST /orgs/{org}/automations` answered
+`503` and wrote nothing. `schema:bind-count` was **green**: the statement bound 30 values and
+named 30 distinct placeholders. Two counts agreed and the statement was still unrunnable, which
+is the cleanest possible demonstration that a count is not a correspondence.
+
+**Partly closed.** `repositories/automations.rs` now carries three unit tests that check what
+bind-count structurally cannot, on the SQL text and on every `cargo test`:
+
+- `every_insert_binds_one_value_per_column` — columns equal values, for every INSERT the module
+  prepares;
+- `no_placeholder_is_reused_across_columns` — no placeholder may serve two columns, which is
+  what turned a user id into a timestamp;
+- `the_automation_insert_binds_its_own_timestamps` — the specific instance, pinned.
+
+**Still open, and it is the same class:** the first test and the second are hand-written per
+module, so a statement added to a *different* module is not covered by them. The honest general
+fix is a single repository-wide test that walks every `INSERT INTO` constant in the crate, plus
+the two rules above — a property of the schema's own text rather than of one file. Until that
+exists, V01-008's and V01-011's two statements were both caught only by a runtime probe
+requiring the write to succeed, which is the correct backstop and the slowest one.
+
+The stronger property — that the write actually lands and lands in the right columns — is
+covered by `verify:mutating-tenancy`'s per-route positive controls and, now, by
+`verify:lease-contention` needing an automation to exist before it can claim a lease at all. That
+is the honest division: a count proves arithmetic, a probe that requires success proves
+correspondence.
 
 ## GAP-003 — which reauth purpose guards identity linking is unspecified, and the feature is dead until it is
 
