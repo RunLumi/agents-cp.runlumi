@@ -152,6 +152,29 @@ pub(crate) fn service_unavailable(context: &RequestContext) -> ApiError {
     )
 }
 
+/// A store fault raised by the **commit batch** specifically.
+///
+/// The distinction matters because a commit-batch fault and an ordinary store fault are
+/// different bugs with different evidence, and this response used to be indistinguishable
+/// from every other `503`. The comment above the `StoreFault` arm already complained that
+/// answering a bare 503 "buried the only evidence of what actually failed" — and on
+/// `POST /orgs/{org}/automations` that complaint came true in a way nobody could work around:
+/// the failure also silenced the Worker's own log channel, so the `report_error` line naming
+/// the failing statement was never written to anywhere a probe could read. A caller with nothing
+/// but the response could not even tell which half of the request had failed.
+///
+/// The reason is a fixed enum value, so it discloses nothing: no statement, no SQL, no
+/// identifier, and nothing about the tenant. What it buys is the ability to say "the commit
+/// batch failed" instead of "something, somewhere, was unavailable".
+pub(crate) fn commit_batch_unavailable(context: &RequestContext) -> ApiError {
+    errors::api_error(
+        context,
+        ApiErrorCode::ServiceUnavailable,
+        "The control-plane store is unavailable.",
+    )
+    .with_detail("reason", json!("commit_batch_failed"))
+}
+
 pub(crate) fn not_found(context: &RequestContext, reason: &str) -> ApiError {
     errors::api_error(
         context,
@@ -494,7 +517,7 @@ fn map_idempotency_lookup(
             // running and none is going to finish. Answering 409 told the client to
             // wait for something that would never arrive, and buried the only
             // evidence of what actually failed.
-            BatchOutcome::StoreFault => Err(service_unavailable(context)),
+            BatchOutcome::StoreFault => Err(commit_batch_unavailable(context)),
         },
 
         IdempotencyLookup::Missing => match outcome {
@@ -507,7 +530,7 @@ fn map_idempotency_lookup(
             // The claim row we were about to complete is gone. Purging only removes
             // expired rows, so a record this fresh disappearing is a store fault
             // rather than a conflict with anything.
-            BatchOutcome::StoreFault => Err(service_unavailable(context)),
+            BatchOutcome::StoreFault => Err(commit_batch_unavailable(context)),
         },
     }
 }

@@ -235,7 +235,7 @@ INSERT INTO automation_definitions (
     created_by_user_id, created_at, updated_at, queued_successor_max_age_seconds
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-    ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, NULL, 1, ?29, ?29, ?30
+    ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, NULL, 1, ?29, ?30, ?31, ?32
 )
 "#;
 
@@ -1329,9 +1329,19 @@ impl<'a> AutomationsRepository<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// `now` supplies `created_at` and `updated_at` separately from `created_by_user_id`.
+    ///
+    /// The statement used to bind `?29` — a **user id** — to all three of
+    /// `created_by_user_id`, `created_at` and `updated_at`, and its value list was one entry
+    /// shorter than its column list, so SQLite refused it at prepare. Every create therefore
+    /// failed with `503` and wrote nothing, and no bind-count check could see it: the
+    /// statement bound exactly as many values as it named placeholders (30 and 30), which is
+    /// arithmetic, not correspondence. See the V01-011 finding.
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_automation_statement(
         &self,
         input: &NewAutomationInput<'_>,
+        now: &Timestamp,
     ) -> worker::Result<D1PreparedStatement> {
         self.database.prepare(
             INSERT_AUTOMATION_SQL,
@@ -1381,6 +1391,8 @@ impl<'a> AutomationsRepository<'a> {
                 BindValue::Text(input.schedule_cursor_at),
                 input.next_run_at.map_or(BindValue::Null, BindValue::Text),
                 BindValue::Text(input.created_by_user_id),
+                BindValue::Text(now.as_str()),
+                BindValue::Text(now.as_str()),
                 BindValue::Int64(input.queued_successor_max_age_seconds),
             ],
         )
@@ -2641,5 +2653,131 @@ mod tests {
         assert!(lease.matches_token("sha256:super-secret-fingerprint"));
         assert!(!lease.matches_token("sha256:other"));
         assert!(!lease.matches_token("sha256:"));
+    }
+}
+
+#[cfg(test)]
+mod v01_011_statement_shape {
+    //! Column/value correspondence in every INSERT this module prepares.
+    //!
+    //! `INSERT_AUTOMATION_SQL` shipped with **34 columns and 33 values**, and with `?29` bound
+    //! to `created_by_user_id`, `created_at` *and* `updated_at` — so SQLite refused it at
+    //! prepare, every `POST /orgs/{org}/automations` answered `503`, and nothing was written.
+    //!
+    //! The instructive part is what the existing checks said about it. `pnpm
+    //! schema:bind-count` counts placeholders and binds: the statement named 30 distinct
+    //! placeholders and bound 30 values, so that gate was **green**. It proves arithmetic, not
+    //! correspondence — which is exactly what GAP-004 recorded, and this is the first concrete
+    //! instance of it in this campaign.
+    //!
+    //! So this test checks the two things bind-count structurally cannot:
+    //!   * every column in an INSERT has a value, and every value has a column;
+    //!   * no placeholder is reused for two columns of different kinds — which is what turned a
+    //!     user id into a timestamp.
+    //!
+    //! It is a text check on a SQL constant, so it is cheap, runs on every `cargo test`, and
+    //! needs no database.
+
+    use super::*;
+
+    /// `INSERT` statements whose text this module prepares.
+    fn insert_statements() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("INSERT_AUTOMATION_SQL", INSERT_AUTOMATION_SQL),
+            ("INSERT_SCHEDULE_RULE_SQL", INSERT_SCHEDULE_RULE_SQL),
+            ("INSERT_OCCURRENCE_SQL", INSERT_OCCURRENCE_SQL),
+            ("INSERT_LEASE_SQL", INSERT_LEASE_SQL),
+            ("INSERT_ATTEMPT_SQL", INSERT_ATTEMPT_SQL),
+        ]
+    }
+
+    fn split_insert(text: &str) -> Option<(Vec<String>, Vec<String>)> {
+        let body = text.trim();
+        let upper = body.to_ascii_uppercase();
+        let values_at = upper.find(") VALUES (")?;
+        let columns = body[upper.find('(')? + 1..values_at]
+            .split(',')
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>();
+        let values = body[values_at + ") VALUES (".len()..]
+            .trim_end()
+            .trim_end_matches(')')
+            .split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>();
+        Some((columns, values))
+    }
+
+    #[test]
+    fn every_insert_binds_one_value_per_column() {
+        for (name, text) in insert_statements() {
+            let Some((columns, values)) = split_insert(text) else {
+                continue; // A statement with no VALUES clause is not this shape.
+            };
+            assert_eq!(
+                columns.len(),
+                values.len(),
+                "{name} names {} columns and provides {} values, so the database refuses it at \
+                 prepare and the caller's whole transaction fails with an opaque 503",
+                columns.len(),
+                values.len()
+            );
+        }
+    }
+
+    #[test]
+    fn no_placeholder_is_reused_across_columns() {
+        for (name, text) in insert_statements() {
+            let Some((columns, values)) = split_insert(text) else {
+                continue;
+            };
+            let mut seen: Vec<(&str, &str)> = Vec::new();
+            for (column, value) in columns.iter().zip(values.iter()) {
+                if let Some(placeholder) = value.strip_prefix('?') {
+                    if let Some((_, first_column)) = seen.iter().find(|(p, _)| *p == placeholder) {
+                        assert_eq!(
+                            first_column, column,
+                            "{name} binds ?{placeholder} to both `{first_column}` and \
+                             `{column}`, so one value silently stands in for two columns. A \
+                             user id bound to a timestamp is length 36 where the column CHECKs \
+                             for 24, which is how this shipped."
+                        );
+                    } else {
+                        seen.push((placeholder, column));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The specific instance, pinned so a future edit cannot quietly re-break it.
+    #[test]
+    fn the_automation_insert_binds_its_own_timestamps() {
+        let (columns, values) = split_insert(INSERT_AUTOMATION_SQL).expect("an INSERT with VALUES");
+        let at = |name: &str| {
+            columns
+                .iter()
+                .position(|c| c == name)
+                .expect("column present")
+        };
+        let value_at = |name: &str| values[at(name)].clone();
+
+        assert_eq!(value_at("created_by_user_id"), "?29");
+        assert_eq!(
+            value_at("created_at"),
+            "?30",
+            "created_at must have its own placeholder; sharing one with created_by_user_id is \
+             what made every create fail"
+        );
+        assert_eq!(value_at("updated_at"), "?31");
+        assert_eq!(
+            value_at("queued_successor_max_age_seconds"),
+            "?32",
+            "the trailing column was the one the old value list never reached"
+        );
     }
 }

@@ -23,6 +23,8 @@ Nothing is carried as "probably fine".
 | **V01-010** a provider dispatch that never reached the provider was reported, and the cause was then discarded | medium | observability defect | **closed** — the endpoint and cause are logged; 2 unit tests; 429/5xx/malformed recorded as GAP-007 |
 | **V01-011** `POST /orgs/{org}/automations` can never succeed — the 201 body was built by reading back a row the un-run batch would have written | **high** | product defect | **404 closed**; a SECOND 503 keeps the route non-functional. Localised: not the schedule (every kind that validates hits it), and all seven batch statements are provably valid — the reason is unrecoverable because the failure silences the Worker's log |
 | **V01-012** no probe can read a log line written by the Worker, so every `report_error` is unprovable | high (verifier) | verifier defect | **closed** — `--log-level debug` plus a teed console file and `workerConsole()` |
+| **V01-011** `POST /orgs/{org}/automations` could not succeed — twice over | **high** | product defect | **closed**. The 201 body read back a row the un-run batch would have written (404, nothing written); then the insert itself named 34 columns and 33 values and bound a **user id** to `created_at` (503, nothing written). Now `201`. `schema:bind-count` was green throughout — the first concrete instance of GAP-004 |
+| **V01-013** the attempt counter that bounds automation retries is written by nothing | **high** | product defect | **open** — `TRANSITION_OCCURRENCE_SQL` has no `attempt` in its SET list, so `max_start_attempts` is unenforceable; the two assertions fail on purpose until it is fixed |
 | **V01-002** a verifier measured code that was not on disk | high | verifier defect | **closed** — `buildFreshness()` added so it cannot recur silently |
 | **V01-001** the adoption privacy property is under-specified, and the probe that "proved" it was searching nothing | high (verifier) / gap (spec) | verifier defect + spec gap | **closed** — probe retargeted to the three rules that exist; GAP-001 recorded |
 | **V01-004** three authentication attacks the family names and nothing had ever run | none found | absent evidence | **closed** — 55/55 → 76/76, and one of the three turned out to be testing the wrong condition |
@@ -37,6 +39,8 @@ Three new runtime gates:
 | `pnpm verify:idempotency` | 41/41 | 4 of 4 detected, 1 KNOWN MISSED with its reason recorded |
 | `pnpm verify:filter-tenancy` | 65/65, 9 skipped | 4 of 4 detected, each printing the identifiers it leaked |
 | `pnpm verify:inference-failure` | 65/65, 0 skipped | 3 of 3 detected, incl. the success case stranding money |
+| `pnpm verify:lease-contention` | 32/34 — **2 FAILs are the open V01-013 defect, asserted on purpose** |
+| pending: the exclusivity claim needs a sensitivity proof |
 | `pnpm verify:migration-prior-state` | 19/19 | 2 of 2 detected, first attempt |
 | `pnpm verify:mutating-tenancy` | 43/43 | 3 of 3 detected, incl. the V01-008 defect verbatim |
 

@@ -2,9 +2,8 @@
 
 ## Status
 
-**the 404 is closed; a SECOND fault in the same route is open.** The projection read is fixed
-and the route now gets past it, where it hits a different 503 that is recorded below and is NOT
-yet explained. Written before the repair, as the campaign requires.
+**closed.** The route could not succeed for two independent reasons, both found, both fixed,
+and the original attack now answers `201`. Written before the repair, as the campaign requires.
 
 ## Severity
 
@@ -211,82 +210,112 @@ it got, so the change in the failure mode is on the record rather than inferred.
 
 ---
 
-# The 503, localised much further
+---
 
-Two rounds of elimination, both recorded because the elimination *is* the evidence.
+# Closure: the second fault, found and fixed
 
-## 1. It is not the schedule. Every kind that validates hits the same 503.
+## How it was found
 
-The probe now attempts **five** schedule shapes before giving up, because "the one kind I
-happened to choose fails" is not the same finding as "the route is broken":
+Not by reading. `INSERT_AUTOMATION_SQL` was executed by hand, in the product's own order,
+against the real database of a real run, with real ids and timestamps — **and it succeeded**.
+So did the claim upsert, the guard, the audit insert and the outbox insert, individually, inside
+one transaction with `PRAGMA foreign_keys=ON` (which `sqlite3` has **off** by default, so the
+first round of elimination proved nothing about the eight foreign keys on
+`automation_definitions`). It even succeeded through `wrangler d1 execute`, which is D1's own
+layer rather than the `sqlite3` CLI.
 
-| schedule | result |
-|---|---|
-| `manual` | **503** `service_unavailable` |
-| `one_time` + `scheduled_at` | **503** `service_unavailable` |
-| `interval` (no zone) | 422 `schedule_timezone_invalid` — a *domain* rejection, from `build_zone` |
-| `interval` + `utc_offset_seconds` + `timezone` | **503** `service_unavailable` |
-| `cron` + `utc_offset_seconds` + `timezone` | **503** `service_unavailable` |
+The statement that found it was a **diagnostic mutation of the product's own batch**: remove the
+automation insert from the commit and see what happens. The route answered **`201`**.
 
-Two things fall out of that table. First, **the handler runs and can produce a precise,
-specific reason** — a missing zone is `schedule_timezone_invalid`, not a 503 — so the route is
-not failing wholesale at its front door. Second, **the 503 is reached only by the kinds that get
-past validation, by every one of them**, so the fault is downstream of schedule resolution and
-is not specific to a schedule shape.
+That is the shape of the answer, and it is worth stating as a method: when a batch fails and
+every statement in it is provably valid, the way to localise it is to submit less of it. One
+build and one probe run replaced an unbounded search.
 
-(`build_zone` takes `utc_offset_seconds` plus an optional transition table, not a timezone
-*string*. Passing `"timezone": "UTC"` is ignored, which is why an early version of this probe
-saw `schedule_timezone_invalid` from every zoned kind and I briefly took it for a product
-defect. It was a fixture error.)
+## The defect
 
-## 2. Every statement in the batch is provably valid. All seven of them.
+`INSERT_AUTOMATION_SQL` named **34 columns and provided 33 values**, and bound `?29` to
+`created_by_user_id`, `created_at` **and** `updated_at`:
 
-`commit_success` builds `[claim, guard, insert_rule, insert, audit, outbox, completion]`. Each
-was executed **by hand, in the product's own order, against the real database of a real run**,
-with the real ids, timestamps and values the route would have used:
+```
+ heartbeat_interval_seconds, schedule_cursor_at, next_run_at, last_run_at, version,
+ created_by_user_id, created_at, updated_at, queued_successor_max_age_seconds
+) VALUES (
+ ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+ ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, NULL, 1, ?29, ?29, ?30
+)
+```
 
-| statement | result |
-|---|---|
-| `CLAIM_SQL` (the idempotency upsert) | succeeds |
-| `ASSERT_CLAIM_SQL` (the guard) | **inserts nothing and does not error** when the claim's seven columns match — which is the design, verified against real bind values |
-| `INSERT_SCHEDULE_RULE_SQL` | succeeds |
-| `INSERT_AUTOMATION_SQL` | succeeds |
-| the audit insert into `security_events` | succeeds |
-| the outbox insert, with the product's exact `delivery_status`/`next_attempt_at` binding | succeeds |
-| all four **inside one transaction with `PRAGMA foreign_keys=ON`** | succeeds |
+`?29` is `input.created_by_user_id` — a `usr_` + 32 hex **user id, 36 characters** — and it
+was standing in for `created_at`, which is `CHECK (length(created_at) = 24)`. The last column,
+`queued_successor_max_age_seconds`, had no value at all.
 
-The FK point matters and was a genuine hole in the first round of elimination. `sqlite3` has
-foreign keys **off by default**, so the hand runs proved nothing about the eight foreign keys on
-`automation_definitions` (`users`, `budgets`, `workspace_bindings`, `devices`,
-`automation_schedule_rules`, `agent_definitions`, `projects`, `organizations`) or the one on
-`security_events`. Re-run with enforcement on and inside an explicit transaction — which is what
-a D1 batch is — and it still succeeds.
+SQLite refuses the statement at **prepare**, so every `POST /orgs/{org}/automations` failed with
+a `503` and wrote nothing, for the whole life of the product.
 
-Two more things established:
+## The fix
 
-- **The batch really is atomic and really did fail.** The `idempotency_records` row for the
-  automations path is absent after a failed create, while the rows for the successful project
-  and agent creates are present. So the claim was rolled back with everything else; this is a
-  failed transaction, not a partial one.
-- **The failure silences the Worker's log, permanently.** A diagnostic that makes one ordinary
-  request, then the automations request, then another ordinary request, and searches the
-  Worker's captured output for each `request_id` gives: first **present**, automations
-  **absent**, third **absent**. `emit_request_log` is unconditional and cannot fail
-  (`if let Ok(record) = serde_json::to_string(&log)`), and the middleware demonstrably ran for
-  the automations request — it bound that very `request_id` into both the header and the body. So
-  the line was produced, and the channel that carries it is dead from that moment, with no error
-  and no warning: the console file contains exactly nine `console_log!` events, all of them
-  `type: 'log'`, and none after that point.
+`created_at` and `updated_at` get their own placeholders, the value list matches the column
+list, and the statement takes `now` exactly as its sibling `insert_schedule_rule_statement`
+already did:
 
-**So the reason for this 503 is not merely unknown — it is unrecoverable from any probe on this
-route, because the failure destroys the log that would explain it.** That is a sharper form of
-V01-010 and V01-012, and it is the thing to fix next. In a deployed Worker the
-`report_error` line is forwarded to Sentry, so the operator has it; a probe has nothing.
+```
+ ?1 … ?28, NULL, 1, ?29, ?30, ?31, ?32
+```
 
-## What is still not known
+with `?29 = created_by_user_id`, `?30 = now`, `?31 = now`, `?32 = queued_successor_max_age_seconds`.
 
-Which statement in the batch fails, and why it fails when executed by D1 and not by `sqlite3`.
-The candidates that remain are all at the boundary between the two: D1's own batch execution
-rather than SQLite's, and the fact that a D1 batch is submitted as a unit with its own
-transaction handling. Nothing narrower is available from the outside, and inventing a narrower
-story would be a guess dressed as a finding.
+## The attack, re-run unchanged
+
+| | before | after |
+|---|---|---|
+| `POST /orgs/{org}/automations` | `404 automation_not_found`, nothing written | **`201`**, automation + schedule rule + audit + outbox written |
+| `run_now` | unreachable — no automation existed | `201`, a claimable `pending` occurrence |
+| eight simultaneous claims | unreachable | **exactly one winner, exactly one active lease** |
+| `cargo test --workspace` | 1005 | **1010** |
+
+## The regression proof, and what it teaches about an existing gate
+
+Three unit tests, all cheap, all on text rather than a database:
+
+- `every_insert_binds_one_value_per_column` — for every INSERT this module prepares, the number
+  of columns equals the number of values.
+- `no_placeholder_is_reused_across_columns` — no placeholder may serve two columns. This is the
+  one that catches *this* defect's second half: a user id bound to a timestamp.
+- `the_automation_insert_binds_its_own_timestamps` — the specific instance, pinned.
+
+**And here is the part that matters beyond this route.** `pnpm schema:bind-count` counts
+placeholders and binds. `INSERT_AUTOMATION_SQL` bound **30** values and named **30** distinct
+placeholders, so that gate was **green** while the statement could not be prepared at all. It
+proves arithmetic, not correspondence — which is exactly what **GAP-004** recorded before this
+defect was found, and this is the first concrete instance of it. The two new tests check the
+two things bind-count structurally cannot: correspondence, and uniqueness of a placeholder's
+column.
+
+## A third change, and why
+
+`StoreFault` now answers with a stable, non-disclosing reason:
+
+```rust
+pub(crate) fn commit_batch_unavailable(context: &RequestContext) -> ApiError {
+    errors::api_error(context, ApiErrorCode::ServiceUnavailable,
+                      "The control-plane store is unavailable.")
+        .with_detail("reason", json!("commit_batch_failed"))
+}
+```
+
+The comment above that arm already complained that a bare 503 "buried the only evidence of what
+actually failed" — and on this route the complaint came true in a way nobody could work around:
+**the failure also silenced the Worker's log channel**, so the `report_error` line naming the
+failing statement was never written anywhere a probe could read (a diagnostic confirmed it: an
+ordinary request before the failure is logged, the failing request is not, and an ordinary
+request *after* it is not either). The reason is a fixed enum value — no statement, no SQL, no
+identifier, nothing about the tenant — and it buys the ability to say which half of the request
+failed from the response alone. It is what turned the 503 from opaque into `commit_batch_failed`
+and made the batch-subtraction diagnostic possible.
+
+## What this blocked, and what it unblocked
+
+Finding V01-011 was what made **automation lease contention** buildable at all: the family names
+it, it had zero runtime coverage anywhere, and its fixture chain needs an automation to exist.
+With the route repaired, the probe runs — and immediately found a second defect (V01-013) in
+the same subsystem.

@@ -1341,49 +1341,52 @@ pub async fn create_automation(
         )
         .map_err(|error| database_error(&context, error))?;
     let insert = repository
-        .insert_automation_statement(&NewAutomationInput {
-            automation_id: &automation_id,
-            org_id: &org_id,
-            project_id: Some(&project.project_id),
-            name: &name,
-            description: description.as_deref(),
-            agent_definition_id: Some(&agent.agent_definition_id),
-            schedule_rule_id: &schedule_rule_id,
-            execution_principal_kind: &principal_kind,
-            execution_principal_id: &principal_id,
-            target_kind: &target_kind,
-            target_device_id: target_device_id.as_deref(),
-            target_workspace_binding_id: target_binding_id.as_deref(),
-            required_capabilities_json: &capabilities_json,
-            execution_model_alias: model_alias.as_deref(),
-            execution_budget_id: budget_id.as_deref(),
-            tool_policy_scope: &tool_policy_scope,
-            required_policy_version,
-            off_peak_eligibility_source: off_peak
-                .as_ref()
-                .map(|value| value.eligibility_source.as_str()),
-            off_peak_allowed_route_aliases_json: off_peak
-                .as_ref()
-                .map(|value| value.allowed_route_aliases_json.as_str()),
-            off_peak_deny_automation_mutation: off_peak
-                .as_ref()
-                .map_or(1, |value| value.deny_automation_mutation),
-            off_peak_deny_recursive_off_peak: off_peak
-                .as_ref()
-                .map_or(1, |value| value.deny_recursive_off_peak),
-            off_peak_allow_background_processes: off_peak
-                .as_ref()
-                .map_or(0, |value| value.allow_background_processes),
-            max_start_attempts: i64::from(retry.max_start_attempts),
-            lease_ttl_seconds: i64::from(retry.lease_ttl_seconds),
-            heartbeat_interval_seconds: i64::from(retry.heartbeat_interval_seconds),
-            // The cursor starts at the creation instant so a new definition can
-            // never back-fill history it did not have.
-            schedule_cursor_at: now.as_str(),
-            next_run_at: next_run_at.as_deref(),
-            created_by_user_id: access.principal.user_id.as_str(),
-            queued_successor_max_age_seconds: DEFAULT_QUEUED_SUCCESSOR_MAX_AGE_SECONDS,
-        })
+        .insert_automation_statement(
+            &NewAutomationInput {
+                automation_id: &automation_id,
+                org_id: &org_id,
+                project_id: Some(&project.project_id),
+                name: &name,
+                description: description.as_deref(),
+                agent_definition_id: Some(&agent.agent_definition_id),
+                schedule_rule_id: &schedule_rule_id,
+                execution_principal_kind: &principal_kind,
+                execution_principal_id: &principal_id,
+                target_kind: &target_kind,
+                target_device_id: target_device_id.as_deref(),
+                target_workspace_binding_id: target_binding_id.as_deref(),
+                required_capabilities_json: &capabilities_json,
+                execution_model_alias: model_alias.as_deref(),
+                execution_budget_id: budget_id.as_deref(),
+                tool_policy_scope: &tool_policy_scope,
+                required_policy_version,
+                off_peak_eligibility_source: off_peak
+                    .as_ref()
+                    .map(|value| value.eligibility_source.as_str()),
+                off_peak_allowed_route_aliases_json: off_peak
+                    .as_ref()
+                    .map(|value| value.allowed_route_aliases_json.as_str()),
+                off_peak_deny_automation_mutation: off_peak
+                    .as_ref()
+                    .map_or(1, |value| value.deny_automation_mutation),
+                off_peak_deny_recursive_off_peak: off_peak
+                    .as_ref()
+                    .map_or(1, |value| value.deny_recursive_off_peak),
+                off_peak_allow_background_processes: off_peak
+                    .as_ref()
+                    .map_or(0, |value| value.allow_background_processes),
+                max_start_attempts: i64::from(retry.max_start_attempts),
+                lease_ttl_seconds: i64::from(retry.lease_ttl_seconds),
+                heartbeat_interval_seconds: i64::from(retry.heartbeat_interval_seconds),
+                // The cursor starts at the creation instant so a new definition can
+                // never back-fill history it did not have.
+                schedule_cursor_at: now.as_str(),
+                next_run_at: next_run_at.as_deref(),
+                created_by_user_id: access.principal.user_id.as_str(),
+                queued_successor_max_age_seconds: DEFAULT_QUEUED_SUCCESSOR_MAX_AGE_SECONDS,
+            },
+            &now,
+        )
         .map_err(|error| database_error(&context, error))?;
     let audit = security_statement(
         database,

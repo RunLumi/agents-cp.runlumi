@@ -396,10 +396,33 @@ await runProbe("V01 automation-lease", async (probe) => {
       Number(after?.state_version) === Number(versionBefore) + 1,
       `state_version ${versionBefore} -> ${after?.state_version}; state ${before?.state} -> ${after?.state}`,
     );
+    // The state invariants. `attempt` is NOT asserted here: the product does not advance it,
+    // and asserting the convention I assumed rather than the one it implements would make this
+    // probe wrong in the other direction. The real defect is asserted separately, below, and
+    // fails on purpose until it is fixed.
     expect(
-      "the occurrence is LEASED, not left queued and not advanced twice",
-      after?.state === "leased" && Number(after?.attempt) === 1,
+      "the occurrence is LEASED after the burst, not left pending",
+      after?.state === "leased",
       `state=${after?.state} attempt=${after?.attempt} started_at=${after?.started_at ?? "null"}`,
+    );
+
+    // V01-013, asserted rather than skipped. `TRANSITION_OCCURRENCE_SQL` has no `attempt` in
+    // its SET list and the claim passes `None` for `started_at`, so BOTH of these columns are
+    // written by nothing after creation. The consequence is not cosmetic:
+    // `let attempt = occurrence.attempt + 1` therefore recomputes 1 on every claim, so
+    // `max_start_attempts` can never be exceeded and the retry bound is unenforceable.
+    //
+    // A gate that reports this as FAIL is more useful than a green one, and it is the
+    // campaign's rule: an unresolved item stays FAIL rather than being softened into a skip.
+    expect(
+      "V01-013: the occurrence's attempt counter ADVANCES on a claim, so max_start_attempts is enforceable (it is not - attempt is written by nothing)",
+      Number(after?.attempt) > Number(before?.attempt),
+      `attempt ${before?.attempt} -> ${after?.attempt} after a successful claim; the lease row carries attempt=1 while the occurrence still says ${after?.attempt}, and TRANSITION_OCCURRENCE_SQL has no attempt in its SET list`,
+    );
+    expect(
+      "V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)",
+      typeof after?.started_at === "string" && after.started_at.length === 24,
+      `started_at=${after?.started_at ?? "null"} on a ${after?.state} occurrence`,
     );
 
     // The losers must learn nothing about the winner.

@@ -1,0 +1,419 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01leaseM
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:54485
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-j5ezS7/09e129ca79008da3218f4e2c78dba5d7b8ae5ab5-index_bg.wasm is 185s newer than src/routes/automations.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_94c3353db57348dd848d3e7ad43181da
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_a9152fc8fc8c90f1823c1206b6a223f7
+  PASS  CONTROL: the organization's slug is known, which is how a device enrollment names its org  — slug=v01-lease-mulsnzsn1hrq
+  PASS  CONTROL: Org A has a real project  — status=201
+  PASS  CONTROL: Org A has a real agent on it  — status=201
+  PASS  CONTROL: enrollment begins for V01 device A  — status=201
+  PASS  CONTROL: the V01 device A enrollment is approved  — status=201
+  PASS  CONTROL: the V01 device A enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 device A enrollment completes with a real device proof  — status=201
+  PASS  CONTROL: enrollment begins for V01 device B  — status=201
+  PASS  CONTROL: the V01 device B enrollment is approved  — status=201
+  PASS  CONTROL: the V01 device B enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 device B enrollment completes with a real device proof  — status=201
+
+  create attempts, in order: 
+  manual    -> 201 
+  PASS  CONTROL: Org A has a real automation  — sent POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/automations -> status=201 body={"agent_definition_id":"agd_18315645b3d44988ae72293ca4ae240d","automation_id":"aut_94791c81325a4246b2de2e3346efe58b","created_at":"2026-09-28T22:03:53.899Z","created_by_user_id":"usr_94c3353db57348dd848d3e7ad43181da","description":null,"exe
+  PASS  CONTROL: run_now creates a claimable occurrence for the eight-claims case  — status=201 body={"attempt":0,"automation_id":"aut_94791c81325a4246b2de2e3346efe58b","created_at":"2026-09-28T22:03:54.708Z","kind":"manual","occurrence_id":"occ_2b997f9fc33880645cd67be938ac3fef","org_id":"org_a9152fc8fc8c90f1823c1206b6a223f7","project_id":
+  PASS  CONTROL: the occurrence is in a claimable state BEFORE the burst, so the race is against something real  — state=pending state_version=1 attempt=0
+
+  8 simultaneous claims, one device, one occurrence -> statuses 201 409; 1 winner(s)
+  PASS  CONTROL: exactly ONE of the 8 simultaneous claims succeeds  — 1 succeeded with statuses 201 409
+  PASS  exactly ONE active lease exists for the occurrence after 8 simultaneous claims  — lease=lse_69e5615a9b354ef3b2a36c139afd9931 attempt=1 fence=1
+  PASS  the occurrence advanced by exactly ONE state transition, so `state_version` is a real compare-and-set and not a counter two racers both incremented  — state_version 1 -> 2; state pending -> leased
+  PASS  the occurrence is LEASED after the burst, not left pending  — state=leased attempt=0 started_at=null
+  FAIL  V01-013: the occurrence's attempt counter ADVANCES on a claim, so max_start_attempts is enforceable (it is not - attempt is written by nothing)  — attempt 0 -> 0 after a successful claim; the lease row carries attempt=1 while the occurrence still says 0, and TRANSITION_OCCURRENCE_SQL has no attempt in its SET list
+  FAIL  V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)  — started_at=null on a leased occurrence
+  PASS  NO losing response contains the winner's lease id or its raw lease token — the conflict re-reads a projection, it does not hand over the lease  — 7 loser(s) answered 409 with no winner lease material
+  PASS  every losing response is an explicit refusal with a stable reason, never a 2xx and never a bare 500  — loser statuses: 409
+  PASS  the winner's raw lease token is NOT persisted — only a fingerprint is stored  — token length=64; the stored lease carries lease_token_fingerprint=sha256:b38673ae780e10a30...
+  PASS  the stored lease keeps a FINGERPRINT, so a database read cannot reconstruct the token  — fingerprint=sha256:b38673ae780e10a3070c5740d
+
+V01 automation-lease harness failure: V01 attempts for occ_2b997f9fc33880645cd67be938ac3fef failed (1): 
+{
+  "error": {
+    "text": "no such table: automation_attempts: SQLITE_ERROR"
+  }
+}
+
+
+--- Worker log (tail) ---
+e to output /Volumes/SSD/agents-cp.runlumi/apps/api/.wrangler/tmp/dev-j5ezS7/09e129ca79008da3218f4e2c78dba5d7b8ae5ab5-index_bg.wasm
+RemoteRuntimeController teardown beginning...
+RemoteRuntimeController teardown complete
+⎔ Starting local server...
+[InspectorProxyWorker] handleProxyControllerIncomingMessage {"type":"reloadStart"}
+[wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/pause 204 No Content (1ms)
+⎔ Connection status updated
+Your Worker has access to the following bindings:
+Binding                                                                      Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                Queue                        local
+env.DB (lumi-agents-control-plane-development)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                                      Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                              Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                         Environment Variable         local
+
+Inspector is listening
+[wrangler-UserWorker:debug] Skipping registration of Worker lumi-agents-control-plane-api-development as a Worker with this name is already registered in the dev registry by another process
+[wrangler-ProxyWorker:info] Ready on http://localhost:54485
+[InspectorProxyWorker] handleProxyControllerIncomingMessage {"type":"reloadComplete","proxyData":{"userWorkerUrl":{"protocol":"http:","hostname":"127.0.0.1","port":"54611"},"userWorkerInspectorUrl":{"protocol":"ws:","hostname":"127.0.0.1","port":"54613","pathname":"/core:user:lumi-agents-control-plane-api-development"},"userWorkerInnerUrlOverrides":{"protocol":"http:"},"headers":{"MF-Proxy-Shared-Secret":"05cbb835-dddc-44a6-bf97-1d6c3a4b6e32"},"liveReload":false,"proxyLogsToController":false}}
+[InspectorProxyWorker] reconnectRuntimeWebSocket
+[InspectorProxyWorker] NEW RUNTIME WEBSOCKET http://127.0.0.1:54613/core:user:lumi-agents-control-plane-api-development
+Inspector client attaching [core:user:lumi-agents-control-plane-api-development]
+[InspectorProxyWorker] SEND TO DEVTOOLS {"method":"Runtime.executionContextsCleared"}
+[InspectorProxyWorker] RUNTIME WEBSOCKET OPENED
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.executionContextCreated',
+  params: {
+    context: {
+      id: 461157153,
+      origin: '',
+      name: 'Worker',
+      uniqueId: '-6258003647433704788.-1343556969752201803'
+    }
+  }
+}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE { id: 100000001, result: {} }
+[InspectorProxyWorker] SEND TO RUNTIME {"method":"Runtime.enable","id":100000001}
+[wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/play 204 No Content (1ms)
+⎔ Connection status updated
+Your Worker has access to the following bindings:
+Binding                                                                      Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                Queue                        local
+env.DB (lumi-agents-control-plane-development)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                                      Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                              Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                         Environment Variable         local
+
+{"event":"http_request","request_id":"req_32b83a4432dd4a19899dda36eaf5f963","correlation_id":"req_32b83a4432dd4a19899dda36eaf5f963","method":"GET","route":"/api/health","status":200,"duration_ms":0}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633032084,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] GET /api/health 200 OK (24ms)
+{"event":"http_request","request_id":"req_3e8d4e8445a046b4a30d34012e41f2df","correlation_id":"req_3e8d4e8445a046b4a30d34012e41f2df","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":12}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633032135,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/auth/signup 201 Created (15ms)
+{"event":"http_request","request_id":"req_a1760650054a4aa4aea6b29c2366ae3d","correlation_id":"req_a1760650054a4aa4aea6b29c2366ae3d","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":4}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633032145,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/auth/verify-email 200 OK (7ms)
+{"event":"http_request","request_id":"req_00d8f28dd6da437b951b4d83c3d0571d","correlation_id":"req_00d8f28dd6da437b951b4d83c3d0571d","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633032153,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/auth/login/start 202 Accepted (6ms)
+{"event":"http_request","request_id":"req_c1874956de9d4a3eb8874176c7ba1665","correlation_id":"req_c1874956de9d4a3eb8874176c7ba1665","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633032163,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/auth/login/complete 200 OK (8ms)
+{"event":"http_request","request_id":"req_76b59a51c2c94e2bb0b6aba13d39f723","correlation_id":"req_76b59a51c2c94e2bb0b6aba13d39f723","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633032175,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs 201 Created (8ms)
+{"event":"http_request","request_id":"req_24e9c5f3be5b4f6d91057ae72da7bebc","correlation_id":"req_24e9c5f3be5b4f6d91057ae72da7bebc","method":"POST","route":"/api/v1/orgs/{org_id}/projects","status":201,"duration_ms":10}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033813,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/projects 201 Created (14ms)
+{"event":"http_request","request_id":"req_98a7b7761b754a09a4b50aa388a09136","correlation_id":"req_98a7b7761b754a09a4b50aa388a09136","method":"POST","route":"/api/v1/orgs/{org_id}/agents","status":201,"duration_ms":9}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033827,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/agents 201 Created (11ms)
+{"event":"http_request","request_id":"req_d826003b61dd4190a852aa7e7921ba9b","correlation_id":"req_d826003b61dd4190a852aa7e7921ba9b","method":"POST","route":"/api/v1/devices/enrollments","status":201,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033834,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/devices/enrollments 201 Created (4ms)
+{"event":"http_request","request_id":"req_ab98267c2abc4bc99e81c9fbb7271211","correlation_id":"req_ab98267c2abc4bc99e81c9fbb7271211","method":"POST","route":"/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve","status":201,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033845,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/devices/enrollments/enr_890806a97b9b47a0ac0413eb2a7fdfe6/approve 201 Created (9ms)
+{"event":"http_request","request_id":"req_52d62da464f242479ff28089d7702cdc","correlation_id":"req_52d62da464f242479ff28089d7702cdc","method":"GET","route":"/api/v1/devices/enrollments/{enrollment_id}","status":200,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033851,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] GET /api/v1/devices/enrollments/enr_890806a97b9b47a0ac0413eb2a7fdfe6 200 OK (3ms)
+{"event":"http_request","request_id":"req_e84189f6c93a4dac9a702210a546a394","correlation_id":"req_e84189f6c93a4dac9a702210a546a394","method":"POST","route":"/api/v1/devices/enrollments/{enrollment_id}/complete","status":201,"duration_ms":9}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033864,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/devices/enrollments/enr_890806a97b9b47a0ac0413eb2a7fdfe6/complete 201 Created (11ms)
+{"event":"http_request","request_id":"req_4017988c41554ab9bf53bdad17f9bb13","correlation_id":"req_4017988c41554ab9bf53bdad17f9bb13","method":"POST","route":"/api/v1/devices/enrollments","status":201,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033871,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/devices/enrollments 201 Created (4ms)
+{"event":"http_request","request_id":"req_1066ae0ad6ee4d1ca519a1a423425a72","correlation_id":"req_1066ae0ad6ee4d1ca519a1a423425a72","method":"POST","route":"/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve","status":201,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033880,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/devices/enrollments/enr_e66d9137835247b787589f558be9eddc/approve 201 Created (7ms)
+{"event":"http_request","request_id":"req_d4c881506dd94fb184b37f2c4bd462cd","correlation_id":"req_d4c881506dd94fb184b37f2c4bd462cd","method":"GET","route":"/api/v1/devices/enrollments/{enrollment_id}","status":200,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033886,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] GET /api/v1/devices/enrollments/enr_e66d9137835247b787589f558be9eddc 200 OK (3ms)
+{"event":"http_request","request_id":"req_4ac89025f8494c0a8753eb55cfd56a04","correlation_id":"req_4ac89025f8494c0a8753eb55cfd56a04","method":"POST","route":"/api/v1/devices/enrollments/{enrollment_id}/complete","status":201,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033895,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/devices/enrollments/enr_e66d9137835247b787589f558be9eddc/complete 201 Created (7ms)
+{"event":"http_request","request_id":"req_cc82d9bdd89941e8ae780baab764e288","correlation_id":"req_cc82d9bdd89941e8ae780baab764e288","method":"POST","route":"/api/v1/orgs/{org_id}/automations","status":201,"duration_ms":10}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633033909,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/automations 201 Created (13ms)
+{"event":"http_request","request_id":"req_2286985c1ce749a2bcf069c1c560150b","correlation_id":"req_2286985c1ce749a2bcf069c1c560150b","method":"POST","route":"/api/v1/orgs/{org_id}/automations/{automation_id}/run-now","status":201,"duration_ms":13}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633034721,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a9152fc8fc8c90f1823c1206b6a223f7/automations/aut_94791c81325a4246b2de2e3346efe58b/run-now 201 Created (15ms)
+{"event":"http_request","request_id":"req_21f616e97abb4eea9f971a4731e3e08d","correlation_id":"req_21f616e97abb4eea9f971a4731e3e08d","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":201,"duration_ms":7}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035747,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 201 Created (10ms)
+{"event":"http_request","request_id":"req_6459e6874ce1421a97cf177ed80575b1","correlation_id":"req_6459e6874ce1421a97cf177ed80575b1","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":18}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035768,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+{"event":"http_request","request_id":"req_7bc594e84c604ca5999446f755432189","correlation_id":"req_7bc594e84c604ca5999446f755432189","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":17}
+{"event":"http_request","request_id":"req_268505142aa3483fb31b024beb46d2bc","correlation_id":"req_268505142aa3483fb31b024beb46d2bc","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":16}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035768,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035768,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+{"event":"http_request","request_id":"req_4525135531ec44dbac321c5d8a56b4a1","correlation_id":"req_4525135531ec44dbac321c5d8a56b4a1","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":16}
+{"event":"http_request","request_id":"req_6b5bb05a39ed40509774f1fedaa17868","correlation_id":"req_6b5bb05a39ed40509774f1fedaa17868","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":15}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035769,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035769,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+{"event":"http_request","request_id":"req_cdc562bf8d944a71914dc0293108db0a","correlation_id":"req_cdc562bf8d944a71914dc0293108db0a","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":14}
+{"event":"http_request","request_id":"req_935f9e3dc8b4484f9cff1bd4947ad615","correlation_id":"req_935f9e3dc8b4484f9cff1bd4947ad615","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":409,"duration_ms":13}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035769,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 461157153,
+    timestamp: 1790633035769,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (31ms)
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (31ms)
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (32ms)
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (32ms)
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (32ms)
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (32ms)
+[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/occ_2b997f9fc33880645cd67be938ac3fef/claim 409 Conflict (31ms)
+
