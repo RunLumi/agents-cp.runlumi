@@ -193,6 +193,38 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
      UNION SELECT DISTINCT org_id FROM budgets WHERE budget_id = '${budgetBId}'`,
     "V01 org B identifiers",
   );
+  // The system's identifier shape: a short lowercase prefix, an underscore, and 32 hex
+  // characters. Anything else is vocabulary or user data, and putting those in the leak
+  // detector makes it fire on the caller's own rows.
+  const isIdentifier = (value) =>
+    typeof value === "string" && /^[a-z]{2,8}_[0-9a-f]{32}$/.test(value);
+
+  // Org B's own AUDIT rows, so the audit route's twelve id filters can be attacked with values
+  // that really exist in the other tenant -- and so those rows' identifiers join the detector.
+  // An audit event carries 12 distinct id columns, so "one value per filter" needs real ones.
+  const orgBAudit = await d1Rows(
+    `SELECT event_id, actor_id, session_id, device_id, run_id, agent_session_id,
+            tool_call_id, request_id, correlation_id, resource_id, action, resource_type
+       FROM security_events WHERE org_id = '${orgB.orgId}'
+      ORDER BY created_at DESC LIMIT 20`,
+    "V01 org B audit rows",
+  );
+  const firstOf = (column) => orgBAudit.find((r) => r[column])?.[column];
+  const auditValues = {
+    actor_id: firstOf("actor_id"),
+    resource_id: firstOf("resource_id"),
+    correlation_id: firstOf("correlation_id"),
+    request_id: firstOf("request_id"),
+    run_id: firstOf("run_id"),
+    agent_session_id: firstOf("agent_session_id"),
+    tool_call_id: firstOf("tool_call_id"),
+    device_id: firstOf("device_id"),
+    session_id: firstOf("session_id"),
+    project_id: projectBId,
+    resource: firstOf("resource_id"),
+    action: firstOf("action"),
+  };
+
   const foreignIds = new Set(
     [
       projectBId,
@@ -202,7 +234,18 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
       "V01 filter agent B",
       "V01 filter B",
       ...orgBRows.map((r) => r.v),
-    ].filter((v) => typeof v === "string" && v.length > 3),
+      // Every IDENTIFIER column of org B's own audit rows, so a leak through the metadata
+      // JSON -- which is returned in full -- is caught even when the filter column is a
+      // different one.
+      //
+      // Restricted to the system's identifier shape on purpose. The first version took every
+      // string column, and `action` and `resource_type` are SHARED VOCABULARY: org B's row
+      // says `organization` and `budget.created.v1`, and so does Alice's own, so the detector
+      // fired on the caller's own data and reported 9 leaks that were not leaks. An audit row
+      // is a record of who did WHAT as well as who did it to WHOM, and the "what" half is
+      // deliberately common to every tenant. Only the "whom" half is a secret.
+      ...orgBAudit.flatMap((r) => Object.values(r).filter((v) => isIdentifier(v))),
+    ].filter((v) => isIdentifier(v) || v === "V01 filter agent B" || v === "V01 filter B"),
   );
   expect(
     "CONTROL: the leak detector holds Org B's project, agent, budget and org ids, so a negative result below is a real measurement",
@@ -215,6 +258,29 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
     const text = JSON.stringify(body ?? null);
     return [...foreignIds].filter((id) => text.includes(id));
   };
+
+  // A leak assertion over a 5xx is VACUOUS, and asserting it anyway is how this probe
+  // reported eight clean audit results while the audit route was answering 503 for everybody.
+  // An error body contains no identifiers, so "no foreign identifier in the body" is true of
+  // every 5xx in the world.
+  //
+  // So the outcome is classified before the content is examined:
+  //   2xx  -> the claim applies, and it is a claim about CONTENT;
+  //   4xx  -> a refusal. A refusal is a legitimate tenant boundary, so it passes, and it is
+  //           named as a refusal rather than as a successful scoped read;
+  //   5xx  -> the claim does NOT apply. The store being unavailable says nothing about
+  //           tenancy, so this is SKIPped rather than passed.
+  const outcomeOf = (result) => {
+    if (result.status >= 200 && result.status < 300) return "read";
+    if (result.status >= 400 && result.status < 500) return "refusal";
+    if (result.status >= 500) return "unavailable";
+    return "other";
+  };
+  const reasonOf = (result) =>
+    result?.payload?.error?.details?.reason ??
+    result?.payload?.error?.code ??
+    result?.payload?.error?.message ??
+    "(no error body)";
 
   // Every list route answers `{ items, next_cursor, has_more }`. Reading `payload` as a bare
   // array is what made the first run report 33 vacuous passes: a wrapped body is not an
@@ -230,6 +296,7 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
   // at fault. A route with no `selectable` fixture still gets the unfiltered control and the
   // leak assertion, and says plainly that the filter's functionality is unproven there.
   const weakRoutes = [];
+  const weakOutcome = [];
   const probeRoute = async ({ name, pathA, pathB, filter, filterB, selectable, seeded }) => {
     probe.stage = name;
 
@@ -292,12 +359,20 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
       undefined,
       browserHeaders(alice.jar, filter),
     );
+    const outcome = outcomeOf(attack);
+    if (outcome === "unavailable") {
+      probe.skip(
+        `${name}: another org's ${Object.keys(filter).join("/")} in the filter — the route answered ${attack.status}, so the claim does not apply`,
+        `reason=${reasonOf(attack)}; a 5xx says the store is unavailable, not that the filter is scoped`,
+      );
+      return { plain, attack, found: [] };
+    }
     const found = leaks(attack.payload);
     expect(
-      `${name}: another org's ${Object.keys(filter).join("/")} in the filter leaks nothing from that org`,
+      `${name}: another org's ${Object.keys(filter).join("/")} in the filter leaks nothing from that org (${outcome})`,
       found.length === 0,
       found.length === 0
-        ? `status=${attack.status} — no foreign identifier anywhere in the body`
+        ? `status=${attack.status} (${outcome === "refusal" ? `refused: ${reasonOf(attack)}` : "scoped read"}) — no foreign identifier anywhere in the body`
         : `LEAKED ${found.join(", ")} at status=${attack.status}: ${JSON.stringify(attack.payload).slice(0, 400)}`,
     );
     return { plain, attack, found };
@@ -437,14 +512,17 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
       undefined,
       browserHeaders(alice.jar),
     );
+    const outcome = outcomeOf(aliceWithForeign);
     const found = leaks(aliceWithForeign.payload);
 
     expect(
-      "pagination: another org's cursor in the page token leaks nothing from that org",
-      found.length === 0,
-      found.length === 0
-        ? `status=${aliceWithForeign.status} — no foreign identifier in the body`
-        : `LEAKED ${found.join(", ")} at status=${aliceWithForeign.status}`,
+      `pagination: another org's cursor in the page token leaks nothing from that org (${outcome})`,
+      outcome !== "unavailable" && found.length === 0,
+      outcome === "unavailable"
+        ? `status=${aliceWithForeign.status} reason=${reasonOf(aliceWithForeign)} — the claim does not apply to a 5xx`
+        : found.length === 0
+          ? `status=${aliceWithForeign.status} — no foreign identifier in the body`
+          : `LEAKED ${found.join(", ")} at status=${aliceWithForeign.status}`,
     );
     const foreignItems = itemsOf(aliceWithForeign);
     const ownItems = itemsOf(aliceFirst);
@@ -538,31 +616,139 @@ await runProbe("V01 filter/pagination/nested", async (probe) => {
       undefined,
       browserHeaders(alice.jar),
     );
+    const outcome = outcomeOf(attack);
     const found = leaks(attack.payload);
     expect(
-      `nested ${route.name}: another org's id in the path leaks nothing from that org`,
-      found.length === 0,
-      found.length === 0
-        ? `own id -> ${ownRes.status}, the other org's id -> ${attack.status} — no foreign identifier anywhere in the body`
-        : `LEAKED ${found.join(", ")} at status=${attack.status}: ${JSON.stringify(attack.payload).slice(0, 300)}`,
+      `nested ${route.name}: another org's id in the path leaks nothing from that org (${outcome})`,
+      outcome !== "unavailable" && found.length === 0,
+      outcome === "unavailable"
+        ? `own id -> ${ownRes.status}, the other org's id -> ${attack.status} reason=${reasonOf(attack)} — the claim does not apply to a 5xx`
+        : found.length === 0
+          ? `own id -> ${ownRes.status}, the other org's id -> ${attack.status} (${outcome === "refusal" ? `refused: ${reasonOf(attack)}` : "scoped read"}) — no foreign identifier anywhere in the body`
+          : `LEAKED ${found.join(", ")} at status=${attack.status}: ${JSON.stringify(attack.payload).slice(0, 300)}`,
+    );
+  }
+
+  // =========================================================================
+  // Family 4 - the audit route's twelve id filters
+  //
+  // `AuditListQuery` is the widest single substitution surface in the API: twelve id-shaped
+  // filters on one route. `LIST_AUDIT_SQL` leads with `org_id = ?1` and ANDs all seventeen
+  // predicates, which is the correct shape and is not evidence.
+  //
+  // Two things make it worth attacking anyway. An audit row is a record of who did what, so a
+  // leak here is both a tenant breach and a disclosure of another org's activity. And the
+  // route returns `metadata_json` IN FULL while the `project_id` filter matches inside it with
+  // `json_extract(metadata_json, '$.project_id')` -- so the only thing between a foreign project
+  // id and a disclosure is that outer org predicate. The body is searched as a string, so a
+  // leak in a column nobody expected is still caught.
+  //
+  // Each filter is driven with a value that EXISTS in org B, read out of that org's own audit
+  // rows. A filter value belonging to no tenant is a test of nothing.
+  // =========================================================================
+  probe.stage = "audit-filters";
+  console.log(
+    `  org B audit rows available as filter values: ${orgBAudit.length} (${Object.entries(
+      auditValues,
+    )
+      .filter(([, v]) => v)
+      .map(([k]) => k)
+      .join(", ")})`,
+  );
+
+  const auditPathA = `/api/v1/orgs/${orgA.orgId}/audit`;
+  const auditPathB = `/api/v1/orgs/${orgB.orgId}/audit`;
+  const auditPlain = await request(
+    alice.jar,
+    "GET",
+    auditPathA,
+    undefined,
+    browserHeaders(alice.jar),
+  );
+  const auditItems = itemsOf(auditPlain);
+  expect(
+    "CONTROL: the audit route answers for its own org with a well-formed page",
+    auditPlain.status === 200 && auditItems !== null,
+    `status=${auditPlain.status} reason=${reasonOf(auditPlain)} rows=${auditItems === null ? "body is not { items: [...] }" : auditItems.length}`,
+  );
+  const auditOwn = await request(
+    bob.jar,
+    "GET",
+    auditPathB,
+    undefined,
+    browserHeaders(bob.jar, { resource_id: auditValues.resource_id }),
+  );
+  const auditOwnItems = itemsOf(auditOwn);
+  expect(
+    "CONTROL: the audit route honours a filter - org B's own owner narrows his own log to his own event",
+    auditOwn.status === 200 && auditOwnItems !== null && auditOwnItems.length > 0,
+    `status=${auditOwn.status} reason=${reasonOf(auditOwn)} rows=${auditOwnItems === null ? "not a page" : auditOwnItems.length}`,
+  );
+
+  const auditFilters = Object.entries(auditValues).filter(([, v]) => v);
+  const auditDriven = auditFilters.map(([k]) => k);
+  const auditUndriven = Object.keys(auditValues).filter((k) => !auditValues[k]);
+  expect(
+    "CONTROL: at least eight of the twelve id filters have a real value in the other org to attack with",
+    auditFilters.length >= 8,
+    `${auditFilters.length} of 12 driven: ${auditDriven.join(", ")}`,
+  );
+  if (auditUndriven.length > 0) {
+    for (const name of auditUndriven) {
+      probe.skip(
+        `audit filtered by ${name}: org B has no row carrying this id, so there is no real value to attack with`,
+        "a filter value belonging to no tenant is a test of nothing; these need a run/device fixture",
+      );
+    }
+    console.log(
+      `  audit id filters with no value in the other org: ${auditUndriven.join(", ")} (reported as SKIP, not PASS)`,
+    );
+  }
+
+  for (const [name, value] of auditFilters) {
+    const attack = await request(
+      alice.jar,
+      "GET",
+      auditPathA,
+      undefined,
+      browserHeaders(alice.jar, { [name]: value }),
+    );
+    const outcome = outcomeOf(attack);
+    const found = leaks(attack.payload);
+    // A 5xx makes this claim INAPPLICABLE, not true. The first version asserted it anyway and
+    // reported eight clean results while the route answered 503 for every caller: an error body
+    // contains no identifiers, so "no foreign identifier" is true of every 5xx in the world.
+    expect(
+      `audit filtered by ${name}: another org's value leaks nothing from that org (${outcome})`,
+      outcome !== "unavailable" && found.length === 0,
+      outcome === "unavailable"
+        ? `status=${attack.status} reason=${reasonOf(attack)} — the claim does not apply to a 5xx`
+        : found.length === 0
+          ? `status=${attack.status} (${outcome === "refusal" ? `refused: ${reasonOf(attack)}` : "scoped read"}) - no foreign identifier anywhere in the body, including metadata_json`
+          : `LEAKED ${found.join(", ")} at status=${attack.status}: ${JSON.stringify(attack.payload).slice(0, 300)}`,
     );
   }
 
   // --- the summary ----------------------------------------------------------
   const attacked = results.length;
-  const total = attacked + (foreignCursor ? 1 : 0) + nested.length;
+  const total = attacked + (foreignCursor ? 1 : 0) + nested.length + auditFilters.length;
   console.log(
-    `\n  ${total} cross-tenant filter/pagination/nested attacks over ${attacked} filter routes, ` +
-      `${foreignCursor ? 1 : 0} pagination case(s) and ${nested.length} nested routes`,
+    `\n  ${total} cross-tenant attacks:  ${attacked} filter routes, ` +
+      `${foreignCursor ? 1 : 0} pagination case(s), ${nested.length} nested routes and ${auditFilters.length} audit id filters`,
   );
   console.log(
-    `  leak detector: ${foreignIds.size} identifiers belonging to org B, matched as substrings of the full serialised body`,
+    `  leak detector: ${foreignIds.size} identifiers belonging to org B (fixtures plus every id column of its own audit rows), matched as substrings of the full serialised body`,
   );
 
   // The weak claims, printed and counted as SKIP rather than folded into the pass total. A
   // leak assertion over a route whose own org holds no rows cannot distinguish "scoped" from
   // "empty", and reporting it as a pass would be the same error this probe was written to
   // avoid -- in the opposite direction.
+  if (weakOutcome.length > 0) {
+    console.log(
+      `  ${weakOutcome.length} attack(s) answered 5xx and were SKIPped rather than counted as clean: ${weakOutcome.join("; ")}`,
+    );
+  }
   if (weakRoutes.length > 0) {
     for (const name of weakRoutes) {
       probe.skip(

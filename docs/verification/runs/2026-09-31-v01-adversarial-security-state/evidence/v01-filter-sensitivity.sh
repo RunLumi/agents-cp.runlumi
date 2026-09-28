@@ -37,6 +37,7 @@ PROBE="apps/api/scripts/v01-filter-tenancy-probe.mjs"
 RUNS="apps/api/src/repositories/runs.rs"
 PROJECTS="apps/api/src/repositories/projects.rs"
 ROUTES="apps/api/src/routes/projects.rs"
+AUDIT="apps/api/src/repositories/audit.rs"
 SCRATCH="${P09_SCRATCH:-target/v01-filter-scratch}"
 SNAPSHOT="$SCRATCH/snapshot"
 LOGDIR="docs/verification/runs/2026-09-31-v01-adversarial-security-state/evidence"
@@ -45,7 +46,7 @@ mkdir -p "$SNAPSHOT" "$LOGDIR"
 say() { printf '\n=== %s\n' "$*"; }
 sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
-TRACKED=("$RUNS" "$PROJECTS" "$ROUTES")
+TRACKED=("$RUNS" "$PROJECTS" "$ROUTES" "$AUDIT")
 
 snapshot_all() {
   rm -rf "$SNAPSHOT"
@@ -69,7 +70,7 @@ restore_all() {
       exit 1
     fi
   done
-  echo "restored all three files"
+  echo "restored all four files"
 }
 
 assert_changed() {
@@ -240,6 +241,36 @@ M3_CODE="$(run_probe m3)"
 echo "  probe exit=$M3_CODE, FAIL lines=$(grep -c '^  FAIL' "$LOGDIR/v01-filter-sensitivity-m3.log" || true)"
 grep -m 2 "LEAKED" "$LOGDIR/v01-filter-sensitivity-m3.log" | cut -c1-200 || true
 record m3 "$NESTED_LEAK" DETECTED
+restore_all
+
+# ------------------------------------------------------------------- M4
+say "M4: LIST_AUDIT_SQL's org predicate becomes an OR — every filter predicate stays"
+python3 - "$AUDIT" <<'PY2'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+i = src.index("const LIST_AUDIT_SQL")
+k = src.index("WHERE org_id = ?1", i)
+assert k < i + 900, "the org predicate was not the leading one on LIST_AUDIT_SQL"
+# `OR ?1 <> ''` rather than `WHERE 1 = 1`, and that is not a stylistic choice.
+#
+# On this statement `?1` is referenced NOWHERE else -- the EXISTS sub-queries compare
+# `projects.org_id = agent_definitions.org_id`, column to column -- so deleting the predicate
+# orphans the placeholder and D1 refuses the statement with a 503. That mutation cannot express
+# the bug at all: it breaks the route instead of leaking it, and the probe caught the 503 on
+# its controls, which is the right answer to a different question.
+#
+# The OR form is the realistic regression -- a conjunction typed as a disjunction -- and it keeps
+# the bind count identical, which is exactly why it can ship.
+src = src[:k] + "WHERE org_id = ?1 OR ?1 <> ''" + src[k + len("WHERE org_id = ?1"):]
+open(path, "w").write(src)
+print("  LIST_AUDIT_SQL: WHERE org_id = ?1 -> WHERE org_id = ?1 OR ?1 <> ''")
+PY2
+assert_changed
+M4_CODE="$(run_probe m4)"
+echo "  probe exit=$M4_CODE, FAIL lines=$(grep -c '^  FAIL' "$LOGDIR/v01-filter-sensitivity-m4.log" || true)"
+grep -m 1 "LEAKED" "$LOGDIR/v01-filter-sensitivity-m4.log" | cut -c1-200 || true
+record m4 "audit filtered by resource_id" DETECTED
 restore_all
 
 # ------------------------------------------------------------------ verdict

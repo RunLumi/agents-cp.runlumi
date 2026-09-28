@@ -1,22 +1,22 @@
 
 Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-filter-scratch/db-m1
   PASS  fresh D1 applies the full migration ledger  — 21 migration rows
-  PASS  development Worker is healthy  — http://127.0.0.1:60273
-  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-hYNZPM/15e4404e8b806e2c2c004dad60f8238fd4fbd219-index_bg.wasm is 73s newer than src/repositories/runs.rs
+  PASS  development Worker is healthy  — http://127.0.0.1:65093
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-T5lBUW/15e4404e8b806e2c2c004dad60f8238fd4fbd219-index_bg.wasm is 68s newer than src/repositories/runs.rs
   PASS  signup Alice  — status=201
   PASS  verify Alice  — status=200
   PASS  login start Alice  — status=202
   PASS  login complete Alice  — status=200
-  PASS  user Alice has an opaque ID  — usr_08b5f7a275114a618c099bc21ae90465
+  PASS  user Alice has an opaque ID  — usr_48c0e37f2648431ab0696ff8d48eee7e
   PASS  signup Bob  — status=201
   PASS  verify Bob  — status=200
   PASS  login start Bob  — status=202
   PASS  login complete Bob  — status=200
-  PASS  user Bob has an opaque ID  — usr_6ed5c29d7f354583aef94afae5ca2d7f
+  PASS  user Bob has an opaque ID  — usr_5e1f3fb3fe1140b5a04ef49ece3006a8
   PASS  create Alice Org  — status=201
-  PASS  Alice Org organization ID  — org_d6c718d34eb8a9eda6df70b7b1fb2bec
+  PASS  Alice Org organization ID  — org_8bc804f0168d68db5560ecfe57c8434f
   PASS  create Bob Org  — status=201
-  PASS  Bob Org organization ID  — org_1470eedc41544a1fac7aee8425270b11
+  PASS  Bob Org organization ID  — org_31e38ffdaf7a38961153cbd41e241b0b
   PASS  CONTROL: Org A has a real project  — status=201
   PASS  CONTROL: Org A has a real budget  — status=201
   PASS  CONTROL: Org B has a real project  — status=201
@@ -25,47 +25,64 @@ Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-filte
   PASS  CONTROL: Org A has a real agent bound to its own project  — status=201
   PASS  CONTROL: Org B has a real agent bound to its own project  — status=201
   PASS  CONTROL: Org B has a second project, so its page emits a real cursor  — status=201
-  PASS  CONTROL: the leak detector holds Org B's project, agent, budget and org ids, so a negative result below is a real measurement  — 6 distinct identifiers: prj_5f920f858a0549229056da4a1804c6e7, bud_789db1fcd00b484784ef3d3765357ab1, org_1470eedc41544a1fac7aee8425270b11, agd_b3b46fd3f7f649519f3a2db6d75c95a5
+  PASS  CONTROL: the leak detector holds Org B's project, agent, budget and org ids, so a negative result below is a real measurement  — 14 distinct identifiers: prj_8bc4eff804f140dd8ec5b80817528ca3, bud_aa8d48f8942044b09a58f95242dfcaef, org_31e38ffdaf7a38961153cbd41e241b0b, agd_6a54db3dafbe44bfa9e9e1ed6c616d31
   PASS  CONTROL: agents filtered by project answers for its own org with a well-formed page  — status=200 rows=2
   PASS  CONTROL: agents filtered by project returns rows for its own org, because this probe seeded a row of this kind  — rows=2
   PASS  CONTROL: agents filtered by project honours its filter - the owner of the resource sees it in his own org  — status=200 rows=2 — an empty page here would mean the leak assertion below is testing nothing
-  FAIL  agents filtered by project: another org's project_id in the filter leaks nothing from that org  — LEAKED prj_5f920f858a0549229056da4a1804c6e7, org_1470eedc41544a1fac7aee8425270b11, agd_b3b46fd3f7f649519f3a2db6d75c95a5, V01 filter agent B at status=200: {"items":[{"allowed_tool_ids":[],"created_at":"2026-09-28T19:19:42.575Z","default_model_alias":null,"description":null,"id":"agd_b3b46fd3f7f649519f3a2db6d75c95a5","instructions_ref":null,"lifecycle":"active","name":"V01 filter agent B","org_id":"org_1470eedc41544a1fac7aee8425270b11","project_id":"prj_5f920f858a0549229056da4a1804c6e7","required_capabilities":[],"runtime_requirements":[],"updated_at
+  FAIL  agents filtered by project: another org's project_id in the filter leaks nothing from that org (read)  — LEAKED prj_8bc4eff804f140dd8ec5b80817528ca3, org_31e38ffdaf7a38961153cbd41e241b0b, agd_6a54db3dafbe44bfa9e9e1ed6c616d31, V01 filter agent B at status=200: {"items":[{"allowed_tool_ids":[],"created_at":"2026-09-28T19:43:18.224Z","default_model_alias":null,"description":null,"id":"agd_6a54db3dafbe44bfa9e9e1ed6c616d31","instructions_ref":null,"lifecycle":"active","name":"V01 filter agent B","org_id":"org_31e38ffdaf7a38961153cbd41e241b0b","project_id":"prj_8bc4eff804f140dd8ec5b80817528ca3","required_capabilities":[],"runtime_requirements":[],"updated_at
   PASS  CONTROL: runs filtered by project answers for its own org with a well-formed page  — status=200 rows=0
   PASS  CONTROL: runs filtered by project filter functionality is UNPROVEN here — no row of this kind is seeded in either org, so only the unfiltered control and the leak assertion apply  — recorded rather than assumed: calling a filter functional because a page came back empty is the trap this control exists to prevent
-  PASS  runs filtered by project: another org's project_id in the filter leaks nothing from that org  — status=200 — no foreign identifier anywhere in the body
+  PASS  runs filtered by project: another org's project_id in the filter leaks nothing from that org (read)  — status=200 (scoped read) — no foreign identifier anywhere in the body
   PASS  CONTROL: sessions filtered by project answers for its own org with a well-formed page  — status=200 rows=0
   PASS  CONTROL: sessions filtered by project filter functionality is UNPROVEN here — no row of this kind is seeded in either org, so only the unfiltered control and the leak assertion apply  — recorded rather than assumed: calling a filter functional because a page came back empty is the trap this control exists to prevent
-  PASS  sessions filtered by project: another org's project_id in the filter leaks nothing from that org  — status=200 — no foreign identifier anywhere in the body
+  PASS  sessions filtered by project: another org's project_id in the filter leaks nothing from that org (read)  — status=200 (scoped read) — no foreign identifier anywhere in the body
   PASS  CONTROL: automations filtered by project answers for its own org with a well-formed page  — status=200 rows=0
   PASS  CONTROL: automations filtered by project filter functionality is UNPROVEN here — no row of this kind is seeded in either org, so only the unfiltered control and the leak assertion apply  — recorded rather than assumed: calling a filter functional because a page came back empty is the trap this control exists to prevent
-  PASS  automations filtered by project: another org's project_id in the filter leaks nothing from that org  — status=200 — no foreign identifier anywhere in the body
+  PASS  automations filtered by project: another org's project_id in the filter leaks nothing from that org (read)  — status=200 (scoped read) — no foreign identifier anywhere in the body
   PASS  CONTROL: usage filtered by project answers for its own org with a well-formed page  — status=200 rows=0
   PASS  CONTROL: usage filtered by project filter functionality is UNPROVEN here — no row of this kind is seeded in either org, so only the unfiltered control and the leak assertion apply  — recorded rather than assumed: calling a filter functional because a page came back empty is the trap this control exists to prevent
-  PASS  usage filtered by project: another org's project_id in the filter leaks nothing from that org  — status=200 — no foreign identifier anywhere in the body
+  PASS  usage filtered by project: another org's project_id in the filter leaks nothing from that org (read)  — status=200 (scoped read) — no foreign identifier anywhere in the body
   PASS  CONTROL: budgets filtered by scope answers for its own org with a well-formed page  — status=200 rows=1
   PASS  CONTROL: budgets filtered by scope returns rows for its own org, because this probe seeded a row of this kind  — rows=1
   PASS  CONTROL: budgets filtered by scope honours its filter - the owner of the resource sees it in his own org  — status=200 rows=1 — an empty page here would mean the leak assertion below is testing nothing
-  PASS  budgets filtered by scope: another org's scope_type/scope_id in the filter leaks nothing from that org  — status=200 — no foreign identifier anywhere in the body
+  PASS  budgets filtered by scope: another org's scope_type/scope_id in the filter leaks nothing from that org (read)  — status=200 (scoped read) — no foreign identifier anywhere in the body
   PASS  CONTROL: projects filtered by slug (not an id, but a cross-tenant selector) answers for its own org with a filter and returns rows  — status=200 rows=2
-  PASS  CONTROL: Org B's project page yields a real cursor, so the pagination attack below is not against a hypothetical format  — cursor=323032362d30392d32385431393a31393a34322e3538355a7c70726a5f3164383132336237663661343462383362643531646135343732353733343262; row={"archived":false,"created_at":"2026-09-28T19:19:42.585Z","created_by_user_id":"usr_6ed5c29d7f354583aef94afae5ca2d7f","i — the cursor is the route's own keyset, not an opaque token
-  PASS  pagination: another org's cursor in the page token leaks nothing from that org  — status=200 — no foreign identifier in the body
+  PASS  CONTROL: Org B's project page yields a real cursor, so the pagination attack below is not against a hypothetical format  — cursor=323032362d30392d32385431393a34333a31382e3233345a7c70726a5f3531336137383935613265313437353561666434383562313461333333633039; row={"archived":false,"created_at":"2026-09-28T19:43:18.234Z","created_by_user_id":"usr_5e1f3fb3fe1140b5a04ef49ece3006a8","i — the cursor is the route's own keyset, not an opaque token
+  PASS  pagination: another org's cursor in the page token leaks nothing from that org (read)  — status=200 — no foreign identifier in the body
   PASS  pagination: a foreign cursor cannot SILENCE the caller's own rows either — org scope is ANDed with the keyset, not replaced by it  — rows with a foreign cursor: 2 (unfiltered: 2)
   grant fixtures: org A status=422 org B status=422 (a null member/team grant may be refused; the control below decides)
-  PASS  nested project detail: another org's id in the path leaks nothing from that org  — own id -> 200, the other org's id -> 404 — no foreign identifier anywhere in the body
-  PASS  nested project access grants: another org's id in the path leaks nothing from that org  — own id -> 200, the other org's id -> 404 — no foreign identifier anywhere in the body
-  PASS  nested agent detail: another org's id in the path leaks nothing from that org  — own id -> 200, the other org's id -> 404 — no foreign identifier anywhere in the body
-  PASS  nested budget detail: another org's id in the path leaks nothing from that org  — own id -> 200, the other org's id -> 404 — no foreign identifier anywhere in the body
+  PASS  nested project detail: another org's id in the path leaks nothing from that org (refusal)  — own id -> 200, the other org's id -> 404 (refused: not_found) — no foreign identifier anywhere in the body
+  PASS  nested project access grants: another org's id in the path leaks nothing from that org (refusal)  — own id -> 200, the other org's id -> 404 (refused: not_found) — no foreign identifier anywhere in the body
+  PASS  nested agent detail: another org's id in the path leaks nothing from that org (refusal)  — own id -> 200, the other org's id -> 404 (refused: agent_not_found) — no foreign identifier anywhere in the body
+  PASS  nested budget detail: another org's id in the path leaks nothing from that org (refusal)  — own id -> 200, the other org's id -> 404 (refused: budget_not_found) — no foreign identifier anywhere in the body
   SKIP  nested membership detail: cannot be attacked, because the caller's OWN membership detail answers 405 on the same route  — a route that does not work for its own tenant cannot prove it refuses another tenant's — this is skipped rather than counted, and the 404 a foreign id gets is indistinguishable from a router miss
+  org B audit rows available as filter values: 3 (actor_id, resource_id, correlation_id, request_id, session_id, project_id, resource, action)
+  PASS  CONTROL: the audit route answers for its own org with a well-formed page  — status=200 rows=3
+  PASS  CONTROL: the audit route honours a filter - org B's own owner narrows his own log to his own event  — status=200 rows=3
+  PASS  CONTROL: at least eight of the twelve id filters have a real value in the other org to attack with  — 8 of 12 driven: actor_id, resource_id, correlation_id, request_id, session_id, project_id, resource, action
+  SKIP  audit filtered by run_id: org B has no row carrying this id, so there is no real value to attack with  — a filter value belonging to no tenant is a test of nothing; these need a run/device fixture
+  SKIP  audit filtered by agent_session_id: org B has no row carrying this id, so there is no real value to attack with  — a filter value belonging to no tenant is a test of nothing; these need a run/device fixture
+  SKIP  audit filtered by tool_call_id: org B has no row carrying this id, so there is no real value to attack with  — a filter value belonging to no tenant is a test of nothing; these need a run/device fixture
+  SKIP  audit filtered by device_id: org B has no row carrying this id, so there is no real value to attack with  — a filter value belonging to no tenant is a test of nothing; these need a run/device fixture
+  audit id filters with no value in the other org: run_id, agent_session_id, tool_call_id, device_id (reported as SKIP, not PASS)
+  PASS  audit filtered by actor_id: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by resource_id: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by correlation_id: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by request_id: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by session_id: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by project_id: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by resource: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
+  PASS  audit filtered by action: another org's value leaks nothing from that org (read)  — status=200 (scoped read) - no foreign identifier anywhere in the body, including metadata_json
 
-  12 cross-tenant filter/pagination/nested attacks over 6 filter routes, 1 pagination case(s) and 5 nested routes
-  leak detector: 6 identifiers belonging to org B, matched as substrings of the full serialised body
+  20 cross-tenant attacks:  6 filter routes, 1 pagination case(s), 5 nested routes and 8 audit id filters
+  leak detector: 14 identifiers belonging to org B (fixtures plus every id column of its own audit rows), matched as substrings of the full serialised body
   SKIP  runs filtered by project: no row of this kind is seeded in either org, so its no-leak result cannot distinguish scoping from emptiness  — needs a run fixture (device + model alias) before this route's claim is worth anything
   SKIP  sessions filtered by project: no row of this kind is seeded in either org, so its no-leak result cannot distinguish scoping from emptiness  — needs a run fixture (device + model alias) before this route's claim is worth anything
   SKIP  automations filtered by project: no row of this kind is seeded in either org, so its no-leak result cannot distinguish scoping from emptiness  — needs a run fixture (device + model alias) before this route's claim is worth anything
   SKIP  usage filtered by project: no row of this kind is seeded in either org, so its no-leak result cannot distinguish scoping from emptiness  — needs a run fixture (device + model alias) before this route's claim is worth anything
   4 of 7 filter routes have no seeded row, and their no-leak result is reported as SKIP rather than PASS: runs filtered by project; sessions filtered by project; automations filtered by project; usage filtered by project
 
-53/54 V01 filter/pagination/nested cases hold, 5 skipped
+64/65 V01 filter/pagination/nested cases hold, 9 skipped
 
 1 case(s) failed:
-  - agents filtered by project: another org's project_id in the filter leaks nothing from that org
+  - agents filtered by project: another org's project_id in the filter leaks nothing from that org (read)

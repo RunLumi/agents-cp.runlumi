@@ -1,0 +1,44 @@
+
+=== baseline: the repaired product must pass the gate
+  baseline PASS (exit 0)
+restored all four files
+
+=== M1: AGENTS_PAGE_SQL loses its outer org predicate — the bind list is unchanged
+  AGENTS_PAGE_SQL: WHERE org_id = ?1 -> WHERE 1 = 1 (every other predicate untouched)
+mutation applied to apps/api/src/repositories/runs.rs
+  probe exit=1, FAIL lines=1
+  FAIL  agents filtered by project: another org's project_id in the filter leaks nothing from that org (read)  — LEAKED prj_8bc4eff804f140dd8ec5b80817528ca3, org_31e38ffdaf7a38961153cbd41e241b0b, agd_
+  DETECTED  m1
+restored all four files
+
+=== M2: the projects page queries lose their outer org predicate
+  patched 3 statements, including the inline one the owner path executes
+mutation applied to apps/api/src/repositories/projects.rs
+  probe exit=1, FAIL lines=1
+  FAIL  pagination: another org's cursor in the page token leaks nothing from that org (read)  — LEAKED prj_91f928d368f84de7b6aad46f4a37c789, org_dbb7d80a3f9af514fa68835e4b2b37ca, V01 filter B, usr_ad
+  DETECTED  m2
+restored all four files
+
+=== M3: readable_project loses its handler-level org filter — every SQL statement untouched
+  removed the handler's org filter; PROJECT_BY_ID_SQL is unchanged and still correct
+mutation applied to apps/api/src/routes/projects.rs
+  probe exit=1, FAIL lines=2
+  FAIL  nested project detail: another org's id in the path leaks nothing from that org (read)  — LEAKED prj_4c5be7b53fe046a88a84f9d53057792b, org_138c77bbd3d093a6eddb848cb498bf44, V01 filter B, usr_f
+  FAIL  nested project access grants: another org's id in the path leaks nothing from that org (read)  — LEAKED prj_4c5be7b53fe046a88a84f9d53057792b, org_138c77bbd3d093a6eddb848cb498bf44, V01 filter B
+  DETECTED  m3
+restored all four files
+
+=== M4: LIST_AUDIT_SQL's org predicate becomes an OR — every filter predicate stays
+  LIST_AUDIT_SQL: WHERE org_id = ?1 -> WHERE org_id = ?1 OR ?1 <> ''
+mutation applied to apps/api/src/repositories/audit.rs
+  probe exit=1, FAIL lines=10
+  DETECTED  m4
+restored all four files
+
+=== verdicts
+  OK    m1 -> DETECTED
+  OK    m2 -> DETECTED
+  OK    m3 -> DETECTED
+  OK    m4 -> DETECTED
+
+SENSITIVITY OK — every mutation was detected. The gate can fail.
