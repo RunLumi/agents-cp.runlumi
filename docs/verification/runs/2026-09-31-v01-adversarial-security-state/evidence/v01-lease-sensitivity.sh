@@ -11,10 +11,18 @@
 #       racers can each read version 1, each transition, and each believe they won. The partial
 #       unique index still stops a second active lease, so the LEASE COUNT stays at one and only
 #       the counter assertion can see this — which is the whole reason that assertion exists.
-#   M2  the partial unique index's predicate becomes `WHERE state = 'nonexistent'`, so the
-#       uniqueness no longer covers an active lease at all. This removes the schema-level
-#       guarantee outright, and the claim the gate exists for — at most one active lease per
-#       occurrence — should fail loudly.
+#   M2  the partial unique index's predicate becomes `WHERE state = 'never'`, so the uniqueness no
+#       longer covers an active lease at all. This removes the schema-level guarantee outright.
+#       **RESULT: a KNOWN MISSED, and the reason is a finding rather than a weak mutation.** With
+#       the compare-and-set intact, exclusivity held perfectly — one winner, one active lease, one
+#       state transition — with the index removed entirely. So the `state_version` compare-and-set
+#       in `TRANSITION_OCCURRENCE_SQL` is the load-bearing mechanism for "at most one active lease
+#       per occurrence", and `ux_automation_leases_active` is a redundant second line *for this
+#       claim*. That is worth knowing rather than papering over: a reviewer who assumed the index
+#       was the guarantee would be wrong about which statement to protect, and a future path that
+#       inserts a lease without going through the CAS would have no protection from this proof at
+#       all. M1 is the mirror image: break the CAS instead, and the system **fails closed** — zero
+#       leases, all eight racers refused — rather than admitting two.
 #   M3  the lease insert is dropped from the claim's batch. The occurrence still transitions to
 #       `leased`, so the response still answers `201` and looks perfect, and there is simply no
 #       lease. A gate that only counted states would score this a clean pass.
@@ -209,6 +217,22 @@ run_probe() {
     tail -25 "$LOGDIR/v01-lease-sensitivity-$label.log" >&2
     exit 1
   fi
+  # REACHABILITY. Exit 1 is the code for "the product is broken", and a probe that ran to
+  # completion prints its own summary. A probe that DIED also printed things, and used to exit 1
+  # as well when it died after recording a failure -- so a run that stopped inside its first case
+  # was indistinguishable from a run that graded every case and found two defects. Requiring the
+  # summary line means a partial run can never be a verdict, whatever the exit code claims.
+  if ! grep -q "cases hold" "$LOGDIR/v01-lease-sensitivity-$label.log"; then
+    echo "PROBE FOR $label NEVER REACHED ITS SUMMARY -- it stopped partway, so the numbers in" >&2
+    echo "that log do not describe a completed run. Treating it as no measurement at all." >&2
+    tail -25 "$LOGDIR/v01-lease-sensitivity-$label.log" >&2
+    exit 1
+  fi
+  if grep -q "DID NOT COMPLETE" "$LOGDIR/v01-lease-sensitivity-$label.log"; then
+    echo "PROBE FOR $label REPORTED THAT IT DID NOT COMPLETE -- refusing to grade a partial run." >&2
+    tail -25 "$LOGDIR/v01-lease-sensitivity-$label.log" >&2
+    exit 1
+  fi
   echo "$code"
 }
 
@@ -247,6 +271,20 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# A SIGNAL SKIPS THE EXIT TRAP. This bit here, and it is the reason the M3 mutation was found
+# sitting in `routes/automations.rs` with its lease insert commented out, which made every
+# automation claim answer 503 with no lease and had me reading the product for a regression that
+# was not one. `pkill` sends SIGTERM, bash has no handler for it, and `trap ... EXIT` does not
+# fire for an unhandled signal -- so the restore that every earlier run had printed never ran.
+#
+# The safety net caught it anyway on the next run (`assert_git_clean "before snapshot"` refuses to
+# snapshot a tree that git already disagrees with), which is the right order of preference: the
+# trap is best-effort and the independent check is what makes a missed trap harmless rather than
+# dangerous. But a harness that deliberately faults source files and leaves them faulted when
+# stopped is a hazard in its own right, so the signals are handled and re-raise through `exit`,
+# which does run the EXIT trap.
+trap 'echo "--- signal caught; restoring before exit" >&2; exit 130' INT TERM HUP
+
 # --------------------------------------------------------------- the baseline
 # RED on purpose: the probe asserts the open V01-013 defect. The contract is that it fails on
 # EXACTLY those two and nothing else.
@@ -282,7 +320,13 @@ assert_changed
 M1_CODE="$(run_probe m1)"
 echo "  probe exit=$M1_CODE, FAIL lines=$(grep -c '^  FAIL' "$LOGDIR/v01-lease-sensitivity-m1.log" || true)"
 record m1 "$ONE_TRANSITION" DETECTED
-record m1 "$ONE_LEASE" DETECTED "expected MISSED and it is the point of the case: the partial unique index still admits one active lease, which is why the counter assertion exists alongside it"
+# Both records DETECTED, and the mechanism is the finding: a CAS that no longer advances leaves
+# every racer's UPDATE matching, so all eight batches run, and the batches FAIL -- zero leases,
+# eight 503s. The system denies all work rather than admitting two, which is the right way round
+# to break. The index would still admit one lease in principle, so a lease COUNT alone would not
+# have shown this; the counter assertion is what sees it.
+record m1 "$ONE_LEASE" DETECTED
+record m1 "$ONE_ATTEMPT" DETECTED
 restore_all
 
 # ------------------------------------------------------------------- M2
@@ -305,8 +349,17 @@ assert_changed
 M2_CODE="$(run_probe m2)"
 echo "  probe exit=$M2_CODE, FAIL lines=$(grep -c '^  FAIL' "$LOGDIR/v01-lease-sensitivity-m2.log" || true)"
 grep -m 1 "ACTIVE LEASES" "$LOGDIR/v01-lease-sensitivity-m2.log" | cut -c1-200 || true
-record m2 "$ONE_LEASE" DETECTED
-record m2 "$NO_LEAK" DETECTED "expected MISSED: exclusivity is broken in the database, not in the response, so the leak assertions have nothing extra to find"
+# Both of M2's records are expected MISSEDs, and for the same reason: with the CAS intact the
+# claim holds on its own, so removing the index's predicate changes nothing observable. That is a
+# statement about which mechanism carries the claim, and it is the reason M1 exists.
+record m2 "$ONE_LEASE" DETECTED \
+  "EXPECTED MISSED, and it is a result rather than a weak mutation: exclusivity held with the index \
+   removed, so the state_version compare-and-set is the load-bearing mechanism and this index is a \
+   redundant second line for the claim. M1 is the mirror: break the CAS and the run fails CLOSED, \
+   with zero active leases and all eight racers refused"
+record m2 "$NO_LEAK" DETECTED \
+  "expected MISSED, and necessarily so: the same-key losers were refused by the CAS, so the responses \
+   carried no winner material to leak and the disclosure assertions had nothing extra to find"
 restore_all
 
 # ------------------------------------------------------------------- M3

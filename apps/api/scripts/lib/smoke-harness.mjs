@@ -968,8 +968,32 @@ export class SmokeHarness {
     this.stopServices();
     console.error(`\n${this.name} harness failure: ${this.redact(error.message)}`);
     if (log) console.error(`\n--- Worker log (tail) ---\n${log}`);
-    if (this.failures.length === 0) process.exit(2);
-    process.exit(1);
+
+    // ALWAYS exit 2, even when assertions had already failed.
+    //
+    // This used to exit 1 whenever anything had already failed, on the reasoning that there was
+    // something to report. That is the exact collapse the campaign forbids: exit 1 is a
+    // statement about the PRODUCT and exit 2 is a statement about the HARNESS, and merging them
+    // lets a probe that died mid-run read as a detected defect.
+    //
+    // It is not theoretical. `verify:lease-contention` died on `no such table:
+    // automation_attempts` in case 1 -- after the two known-open V01-013 assertions had already
+    // failed -- so it exited 1, and `verify:lease-contention`'s sensitivity harness read that as
+    // a valid measurement. Every "PASS" it reported after that point was reported by a run that
+    // had stopped. Worse, the cases that never ran were silently absent from the denominator: the
+    // gate reported 32/34 while three of its four cases had never executed.
+    //
+    // So: a harness failure is a harness failure, and the count of cases that DID run is printed
+    // so a reader can see the run was incomplete rather than inferring it from a total.
+    console.error(
+      `\n${this.name} DID NOT COMPLETE. ${this.passes.length} assertion(s) passed and ` +
+        `${this.failures.length} failed before it died; every case after the failure above was ` +
+        `NEVER RUN, and the totals below do not include them.`,
+    );
+    console.error(
+      `\n${this.passes.length}/${this.passes.length + this.failures.length} cases reached before the failure`,
+    );
+    process.exit(2);
   }
 }
 

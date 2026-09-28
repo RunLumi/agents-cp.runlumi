@@ -309,7 +309,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     );
   const attemptRows = (id) =>
     d1Rows(
-      `SELECT attempt_id, lease_id, attempt, outcome, reason_code FROM automation_attempts WHERE occurrence_id = '${id}'`,
+      `SELECT attempt_id, lease_id, attempt, outcome, reason_code FROM automation_occurrence_attempts WHERE occurrence_id = '${id}'`,
       `V01 attempts for ${id}`,
     );
 

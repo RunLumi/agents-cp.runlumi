@@ -98,6 +98,35 @@ Two independent mechanisms hold this up and both were verified rather than assum
 `state_version` compare-and-set in the transition's `WHERE`, and the partial unique index
 `ux_automation_leases_active ON automation_leases(occurrence_id) WHERE state = 'active'`.
 
+## What the sensitivity proof established about WHICH mechanism carries the claim
+
+The exclusivity claim was defended by two things that looked equally load-bearing: the
+`state_version` compare-and-set in `TRANSITION_OCCURRENCE_SQL`, and the partial unique index
+`ux_automation_leases_active`. Mutating each in turn showed they are **not** equal, and the
+difference is the useful part of the result.
+
+**Breaking the compare-and-set fails CLOSED.** With `state_version = state_version + 1` replaced
+by `state_version = state_version`, every racer's `UPDATE` matches, so all eight batches run and
+all eight **fail**: zero active leases, every status a `503`, the occurrence still `pending`. The
+system denies all the work rather than admitting two leases, which is the right way round to
+break. A lease *count* alone would not have noticed — the index would still have admitted one —
+so it is the `state_version` counter assertion that sees this case.
+
+**Breaking the unique index changes nothing observable.** With `WHERE state = 'active'` replaced
+by `WHERE state = 'never'` on the index, the claim held **perfectly**: one winner, one active
+lease, one state transition, no loser carrying the winner's material. The only failures were the
+two known-open V01-013 ones.
+
+So the compare-and-set is the load-bearing mechanism, and the index is a **redundant second line
+for this claim**. That is worth recording rather than smoothing over, for two reasons. A reviewer
+who assumed the index was the guarantee would be wrong about which statement to protect, and a
+future code path that inserts a lease without going through the CAS would have **no protection
+from this proof at all** — the mutation that exposed the dependence would not touch that path.
+
+The two mutations are mirror images, and that is why both were worth running: one shows what
+happens when the real mechanism breaks, and the other shows that the belt is not what is holding
+the braces up.
+
 ## Why nothing caught it
 
 The same reason as V01-011, one level down: **no probe in the repository had ever created an

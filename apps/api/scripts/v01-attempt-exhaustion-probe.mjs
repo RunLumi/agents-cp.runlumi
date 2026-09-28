@@ -371,18 +371,34 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     `\n  waiting out the ${stored.lease_ttl_seconds}s lease TTL and the sweep that expires it ` +
       `(the schema's floor for lease_ttl_seconds)...`,
   );
+  //
+  // Deliberately NOT `waitForD1`. That helper fires the sweep ONCE, about 1.5s in, and the
+  // lease cannot be expired that early -- `lease_ttl_seconds` is 30 -- so it would poll for two
+  // minutes against a clock that has not been turned and then report "the lease never expired".
+  // That would be a false negative for the *attack*: the case would come back UNPROVEN for a
+  // reason that is entirely the harness's, which is the same failure shape as
+  // `verify:adoption-privacy` reporting "0 hits" over a table full of payloads.
+  //
+  // So the sweep is driven REPEATEDLY, and the positive transition is what ends the wait.
+  const activeLeaseSql = `SELECT lease_id, attempt, state FROM automation_leases
+      WHERE occurrence_id = '${occurrenceId}' AND state = 'active'`;
+  const EXPIRY_DEADLINE_MS = 120_000;
+  const expiryDeadline = Date.now() + EXPIRY_DEADLINE_MS;
   let leaseExpired = false;
-  try {
-    await probe.waitForD1(
-      `V01 the first lease is expired by the sweep`,
-      `SELECT lease_id, attempt, state FROM automation_leases
-         WHERE occurrence_id = '${occurrenceId}' AND state = 'active'`,
-      (rows) => rows.length === 0,
-      120_000,
+  while (Date.now() < expiryDeadline) {
+    if ((await d1Rows(activeLeaseSql, `V01 active leases for ${occurrenceId}`)).length === 0) {
+      leaseExpired = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await probe.triggerSweep();
+  }
+  if (!leaseExpired) {
+    console.log(
+      `  the lease was still active ${EXPIRY_DEADLINE_MS / 1000}s after the ${stored.lease_ttl_seconds}s TTL, ` +
+        `with the sweep driven every 3s; a final claim here would be refused by a LIVE lease, ` +
+        `which is indistinguishable from a correct attempt bound, so this case refuses to grade`,
     );
-    leaseExpired = true;
-  } catch (error) {
-    console.log(`  ${error.message}`);
   }
   const allLeases = await leases();
   console.log(
@@ -395,7 +411,22 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     `leases: ${JSON.stringify(allLeases)}`,
   );
 
+  // THE CAUSE CONTROL. A refused third claim is only evidence about the ATTEMPT BOUND if the
+  // occurrence is still claimable when it is made. If the sweep responded to the expiry by
+  // moving the occurrence to a terminal state, the claim would be refused for that reason and
+  // the case would report a PASS about a bound it never tested -- the same false negative as
+  // the one-shot sweep above, one level up. So the state is asserted to be claimable first,
+  // and a terminal state is reported as UNPROVEN rather than as a pass.
   const beforeThird = (await occurrenceRow())[0];
+  const claimable = beforeThird?.state === "pending" || beforeThird?.state === "dispatching";
+  expect(
+    "the occurrence is still CLAIMABLE after the sweep expired its lease, so a refusal below is attributable to the attempt bound and not to a terminal state",
+    claimable,
+    `state=${beforeThird?.state} attempt=${beforeThird?.attempt} -- if the sweep moved it to a ` +
+      `terminal state, the final claim would be refused for that reason and this case would be ` +
+      `UNPROVEN rather than passing`,
+  );
+
   const third = await claim("third");
   const afterThird = (await occurrenceRow())[0];
   const activeAfterThird = await activeLeases();

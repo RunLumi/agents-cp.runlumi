@@ -79,6 +79,36 @@ deliberately.
    lease, the occurrence is wedged rather than merely mis-counted, which is a different defect
    with a different repair.
 
+## Two ways this case would have reported a false result, and both were closed first
+
+Both were found **by reading the probe against the harness it calls**, before it ran — the same
+discipline that found the two harness defects, applied to the probe rather than to the harness.
+
+### 1. A one-shot sweep against a 30-second clock
+
+The obvious way to wait for the lease to expire is `probe.waitForD1`, and it is wrong here. It
+fires the sweep **once**, about 1.5 seconds in, and then polls. `lease_ttl_seconds` is 30, so
+that sweep runs long before the lease can be expired, the helper then polls against a clock
+nobody is turning, and after two minutes it reports that the lease never expired. The case would
+come back UNPROVEN for a reason that is entirely the harness's own.
+
+That is the same failure shape as `verify:adoption-privacy` reporting **"0 hits" with a private
+key in the table**, and the correction is the same: never let a negative assertion pass because
+the thing it needed never got a chance to happen. The probe now drives the sweep **repeatedly**,
+every three seconds, and ends on the positive transition — the lease leaving `active` in D1.
+
+### 2. A refusal from the wrong cause
+
+A refused third claim is only evidence about the **attempt bound** if the occurrence is still
+claimable when the claim is made. If the sweep responds to an expiry by moving the occurrence to
+a terminal state, the claim is refused for *that* reason, and a probe asserting "the third claim
+must be refused" reports a confident PASS about a bound it never tested.
+
+So the occurrence's state is asserted claimable — `pending` or `dispatching` — **before** the
+final claim, and a terminal state is recorded as UNPROVEN rather than as a pass. This is the
+same rule as the first one, applied one level up: a negative assertion must be attributed to the
+cause it names, not merely to be true.
+
 ## What a PASS would require of the product
 
 Not merely that the third claim is refused. All of:
