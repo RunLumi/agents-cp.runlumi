@@ -51,6 +51,12 @@ mkdir -p "$SNAPSHOT" "$LOGDIR"
 say() { printf '\n=== %s\n' "$*"; }
 sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
+# A stable fingerprint of the whole migration directory: path-relative, sorted, hashed.
+migration_fingerprint() {
+  find "$MIGRATIONS" -type f -name "*.sql" -exec shasum -a 256 {} \; \
+    | sed "s|$MIGRATIONS/||" | sort >"$1"
+}
+
 # M2 edits a migration, so the whole migration directory is snapshotted: editing one file and
 # restoring another is how a deliberate fault stays applied to the next case.
 TRACKED=("$AUTOS" "$ROUTE")
@@ -84,7 +90,7 @@ restore_all() {
   # Restore the migrations, and prove the whole directory is back to its snapshot.
   rm -f "${MIG_FILES[@]}"
   cp "$SNAPSHOT"/migrations/*.sql "$MIGRATIONS"/
-  find "$MIGRATIONS" -type f -name "*.sql" -exec shasum -a 256 {} \; | sed "s|$MIGRATIONS/||" | sort >"$SNAPSHOT/migrations.now"
+  migration_fingerprint "$SNAPSHOT/migrations.now"
   if ! diff -q "$SNAPSHOT/migrations.sha" "$SNAPSHOT/migrations.now" >/dev/null; then
     echo "RESTORE FAILED for the migration directory — the next case would run on a" >&2
     echo "different schema than the baseline." >&2
@@ -102,6 +108,10 @@ assert_changed() {
       return 0
     fi
   done
+  # Recompute the CURRENT fingerprint before comparing. Comparing against the one `restore_all`
+  # wrote on the previous case is how a real migration edit reports as "nothing changed" --
+  # which is the false MISSED this harness exists to prevent, committed by the harness itself.
+  migration_fingerprint "$MIGRATIONS/migrations.now"
   if ! diff -q "$SNAPSHOT/migrations.sha" "$SNAPSHOT/migrations.now" >/dev/null 2>&1; then
     echo "mutation applied to the migration directory"
     return 0
