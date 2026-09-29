@@ -483,12 +483,20 @@ impl<'a> DeviceRepository<'a> {
 
     /// Revoke a device and invalidate every outstanding token atomically.
     /// Returns `false` when the device was already revoked or is missing.
-    pub async fn revoke_device(
+    /// The two statements a revocation is, as PREPARED statements.
+    ///
+    /// Split out from `revoke_device` so the route can compose them into a larger transaction
+    /// instead of running its own. `revoke_device` below is now a thin wrapper over these, so
+    /// there is exactly one place that decides what a revocation writes and in which order —
+    /// which matters because the second statement is what makes revocation *effective*: the
+    /// device-token lookup does not join `devices`, so deleting the rows is the only thing that
+    /// stops a revoked device authenticating (V01-016, V01-019).
+    pub fn revoke_device_statements(
         &self,
         device_id: &str,
         revoked_by_user_id: &str,
         now: &Timestamp,
-    ) -> worker::Result<bool> {
+    ) -> worker::Result<Vec<D1PreparedStatement>> {
         let revoke = self.database.prepare(
             REVOKE_DEVICE_SQL,
             &[
@@ -500,7 +508,19 @@ impl<'a> DeviceRepository<'a> {
         let drop_tokens = self
             .database
             .prepare(DELETE_DEVICE_TOKENS_SQL, &[BindValue::Text(device_id)])?;
-        let results = self.database.batch(vec![revoke, drop_tokens]).await?;
+        Ok(vec![revoke, drop_tokens])
+    }
+
+    pub async fn revoke_device(
+        &self,
+        device_id: &str,
+        revoked_by_user_id: &str,
+        now: &Timestamp,
+    ) -> worker::Result<bool> {
+        // `results[0]` is the revoke itself and `results[1]` the token deletion, in that order,
+        // so `changes(&results[0])` answers "did this revoke a device that was still active".
+        let statements = self.revoke_device_statements(device_id, revoked_by_user_id, now)?;
+        let results = self.database.batch(statements).await?;
         if !results.iter().all(|result| result.success()) {
             return Ok(false);
         }

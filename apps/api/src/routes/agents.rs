@@ -678,8 +678,28 @@ pub(crate) async fn commit_mutation(
     map_idempotency_lookup(context, lookup, outcome)
 }
 
+/// Replay a stored success verbatim.
+///
+/// A status that **must not carry a body** gets an empty one. This is not a refinement: routing
+/// `revoke_device` through the scoped-mutation helper (V01-015) produced a `500` on every replay,
+/// because `(204, Json(body))` is not a legal HTTP response and the server refuses to serialise it.
+/// No wired call site had ever stored a bodyless status — all 27 of them store `200` or `201` — so
+/// the case had never been reachable, across 182 call sites of this function.
+///
+/// A helper that silently cannot replay one of the statuses the product actually returns is a
+/// helper that will be discovered broken by whoever uses it next, and the symptom is a `500` on a
+/// retried request, which is the least diagnosable place for it to appear.
 pub(crate) fn replay_response(success: StoredSuccess) -> Response<Body> {
     let status = StatusCode::from_u16(success.status).unwrap_or(StatusCode::OK);
+    // 204 No Content, 304 Not Modified and every 1xx are defined to have no body. 205 Reset Content
+    // is defined to have no body either, and is included for the same reason.
+    if status == StatusCode::NO_CONTENT
+        || status == StatusCode::NOT_MODIFIED
+        || status == StatusCode::RESET_CONTENT
+        || status.is_informational()
+    {
+        return (status, Body::empty()).into_response();
+    }
     (status, Json(success.body)).into_response()
 }
 
@@ -1882,6 +1902,97 @@ mod commit_outcome_tests {
                     "{label} answered {status}"
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod v01_015_replay_bodyless_statuses {
+    //! A stored success with a bodyless status must replay as a bodyless response.
+    //!
+    //! `replay_response` was `(status, Json(body))` for every status, which is not a legal HTTP
+    //! response for `204`, `304`, `205` or any `1xx`. Routing `revoke_device` through the
+    //! scoped-mutation helper made every replay of its `204` answer **`500`**, and the only reason
+    //! it had never been seen is that **all 27 wired call sites store `200` or `201`** — across 182
+    //! call sites of this function, not one of which needed a bodyless status.
+    //!
+    //! The body is checked with `size_hint` rather than by reading it, because this crate has no
+    //! async runtime by design: a test that needed one to prove a body is empty would be arguing
+    //! for a dependency the product deliberately does not have.
+    //!
+    //! And the tests cover BOTH directions, because a fix that emptied every replay would be a
+    //! worse bug than the one it replaced — a retried `201` must stay distinguishable from a `204`.
+
+    use super::*;
+    use axum::body::{Body, HttpBody};
+
+    fn replayed(status: u16) -> (StatusCode, Body) {
+        let response = replay_response(
+            StoredSuccess::new(status, serde_json::json!({ "x": 1 })).expect("2xx is storable"),
+        );
+        (response.status(), response.into_body())
+    }
+
+    fn exact_len(body: Body) -> Option<u64> {
+        body.size_hint().exact()
+    }
+
+    #[test]
+    fn a_204_replays_with_no_body() {
+        let (status, body) = replayed(204);
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            exact_len(body),
+            Some(0),
+            "a 204 must carry no body, or a retry cannot be told apart from a fresh response by its \
+             content"
+        );
+    }
+
+    #[test]
+    fn every_storable_status_that_forbids_a_body_replays_empty() {
+        // `StoredSuccess::new` accepts 2xx only, so the bodyless statuses that can actually be
+        // STORED are 204 and 205. 304 and the 1xx class are unreachable here by construction --
+        // which is worth stating, because "the helper handles 304" would otherwise read as a claim
+        // about a case that cannot occur.
+        for status in [204u16, 205] {
+            let (replayed, body) = replayed(status);
+            assert_eq!(
+                replayed.as_u16(),
+                status,
+                "the replayed status must be the stored one"
+            );
+            assert_eq!(
+                exact_len(body),
+                Some(0),
+                "{status} is defined to have no body, so its replay must not carry one"
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_2xx_status_cannot_be_stored_at_all() {
+        // The reason the previous test's set is only {204, 205}. Pinned so that widening
+        // `StoredSuccess::new` -- say to accept 304 -- cannot silently introduce a bodyless replay
+        // path that nothing covers.
+        for status in [100u16, 304, 400] {
+            assert!(
+                StoredSuccess::new(status, serde_json::json!({})).is_err(),
+                "{status} is not a 2xx and must not be storable as a success"
+            );
+        }
+    }
+
+    #[test]
+    fn a_status_that_allows_a_body_still_replays_it() {
+        for status in [200u16, 201] {
+            let (replayed, body) = replayed(status);
+            assert_eq!(replayed.as_u16(), status);
+            assert_eq!(
+                exact_len(body),
+                Some(serde_json::json!({ "x": 1 }).to_string().len() as u64),
+                "{status} carries a body and the replay must preserve it verbatim"
+            );
         }
     }
 }

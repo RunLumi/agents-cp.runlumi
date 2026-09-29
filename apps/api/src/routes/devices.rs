@@ -23,7 +23,7 @@ use crate::{
         add_seconds, d1::BindValue, new_resource_id, new_secret, sha256_hex, verify_device_proof,
     },
     app::AppState,
-    core::{ApiError, ApiErrorCode, RequestContext},
+    core::{ApiError, ApiErrorCode, RequestContext, StoredSuccess},
     http::auth::require_csrf,
     modules::{
         authorization::Permission,
@@ -38,14 +38,24 @@ use crate::{
         ProjectRepository, ToolRepository,
     },
     routes::{
+        agents::replay_response,
         authorization::authorize_org,
         errors,
         support::{
             SecurityEventId, database, database_error, domain_error, idempotency_key,
             outbox_statement, security_event_statement,
         },
+        usage::{
+            PreparedScopedMutation, ScopedMutationCommit, commit_scoped_mutation,
+            prepare_scoped_mutation,
+        },
     },
 };
+
+/// A TEMPLATE, not the concrete path: the claim's scope must be identical for every device in an
+/// organization, so a client retrying the same logical request gets the same answer whichever
+/// device id it addressed.
+const REVOKE_DEVICE_PATH: &str = "/api/v1/orgs/{org_id}/devices/{device_id}";
 
 const PAGE_LIMIT_DEFAULT: i32 = 50;
 const PAGE_LIMIT_MAX: i32 = 100;
@@ -1474,7 +1484,7 @@ pub async fn revoke_device(
     )
     .await?;
     require_csrf(&headers, &access.session, &context).await?;
-    idempotency_key(&headers, &context)?;
+    let key = idempotency_key(&headers, &context)?;
     let is_manager = authorize_org(
         &state,
         &headers,
@@ -1509,15 +1519,36 @@ pub async fn revoke_device(
             "Only org device managers or the enrolling member can revoke a device.",
         ));
     }
-    let revoked = DeviceRepository::new(database)
-        .revoke_device(
-            &device_id,
-            access.principal.user_id.as_str(),
-            &context.received_at,
-        )
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    if !revoked {
+    // The claim is taken AFTER authorization -- an unauthorized caller must not be able to learn
+    // whether a key is live -- and BEFORE the state decision, because that ordering is the repair.
+    //
+    // The stored state on a retry was already correct before this change: `REVOKE_DEVICE_SQL` is
+    // `WHERE device_id = ?1 AND status = 'active'`, so a second revoke matched nothing and left
+    // `revoked_at` alone. What was wrong was the ANSWER. A retry got
+    // `409 "The device was already revoked."` for a request that had already succeeded, which a
+    // client cannot distinguish from "someone else revoked it".
+    //
+    // So the fix adds a *replayed response*, not a new guard -- and the "already revoked" refusal
+    // below is kept exactly as it was, now decided from the record we already read rather than from
+    // how many rows the write happened to touch. That distinction is what makes the regression test
+    // meaningful: a test on the stored state would have passed before the repair and after it.
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "DELETE",
+        REVOKE_DEVICE_PATH,
+        &json!({}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+
+    if DeviceStatus::parse(&device.status) == Some(DeviceStatus::Revoked) {
         return Err(denial(
             &context,
             ApiErrorCode::Conflict,
@@ -1525,6 +1556,13 @@ pub async fn revoke_device(
             "The device was already revoked.",
         ));
     }
+    let statements = DeviceRepository::new(database)
+        .revoke_device_statements(
+            &device_id,
+            access.principal.user_id.as_str(),
+            &context.received_at,
+        )
+        .map_err(|error| database_error(&context, error))?;
     let event_id = generated_id("sec");
     let statement = security_event_statement(
         database,
@@ -1538,9 +1576,13 @@ pub async fn revoke_device(
         "success",
         &json!({}),
     )?;
-    database
-        .batch(vec![statement])
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    // A 204 has no body, so the stored success is constructible from inputs -- which is what every
+    // one of the 27 wired call sites does, and the reason this route can be repaired at all.
+    let success = StoredSuccess::new(204, json!({})).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, statements, statement).await? {
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+        ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+    }
 }
