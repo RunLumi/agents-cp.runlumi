@@ -160,7 +160,10 @@ mod tests {
         ("create_user", "UNTRIAGED"),
         ("decode_json_document", "UNTRIAGED"),
         ("decode_stored_bytes", "UNTRIAGED"),
-        ("deny_enrollment_statement", "UNTRIAGED"),
+        (
+            "deny_enrollment_statement",
+            "V01-041, now called by the `deny_enrollment` handler: POST .../enrollments/{id}/deny. A pending enrollment could be approved and never denied, so a human control had an affirmative branch and no negative one.",
+        ),
         ("find_active_credential", "UNTRIAGED"),
         ("find_active_route_version", "UNTRIAGED"),
         ("find_budget_for_scope_period", "UNTRIAGED"),
@@ -175,14 +178,20 @@ mod tests {
         ("insert_notification_statement", "UNTRIAGED"),
         ("insert_plan_entitlement_statement", "UNTRIAGED"),
         ("insert_plan_statement", "UNTRIAGED"),
-        ("insert_quarantine_statement", "UNTRIAGED"),
+        (
+            "insert_quarantine_statement",
+            "V01-043, now called by POST /api/v1/internal/plugin-quarantines. The write half of a quarantine that was enforced on four paths and operable on none.",
+        ),
         ("insert_remediation_statement", "UNTRIAGED"),
         ("insert_run_usage_statement", "UNTRIAGED"),
         ("list_active_plans", "UNTRIAGED"),
         ("list_cost_records", "UNTRIAGED"),
         ("list_deletions_for_user", "UNTRIAGED"),
         ("list_entitlement_definitions", "UNTRIAGED"),
-        ("list_quarantines", "UNTRIAGED"),
+        (
+            "list_quarantines",
+            "V01-043, now called by GET /api/v1/internal/plugin-quarantines. Without it the other two are unauditable: an operator who cannot see the set cannot judge a lift.",
+        ),
         ("list_reservations_page", "UNTRIAGED"),
         ("list_signing_keys", "UNTRIAGED"),
         ("mark_artifact_deleted_statement", "UNTRIAGED"),
@@ -213,7 +222,10 @@ mod tests {
         ("fan_out_count", "UNTRIAGED"),
         ("fan_out_event_statement", "UNTRIAGED"),
         ("policy_conflict_ids", "UNTRIAGED"),
-        ("lift_quarantine_statement", "UNTRIAGED"),
+        (
+            "lift_quarantine_statement",
+            "V01-043, now called by .../plugin-quarantines/{id}/lift. Kept as a pair with its sibling: a lever that can be pulled but not released is its own outage.",
+        ),
     ];
 
     fn source_files(root: &Path) -> Vec<PathBuf> {
@@ -460,6 +472,41 @@ mod tests {
         //
         // Two entries name functions that do not exist at all, and they are here deliberately: they
         // are what proves this assertion has teeth rather than being vacuously satisfied.
+
+        let called = called_names(&root);
+
+        // The OTHER direction, which this check did not enforce and which is the more dangerous of
+        // the two: an entry whose function is CALLED and whose reason still reads as a justification
+        // rather than a record of a fix.
+        //
+        // The subtlety, and the reason the first attempt at this rule was wrong: a RESOLVED entry is
+        // not a stale entry. `deny_enrollment` carries "V01-041, now called: POST .../deny", and that
+        // is a *record* -- the finding, the fix, and the route that closed it. Deleting it would erase
+        // why the class found anything at all, since this list is how a name becomes a decision. So
+        // the rule is not "is it called" but "does its reason still read as a live justification".
+        //
+        // A reason that still justifies a function nobody examined is the dangerous case: it records
+        // "examined and accepted" for nothing, and it hides the next genuine finding, because a
+        // reader has already seen the name and will not re-derive that it is unreviewed. `UNTRIAGED`
+        // is the honest label for exactly those, so they are what this asserts on -- and it is what
+        // would have caught the four quarantine and enrollment entries the hour they were wired up
+        // while still labelled UNTRIAGED.
+        let mut unjustified: Vec<&str> = REVIEWED_UNCALLED
+            .iter()
+            .filter(|(name, reason)| called.contains(*name) && reason.trim() == "UNTRIAGED")
+            .map(|(name, _)| *name)
+            .collect();
+        unjustified.sort();
+        assert!(
+            unjustified.is_empty(),
+            "REVIEWED_UNCALLED marks {} function(s) UNTRIAGED although they ARE called from \
+             production code: {}. An `UNTRIAGED` entry asserts a function is unreviewed; if it is in \
+             fact wired up, nobody examined it and nothing said so. Replace the label with the \
+             decision and the route that resolved it, in the same commit that wires the caller.",
+            unjustified.len(),
+            unjustified.join(", ")
+        );
+
         let reviewed: BTreeSet<&str> = REVIEWED_UNCALLED.iter().map(|(name, _)| *name).collect();
         let mut stale: Vec<&str> = REVIEWED_UNCALLED
             .iter()
@@ -478,7 +525,6 @@ mod tests {
             stale.join(", ")
         );
 
-        let called = called_names(&root);
         let mut dead: Vec<(String, String)> = Vec::new();
         for (name, where_) in &declared {
             if !called.contains(name.as_str()) && !reviewed.contains(name.as_str()) {
