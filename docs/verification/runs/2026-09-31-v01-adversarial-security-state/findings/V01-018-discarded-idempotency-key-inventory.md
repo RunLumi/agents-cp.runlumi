@@ -2,8 +2,8 @@
 
 ## Status
 
-**scope established by measurement; 3 of 3 sites unattacked or in flight.** Two are being attacked
-by V01-015; the third is named here and not yet attacked.
+**scope established by measurement; 2 of the 3 sites CLOSED, 1 blocked on V01-020.** Site 3 had no gate
+at all until now and is repaired and proven.
 
 ## The count, and the correction that produced it
 
@@ -41,9 +41,9 @@ plausible 76 into the real 3.
 
 | # | route | **measured** outcome of a retry on the same key | attacked by |
 |---|---|---|---|
-| 1 | `devices.rs:1267` `approve_enrollment` | **`409 conflict` "The enrollment is no longer pending."** — not the `503` reading predicted, and not a duplicate. One device, one audit row, unchanged. | **V01-015, confirmed** |
-| 2 | `devices.rs:1468` `revoke_device` | **`409 conflict` "The device was already revoked."** `revoked_at` unchanged, tokens not re-dropped, no extra audit event. | **V01-015, confirmed** |
-| 3 | `projects.rs:876` `delete_project_binding` | **`404`** — the binding is gone, so the pre-read 404s before the audit write. No duplicated state, but a retried request that already succeeded reports *"not found"*. **read from code, not measured** | **not attacked** |
+| 1 | `devices.rs:1267` `approve_enrollment` | **`409 conflict` "The enrollment is no longer pending."** — not the `503` reading predicted, and not a duplicate. One device, one audit row, unchanged. **OPEN: blocked on V01-020**, its body is a read-back projection the helper cannot express |
+| 2 | `devices.rs:1468` `revoke_device` | **`409 conflict` "The device was already revoked."** — and now **`204` on a replay**, with the different-key call still `409`, so a retry and a new request are finally distinguishable | **closed** |
+| 3 | `projects.rs:876` `delete_project_binding` | **`404`** on a replay — measured, not read: `first=204 replay=404 different-key=404`, so a retry and a new request were **indistinguishable**. Now **`204`**, and the different-key call still `404` | **closed** |
 
 Sites 1 and 2 are the *only* ones with runtime evidence, and note what the measurement changed: the
 `503` I predicted from the schema did not happen, because both routes have clean state guards. The
