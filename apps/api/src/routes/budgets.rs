@@ -1174,6 +1174,12 @@ pub async fn create_reservation(
         &context,
         claim,
         success.clone(),
+        // NOT a V01-033 case, and the reason belongs here because the other site in this file is one.
+        // `guard` is `assert_reservation_created_statement`: it asserts the POSTCONDITION -- that the
+        // reservation this `insert` just created exists. A postcondition is evaluated AFTER the write
+        // that establishes it, so guard-second is required here and guard-first would abort every
+        // reservation. The discriminator between the two orders is what the guard's SQL selects, not
+        // where the guard sits in the vector.
         vec![insert, guard, audit],
         outbox,
     )
@@ -1400,6 +1406,9 @@ pub async fn reconcile_reservation(
         &context,
         claim,
         success.clone(),
+        // V01-033. Same ordering defect: `update` bumps the budget's version and `guard`
+        // (`assert_budget_version_statement`) asserted the pre-write version afterwards. A
+        // precondition is evaluated before the write it guards.
         vec![update, guard, audit],
         outbox,
     )

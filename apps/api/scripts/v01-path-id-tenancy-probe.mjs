@@ -395,8 +395,16 @@ await runProbe("V01 path-id tenancy", async (probe) => {
   // after nine optional ones, and a truncated listing of the struct is how it was first read as
   // versionless.
   //
-  // `controlWeakened` marks the three entries whose OWN control cannot be established, with the
-  // question recorded. Those three keep every other assertion at full strength; see the control below.
+  // `controlWeakened` marks an entry whose OWN control cannot be established, with the question
+  // recorded beside it. ONE remains: `credentials/{id}/rotate`, which answers 404 for a credential D1
+  // shows as user-owned in the same organization.
+  //
+  // The two service-account entries were degraded for V01-033 and are no longer: their controls were a
+  // `409 version_conflict` on the organization's OWN record because the batch evaluated a
+  // compare-and-set guard AFTER the statement that bumped the version, so the route could never succeed.
+  // They are asserted at full `2xx` strength again, and the marker is removed rather than left behind --
+  // a degraded check that no longer needs degrading is a check quietly under-claiming, which is the same
+  // failure in the opposite direction.
   const ROUTES = [
     {
       family: "members",
@@ -426,11 +434,6 @@ await runProbe("V01 path-id tenancy", async (probe) => {
           method: "PATCH",
           body: { name: "Renamed" },
           versioned: true,
-          // UNRESOLVED: the owner's own PATCH answers 409 version_conflict at the version D1 reports
-          // for a version-1 row. The guard's abort-by-constraint is confirmed to be the INTENDED
-          // design -- a green route's guard is byte-identical -- so the cause is not established.
-          // UNPROVEN, not a defect claim.
-          controlWeakened: true,
         },
       ],
     },
@@ -442,8 +445,6 @@ await runProbe("V01 path-id tenancy", async (probe) => {
           method: "POST",
           body: { reason: "V01 path-id probe" },
           versioned: true,
-          // UNRESOLVED: as the PATCH above.
-          controlWeakened: true,
         },
       ],
     },

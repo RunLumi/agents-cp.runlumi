@@ -516,7 +516,12 @@ pub async fn patch_service_account(
         &context,
         claim,
         success,
-        vec![update, guard],
+        // V01-033. `vec![update, guard]` ran the guard SECOND, so the batch bumped the row from
+        // `version = 1` to `2` and *then* asserted the row was still at `1`. It never was, so the
+        // guard always aborted and the caller reported `version_conflict` -- a permanently dead
+        // route that reads as a concurrency problem. The guard is a PRECONDITION; 26 of the 33
+        // version-guard batches in this module tree already place it first.
+        vec![guard, update],
         audit,
     )
     .await?
@@ -666,7 +671,9 @@ async fn transition_service_account(
         context,
         claim,
         success,
-        vec![statement, guard],
+        // V01-033, the same ordering defect as the PATCH above: the suspend/resume statement bumps
+        // `version`, and the guard was asserting the pre-write version after it.
+        vec![guard, statement],
         audit,
     )
     .await?
