@@ -209,3 +209,47 @@ answer is not yet known and a plausible story is not evidence.
 - **A restored file must be put back with `cp`, never `mv`** — `mv` preserves the pre-fault
   mtime, the build is skipped, and the next run measures the faulted binary. `buildFreshness()`
   now reports a served Worker that predates its source.
+
+## V01-044 — a sensitivity harness that can ship the fault and report green
+
+**Status:** closed. Recorded here because the class generalises to every sensitivity script in this
+repository, and the existing scripts share the defect.
+
+`evidence/v01-plugin-leak-sensitivity.sh` restored its mutated source with `cp -p`. `cp -p`
+preserves the pre-fault mtime, cargo's freshness check is mtime-based, and the "restored" build
+therefore **reused the faulted object** — producing a binary whose `find_install` did not filter on
+`org_id` while the source tree read clean. The run reported **211/211**.
+
+Measured:
+
+```
+clean source                     -> e6ae538ea1b18017
+fault injected, build            -> 918939ebc7aaec13
+source restored with `cp -p`     -> 918939ebc7aaec13   <-- still faulted
+source restored, then `touch`ed  -> e6ae538ea1b18017
+```
+
+The result was a six-run "cross-tenant leak" that was entirely a harness artefact, and three
+consecutive wrong diagnoses committed on the way to it — including a build-script change that has
+since been reverted.
+
+**The asymmetry, and it is the whole fix:** snapshot with `cp -p` (a fault must be *newer* than what
+it replaced) and restore with `cp` + `touch` (a restore must *look newer* than the fault). A script
+that uses `-p` on both sides will eventually ship its mutation.
+
+**What every snapshotting sensitivity harness in this repository should carry**, because the rules
+were already written down and implemented backwards in the one that failed:
+
+1. restore with `cp` + `touch`, never `cp -p` / `mv`;
+2. a Rust mutation must produce a byte-different artifact, or report `INVALID` instead of a verdict;
+   a probe-only (JS) mutation is exempt, since cargo correctly does not rebuild;
+3. the restored tree must rebuild to the *baseline* artifact — equality is the success case;
+4. locate the repository with `git rev-parse --show-toplevel`, never `dirname/..`; outside a
+   repository `git ls-files` lists nothing, so a tracked-file check reports a tracked file as
+   untracked and blames the file;
+5. no backticks inside a double-quoted `echo` — they are command substitution, and a `FATAL`
+   message that cannot print cannot be read when it matters.
+
+**The generalisable form:** a check that describes a rule it does not follow is worse than one that
+omits it, because a reader trusts the prose. This script's header *named* the mtime trap in its
+first ten lines and then walked into it on line 200.
