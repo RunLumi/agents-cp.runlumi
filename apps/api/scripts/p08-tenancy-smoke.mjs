@@ -94,6 +94,52 @@ const TESTED_HERE = [
  */
 const ALSO_PROVEN = [
   { path: "/api/v1/orgs/{org_id}/runs/{run_id}", by: "p05-smoke.mjs (2 cross-tenant negatives)" },
+  //
+  // V01-027. `verify:collection-tenancy` measures 25 org-scoped COLLECTION routes for leakage: as
+  // Org A, fetch each one and search the whole serialised body for every identifier belonging to
+  // Org B. That is a different proof from this probe's -- a collection route has no request that
+  // should be refused, so a substitution cannot reach it -- and it is the proof that catches a
+  // `WHERE` clause which forgot `org_id` and answered a perfectly authorised 200 with another
+  // tenant's rows.
+  //
+  // Crediting them here is what keeps this probe's headline honest. Without it the number below
+  // would stay at 80 while 25 of those routes are measured elsewhere, and a coverage figure that
+  // overstates the gap is as misleading as one that understates it.
+  //
+  // The credit is for the routes that gate MEASURED. Nine of the ones it lists are deliberately
+  // NOT credited, because it named them NOT_APPLICABLE -- seven answer 405 and two have no fixture
+  // -- and "the other probe tried and could not" is not evidence.
+  ...[
+    "/api/v1/orgs/{org_id}",
+    "/api/v1/orgs/{org_id}/agents",
+    "/api/v1/orgs/{org_id}/api-keys",
+    "/api/v1/orgs/{org_id}/approvals",
+    "/api/v1/orgs/{org_id}/automations",
+    "/api/v1/orgs/{org_id}/catalog",
+    "/api/v1/orgs/{org_id}/catalog/models",
+    "/api/v1/orgs/{org_id}/credentials",
+    "/api/v1/orgs/{org_id}/data-policy",
+    "/api/v1/orgs/{org_id}/deletions",
+    "/api/v1/orgs/{org_id}/devices",
+    "/api/v1/orgs/{org_id}/exports",
+    "/api/v1/orgs/{org_id}/invitations",
+    "/api/v1/orgs/{org_id}/mcp",
+    "/api/v1/orgs/{org_id}/plugin-reports",
+    "/api/v1/orgs/{org_id}/policy/tools",
+    "/api/v1/orgs/{org_id}/rate-limits",
+    "/api/v1/orgs/{org_id}/routes",
+    "/api/v1/orgs/{org_id}/runs",
+    "/api/v1/orgs/{org_id}/service-accounts",
+    "/api/v1/orgs/{org_id}/sessions",
+    "/api/v1/orgs/{org_id}/teams",
+    "/api/v1/orgs/{org_id}/tools",
+    "/api/v1/orgs/{org_id}/usage/denials",
+    "/api/v1/orgs/{org_id}/usage/rollups",
+    "/api/v1/orgs/{org_id}/webhooks",
+  ].map((route) => ({
+    path: route,
+    by: "v01-collection-tenancy-probe.mjs (body searched for Org B ids)",
+  })),
 ];
 
 /** Every org-scoped path the router registers, read from `app.rs`. */
