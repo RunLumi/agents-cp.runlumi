@@ -473,6 +473,32 @@ because two earlier attempts at the latter **broke the build** — in a statical
 removing the only call to a function almost always fails to compile, so such a mutation measures the
 compiler rather than the check, and adding one is also the historical shape of all four findings.
 
+**The check then enforced one direction of staleness and it was the wrong one** (V01-045). It refused
+an entry naming a function that no longer **exists** — loudly, in a comment explaining why the first
+version had to assert rather than merely document — and it enforced nothing for the other direction:
+an entry whose function has since been **called**. Four entries hid there, and all four were closed
+findings from this same campaign: `deny_enrollment_statement` (V01-041) and the three quarantine
+statements (V01-043), each labelled `UNTRIAGED` — which asserts *"unreviewed"* — while routed. They
+became wired in the very commits that recorded the findings.
+
+**An exclusion for a function that is now called is worse than no exclusion**: it records "examined
+and accepted" for something nobody examined, and it hides the next genuine finding, because a reader
+has already seen the name and will not re-derive that it is unreviewed. The rule is **not** "is it
+called" — a resolved entry like `deny_enrollment` ("V01-041, now called: POST .../deny") is a
+*record*, and deleting it would erase why the class found anything at all. The distinction is **what
+the reason says**: a record states a fix, a justification states an absence. So the assertion is on
+`UNTRIAGED`-and-called, and it found exactly the four.
+
+Sensitivity: **M4 detected, M5 a declared KNOWN MISSED** (no self-contained assertion can detect its
+own removal). Two harness faults surfaced first, both worth the naming. M4's *mutation* matched a
+prefix of a single-line tuple, so the file still compiled, the test still passed, and the case
+reported MISSED for a run that never happened — fixed by anchoring the whole tuple and **re-checking
+the effect from outside the mutation**, because `cmp` only proves bytes changed. M4's *verifier* was a
+`python3 -c` whose regex contained `\n`; the shell expands backslash escapes inside a double-quoted
+`-c` argument, so it became a real newline inside a Python string literal and died with a
+`SyntaxError` — **a verifier that cannot run cannot report**, and it must be distinguished from one
+that ran and said MISSED.
+
 **A documented, tested helper with no caller is a durable false signal.** ADR 0007 requires a staff
 audit event on grant creation **and on every use**. The *use* half does not exist: no route consumes a
 grant, and `PlatformOperationsRepository::find_grants_for_staff_and_org` — whose doc comment reads *"the
