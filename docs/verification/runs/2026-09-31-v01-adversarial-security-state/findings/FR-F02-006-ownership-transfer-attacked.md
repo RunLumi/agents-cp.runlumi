@@ -6,8 +6,8 @@
   result, and it is stated as such rather than dressed up.
 - **Verdict:** PASS
 - **Attacked by:** the `ownership-transfer` class in `verify:privilege-escalation`
-- **Sensitivity:** `evidence/f02-006-sensitivity.sh` — M1 detected, M2 detected, M3 a declared
-  KNOWN MISSED
+- **Sensitivity:** `evidence/f02-006-sensitivity.sh` — **4 detected, 1 declared KNOWN MISSED, exit 0**
+  (M1 non-disclosure, M2 re-auth, M4 active-target, M5 grant TTL; M3 a declared KNOWN MISSED)
 
 ## Why this was worth attacking on its own
 
@@ -32,6 +32,8 @@ defect. So the attack is four requests plus a control.
 | T2a | the **owner** of org A targets a membership that exists in **org B** | `404 resource_not_found` | 2 |
 | T2b | the **owner** of org A targets a membership that exists in **neither** org | `404 resource_not_found` | 2 |
 | T3 | the owner makes a valid-shaped transfer with **no re-auth grant** | `403 reauthentication_required` | 3 |
+| T4 | the owner targets a **removed** member of their own org | `409 membership_required` | 2 |
+| T5 | the owner uses a **real but expired** re-auth grant | `403 reauthentication_required` | 3 |
 | **C** | the owner transfers to an **active member of their own org** with a **fresh grant** | **`200`** | all four |
 
 The control is what makes the four refusals mean something: with the roles and the grant correct, the
@@ -43,7 +45,7 @@ the control the assertions are read from **D1**, not from the response —
 - a `security_events` row with `organization.ownership_transferred.v1` exists, which is requirement 4 and
   the one thing no status code can attest to.
 
-`verify:privilege-escalation`: **82/82, exit 0.**
+`verify:privilege-escalation`: **96/96, exit 0.**
 
 ## T2a vs T2b is the case worth having
 
@@ -118,10 +120,31 @@ the shape of the refusal, not merely its presence.
   is acceptable for a sensitivity proof (the run is red) but it means a single red row does not identify
   which requirement broke. Per-attempt re-seeding is the first change to make if this is ever graded
   per-attack.
-- Requirement 2's **"active"** half is only attacked in the positive direction: the control's target *is*
-  active, and T2's targets do not exist at all. A transfer to a **removed** member is not attacked, so the
-  `status != 'active'` branch has no handler-level evidence. It has one in the `change_role` family and
-  needs its own fixture here.
-- Nothing asserts the **ordering** the spec implies — that re-authentication must be recent rather than
-  merely present. `consume_reauth` enforces a TTL, and an expired grant is not attacked; T3 uses a grant
-  that never existed, which is a weaker condition than a stale one.
+- ~~Requirement 2's "active" half is only attacked in the positive direction.~~ **CLOSED as T4**: Carol is
+  invited, accepted, **removed**, and then targeted. The refusal is `409 membership_required`, and — as a
+  separate assertion, because a refusal is a claim about the request and not about the state — the
+  organization is asserted to still have an active owner afterwards. **Attacking T4 found V01-032**, in
+  which the statement demoted the owner even though the transfer was refused.
+- ~~Nothing asserts the recency of the re-authentication.~~ **CLOSED as T5**: a **real** grant is issued by
+  the real endpoint and its expiry moved into the past in D1, then **read back** and asserted unconsumed
+  and expired before the request. The refusal is `403 reauthentication_required`.
+
+## The fixture question T5 raised
+
+T5's staleness is a fixture write, and asserting it is subtler than it looks. The first attempt added a
+`d1Exec` helper to the harness to return the affected row count — and the count came back **0** while the
+row was demonstrably aged, because `wrangler d1 execute --json` does not emit `meta.changes` for an
+UPDATE. The entire payload is:
+
+```json
+{"results": [], "success": true, "meta": {"duration": 0}}
+```
+
+So a helper reporting `changes` would return 0 for a write that succeeded, and the case would have failed
+while the fixture was in exactly the state it claims. The helper was **deleted rather than shipped
+reporting 0**, and the case asserts the **effect** — the row read back — which is the stronger assertion
+anyway, because it is what the product will read.
+
+> A helper whose main output is a field that does not exist is an instrument that reports an absence.
+> That is this campaign's recurring failure in one sentence, and it is cheaper to catch by measuring the
+> field than by trusting the helper.
