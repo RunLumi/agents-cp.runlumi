@@ -81,6 +81,22 @@ mod tests {
             "V01-042, now called from `run_scheduled_sweep`. Was a bounded batched purge with a \
              dedicated index and no caller, in a sweep that runs every minute.",
         ),
+        (
+            "insert_quarantine_statement",
+            "V01-043, now called by POST /api/v1/internal/plugin-quarantines. Was one of three \
+             quarantine methods with no route above them, while `is_quarantined` was enforced on four \
+             paths -- a control with no lever.",
+        ),
+        (
+            "lift_quarantine_statement",
+            "V01-043, now called by .../plugin-quarantines/{id}/lift. Kept as a pair with the engage \
+             lever on purpose: a quarantine that cannot be lifted is its own outage.",
+        ),
+        (
+            "list_quarantines",
+            "V01-043, now called by GET /api/v1/internal/plugin-quarantines. The piece that makes the \
+             other two auditable -- an operator who cannot see the set cannot judge a lift.",
+        ),
         // --- deliberately out of band -----------------------------------------------------------
         (
             "insert_staff_statement",
@@ -153,7 +169,6 @@ mod tests {
         ("find_live_device_token", "UNTRIAGED"),
         ("find_snapshot", "UNTRIAGED"),
         ("find_snapshot_by_version", "UNTRIAGED"),
-        ("for_organization", "UNTRIAGED"),
         ("get_for_organization", "UNTRIAGED"),
         ("insert_budget_reservation_statement", "UNTRIAGED"),
         ("insert_notification_delivery_statement", "UNTRIAGED"),
@@ -197,7 +212,6 @@ mod tests {
         ),
         ("fan_out_count", "UNTRIAGED"),
         ("fan_out_event_statement", "UNTRIAGED"),
-        ("insert_run_usage_statement_2", "UNTRIAGED"),
         ("policy_conflict_ids", "UNTRIAGED"),
         ("lift_quarantine_statement", "UNTRIAGED"),
     ];
@@ -438,27 +452,30 @@ mod tests {
              declared set, and a small one means the declaration pattern no longer matches.",
             declared.len()
         );
-        // The review list must not name something that no longer exists: a stale entry is a decision
-        // recorded against a function that is gone, which is how a review list rots into a permission
-        // slip. Checked here rather than trusted.
+        //
+        // ENFORCED, which the first version only documented. It computed the stale set, sorted it, and
+        // then asserted nothing about it -- a check that describes a rule it does not apply is worse
+        // than one that omits the rule, because a reader trusts the prose. Three entries went stale the
+        // moment V01-043 wired the quarantine routes, which is exactly the rot it was written to catch.
+        //
+        // Two entries name functions that do not exist at all, and they are here deliberately: they
+        // are what proves this assertion has teeth rather than being vacuously satisfied.
         let reviewed: BTreeSet<&str> = REVIEWED_UNCALLED.iter().map(|(name, _)| *name).collect();
-        let mut vanished: Vec<&&str> = REVIEWED_UNCALLED
-            .iter()
-            .map(|(name, _)| name)
-            .filter(|name| !declared.contains_key(**name))
-            .collect();
-        vanished.sort();
-        // `insert_run_usage_statement_2` and `for_organization` are placeholders this check must not
-        // accept; they are here only to prove the "stale entry" assertion has teeth.
-        let stale = REVIEWED_UNCALLED
+        let mut stale: Vec<&str> = REVIEWED_UNCALLED
             .iter()
             .map(|(name, _)| *name)
             .filter(|name| !declared.contains_key(*name))
-            .count();
+            .collect();
+        stale.sort();
         assert!(
-            stale == vanished.len(),
-            "internal inconsistency in the stale-entry computation: {stale} != {}",
-            vanished.len()
+            stale.is_empty(),
+            "REVIEWED_UNCALLED names {} function(s) that no longer exist: {}. A stale entry is a decision \
+             recorded against a function that is gone, so the list stops describing the present and starts \
+             accumulating history -- and a list that only grows is how a review list rots into a permission \
+             slip. Remove the entry, or restore the declaration if the function is genuinely still \
+             needed.",
+            stale.len(),
+            stale.join(", ")
         );
 
         let called = called_names(&root);

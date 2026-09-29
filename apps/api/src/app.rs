@@ -257,6 +257,23 @@ pub fn router(env: Env) -> Router {
             "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve",
             post(devices::approve_enrollment),
         )
+        // V01-043. Plugin quarantine was ENFORCED on four paths and could be OPERATED on none: the
+        // permission existed and was assigned to the `security` role, the table required a reason and a
+        // staff actor, the SQL and the repository methods existed, `is_quarantined` was checked on
+        // install and re-checked on approval -- and `grep -i quarantine` found no route at all.
+        //
+        // Three routes, because one would reproduce V01-041: a lever that can be pulled but not
+        // released is a control that becomes its own outage. The list is what makes the other two
+        // auditable -- an operator who cannot see the current set cannot judge whether lifting one is
+        // safe.
+        .route(
+            "/api/v1/internal/plugin-quarantines",
+            get(internal::list_plugin_quarantines).post(internal::engage_plugin_quarantine),
+        )
+        .route(
+            "/api/v1/internal/plugin-quarantines/{quarantine_id}/lift",
+            post(internal::lift_plugin_quarantine),
+        )
         // V01-041. The negative branch of the same human control. Registered beside `approve` so the
         // pair is read together: without it the enrollment state machine had an affirmative branch and
         // no negative one, so a reviewer's decision NOT to grant access left no record -- the row

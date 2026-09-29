@@ -227,6 +227,14 @@ INSERT INTO plugin_quarantines (
 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 "#;
 
+const QUARANTINE_BY_ID_SQL: &str = r#"
+SELECT quarantine_id, package_id, version, reason, engaged_by_staff_principal_id,
+       engaged_at, lifted_at, lifted_by, lift_reason
+FROM plugin_quarantines
+WHERE quarantine_id = ?1
+LIMIT 1
+"#;
+
 const LIFT_QUARANTINE_SQL: &str = r#"
 UPDATE plugin_quarantines
 SET lifted_at = ?2, lifted_by = ?3, lift_reason = ?4
@@ -760,6 +768,25 @@ impl<'a> PluginGovernanceRepository<'a> {
             .first::<CountRow>(None)
             .await
             .map(|row| row.is_some_and(|row| row.total > 0))
+    }
+
+    /// One quarantine by id.
+    ///
+    /// V01-043. The lift route needs to tell `404` (no such quarantine) from `409` (already lifted),
+    /// and `LIFT_QUARANTINE_SQL`'s own `lifted_at IS NULL` guard only covers the second: an `UPDATE`
+    /// that matches zero rows does not abort a D1 batch, so without this read a lift of a
+    /// NONEXISTENT quarantine would answer `201`.
+    ///
+    /// The batch's guard stays the authority on the state transition -- this read exists only to
+    /// classify the outcome, so the answer and the write cannot disagree.
+    pub async fn find_quarantine(
+        &self,
+        quarantine_id: &str,
+    ) -> worker::Result<Option<PluginQuarantineRecord>> {
+        self.database
+            .prepare(QUARANTINE_BY_ID_SQL, &[BindValue::Text(quarantine_id)])?
+            .first::<PluginQuarantineRecord>(None)
+            .await
     }
 
     pub async fn list_quarantines(
