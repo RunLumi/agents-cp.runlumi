@@ -425,6 +425,36 @@ await runProbe("P08 cross-tenant", async (probe) => {
   console.log(
     `\norg-scoped routes with NO handler-level cross-tenant evidence: ${stillUnproven.length} of ${router.size}`,
   );
+  //
+  // The set itself, grouped by SHAPE and written out, because a count is not a work list.
+  //
+  // "80 of 104" says how much is unmeasured and nothing about what measuring it would take, and the
+  // difference between those two is the whole plan: a `GET` by id needs a substituted identifier and
+  // no body, while a `PUT` needs a valid body to reach its authorization check at all, and a nested
+  // route needs its parents to exist. Grouping by shape is what turns the gap into a sequence of
+  // attacks that can be ordered by cost, instead of 80 separate decisions.
+  //
+  // It is also the honest denominator for any claim of "the boundary is proven": a route in
+  // `byIdNoBody` has no evidence merely because nobody has built a table row for it yet.
+  const shapeOf = (path) => {
+    const rest = path.replace("/api/v1/orgs/{org_id}", "");
+    const ids = (rest.match(/\{[a-z_]+\}/g) ?? []).length;
+    if (ids === 0) return "collection (no path id)";
+    if (ids === 1) return "one path id";
+    if (ids === 2) return "two path ids (nested)";
+    return `${ids} path ids`;
+  };
+  const byShape = new Map();
+  for (const path of stillUnproven) {
+    const shape = shapeOf(path);
+    if (!byShape.has(shape)) byShape.set(shape, []);
+    byShape.get(shape).push(path);
+  }
+  console.log("\nunproven org-scoped routes, by shape:");
+  for (const [shape, paths] of [...byShape].sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`  ${String(paths.length).padStart(3)}  ${shape}`);
+    for (const path of paths) console.log(`         ${path}`);
+  }
   console.log(`  ${withId} take a resource id, so they need a real resource to substitute`);
   console.log(`  ${mutating} are mutating or id-less actions this probe does not drive`);
   console.log("  they are:" + stillUnproven.map((p) => `\n    ${p}`).join(""));

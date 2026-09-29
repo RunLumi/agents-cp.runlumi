@@ -23,6 +23,7 @@
     "verify:budget-concurrency": "pnpm --filter @runlumi/agents-cp-api verify:budget-concurrency",
     "verify:migration-prior-state": "bash docs/verification/runs/2026-09-31-v01-adversarial-security-state/evidence/v01-007-migration-prior-state.sh",
     "verify:mutating-tenancy": "node apps/api/scripts/v01-mutating-tenancy-probe.mjs",
+    "verify:collection-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:collection-tenancy",
     "verify:idempotency": "node apps/api/scripts/v01-idempotency-probe.mjs",
     "verify:filter-tenancy": "node apps/api/scripts/v01-filter-tenancy-probe.mjs",
     "verify:inference-failure": "node apps/api/scripts/v01-inference-failure-probe.mjs",
