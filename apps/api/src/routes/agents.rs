@@ -580,8 +580,24 @@ pub(crate) async fn prepare_mutation(
             &context.received_at,
         )
         .await
-        .map_err(|_| service_unavailable(context))?
-    {
+        .map_err(|error| {
+            // V01-029. The lookup is the seventh `map_err(|_| service_unavailable(context))` in
+            // this function, and they are indistinguishable from outside: a schema refusal, a
+            // decoding failure and a store outage are one answer. That is V01-010's shape, and here
+            // it is actively costing a diagnosis -- `rotate_webhook_secret` answers 503 with no
+            // claim row written, and nothing in the response or the database says which of the
+            // seven it was.
+            //
+            // `worker::Error` carries SQLite's message and the failing statement, never a bound
+            // value, so this is safe to log; the key is a digest and the scope is the caller's own.
+            worker::console_error!(
+                "prepare_mutation: the idempotency LOOKUP failed for {} {}: {:?}",
+                scope.method,
+                scope.path,
+                error
+            );
+            service_unavailable(context)
+        })? {
         IdempotencyLookup::Replay(success) => return Ok(PreparedMutation::Replay(success)),
         IdempotencyLookup::InProgress => {
             return Err(errors::api_error(

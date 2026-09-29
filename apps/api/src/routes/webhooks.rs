@@ -543,7 +543,23 @@ async fn load_endpoint(
     WebhookRepository::new(database)
         .find_endpoint(org_id, &endpoint_id)
         .await
-        .map_err(|_| service_unavailable(context))?
+        .map_err(|error| {
+            // V01-010's shape, and the second time in this campaign it has been the reason a real
+            // fault was unreadable. Every error here became an identical `503`, so "the statement
+            // was refused by the schema", "the row could not be decoded" and "the store is down"
+            // were one answer, and the route that owns the endpoint could not be debugged from the
+            // outside at all.
+            //
+            // `worker::Error` carries SQLite's message and the failing statement, never a bound
+            // value -- the ids here are the caller's own, and they are not secrets.
+            worker::console_error!(
+                "load_endpoint: the endpoint lookup FAILED for org {} endpoint {}: {:?}",
+                org_id,
+                endpoint_id,
+                error
+            );
+            service_unavailable(context)
+        })?
         .ok_or_else(|| not_found(context))
 }
 
