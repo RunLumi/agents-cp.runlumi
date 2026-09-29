@@ -101,11 +101,41 @@ const ALSO_PROVEN = [
   // IDENTICALLY (so the route is not an existence oracle), and the other organization's row is
   // byte-identical afterwards, read out of D1.
   //
-  // Three of its service-account and credential entries carry a deliberately DEGRADED control, named in
-  // the probe as UNPROVEN; those are credited for the substitution, the non-disclosure comparison and the
-  // stored-state assertion only. The credit below is honest about that.
+  // Every entry is at FULL STRENGTH and none carries a degraded control. Three did once, and all three
+  // are resolved: two were a real defect (V01-033 -- a `version` guard placed AFTER the statement it
+  // guards, so the route could never succeed and reported `version_conflict`) and one was that gate's own
+  // ordering (the revoke control revoked the credential the rotate control then used, so the rotate
+  // control was refused 404 for an already-revoked row). Every control now creates its own row, so the
+  // controls are independent by construction. The credits below therefore all read PLAIN: a credit that
+  // names a degradation which no longer exists under-claims on purpose, and a stale one is simply wrong.
   {
     path: "/api/v1/orgs/{org_id}/agents/{agent_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  // The automations family needs three things the others do not, and each was a fixture fault the control
+  // caught rather than assumed: an `automations.max_active` entitlement, because `entitlement_grants` is
+  // EMPTY in every seeded database and without it every create is refused for a reason that has nothing
+  // to do with tenancy; a project and an agent, which an automation references; and for `resume` a prior
+  // STATE rather than merely a prior row, since the handler transitions `"paused" -> "active"` and
+  // refuses an automation that is not already paused.
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/occurrences",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/pause",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/resume",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/run-now",
     by: "v01-path-id-tenancy-probe.mjs",
   },
   {
@@ -126,15 +156,15 @@ const ALSO_PROVEN = [
   },
   {
     path: "/api/v1/orgs/{org_id}/credentials/{credential_id}/rotate",
-    by: "v01-path-id-tenancy-probe.mjs (control DEGRADED, see the probe)",
+    by: "v01-path-id-tenancy-probe.mjs",
   },
   {
     path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}",
-    by: "v01-path-id-tenancy-probe.mjs (PATCH control DEGRADED, see the probe)",
+    by: "v01-path-id-tenancy-probe.mjs",
   },
   {
     path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}/suspend",
-    by: "v01-path-id-tenancy-probe.mjs (control DEGRADED, see the probe)",
+    by: "v01-path-id-tenancy-probe.mjs",
   },
   {
     path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}/resume",
