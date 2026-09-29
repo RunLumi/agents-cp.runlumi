@@ -1,0 +1,32 @@
+V01 gate sweep after V01-044/045/046 and the V01-029 / V01-015 closures
+captured: 2026-09-29T17:20:57Z
+
+Every gate green, run one at a time (a held port produces a false exit 2):
+
+  pnpm check                                          exit 0   1030 tests
+  pnpm schema:bind-count                             exit 0   463 prepare() calls
+  verify:webhook-fanout                              exit 0   19/19 -> 21/21 with V01-029's W7
+  verify:staff-credential                            exit 0   57/57
+  verify:path-id-tenancy                             exit 0   211/211
+  verify:collection-tenancy                          exit 0    54/54
+  verify:secret-tenancy                              exit 0    32/32
+  verify:filter-tenancy                              exit 0    65/65
+  verify:mutating-tenancy                            exit 0    43/43
+  verify:privilege-escalation                        exit 0    96/96
+  verify:budget-concurrency                          exit 0    28/28
+  verify:lease-contention                            exit 0    62/62
+  verify:usage-attribution                           exit 0    43/43
+  verify:idempotency                                 exit 0    47/47
+  verify:device-idempotency                          exit 0    23/23
+  verify:revoked-device                              exit 0    36/36
+
+Findings: 50 records. Open, all deliberately:
+  V01-001  adoption identifiers carry user content; needs the deliberate change process
+  V01-005  identity-link purpose unspecified; the feature is dead until it is
+  V01-026  GAP-007 -- the Worker cannot open an outbound socket. MEASURED, not assumed.
+  V01-040  ADR 0007's "grant on every use" has no implementation; needs its own spec+ADR
+
+Two of those were open only because a narrowed finding was not re-run. V01-029's prime
+suspect was named AND its repair was already in the tree; V01-015's blocker was named
+and resolved. Both closed by adding one assertion to a probe that already held the
+fixture -- which is the cheapest closure available to a narrowed record.
