@@ -3,7 +3,7 @@
 - **Claim:** for every org-scoped route taking exactly one resource id, another organization's id is
   refused, the refusal does not distinguish "exists elsewhere" from "exists nowhere", and the other
   organization's row is untouched.
-- **Verdict:** PASS for 12 routes · **UNPROVEN** for 3 (degraded controls, named) · credited by name
+- **Verdict:** PASS for 13 routes, **every assertion at full strength** · credited by name for the remaining 41
   for the remaining 39
 - **Sensitivity:** `evidence/v01-path-id-sensitivity.sh` — **M1 detected, M2 declared KNOWN MISSED, exit 0**
 - **Discovered while building it:** one probe defect that would have produced a falsely clean sheet on
@@ -38,7 +38,7 @@ The control is asserted at **full 2xx strength**, not "not 5xx", because "not 5x
 that answers 404 for its own resource. V01-030 is what that costs: six cross-tenant rows reporting `PASS`
 for a route its own owner could not use.
 
-**Result: 148/148, exit 0, 45 named skips.** `smoke:p08`'s unproven count moved **69 → 60** and p08
+**Result: 162/162, exit 0, 45 named skips.** `smoke:p08`'s unproven count moved **69 → 60** and
 stayed 47/47.
 
 ## The defect this gate had in its first form: it was replaying its own control
@@ -104,40 +104,41 @@ d1Rows(`SELECT …`)[0]     // d1Rows is ASYNC
 row that existed. An expression that evaluates cleanly and yields nothing is the hardest kind of emptiness
 to see, because nothing reports it.
 
-## Three UNPROVEN items, degraded by name rather than dropped
+## Three UNPROVEN items, and all three were this file's fault
 
-Three entries carry `controlWeakened`, and the control drops to the honest residual claim — *the route did
-not fail with a store fault* — with the specific question recorded in the file and in the output:
+Recorded in full because **none of them was a product defect**, and the two mechanisms are the
+campaign's recurring failure wearing new clothes. All three are resolved and **no entry carries a
+degraded control any more.**
 
-| route | the owner's own call answers | why it is not a defect claim |
-|---|---|---|
-| `service-accounts/{id}` PATCH | `409 version_conflict` at the version D1 reports for a version-1 row | the guard's abort-by-constraint is the **intended** design: a green route's guard is byte-identical |
-| `service-accounts/{id}/suspend` | as above | as above |
-| `credentials/{id}/rotate` | `404 resource_not_found` for a credential D1 shows user-owned in the same org | `find_credential_for_owner` should match; the cause is not established |
+**Two were real, and the gate's control is what proved it — V01-033.** `service-accounts/{id}` PATCH and
+`/suspend` answered `409 version_conflict` on the organization's OWN record at the version D1 had just
+reported. The batch was `vec![update, guard]`: the update sets `version = version + 1` and the guard then
+asserts the row is still at the pre-write version, so it always aborted. **The routes could never
+succeed**, and they reported a concurrency problem. Proved with a two-order experiment on a copy of the
+real database and fixed by putting the guard first — the order 26 of the 33 version-guard batches already
+use. See the V01-033 record.
 
-The degraded form was chosen deliberately. Removing those routes from the denominator would have been
-tidier and dishonest: their **attack, non-disclosure and stored-state assertions all still run at full
-strength**, and only the one assertion that could not be established is weakened. The residual claim is
-also stated as what it is — `not 5xx` — rather than as "not 404", because choosing a bound that happens
-to exclude this run's answer is how a degraded check gets mistaken for a real one.
+**One was this file's own ordering.** `credentials/{id}/rotate` answered `404` for a credential D1 showed
+as user-owned in the same organization. The credential's `status` was `'revoked'` — because **the revoke
+control had just revoked it**, and `find_credential_for_owner` filters `status <> 'revoked'`. The rotate
+control was measuring the revoke control's success.
 
-### The reading I checked before recording, and dropped
+Reordering the controls would not have fixed it: the destructive one is still destructive wherever it
+sits. **Every control now creates its own row**, so the controls are independent by construction rather
+than by luck of ordering. That is the same defect as the shared `Idempotency-Key`, one layer up:
 
-Seeing that `ASSERT_ACCOUNT_VERSION_SQL` inserts a sentinel `idempotency_records` row, I ran it against
-the real database and it was **refused**: *"a pending idempotency record carries no result and must hold
-a claim token"*. That reads as a guard that can never succeed — i.e. `PATCH /service-accounts/{id}` is
-permanently dead — which would be a HIGH finding in V01-011's class.
+> **A control that shares mutable state with the next case is measuring the previous case.**
 
-It is wrong, and one comparison killed it: `ASSERT_BUDGET_VERSION_SQL` is **byte-identical in shape**, and
-`verify:budget-concurrency` is 28/28. The trigger refusal is the guard's intended abort mechanism, not a
-defect. 33 guard statements share that shape, and a scan of all of them would have produced a confident,
-wrong, and much more alarming claim than the truth.
+With a fresh row, `rotate` answered `422`: `RotateCredentialRequest` declares `label` and `secret` both
+optional, so `{}` parses and the route then refuses — because a rotation without a new secret is not a
+rotation. Optional in the struct, required in the handler; a real contract wrinkle, named rather than
+worked around.
 
-The generalisation is the campaign's own, in a new place:
+The markers were **removed** rather than left behind, both times:
 
-> **A check that cannot distinguish a defect from a convention is the wrong check.** The scan matched a
-> *text shape*; what carries the claim is a *route's* behaviour, and the only evidence for that is a green
-> gate using the identical statement.
+> A degraded check that no longer needs degrading is a check quietly under-claiming, which is the same
+> failure in the opposite direction.
+
 
 ## A structural finding about sessions, credited with a question rather than a shrug
 
@@ -182,7 +183,7 @@ mutation the count check could see would not be testing a tenancy claim.
   not a shrug, so the work remaining is named rather than absent.
 - The 2 **nested** routes (`{team_id}/members`, `{plugin_id}/…`) need a parent *and* a child, and are not
   in this gate's denominator.
-- **No mutation removes a degraded control's guard**, so the three UNPROVEN items are not proven either way.
+- **No mutation removes a degraded control's guard** — there are no degraded controls left, and the three that existed are recorded above with what each turned out to be.
 - The probe derives every id and every version from **D1**, never from a response envelope. Three
   envelopes were guessed wrong and read `undefined` before that change; the database is the authority for
   what a version is, and a fixture that reads it cannot be wrong about it.
