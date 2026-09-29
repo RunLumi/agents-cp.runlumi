@@ -242,6 +242,25 @@ await runProbe("V01 secret-tenancy", async (probe) => {
     { ...headersA, ...browserMutation(alice.jar, "sec-own-rotate") },
   );
   const ownSecret = ownRotate.payload?.secret;
+
+  // THE WORKER'S CONSOLE IS TRUNCATED, and reading it at the end of the run is how V01-029 spent
+  // four builds concluding "no log fired" when the log had simply been cut off. `workerConsole()`
+  // returns a TAIL of a file the proxy appends to, and this probe's later requests are missing from
+  // it entirely -- sixteen request lines, ending at the last fixture.
+  //
+  // So the console is read HERE, immediately after the call it describes, while it is still in the
+  // file. The markers are permanent product-side logs (V01-029); this is the probe half of the
+  // contract, and without it a truncated log reads as an absence of evidence.
+  const stageLines = () =>
+    probe
+      .workerConsole(80_000)
+      .replace(/\[[0-9;]*m/g, "")
+      .split("\n")
+      .filter((line) =>
+        /rotate_webhook_secret|mint_secret|StoredSuccess|load_endpoint|prepare_mutation/.test(line),
+      )
+      .slice(-6);
+  for (const line of stageLines()) console.log(`  STAGE ${line.slice(0, 260)}`);
   const diag = probe
     .workerConsole(60_000)
     .replace(/\[[0-9;]*m/g, "")

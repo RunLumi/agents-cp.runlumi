@@ -549,28 +549,48 @@ pub(crate) async fn prepare_mutation(
     path: &str,
     body: &Value,
 ) -> Result<PreparedMutation, ApiError> {
+    // V01-029. Every `service_unavailable` below used to be `map_err(|_| service_unavailable(..))`,
+    // which made this function's SEVEN distinct failure sites one answer. From outside, and from the
+    // database, "the Idempotency-Scope path was rejected", "the body could not be canonicalised",
+    // "the digest could not be computed" and "the store is down" are the same 503 -- and that is how
+    // `rotate_webhook_secret` came to answer 503 for its own owner with nothing in the response or
+    // the database to say which of the seven it was.
+    //
+    // Each site now names itself. `worker::Error` and `CoreError` carry the reason; the key is only
+    // ever a digest, and the scope is the caller's own method and path, so nothing secret is logged.
+    // This is V01-010's repair applied to the function with the most collapsed error handling in the
+    // codebase, and it is kept rather than removed: the next 503 here will name itself.
+    let stage = |context: &RequestContext, what: &str, error: &dyn core::fmt::Debug| {
+        worker::console_error!("prepare_mutation: {what} failed: {error:?}");
+        service_unavailable(context)
+    };
     let scope = IdempotencyScope::new(
-        ActorId::new(principal.user_id.as_str()).map_err(|_| service_unavailable(context))?,
-        Some(OrganizationId::new(org_id).map_err(|_| service_unavailable(context))?),
+        ActorId::new(principal.user_id.as_str())
+            .map_err(|error| stage(context, "ActorId::new", &error))?,
+        Some(
+            OrganizationId::new(org_id)
+                .map_err(|error| stage(context, "OrganizationId::new", &error))?,
+        ),
         method,
         path,
     )
-    .map_err(|_| service_unavailable(context))?;
-    let canonical = serde_json::to_string(body).map_err(|_| service_unavailable(context))?;
+    .map_err(|error| stage(context, "IdempotencyScope::new", &error))?;
+    let canonical =
+        serde_json::to_string(body).map_err(|error| stage(context, "canonicalise body", &error))?;
     let key_digest = IdempotencyKeyDigest::new(format!(
         "sha256:{}",
         sha256_hex(key)
             .await
-            .map_err(|_| service_unavailable(context))?
+            .map_err(|error| stage(context, "sha256 of the key", &error))?
     ))
-    .map_err(|_| service_unavailable(context))?;
+    .map_err(|error| stage(context, "IdempotencyKeyDigest::new", &error))?;
     let request_fingerprint = RequestFingerprint::new(format!(
         "sha256:{}",
         sha256_hex(&format!("{method}\n{path}\n{canonical}"))
             .await
-            .map_err(|_| service_unavailable(context))?
+            .map_err(|error| stage(context, "sha256 of the fingerprint input", &error))?
     ))
-    .map_err(|_| service_unavailable(context))?;
+    .map_err(|error| stage(context, "RequestFingerprint::new", &error))?;
     let repository = IdempotencyRepository::new(database);
     match repository
         .lookup(

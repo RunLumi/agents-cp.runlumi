@@ -62,28 +62,60 @@ generalisation:
 > is correct**, because it converts "the product is broken in a way I cannot see" into "the product is
 > unavailable", and the second is a thing nobody investigates.
 
-## The next action, already instrumented
+## The instrument lied to me four times, and that is the second finding here
 
-Two permanent logs are in place, both written to be kept rather than removed:
+I instrumented four `service_unavailable` sites in `webhooks.rs` and `agents.rs`, rebuilt, and
+concluded from each run that **no log fired** — so the failure was "somewhere else". Four times.
 
-- `load_endpoint` logs the underlying `worker::Error` (added while repairing V01-028);
-- `prepare_mutation`'s lookup logs the underlying `worker::Error` (added for this record).
+**The conclusion was wrong, and the instrument was the reason.** `workerConsole()` returns a *tail* of
+a file that `wrangler dev`'s proxy appends to asynchronously. The decisive check is the one I did not
+do until the fourth build:
 
-Neither fires, which is itself the finding above. The next step is to instrument the three steps
-ahead of them — `authorize_org`'s error path being the first, because it is the only one of the three
-that takes a resource context — and run once. That is one build and one probe run.
+> **Does the instrument record a request I already know arrived?** If the log has no line for a
+> request the probe definitely made, then the log's *silence* is a property of the log, not of the
+> product.
 
-I stopped here rather than continue, and the reason is worth stating: the turn had already produced a
-proven high-severity defect, a proven fix and a proven measurement of its effect, and this item needed
-a fresh build plus an instrumented run rather than more reading. Continuing to add logs one build at
-a time is how a turn turns into a build-fingerprint investigation.
+It does not. Across five runs the file held sixteen request lines and ended at the last fixture —
+no `rotate-secret` line at all, for a call the probe demonstrably made and which came back with a
+product-shaped body carrying a `request_id`. Every one of my four "no log fired" readings was
+therefore reading a truncated stream as an absence of evidence, and each one cost a build.
 
-## What this blocks
+This is the sixth time this campaign has graded something on a comparison that could hold vacuously,
+and the first time the *instrument itself* was the empty set. The rule is the one the harness already
+states for gates — *grade on a measurement, not on an absence* — applied to the thing doing the
+grading:
 
-`verify:secret-tenancy` cannot certify the cross-tenant secret boundary while its positive control
-fails, and it correctly refuses to: it reports **30/32 with the control red and exits 1** rather than
-presenting the passing attack rows as a result. The attack rows themselves look right — a foreign
-endpoint answers `404`, no secret material appears in any body, and Org B's stored state is unchanged
-— but "no leak" on a route the owner cannot use is not a tenant-isolation result. It is a route that
-refuses everyone, which is the exact confusion the positive control exists to prevent, and this is the
-fourth time in this campaign that the control has been the thing that found the defect.
+> **A log's silence is evidence only after you have seen that log record something.** For a probe
+> asserting a positive, that is a control. For a probe asserting an absence, it is a control too, and
+> there was none.
+
+The probe half of the fix is in place: the console is now read **at the point of use**, immediately
+after the call it describes, rather than at the end of the run. The product-side logs are permanent
+and will name the site on a run where the capture holds. What is still needed is a positive control
+on the *capture*: the probe should assert that it can see a marker it knows was emitted, and fail as a
+**harness fault** if it cannot — rather than reporting an absence.
+
+## What I can and cannot claim
+
+**Claimed, with evidence:** the owner's own `POST /webhooks/{id}/rotate-secret` answers
+`503 "The notification store is unavailable."` after V01-028's repair, and the same message is returned
+by several other endpoint-scoped webhook operations, so the failure is not specific to the rotation.
+
+**Not claimed:** which call site produces it. Every narrowing I attempted rested on the console, and
+the console is lossy.
+
+## One thing the message itself did establish, and it is worth having
+
+`webhooks.rs` defines a **private** `service_unavailable` whose message is *"The notification store is
+unavailable."* It shadows the shared helper for the whole module, so **every** endpoint-route failure
+in that file has been reported as a notification outage — credentials, webhooks, deliveries and
+preferences alike. That single line is why the very first thing I did with this 503 was look for
+notification code that does not exist on this path, and it is a defect in its own right:
+
+* an operator reading a 503 on a credential or endpoint route is told the *notification* store is
+  down, and will go and look at the wrong subsystem;
+* the objective's requirement of **useful telemetry** is not met by an error that names the wrong
+  subsystem, and this campaign's own rule is that an error handler that maps everything to one code
+  is a defect even when every behaviour behind it is correct.
+
+That much is worth fixing on its own evidence, and it does not depend on localising the 503.

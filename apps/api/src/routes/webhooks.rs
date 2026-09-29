@@ -613,7 +613,18 @@ async fn mint_secret(
     let version = WebhookRepository::new(database)
         .next_secret_version(endpoint_id)
         .await
-        .map_err(|_| service_unavailable(context))?;
+        .map_err(|error| {
+            // V01-029. `service_unavailable` in THIS module is a private helper whose message is
+            // "The notification store is unavailable." -- it shadows the shared one, so every
+            // endpoint-route failure in this file has been reported as a NOTIFICATION outage. The
+            // message is the first thing that named the file, and it named the wrong subsystem.
+            worker::console_error!(
+                "mint_secret: next_secret_version failed for endpoint {}: {:?}",
+                endpoint_id,
+                error
+            );
+            service_unavailable(context)
+        })?;
     let fingerprint = secret_fingerprint(&plaintext);
     let rotated_at = rotate.then(|| context.received_at.as_str().to_owned());
     let statement = WebhookRepository::new(database)
@@ -1279,6 +1290,15 @@ pub async fn rotate_webhook_secret(
         true,
     )
     .await?;
+    // V01-029. Stage markers, kept rather than removed. Every `?` in this handler collapsed into
+    // one `503 "The notification store is unavailable."` -- a message that names a subsystem this
+    // route has nothing to do with, because `webhooks.rs` defines a private `service_unavailable`
+    // that shadows the shared one. Four instrumented sites in this file were silent, which put the
+    // failure somewhere in this tail; these two markers bracket what is left of it.
+    worker::console_error!(
+        "rotate_webhook_secret: reached the audit/outbox stage for endpoint {}",
+        existing.endpoint_id
+    );
     let audit = audit_statement(
         database,
         &context,
@@ -1311,7 +1331,14 @@ pub async fn rotate_webhook_secret(
             "secret": plaintext,
         }),
     )
-    .map_err(|_| service_unavailable(&context))?;
+    .map_err(|error| {
+        worker::console_error!(
+            "rotate_webhook_secret: StoredSuccess::new refused the response for endpoint {}: {:?}",
+            existing.endpoint_id,
+            error
+        );
+        service_unavailable(&context)
+    })?;
     if let Some(replay) = commit_mutation(
         database,
         &context,
