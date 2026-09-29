@@ -500,6 +500,23 @@ the effect from outside the mutation**, because `cmp` only proves bytes changed.
 `SyntaxError` — **a verifier that cannot run cannot report**, and it must be distinguished from one
 that ran and said MISSED.
 
+**A narrowed finding is not a closed one, and re-running it is the cheapest closure available.**
+Two records sat open past the point where their own text contained the answer. **V01-029**
+(`rotate_webhook_secret` answering `503` to the owner, high) had been narrowed with care: the 503
+arrives with **no `idempotency_records` row**, so the failure is *before* the claim, and
+`authorize_org` was the prime suspect as the only step taking a **resource context** that
+`create_webhook` — which works — does not. The next action was named: *one instrumented run*. **It
+had already been repaired, by V01-028's bind-order fix**, sitting in the tree the whole time. Nothing
+found it, because checking meant **running** something and the record read as work in progress.
+**V01-015** said *HALF repaired, 21/23*, with `approve_enrollment` "blocked on V01-020"; V01-020
+resolved, and it is now **23/23**.
+
+Both closed by adding **one assertion to a probe that already built the fixture** — the webhook
+fan-out class needed a real endpoint for an unrelated reason, and that endpoint is exactly what
+V01-029 required. A record narrowed to a single candidate should carry the assertion that settles it,
+because **a fixture one class pays for is what lets another class's finding close in minutes** — and
+a finding whose next action is "run it" is a finding that will not be run.
+
 **A documented, tested helper with no caller is a durable false signal.** ADR 0007 requires a staff
 audit event on grant creation **and on every use**. The *use* half does not exist: no route consumes a
 grant, and `PlatformOperationsRepository::find_grants_for_staff_and_org` — whose doc comment reads *"the
