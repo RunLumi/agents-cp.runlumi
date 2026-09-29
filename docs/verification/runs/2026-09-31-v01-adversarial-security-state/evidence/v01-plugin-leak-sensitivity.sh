@@ -137,12 +137,12 @@ if ! pnpm build > "$LOG" 2>&1; then
   fi
   echo "BASELINE BUILD FAILED (not a rustc diagnostic) -- the harness cannot run" >&2; tail -20 "$LOG" >&2; exit 2
 fi
-# `wrangler dev` serves this artifact. If it is older than the source under test then every verdict
-# below describes a binary that never contained the claim -- and the run is VACUOUS rather than
-# wrong, which is the worse state: a red baseline stops the run, a green one authorises a verdict.
-# A previous version of this script rebuilt three times with `pnpm build`, and `wrangler deploy
-# --dry-run` compiles and then discards its output to `build/.tmp` -- so every "rebuild" left the
-# artifact untouched and all three mutations "failed" for a reason unrelated to the product.
+# `wrangler dev` REBUILDS on every start (wrangler.jsonc sets `build.command = worker-build
+# --release`), so there is no stale-artifact hazard here -- an earlier diagnosis claimed otherwise and
+# was wrong. What this guard is actually for is narrower and worth keeping: a mutation whose artifact
+# is byte-identical to the baseline's was never compiled in, and any verdict reported for it would
+# describe a run that did not happen. That is a failure mode this script has already produced once,
+# when three "failed" mutations turned out to have been measured against an unchanged build.
 ARTIFACT="$REPO/apps/api/build/index_bg.wasm"
 rm -f "$ARTIFACT"
 if [ ! -f "$ARTIFACT" ] || [ -z "$(strings -a "$ARTIFACT" 2>/dev/null | head -1)" ]; then
