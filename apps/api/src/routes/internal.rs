@@ -652,7 +652,21 @@ pub async fn lift_kill_switch(
         json!({ "kill_switch_id": kill_switch_id }),
     )
     .map_err(|_| store_unavailable(&context))?;
-    match commit_scoped_mutation(database, &context, claim, success, vec![lift, guard], audit)
+    // V01-033, sixth site. The guard is handed `body.version` -- the PRE-write version -- so it is a
+    // precondition and must precede the statement that replaces it. With the lift first, the lift sets
+    // `version = version + 1` and the guard then asserts the version it has already replaced, so its
+    // `NOT EXISTS` is false, it inserts nothing, and the route reports `409 conflict` for a lift that
+    // can never succeed.
+    //
+    // Measured on `kill_switches` with the order as the only variable: lift-then-guard ABORTS and the
+    // switch stays `engaged` at version 1; guard-then-lift succeeds and it becomes `lifted` at
+    // version 2.
+    //
+    // It survived the original V01-033 sweep because that sweep looked for `vec![update, guard]` and
+    // `vec![statement, guard]` -- four variable NAMES. This one is `lift`. **A scan over a naming
+    // convention is a scan over a convention**, and the standing check that closes the class is in
+    // V01-033's record: find the guard's SQL, not the variable that holds it.
+    match commit_scoped_mutation(database, &context, claim, success, vec![guard, lift], audit)
         .await?
     {
         ScopedMutationCommit::Committed => {}
@@ -968,7 +982,23 @@ fn staff_audit(
         .prepare(
             "INSERT INTO security_events (event_id, org_id, actor_type, actor_id, effective_user_id, session_id, device_id, run_id, agent_session_id, tool_call_id, action, resource_type, resource_id, outcome, reason, metadata_json, request_id, correlation_id, created_at) VALUES (?1, NULL, 'staff', ?2, NULL, NULL, NULL, NULL, NULL, NULL, ?3, ?4, ?5, 'success', NULL, ?6, ?7, ?8, ?9)",
             &[
-                crate::adapters::d1::BindValue::Text(crate::adapters::new_event_id().as_str()),
+                // V01-037. This was the SIXTEENTH site of a class that `routes/support.rs` had already
+                // fixed fifteen times, in a type built for the purpose: `SecurityEventId` asserts the
+                // `sec_` namespace and `generate()` builds a conforming id.
+                //
+                // `adapters::new_event_id()` builds the OTHER namespace -- `evt_` + 32 hex, which belongs
+                // to `outbox_events`. `security_events.event_id` is CHECKed for `sec_`, so the insert
+                // failed, took the whole D1 batch with it, and every `/api/v1/internal/**` write route
+                // answered 503.
+                //
+                // It survived fifteen fixes because this function builds its statement inline with a raw
+                // `prepare` instead of going through `security_event_statement`, so the type had no
+                // presence here and the compiler had nothing to check. A type-level guarantee protects
+                // only its users, and "nobody uses the type here" is indistinguishable from "the type is
+                // unnecessary" without a check that counts its users.
+                crate::adapters::d1::BindValue::Text(
+                    crate::routes::support::SecurityEventId::generate().as_str(),
+                ),
                 crate::adapters::d1::BindValue::Text(staff_principal_id),
                 crate::adapters::d1::BindValue::Text(action),
                 crate::adapters::d1::BindValue::Text(resource_type),

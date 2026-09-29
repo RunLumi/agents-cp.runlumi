@@ -1,0 +1,32 @@
+snapshot taken at HEAD 1f8a95d; the two files it reads are clean
+
+[1mBaseline: the check passes on the repaired tree[0m
+  cargo test -> clean
+
+[1mM1: the WRITER emits a value the schema does not permit[0m
+  applied: 'staff' -> 'staff_operator' in staff_audit's VALUES tuple
+  the file changed, as asserted
+  M1: DETECTED -- the check refuses a hard-coded actor_type the ledger does not permit.
+    | the code writes actor_type value(s) the schema's CHECK will refuse, so the INSERT is rejected, the D1 batch aborts, and the caller is told the store is unavailable:
+    |   - "staff_operator" in src/routes/internal.rs
+    | Permitted by the ledger: {"anonymous", "device", "service_account", "staff", "support", "system", "user"}
+    | A literal that the schema refuses fails closed and silently -- the statement is well-formed and the bind count is right, so the only symptom is a 503 that reads like a transient store fault. This is V01-035, and it is why all four /api/v1/internal/** writers answered 503 for as long as 'staff' was absent from the CHECK.
+  apps/api/src/routes/internal.rs is back to its snapshot
+
+[1mM2: the LEDGER no longer permits the value the writer really emits[0m
+  applied: migration 0022's CHECK loses 'staff', which is the pre-0022 state
+  the file changed, as asserted
+  M2: DETECTED -- with 'staff' gone from the ledger, BOTH assertions fail: the writer's real
+      value is no longer permitted, and the specific ADR-0007 assertion names it.
+  apps/api/migrations/0022_p07_staff_actor_type.sql is back to its snapshot
+
+[1mRestored: the check passes again[0m
+  cargo test -> clean
+
+[1mVerdicts[0m
+  baseline: clean
+  M1: DETECTED
+  M2: DETECTED
+  restored: clean
+
+every reachable mutation detected, and the restored tree is clean.

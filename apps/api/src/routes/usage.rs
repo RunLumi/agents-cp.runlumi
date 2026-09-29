@@ -128,6 +128,33 @@ impl ScopedMutationClaim {
 
 /// Look up/claim an idempotency key for a tenant-scoped mutation.  The
 /// fingerprint is derived from the normalized command, never from a raw body.
+///
+/// # `org_id` is `""` for a PLATFORM action, and that is a valid value here
+///
+/// V01-036. This function took `org_id: &str` and passed it straight to
+/// `OrganizationId::new`, which is a `resource_id_type!` -- a validated `prefix_32hex` id built by
+/// `value.split_once('_')`. The empty string has no separator, so `OrganizationId::new("")` is
+/// `Err(InvalidResourceId)`, the `?` fired, and the caller received `503 service_unavailable`.
+///
+/// All four `/api/v1/internal/**` writers pass `""` here, because that is what the schema means:
+///
+/// ```sql
+/// organization_id TEXT NOT NULL DEFAULT '' CHECK (length(organization_id) <= 255)
+/// ```
+///
+/// `NOT NULL` with `DEFAULT ''` -- "no organization" is the empty string, not NULL, and migration
+/// 0020 is the null-safety pass that settled it. So the schema, all four callers, and
+/// `IdempotencyScope`'s own `Option<OrganizationId>` parameter all agree that a platform action has
+/// no organization. Only this one line disagreed, and it sat between them: the type has no
+/// representation for "no organization", so the conversion could not succeed for the one value the
+/// design uses for exactly this case.
+///
+/// The consequence was that every internal write route answered 503 **before preparing a single
+/// statement**, which is what made V01-035 unreachable behind it.
+///
+/// The fix belongs HERE rather than in the four call sites. A call-site fix would leave this function
+/// still able to reject the schema's own default, and the defect is precisely that the boundary and
+/// the schema disagreed about what a valid organization is.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn prepare_scoped_mutation(
     database: &crate::adapters::d1::D1Adapter,
@@ -139,9 +166,17 @@ pub(crate) async fn prepare_scoped_mutation(
     path: &str,
     body: &Value,
 ) -> Result<PreparedScopedMutation, ApiError> {
+    // An empty organization is the platform scope, not a malformed one. A NON-empty value that does
+    // not parse is still a caller error and still reported as before -- only the empty case changes,
+    // and it changes from "impossible" to "meaning what the schema says it means".
+    let organization = if org_id.is_empty() {
+        None
+    } else {
+        Some(OrganizationId::new(org_id).map_err(|_| service_unavailable(context))?)
+    };
     let scope = IdempotencyScope::new(
         ActorId::new(scope_actor).map_err(|_| service_unavailable(context))?,
-        Some(OrganizationId::new(org_id).map_err(|_| service_unavailable(context))?),
+        organization,
         method,
         path,
     )

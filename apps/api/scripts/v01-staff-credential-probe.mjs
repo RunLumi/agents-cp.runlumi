@@ -336,14 +336,24 @@ await runProbe("V01 staff-credential", async (probe) => {
     [401, 403],
     ["staff_authentication_required", "permission_denied"],
   );
+  //
+  // `request_id` is REMOVED before comparing, and that is the whole trick. It is unique per request by
+  // design, so requiring two answers to be byte-identical *including* it can never pass -- and this
+  // assertion reported the product's correct behaviour (401, same code, same message) as a disclosure
+  // oracle. `verify:device-idempotency` established the pattern in this campaign: compare the answers
+  // while IGNORING `request_id`, because a correlation id differing is not the route answering
+  // differently.
+  const withoutRequestId = (payload) =>
+    JSON.stringify(probe.redact(payload ?? null)).replace(
+      /"request_id":"[^"]*"/g,
+      '"request_id":"*"',
+    );
   expect(
-    "NON-DISCLOSURE A4: a wrong secret and a nonexistent principal answer IDENTICALLY, so the " +
-      "endpoint is not an existence oracle for staff principals",
-    a1.status === a4.status &&
-      probe.redact(JSON.stringify(a1.payload ?? null)) ===
-        probe.redact(JSON.stringify(a4.payload ?? null)),
-    `wrongSecret: ${a1.status} ${probe.brief(a1.payload, 120)}\n` +
-      `            unknownPrefix: ${a4.status} ${probe.brief(a4.payload, 120)}`,
+    "NON-DISCLOSURE A4: a wrong secret and a nonexistent principal answer IDENTICALLY once " +
+      "`request_id` is set aside, so the endpoint is not an existence oracle for staff principals",
+    a1.status === a4.status && withoutRequestId(a1.payload) === withoutRequestId(a4.payload),
+    `wrongSecret:   ${a1.status} ${probe.brief(a1.payload, 110)}\n` +
+      `            unknownPrefix: ${a4.status} ${probe.brief(a4.payload, 110)}`,
   );
 
   // =========================================================================================
@@ -396,7 +406,11 @@ await runProbe("V01 staff-credential", async (probe) => {
     (patched.status === 200 || patched.status === 201) &&
       Boolean(afterPatch) &&
       afterPatch.version === before.version + 1 &&
-      afterPatch.enabled === false,
+      // `enabled` is an INTEGER column, so D1 delivers it as a JavaScript NUMBER. `=== false` can
+      // never hold for a row that was successfully set to false, so this assertion reported a correct
+      // PATCH as a failure -- the same shape as V01-030, except there the annotation belongs in Rust and
+      // here it belongs in the probe, because the probe is what is decoding.
+      Number(afterPatch.enabled) === 0,
     `status=${patched.status} before=${JSON.stringify(before)} after=${JSON.stringify(afterPatch)} ` +
       `body=${probe.brief(patched.payload, 140)}`,
   );
@@ -480,11 +494,26 @@ await runProbe("V01 staff-credential", async (probe) => {
         WHERE actor_id IN ('${staffId}', '${switchStaffId}') ORDER BY created_at`,
       "V01 reading the audit rows a legitimate staff write should have produced",
     )) ?? [];
+  //
+  // One row per write that SUCCEEDED -- derived from the outcomes above, not a hard-coded number. The
+  // first version demanded `>= 4` while one of the four writes was still failing, so it reported the
+  // audit trail as incomplete when it was exactly complete for the three that landed. That is the
+  // campaign's own rule pointed the other way: asserting a count that includes a failed write asserts
+  // on a failure, and a route that is broken makes its own audit assertion look broken with it.
+  const expectedActions = [
+    created.status === 200 || created.status === 201 ? "feature_flag.created" : null,
+    patched.status === 200 || patched.status === 201 ? "feature_flag.updated" : null,
+    switchCreated.status === 200 || switchCreated.status === 201 ? "kill_switch.engaged" : null,
+    lifted.status === 200 || lifted.status === 201 ? "kill_switch.lifted" : null,
+  ].filter(Boolean);
+  const writtenActions = staffEvents.map((e) => e.action);
+  const missingActions = expectedActions.filter((action) => !writtenActions.includes(action));
   expect(
-    "W5: every legitimate internal write produced a security_events row for this staff principal",
-    staffEvents.length >= 4,
-    `rows=${staffEvents.length} actions=${JSON.stringify(staffEvents.map((e) => e.action))} ` +
-      `actorTypes=${JSON.stringify([...new Set(staffEvents.map((e) => e.actor_type))])}`,
+    `W5: every internal write that SUCCEEDED (${expectedActions.length} of them) produced a ` +
+      "security_events row for this staff principal",
+    missingActions.length === 0,
+    `expected=${JSON.stringify(expectedActions)} written=${JSON.stringify(writtenActions)} ` +
+      `missing=${JSON.stringify(missingActions)}`,
   );
   expect(
     "W5: and the actor is recorded as a STAFF actor, which is the whole point of ADR 0007's three " +

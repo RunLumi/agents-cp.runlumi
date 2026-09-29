@@ -86,18 +86,39 @@ CREATE TABLE security_events_new (
     metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
     request_id TEXT NOT NULL CHECK (length(request_id) BETWEEN 1 AND 255),
     correlation_id TEXT NOT NULL CHECK (length(correlation_id) BETWEEN 1 AND 255),
-    created_at TEXT NOT NULL CHECK (length(created_at) = 24)
+    created_at TEXT NOT NULL CHECK (length(created_at) = 24),
+    -- Added by 0010 with ALTER TABLE, so they sit LAST and in this order. See the note below: getting
+    -- this wrong is not a subtle column drift, it is a migration that does not apply at all.
+    run_id TEXT,
+    agent_session_id TEXT,
+    tool_call_id TEXT
 );
 
+-- All NINE-TEEN columns, named on both sides.
+--
+-- The first version of this copy listed the SIXTEEN columns migration 0002 declared, because that is
+-- the DDL that created the table and it is what a reader reaches for. Migration 0010 then appended
+-- `run_id`, `agent_session_id` and `tool_call_id` with ALTER TABLE, so the live table has nineteen and
+-- the three new ones sit at the END.
+--
+-- It failed loudly rather than silently -- `no such column: run_id` -- which is the good case, and worth
+-- contrasting with the defect being repaired, which failed silently. But "loudly" is not a design goal
+-- to rely on: the mistake was checking the ledger for the INDEXES and the TRIGGERS this rebuild would
+-- drop, and not checking it for the COLUMNS, when a partial reconstruction of a table is the same
+-- failure wearing a different hat. **The authority for a rebuild's shape is the live schema, and the
+-- ledger only tells you what changed.**
+--
+-- Both sides are named rather than positional, so a future column cannot be copied into the wrong
+-- place by an edit to one list only.
 INSERT INTO security_events_new (
     event_id, org_id, actor_type, actor_id, effective_user_id, session_id, device_id,
     action, resource_type, resource_id, outcome, reason, metadata_json,
-    request_id, correlation_id, created_at
+    request_id, correlation_id, created_at, run_id, agent_session_id, tool_call_id
 )
 SELECT
     event_id, org_id, actor_type, actor_id, effective_user_id, session_id, device_id,
     action, resource_type, resource_id, outcome, reason, metadata_json,
-    request_id, correlation_id, created_at
+    request_id, correlation_id, created_at, run_id, agent_session_id, tool_call_id
 FROM security_events;
 
 DROP TABLE security_events;

@@ -778,7 +778,20 @@ export class SmokeHarness {
       this.persistOwned = false;
       console.log(`Keeping the local D1/R2 state in ${this.persistDir}`);
     } else {
-      this.persistDir = await mkdtemp(join(tmpdir(), `lumi-${this.name}-`));
+      // The probe NAME goes into a filesystem path here, so it must be a path SEGMENT. One probe is
+      // called `V01 filter/pagination/nested`, and `mkdtemp` treats the `/` as a directory separator:
+      // `pnpm verify:filter-tenancy` died with ENOENT before running a single case.
+      //
+      // It went unnoticed because that gate's sensitivity script exports V01_FILTER_PERSIST_TO, which
+      // takes the other branch -- so the probe had demonstrable evidence, a recorded 65/65 baseline,
+      // and four detected mutations, while the command printed in AGENTS.md could not start. A gate
+      // that only runs when an undocumented environment variable is set provides no evidence to
+      // anyone who follows the documentation, and the failure mode is a clean exit 2 that reads like
+      // "the harness could not run" rather than "this command has never worked".
+      //
+      // Sanitised rather than renamed, because the name is a label in the output and reads well.
+      const slug = this.name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "probe";
+      this.persistDir = await mkdtemp(join(tmpdir(), `lumi-${slug}-`));
       this.persistOwned = true;
     }
     const port = process.env[portEnvVar]
@@ -1063,6 +1076,16 @@ export class SmokeHarness {
    * a statement about the product.
    */
   finish(code, note = "") {
+    // The Worker's log is read BEFORE the services stop, for the same reason `bail` reads it first: a
+    // diagnostic that removes itself on failure makes the next run start from scratch.
+    //
+    // This was added because a 503 with no cause is a verdict with no evidence, which is the campaign's
+    // recurring failure in a place it had not appeared before. `verify:staff-credential` reported
+    // `create_flag` -> 503 for four separate repairs, and the reason -- which the Worker DOES report,
+    // through `report_error`, with SQLite's own message -- was unreachable because the log was only
+    // printed when the probe BAILED, and a failing case is not a bail. So the sheet said "the route is
+    // broken" five times and the cause was in a log nobody printed.
+    const log = this.failures.length > 0 ? this.workerLog() : "";
     this.stopServices();
     const held = this.passes.length;
     const total = held + this.failures.length;
@@ -1073,6 +1096,25 @@ export class SmokeHarness {
     if (this.failures.length > 0) {
       console.log(`\n${this.failures.length} case(s) failed:`);
       for (const name of this.failures) console.log(`  - ${name}`);
+      // Only the lines that name a cause. A raw tail is mostly wrangler's startup banner, and a
+      // failure report buried in it is a failure report nobody reads.
+      const diagnostic = (log ?? "")
+        .split("\n")
+        .filter(
+          (line) =>
+            /error|Error|ERROR|abort|SQLITE|constraint|no such|failed/i.test(line) &&
+            !/wrangler|update available|metrics|dispatcher|nps|node_modules/i.test(line),
+        )
+        .slice(-24);
+      if (diagnostic.length > 0) {
+        console.log(`\n--- Worker lines naming a cause (tail) ---`);
+        for (const line of diagnostic) console.log(`  ${line}`);
+      } else {
+        console.log(
+          `\n(no Worker line named a cause. That is itself a finding: the route refused without ` +
+            `logging why, so the cause is only reachable by reproducing the statement by hand.)`,
+        );
+      }
     }
     process.exit(code);
   }
