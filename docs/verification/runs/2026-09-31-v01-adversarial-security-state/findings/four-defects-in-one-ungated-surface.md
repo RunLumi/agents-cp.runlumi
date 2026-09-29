@@ -1,6 +1,6 @@
 # Four defects in one ungated surface — `/api/v1/internal/**` has never worked
 
-- **Record type:** campaign finding (the parent of V01-034, V01-035, V01-036, V01-037)
+- **Record type:** campaign finding (the parent of V01-034 … V01-038)
 - **Verdict:** four FAILs found, four fixed, four closed
 - **Severity of the aggregate:** **CRITICAL** — the platform could not arm a kill switch, roll a
   feature flag, or audit its own actions, and the authentication protecting that surface did not
@@ -21,12 +21,31 @@ so nothing distinguished "broken since it was written" from "temporarily unavail
 | V01-035 | `actor_type = 'staff'` violates `security_events`' CHECK | inside the batch | `503` |
 | V01-037 | `event_id` built as `evt_` for a column requiring `sec_` | inside the batch | `503` |
 | V01-033 (6th) | `vec![lift, guard]` — the guard is handed the version the lift already replaced | inside the batch | `409` |
+| V01-038 | `actor_type` derived from whether a `Principal` was *supplied*, so a **staff** actor became `system` | the audit row's contents | `2xx` — **and nothing was wrong with the status** |
 
 All four are `50`-line functions in one file, and the ordering matters: **the outermost defect masked
 the other three.** V01-036 fires before a statement is prepared, so V01-035's CHECK violation and
 V01-037's id violation were both *unreachable* until it was fixed. Three repairs to one route
 produced no observable change, which is what finally made "this is not one bug" the only hypothesis
 left.
+
+**V01-038 is a different shape from the other four**, and it is the one worth reading twice. It is not
+availability: the route answers `2xx`, the audit row **is** written, the action name is right, and the
+count is right. The row says `actor_type = 'system'` with a **NULL `actor_id`** — so the customer's own
+audit view, the one ADR 0007 names as what makes a support session reconstructable *without trusting
+platform-side logs*, showed an **unattributable action on their own organization**. The staff id was
+present, one unjoined JSON column away.
+
+Root cause, and it is the same shape as V01-036: `security_event_statement*` takes
+`Option<&Principal>`, so it has **two** states where ADR 0007's domain has **three**, and the third
+maps onto `None`, which rendered as `system`.
+
+> **A boundary whose parameter cannot express a domain case will map that case onto whatever value it
+> does have.** There it mapped "no organization" onto an invalid id; here it maps "a staff member"
+> onto "the system".
+
+And it is the one defect in this set that **no status-based check and no row count could ever have
+found.** The assertion that found it reads the *value of a column*.
 
 ## And the surface's authentication did not check anything
 
@@ -116,15 +135,18 @@ two-variable experiment, a name-based scan — was the thing at fault rather tha
 
 ## Closure evidence
 
-`verify:staff-credential` **9/19 with 2 skipped → 22/22 with 0 skipped**, exit 0, the probe
-unchanged across the repair except for three *probe* fixes recorded in the file. Pre-fix sheet:
+`verify:staff-credential` **9/19 with 2 skipped → 37/37 with 0 skipped**, exit 0 — all **six**
+`/api/v1/internal/**` routes now measured. Evidence: `evidence/v01-staff-credential-pre-fix.txt`,
+`…-post-fix.txt`, `…-full-surface.txt`. Pre-fix sheet:
 `evidence/v01-staff-credential-pre-fix.txt`. Post-fix: `…-post-fix.txt`.
 
 Re-run after the repairs, none of it concurrent:
 
 ```
 pnpm check                            exit 0, 1029 tests
-verify:staff-credential               22/22
+verify:staff-credential               37/37
+verify:adoption-privacy              20/20
+verify:usage-attribution             43/43
 verify:idempotency                    47/47     (prepare_scoped_mutation serves 31 call sites)
 verify:path-id-tenancy               198/198
 smoke:p08                             47/47

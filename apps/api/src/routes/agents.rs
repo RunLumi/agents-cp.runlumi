@@ -759,6 +759,7 @@ fn security_statement(
         database,
         context,
         Some(principal),
+        None,
         Some(org_id),
         SecurityEventId::new(event_id),
         action,

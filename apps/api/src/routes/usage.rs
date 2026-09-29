@@ -1272,6 +1272,7 @@ fn audit_statement(
         database,
         context,
         None,
+        None,
         Some(org_id),
         SecurityEventId::new(event_id),
         action,

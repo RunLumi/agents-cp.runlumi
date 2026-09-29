@@ -64,6 +64,40 @@ await runProbe("V01 staff-credential", async (probe) => {
   console.log("");
   await probe.setup({ persistEnvVar: "V01_STAFF_PERSIST_TO", portEnvVar: "V01_STAFF_PORT" });
 
+  // --- a real organization, for the support grant -------------------------------------------
+  //
+  // `CreateGrantBody.organization_id` must name a REAL organization: `support_grants.organization_id`
+  // references it, so a fabricated id would earn a constraint violation that reads exactly like a
+  // broken route. A support grant pointed at no customer is also not a meaningful test of the thing
+  // ADR 0007 is about -- "a support session is reconstructable from the customer's own audit view" --
+  // because there is no customer to reconstruct it from.
+  //
+  // Read out of the API's own response rather than parsed from a slug, since the id is opaque and a
+  // guessed one is a guess.
+  const grantUser = await probe.authenticatedUser("V01 Grant Target");
+  const grantOrg = await probe.createOrganization(
+    grantUser.jar,
+    "V01 Grant Target Org",
+    `v01-grant-${probe.nonce}`,
+  );
+  const orgA = {
+    orgId: grantOrg?.orgId ?? grantOrg?.organization?.organization_id ?? grantOrg?.id,
+  };
+  expect(
+    "the support-grant fixture names a real organization, so a constraint violation cannot be " +
+      "mistaken for a broken route",
+    typeof orgA.orgId === "string" && orgA.orgId.startsWith("org_"),
+    `orgId=${orgA.orgId} payload=${probe.brief(grantOrg, 160)}`,
+  );
+  if (typeof orgA.orgId !== "string" || !orgA.orgId.startsWith("org_")) {
+    probe.finish(
+      1,
+      "the organization fixture is missing, so the support-grant cases would be " +
+        "measuring a constraint violation rather than the route",
+    );
+    return;
+  }
+
   // --- the fixture: a real staff principal, with a real stored hash --------------------
   //
   // Provisioned through the database rather than through an API, because there IS no API that mints
@@ -539,6 +573,169 @@ await runProbe("V01 staff-credential", async (probe) => {
       !listingText.includes(sha256Hex(REAL_SECRET)) &&
       !listingText.includes(FORGED_SECRET),
     `listing=${probe.brief(listing.payload, 200)}`,
+  );
+
+  // =========================================================================================
+  // The REST of the surface. `/api/v1/internal/**` has SIX routes and this probe had measured two.
+  //
+  // Four were unmeasured: two reads and BOTH support-grant writes. Reading the grant handlers shows
+  // they carry none of the four patterns this round found -- no `staff_audit`, no empty organization,
+  // no guard after a writer, no `evt_` id -- and that is a reason to SUSPECT they are fine, which is
+  // not a reason to believe it. A family that produced four defects in fifty lines earns full
+  // measurement on the strength of that alone, and "I read it and it looks right" is exactly the
+  // review that missed all four.
+  //
+  // ADR 0007's MUST is about grants specifically -- "a staff audit event is written on grant creation
+  // and on every use" -- so the grant routes are the ones where an unaudited platform action would
+  // contradict a written requirement rather than merely a convention.
+  // =========================================================================================
+  probe.stage = "internal-reads-and-grants";
+  const GRANTS = "/api/v1/internal/support-grants";
+
+  // -- R1: the by-key path is PATCH-ONLY, and that is worth asserting ---------------------------
+  // `/internal/feature-flags/{flag_key}` is registered with `patch(patch_flag)` and nothing else.
+  // The first version of this case asserted a 200 on an imagined GET -- and "not 2xx" would have
+  // graded that as a pass for a route that does not exist, which is the campaign's most repeated
+  // failure wearing a new name.
+  //
+  // Asserting the 405 is a real check rather than a workaround: it catches a route that quietly
+  // starts accepting a verb nobody designed, and it pins the surface so a future reader does not
+  // assume a read exists because the id is in the path.
+  const flagByKeyGet = await request(
+    anonJar(),
+    "GET",
+    `${FLAGS}/${flagKey}`,
+    undefined,
+    asStaff(token(PREFIX, REAL_SECRET)),
+  );
+  expectStatus(
+    "R1: /internal/feature-flags/{flag_key} is PATCH-only, so a GET is refused rather than routed " +
+      "to something that does not exist",
+    flagByKeyGet,
+    [404, 405],
+  );
+  // Asserted on the MESSAGE rather than on a reason code, because the harness redacts the code and a
+  // code this probe cannot read is not evidence. The message is the observable, and it is the one
+  // thing that distinguishes "this verb does not exist here" from "this resource does not exist".
+  expect(
+    "R1: and the refusal says the METHOD is not allowed, which is a different answer from a missing " +
+      "resource -- so a client can tell the two apart",
+    typeof flagByKeyGet.payload?.error?.message === "string" &&
+      /method is not allowed/i.test(flagByKeyGet.payload.error.message),
+    `status=${flagByKeyGet.status} message=${probe.brief(flagByKeyGet.payload?.error?.message, 90)}`,
+  );
+
+  // -- R2: read the kill switches ---------------------------------------------------------------
+  const switchRead = await request(
+    anonJar(),
+    "GET",
+    SWITCHES,
+    undefined,
+    asStaff(token(SWITCH_PREFIX, SWITCH_SECRET)),
+  );
+  expectStatus("R2 GET /internal/kill-switches: the collection answers", switchRead, [200], []);
+
+  // -- R3: a grant is created against a REAL organization ----------------------------------------
+  // `SupportGrantBody` is `deny_unknown_fields`, so a stray key is a 422 -- which would be
+  // indistinguishable from a broken route. `ttl_seconds` is required and an expiry is a safety
+  // control, so it gets a real future value rather than being omitted.
+  const grantCreated = await request(
+    anonJar(),
+    "POST",
+    GRANTS,
+    {
+      organization_id: orgA.orgId,
+      reason: "V01 verifying a support grant can still be created and audited",
+      ticket_reference: `V01-${probe.nonce}`,
+      ttl_seconds: 900,
+      capabilities: ["org.lookup"],
+    },
+    {
+      ...asStaff(token(SWITCH_PREFIX, SWITCH_SECRET)),
+      "Idempotency-Key": probe.idempotencyKey("v01-staff-control-grant"),
+    },
+  );
+  const grantRow = (
+    await d1Rows(
+      `SELECT grant_id, organization_id, version, revoked_at FROM support_grants
+        WHERE ticket_reference = 'V01-${probe.nonce}'`,
+      "V01 reading the support grant the control created",
+    )
+  )[0];
+  expect(
+    "R3 POST /internal/support-grants: a legitimate grant is accepted AND the row names the real org",
+    (grantCreated.status === 200 || grantCreated.status === 201) &&
+      Boolean(grantRow) &&
+      grantRow.organization_id === orgA.orgId,
+    `status=${grantCreated.status} row=${JSON.stringify(grantRow)?.slice(0, 150)} ` +
+      `body=${probe.brief(grantCreated.payload, 140)}`,
+  );
+
+  // -- R4: and it can be revoked -----------------------------------------------------------------
+  let grantRevoked = { status: 0, payload: { blocked: true } };
+  if (grantRow) {
+    grantRevoked = await request(
+      anonJar(),
+      "POST",
+      `${GRANTS}/${grantRow.grant_id}/revoke`,
+      { version: grantRow.version, reason: "V01 revoking the grant it just created" },
+      {
+        ...asStaff(token(SWITCH_PREFIX, SWITCH_SECRET)),
+        "Idempotency-Key": probe.idempotencyKey("v01-staff-control-grant-revoke"),
+      },
+    );
+  }
+  const afterRevoke = grantRow
+    ? (
+        await d1Rows(
+          `SELECT grant_id, version, revoked_at, revoke_reason FROM support_grants
+            WHERE grant_id = '${grantRow.grant_id}'`,
+          "V01 reading the support grant after a legitimate revoke",
+        )
+      )[0]
+    : null;
+  expect(
+    "R4 POST /internal/support-grants/{id}/revoke: a legitimate revoke is accepted AND the stored " +
+      "grant is no longer usable",
+    (grantRevoked.status === 200 || grantRevoked.status === 201) &&
+      Boolean(afterRevoke) &&
+      // `support_grants` has NO `status` column -- it carries `revoked_at` and `revoke_reason`. The
+      // first version of this assertion compared a `status` that does not exist, so SQLite refused
+      // the whole query and the probe died with a harness failure rather than a verdict. "No longer
+      // usable" is read from `revoked_at` becoming non-null, which is the durable fact.
+      afterRevoke.revoked_at !== null &&
+      afterRevoke.version === (grantRow?.version ?? 0) + 1,
+    `status=${grantRevoked.status} before=${JSON.stringify(grantRow)} after=${JSON.stringify(afterRevoke)} ` +
+      `body=${probe.brief(grantRevoked.payload, 140)}`,
+  );
+
+  // -- R5: the ADR 0007 MUST, on grants specifically ---------------------------------------------
+  // Read out of the ROWS, because a batch aborting on its audit insert and a batch that wrote no
+  // audit row look identical from the outside -- and this round proved that the difference is the
+  // whole defect.
+  const grantEvents =
+    (await d1Rows(
+      `SELECT action, actor_type FROM security_events
+        WHERE action LIKE 'support_grant.%' ORDER BY created_at`,
+      "V01 reading the audit rows a support grant must produce",
+    )) ?? [];
+  const grantWriteSucceeded =
+    (grantCreated.status === 200 || grantCreated.status === 201) &&
+    (grantRevoked.status === 200 || grantRevoked.status === 201);
+  const distinctActions = new Set(grantEvents.map((e) => e.action));
+  expect(
+    "R5: support-grant creation and revocation EACH wrote a security_events row, which is ADR 0007's " +
+      "MUST stated for grants specifically",
+    grantWriteSucceeded
+      ? grantEvents.length === 2 && distinctActions.size === 2
+      : grantEvents.length === distinctActions.size,
+    `grantCreated=${grantCreated.status} grantRevoked=${grantRevoked.status} ` +
+      `rows=${grantEvents.length} distinctActions=${JSON.stringify([...distinctActions])}`,
+  );
+  expect(
+    "R5: and every one of those rows is attributed to a STAFF actor, not to a customer principal",
+    grantEvents.every((e) => e.actor_type === "staff"),
+    `actorTypes=${JSON.stringify([...new Set(grantEvents.map((e) => e.actor_type))])}`,
   );
 
   probe.stage = "done";

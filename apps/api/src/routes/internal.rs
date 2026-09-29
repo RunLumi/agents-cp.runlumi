@@ -803,6 +803,12 @@ pub async fn create_grant(
         database,
         &context,
         None,
+        // V01-038. A staff member is the actor, and a staff actor is NOT a `Principal` -- ADR 0007
+        // forbids expressing one as the other. Passing `None` for the principal therefore recorded
+        // this CUSTOMER-VISIBLE row as `actor_type = 'system'` with a NULL `actor_id`, which is exactly
+        // what the requirement exists to prevent: the customer's own audit view showed an
+        // unattributable action on their own organization.
+        Some(staff.actor.staff_principal_id.as_str()),
         Some(organization.as_str()),
         SecurityEventId::generate(),
         "support_grant.issued",
@@ -899,6 +905,12 @@ pub async fn revoke_grant(
         database,
         &context,
         None,
+        // V01-038. A staff member is the actor, and a staff actor is NOT a `Principal` -- ADR 0007
+        // forbids expressing one as the other. Passing `None` for the principal therefore recorded
+        // this CUSTOMER-VISIBLE row as `actor_type = 'system'` with a NULL `actor_id`, which is exactly
+        // what the requirement exists to prevent: the customer's own audit view showed an
+        // unattributable action on their own organization.
+        Some(staff.actor.staff_principal_id.as_str()),
         Some(existing.organization_id.as_str()),
         SecurityEventId::generate(),
         "support_grant.revoked",

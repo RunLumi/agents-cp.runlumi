@@ -346,6 +346,7 @@ pub async fn resolve_approval(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(&org_id),
         SecurityEventId::new(security_event_id),
         "approval.resolved.v1",

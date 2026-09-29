@@ -3679,6 +3679,7 @@ fn security_statement(
         database,
         context,
         Some(principal),
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         action,
@@ -3701,6 +3702,7 @@ fn device_audit(
     crate::routes::support::security_event_statement_with_context(
         database,
         context,
+        None,
         None,
         Some(&access.device.org_id),
         SecurityEventId::generate(),

@@ -432,6 +432,7 @@ fn budget_audit(
         database,
         context,
         principal,
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         action,
@@ -462,6 +463,7 @@ fn device_audit(
     security_event_statement_with_context(
         database,
         context,
+        None,
         None,
         Some(org_id),
         SecurityEventId::generate(),
@@ -1687,6 +1689,7 @@ pub async fn put_rate_limit(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(&org_id),
         SecurityEventId::generate(),
         "rate_limit_policy.updated.v1",
@@ -1806,6 +1809,7 @@ async fn record_budget_denial(
         security_event_statement_with_context(
             database,
             context,
+            None,
             None,
             Some(org_id),
             SecurityEventId::generate(),
