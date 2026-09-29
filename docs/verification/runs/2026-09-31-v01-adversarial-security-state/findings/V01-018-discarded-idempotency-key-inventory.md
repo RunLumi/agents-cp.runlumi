@@ -2,8 +2,15 @@
 
 ## Status
 
-**scope established by measurement; 2 of the 3 sites CLOSED, 1 blocked on V01-020.** Site 3 had no gate
-at all until now and is repaired and proven.
+**the class is CLOSED — 3 of 3 repaired, and 0 discards are now structurally impossible.** Site 3 had
+no gate at all until now; site 1 was recorded as "blocked on V01-020", which was the wrong diagnosis
+and is corrected in V01-015.
+
+**81 call sites across 20 modules; 0 discard the key.** That number is now *enforced* rather than
+enumerated: `usage.rs`'s `v01_018_no_discarded_idempotency_key` fails the build if any line in
+`src/routes` *begins* with `idempotency_key(`, reads the directory so new modules are covered, and
+asserts its own vacuity (>= 20 modules, >= 70 call sites) **before** reporting a verdict — because a
+scan that read nothing would otherwise pass and claim this class closed while checking nothing.
 
 ## The count, and the correction that produced it
 
@@ -77,10 +84,16 @@ caller something false about an operation that already succeeded.
 
 ## Regression gap
 
-Sites 1 and 2 are asserted by `verify:device-idempotency` (V01-015), each with a **different-key
-positive control** so that "the route refuses repeats for an unrelated reason" cannot pass as
-"the key was honoured". Site 3 has **no gate at all**, and the only reason it is named is that the
-corrected inventory found it.
+**None remaining.** Sites 1 and 2 are asserted by `verify:device-idempotency` (V01-015) — **23/23** —
+each with a **different-key positive control** so that "the route refuses repeats for an unrelated
+reason" cannot pass as "the key was honoured". Site 3 is asserted by `verify:idempotency` — **47/47**
+— which is the only gate for `delete_project_binding`, whose replay used to answer `404` for a delete
+that had already succeeded, indistinguishable from a different-key call.
+
+And the *class* is asserted structurally, which is the stronger of the two: a new route that
+requires a key and drops it fails a unit test rather than waiting for a probe to be written for it.
+That is the difference between an inventory and an invariant, and this class was an inventory for the
+whole campaign before today.
 
 ## The repair is already the codebase's own convention
 

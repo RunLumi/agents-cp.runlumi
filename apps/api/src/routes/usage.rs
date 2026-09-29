@@ -1397,3 +1397,119 @@ mod tests {
         assert!(value.get("provider_usage").is_none());
     }
 }
+
+#[cfg(test)]
+mod v01_018_no_discarded_idempotency_key {
+    //! A route that requires an `Idempotency-Key` and then discards it never replays its first
+    //! response, and the defect is invisible in stored state.
+    //!
+    //! V01-018 enumerated this class by measurement and found **three** sites — after a first
+    //! inventory that said 76 and was wrong, because the pattern it matched
+    //! (`idempotency_key(&headers, &context)?;`) is a *substring* of the correct form
+    //! (`let key = idempotency_key(..)?;`). A false scope claim is worse than none, because it
+    //! invites a sweep of sites that are already right while the three that are broken get lost.
+    //!
+    //! So this is a **statement** test, not a substring test, and it reads the directory rather than
+    //! a fixed list of files, so a route module added later is covered without anyone editing this.
+    //!
+    //! The sites it caught were protected by *incidental state guards* — the operations are
+    //! naturally idempotent and only the response is wrong — which is the dangerous shape: a gate
+    //! that asks "did the state change twice?" passes, and only a replay check fails. The last of
+    //! the three, `approve_enrollment`, answered `409 "The enrollment is no longer pending."` to a
+    //! retry, and its **different-key positive control answered the identical 409** — which is what
+    //! proved the key was irrelevant rather than the state having moved on.
+    //!
+    //! The two counts at the end are the point of the test's own vacuity: a scan that reads no
+    //! files, or that finds no call sites, would otherwise pass silently and report the class
+    //! closed while checking nothing.
+
+    use std::fs;
+    use std::path::Path;
+
+    fn route_sources() -> Vec<(String, String)> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes");
+        let mut out = Vec::new();
+        for entry in fs::read_dir(&dir).expect("the routes directory is readable") {
+            let path = entry.expect("a readable directory entry").path();
+            if path.extension().is_none_or(|ext| ext != "rs") {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a UTF-8 file name")
+                .to_string();
+            out.push((
+                name,
+                fs::read_to_string(&path).expect("a readable route source"),
+            ));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// A discard is a call whose value is dropped: the line *begins* with the call, so the correct
+    /// `let key = …` form does not match. This is the distinction V01-018's bad inventory missed.
+    fn is_discarded(line: &str) -> bool {
+        let trimmed = line.trim();
+        trimmed.starts_with("idempotency_key(") && !trimmed.starts_with("let ")
+    }
+
+    #[test]
+    fn no_route_drops_the_idempotency_key_it_requires() {
+        let sources = route_sources();
+        // Vacuity guards, asserted BEFORE the verdict. A scan that read nothing, or that found no
+        // call sites at all, would otherwise "pass" and claim the class is closed.
+        assert!(
+            sources.len() >= 20,
+            "only {} route modules were scanned; the directory read is broken, so the verdict below \
+             would describe nothing",
+            sources.len()
+        );
+
+        let mut call_sites = 0usize;
+        let mut discards: Vec<String> = Vec::new();
+        for (name, source) in &sources {
+            for (index, line) in source.lines().enumerate() {
+                if !line.contains("idempotency_key(") {
+                    continue;
+                }
+                call_sites += 1;
+                if is_discarded(line) {
+                    discards.push(format!("{name}:{}", index + 1));
+                }
+            }
+        }
+        assert!(
+            call_sites >= 70,
+            "only {call_sites} `idempotency_key` call site(s) were found; the pattern is stale, so a \
+             clean result would mean the scan stopped matching rather than that the class is closed"
+        );
+        assert!(
+            discards.is_empty(),
+            "{} route(s) require an `Idempotency-Key` and discard it, so a retry cannot be told \
+             from a first attempt: {}. A client that times out and retries gets an answer about a \
+             request that already succeeded. Wire the route through `prepare_scoped_mutation` and \
+             `commit_scoped_mutation`, which is what the other sites already do.",
+            discards.len(),
+            discards.join(", ")
+        );
+    }
+
+    #[test]
+    fn the_statement_test_does_not_match_the_correct_form() {
+        // The exact mistake V01-018's first inventory made: `idempotency_key(&headers, &context)?;`
+        // is a substring of the line that binds the key, so a substring search counts 76 sites
+        // where there are 3. If this test ever passes, the scan above is matching fragments again.
+        assert!(!is_discarded(
+            "    let key = idempotency_key(&headers, &context)?;"
+        ));
+        assert!(!is_discarded(
+            "    let key = idempotency_key(&headers, &context).map_err(|e| e)?;"
+        ));
+        assert!(is_discarded("    idempotency_key(&headers, &context)?;"));
+        assert!(is_discarded(
+            "        idempotency_key(&headers, &context)?;"
+        ));
+    }
+}

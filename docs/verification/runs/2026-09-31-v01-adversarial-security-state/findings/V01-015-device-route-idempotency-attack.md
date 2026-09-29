@@ -242,3 +242,162 @@ by the compiler**: the signature states it, so the next route to hit it finds ou
 bodyless limit was **undocumented and discovered through production behaviour**. A shape a helper
 cannot express should be a shape it rejects; a shape it mishandles is a defect whether or not anyone
 has reached it yet.
+
+---
+
+# Site 1 reopened — the diagnosis was wrong, and it was wrong in the way that hid the defect
+
+The section above records site 1 as **"OPEN, and it is a shape limit, not an oversight"**, and blames
+`commit_scoped_mutation` requiring the stored success before the write. **That diagnosis is falsified
+by the route's own source**, and it mattered because it converted a real defect into a blocked one.
+
+## Pre-fix evidence (recorded before any change)
+
+`pnpm verify:device-idempotency` → **21/23, exit 1**, with exactly two failures, both on
+`approve_enrollment`:
+
+```
+FAIL  V01-015: replaying the approval on the SAME key replays the FIRST response, status and body alike
+      first  status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":...
+      replay status=409 body={"error":{"code":"conflict","message":"The enrollment is no longer pending.",
+              "details":{"reason":"enrollment_expired"}}}
+
+FAIL  the two outcomes are distinguishable: the replay and the different-key call do not both answer
+      the same thing, or the route is refusing repeats for a reason unrelated to the key
+      replay=409/enrollment_expired  vs  different-key=409/enrollment_expired
+      audit_events after replay=1  after different key=1
+```
+
+The second failure is the one that settles it, and it is the positive control doing exactly its job:
+**the replay and a genuinely new request on a different key answer the identical thing.**
+
+## Root cause — the route reads the key and throws it away
+
+`apps/api/src/routes/devices.rs`, `approve_enrollment`:
+
+```rust
+idempotency_key(&headers, &context)?;                      // <- required, value discarded
+...
+if EnrollmentStatus::parse(&enrollment.status) != Some(EnrollmentStatus::Pending) {
+    return Err(denial(&context, ApiErrorCode::Conflict, "enrollment_expired", ...));
+}
+```
+
+The key is validated and its value is never bound to anything. There is no `lookup_mutation`, no
+claim, and no completion record. **The route never attempts a replay**, so no helper shape is
+reached and none is the obstacle.
+
+That makes this the **same defect V01-009 found in four other modules** — *requires an
+`Idempotency-Key`, then ignores it* — on a fifth route, and it is a member of a family this campaign
+already repaired twice. The intended behaviour is not in doubt, so this is an implementation defect
+and not a contract question.
+
+**The stored state is correct**: one device, one audit event, before and after both the replay and
+the different-key call. So nothing is duplicated and no money moves. What is broken is the response
+a retrying client receives:
+
+> A device enrollment is approved, the response is lost in a network timeout, the client retries with
+> the same key — and gets **`409`**. The device exists, but the client is told its enrollment is
+> "no longer pending" and never learns the device id it needs for every subsequent call.
+
+The `reason` is also wrong on its own terms: `enrollment_expired` for an enrollment that was
+**approved** two milliseconds earlier. The message is honest; the machine-readable reason is not, and
+the objective requires stable JSON error codes a client can branch on.
+
+## Why the earlier reading was wrong, and the shape of the error
+
+The earlier note reasoned from `commit_scoped_mutation`'s signature: it takes the success as an
+input, so a body that requires a read-back cannot be supplied. That reasoning was sound **and
+irrelevant**, because it assumed the route was wired to the helper at all. It was not. A conclusion
+drawn from a helper's contract, about a call site that never calls the helper, is not a smaller
+finding — it is a **finding about the wrong file**, and it reported a limitation where the truth was an
+omission.
+
+The generalisable rule, and it is the fourth time this campaign has produced one of this family:
+
+> **Before blaming a helper's shape, check that the route calls it.** A documented limit found by
+> reading a signature is a hypothesis; a route that never invokes the helper cannot be blocked by it.
+> The probe already had the measurement that settled it — the different-key control answering
+> identically — and it was sitting in the failing output while the record called the case BLOCKED.
+
+## The fix, and why the projection is safe
+
+`approve_enrollment` gets the same three steps as the other 27 sites: look the claim up **before** the
+pending check, claim it, and write the completion **in the same batch** as the device insert.
+
+The batch requirement is what forces the body to be known *before* the write, which is the concern
+V01-020 recorded. It is answerable from the schema rather than by guessing:
+
+| `device_json` field | source | in `INSERT_DEVICE_SQL`'s binds? |
+|---|---|---|
+| `id`, `org_id`, `name`, `platform`, `app_version`, `enrolled_by_user_id`, `created_at` | the 9 bound values | **yes** |
+| `status` | the SQL literal `'active'` — the column is `NOT NULL` with **no DEFAULT** | literal |
+| `capabilities`, `last_seen_at` | nullable, **no DEFAULT**, so `NULL` on insert | absent → `NULL` |
+
+So every field the projection exposes is either one of the values already being bound or a literal in
+the statement that inserts the row. Nothing is duplicated from the DDL's defaults, because the DDL has
+none to duplicate on this path.
+
+**And the drift risk is already instrumented.** The gate's existing assertion — *the replay's body
+equals the first body's, ignoring `request_id`* — is precisely a detector for a projection that
+drifts from the row. It is currently failing for a different reason; once the route replays, it goes
+green and turns red the day someone adds a `DEFAULT` to a column this projection assumes. The
+assertion that was written to be a drift check was, until now, blocked by the very drift it would
+have caught.
+
+## Site 1 — CLOSED
+
+`pnpm verify:device-idempotency` → **23/23, exit 0**, with the attack unchanged. The measured sheet
+is now:
+
+| call | before | after |
+|---|---|---|
+| first approval | `201` + device body | `201` + device body |
+| **replay, same key** | **`409 enrollment_expired`** | **`201`, same device id, same `created_at`** |
+| different key | `409 enrollment_expired` | `409 enrollment_expired` |
+| stored state | 1 device, 1 audit event | 1 device, 1 audit event |
+
+The two `409`s being *different* is the whole proof. The replay is a `201` **because of the key**, and
+the different-key call is still a `409` **because of the state** — so neither answer is a side effect
+of the other. Before the repair both were `409` for the same reason, and the positive control was
+what said so.
+
+The identical `created_at` on the replay is the **projection-drift detector** working: the stored
+body is built from the values the same batch inserts, and the replay returns it byte for byte. If the
+projection ever stops matching the row, that assertion goes red.
+
+### The repair
+
+- `let key = idempotency_key(..)?;` — the value is bound instead of dropped.
+- `prepare_scoped_mutation(..)` with a **path template** (`APPROVE_ENROLLMENT_PATH`), matching
+  `REVOKE_DEVICE_PATH`'s reasoning: the claim's scope must not vary with the enrollment id, or a
+  retry would miss its own claim.
+- The claim is taken **after** authorization and the enrollment's org check, and **before** the
+  pending-status check — which is the actual repair. The pending check is what used to stand where
+  the replay belonged.
+- `commit_scoped_mutation(..)` writes the claim and the device **in one batch**, so a retry can
+  never observe one without the other.
+- The `find_device` read-back is **gone**; the body is built by `approved_device_record` from the
+  same values the insert binds, and served by the same `device_json`.
+
+`replay_response` needed no change here: `201` has a body, and V01-015's own bodyless-status repair
+covered `revoke_device`'s `204`.
+
+### Regression coverage, and the class is now enforced rather than enumerated
+
+1. **Runtime:** the gate's replay-and-different-key pair, above. It grades on stored state *and* on
+   the replayed response.
+2. **Structural, and it closes the class rather than this route:** `usage.rs`'s
+   `v01_018_no_discarded_idempotency_key` scans **every** file in `src/routes` and fails if any line
+   *begins* with `idempotency_key(` — that is, a call whose value is dropped. It is a **statement**
+   test, because V01-018's first inventory matched a substring and reported 76 sites where there
+   were 3.
+   - it reads the **directory**, so a module added later is covered without editing the test;
+   - it carries **two vacuity guards asserted before the verdict** — at least 20 modules and at
+     least 70 call sites — so a scan that read nothing, or whose pattern went stale, fails loudly
+     instead of reporting the class closed;
+   - a second test pins the distinction itself (`let key = …` is not a discard), so the matcher
+     cannot silently regress into matching fragments.
+
+Current count: **81 call sites across 20 modules, 0 discards.** The class that was three sites is
+now one that cannot grow back without failing a unit test.

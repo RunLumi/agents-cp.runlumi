@@ -2,8 +2,16 @@
 
 ## Status
 
-**found while repairing V01-015; not repaired.** One defect it caused is closed (`replay_response`
-and a bodyless `204`); the shape limit itself stands, and it is a design question rather than a bug.
+**its only known instance is RESOLVED, and the premise behind it was falsified.**
+
+The shape limit itself still stands and is still a design question: `commit_scoped_mutation` takes
+the stored success before the batch, so a body that must be read back cannot be supplied directly.
+But it was recorded as the reason `approve_enrollment` was unrepairable, and **that reason was
+wrong** — see the addendum below. The route never called the helper at all.
+
+Resolved so far: `replay_response` and a bodyless `204` (V01-015), and `approve_enrollment`
+(V01-015 site 1). What remains open is whether *any other* route needs a read-back — and the honest
+answer is that **none is known**, which is not the same as "none exists".
 
 ## The measurement
 
@@ -83,3 +91,70 @@ later functions.
 (V01-018), and one of the three has this shape. Whether other routes are unwired *because* of the
 limit or simply not yet migrated is not something I have measured, and this record does not claim it
 is. The measured facts are the 27 and the 0, and the one site I proved by trying.
+
+---
+
+# Addendum — the limit was real, and it was never the reason
+
+`approve_enrollment` is repaired. The route's body is no longer read back, and the reason is worth
+separating from the finding above, because the finding was about the **helper** and the reason turned
+out to be about the **handler**.
+
+## The limit did not apply, because the helper was never called
+
+This record, and V01-015's original section, both concluded that `approve_enrollment` was blocked
+because its body is a projection of the row its own commit inserts. Reading `commit_scoped_mutation`'s
+signature supports that — it takes `success: StoredSuccess` before it runs the batch.
+
+What neither record checked is whether the route **called it**. It did not:
+
+```rust
+idempotency_key(&headers, &context)?;   // required, value bound to nothing
+...
+if EnrollmentStatus::parse(&enrollment.status) != Some(EnrollmentStatus::Pending) {
+    return Err(... "enrollment_expired" ...);
+}
+```
+
+No `prepare_scoped_mutation`, no claim, no completion record. The key was validated and dropped, and
+the pending check refused the retry. So there was no helper to be limited by, and the "shape limit"
+was a statement about a call that did not exist.
+
+**The measurement that settled it was already in the failing output.** `verify:device-idempotency`'s
+positive control — the *different-key* call — answered the **identical** `409`. Two requests with
+different keys getting the same answer is proof that the key is irrelevant, which is incompatible
+with any account in which the key is being honoured through a stored body.
+
+## What the limit actually costs, now that it is stated correctly
+
+The limit is real and unchanged: a route whose honest body is a projection of the row it writes
+cannot hand that projection to the helper. But `approve_enrollment` was never an instance of it, so
+the limit has **no known instance** — and "no known instance" is a much weaker claim than the one
+this record used to make.
+
+The repair route that *was* available, and was taken, uses the limit rather than fighting it:
+
+- the claim and the device row are written in **one batch**, so the stored success must be known
+  before the write — the limit's real constraint;
+- the body is built by `approved_device_record` from **the same values the insert binds**, plus the
+  statement's one literal, so nothing is duplicated from DDL defaults;
+- the read-back of the row the batch had just written is **gone**, so the route has one fewer query
+  than before and no window in which the claim and the row could disagree.
+
+That is the general shape for any future route in this position: **make the response constructible
+from the values the statement binds.** If a column is added to the table with a `DEFAULT` and is not
+bound, the projection drifts — and the drift is not silent, because the assertion *"a replayed
+approval equals the first approval, ignoring `request_id`"* is exactly that detector. It was written
+to be one, and it was blocked by the very drift it was written to catch.
+
+## The generalisable lesson
+
+> **Before blaming a helper's shape, check that the route calls it.** A limit found by reading a
+> signature is a hypothesis about a call site; if the call site does not exist, the limit explains
+> nothing and will be filed as "blocked" — which is how a real, five-minute omission sat in this
+> campaign's record as an architectural question for the better part of a day.
+
+The cheaper discipline is the one that would have caught it in one line: **a positive control.** One
+different-key call would have shown two identical `409`s and ended the "shape limit" theory
+immediately. It was in the probe the whole time, in the failing output, and the diagnosis was written
+from the signature instead.
