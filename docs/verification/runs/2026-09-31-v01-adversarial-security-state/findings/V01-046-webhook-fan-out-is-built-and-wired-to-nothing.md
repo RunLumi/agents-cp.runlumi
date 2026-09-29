@@ -90,6 +90,21 @@ shows replaying the control's delivery returns 201, so the operator's remedy for
 reachable — which is what makes the finding *"no event is ever fanned out"* rather than *"the
 recovery path is broken"*, and the two need different fixes.
 
+## A documented command that could not start
+
+`AGENTS.md` and this record name `pnpm verify:webhook-fanout`. The script was added to
+`apps/api/package.json` and the **root** forwarder was not, so the documented command died with
+`ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "verify:webhook-fanout" not found` — **exit 254**, which
+reads like a failing gate rather than a command that has never worked.
+
+This is the **second** time in this campaign. `verify:filter-tenancy` died on `ENOENT` from
+`mkdtemp` for the same reason, and its baseline read a recorded 65/65 through a harness that took a
+different branch in `setup()`. The rule is now the standing one: **a gate is not a gate until the
+command in the documentation can start.** A command that cannot start provides no evidence to anyone
+who follows the documentation, and a clean exit 0 from the script *bypassing* pnpm is not a
+substitute — the run I did that proved the script worked also proved the documented command was
+broken, and the two facts were three lines apart.
+
 ## Six fixture faults, and the shape they share
 
 Every one was caught by a control or by reading a rule, and none by reasoning about the product:

@@ -52,6 +52,7 @@
     "schema:bind-count": "node apps/api/scripts/p09-bind-count-scan.mjs",
     "test:sentry-bridge": "node --test apps/api/scripts/sentry-report-filter.test.mjs",
     "verify:staff-credential": "pnpm --filter @runlumi/agents-cp-api verify:staff-credential",
+    "verify:webhook-fanout": "pnpm --filter @runlumi/agents-cp-api verify:webhook-fanout",
     "verify:secret-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:secret-tenancy",
     "verify:path-id-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:path-id-tenancy"
   },
