@@ -1209,6 +1209,140 @@ await runProbe("V01 privilege-escalation", async (probe) => {
       `status=${t3.status} reason=${t3.payload?.error?.details?.reason}`,
     );
 
+    // --- T4: requirement 2's OTHER half -- a target that EXISTS but is not active ------
+    //
+    // T2 proves the route refuses a target that does not exist in this org. That leaves the other half
+    // of "an ACTIVE member" with no handler-level evidence: a membership that is present, belongs to
+    // this org, and has been REMOVED. So Carol is invited, accepted, removed, and then targeted.
+    const carol = await probe.authenticatedUser("Carol");
+    await probe.inviteAndAccept(alice, carol, orgA.orgId, "member");
+    const carolInA = await membershipIdOf(
+      orgA.orgId,
+      carol.email,
+      "V01 Carol's membership in org A",
+    );
+    expect(
+      "Carol is an active member of org A before she is removed",
+      carolInA?.status === "active",
+      JSON.stringify(carolInA),
+    );
+    if (carolInA) {
+      const removal = await request(
+        alice.jar,
+        "DELETE",
+        `/api/v1/orgs/${orgA.orgId}/members/${carolInA.membership_id}`,
+        undefined,
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-carol-${probe.nonce}`) },
+      );
+      expect(
+        "the fixture can remove a member, so T4's refusal is about the removal and not a route that " +
+          "refuses every removal",
+        removal.status >= 200 && removal.status < 300,
+        `status=${removal.status} body=${JSON.stringify(removal.payload ?? {}).slice(0, 160)}`,
+      );
+      const carolAfter = await membershipIdOf(orgA.orgId, carol.email, "V01 Carol after removal");
+      expect(
+        "Carol's membership is stored as REMOVED, which is the precondition T4 depends on",
+        carolAfter?.status === "removed",
+        `after=${JSON.stringify(carolAfter)}`,
+      );
+      const aliceGrantT4 = await freshReauth(alice.jar, "alice-t4");
+      const t4 = await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+        { target_membership_id: carolInA.membership_id, ...(aliceGrantT4 ?? {}) },
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t4-${probe.nonce}`) },
+      );
+      attacks.push({
+        class_: "ownership-transfer",
+        label: "T4 a REMOVED member of this org",
+        status: t4.status,
+        grade: t4.status >= 200 && t4.status < 300 ? "granted" : "refused",
+        reason: t4.payload?.error?.details?.reason,
+      });
+      expect(
+        "T4 ownership cannot be transferred to a member who has been REMOVED (FR-F02-006 requires an " +
+          "ACTIVE target), and the refusal names that rather than blaming the target's existence",
+        !(t4.status >= 200 && t4.status < 300) &&
+          t4.status !== 422 &&
+          t4.payload?.error?.details?.reason === "membership_required",
+        `status=${t4.status} reason=${t4.payload?.error?.details?.reason}`,
+      );
+      // A SEPARATE assertion, and it is the one that carries the invariant. A refusal is a statement
+      // about the request; this is a statement about the organization afterwards. Before V01-032 the
+      // two were the same, because the SQL demoted the owner even when the target was ineligible --
+      // and the refusal still looked correct.
+      expect(
+        "T4 org A still has an active owner after the attempt: the refusal left the ownership of the " +
+          "organization untouched, which a status cannot show",
+        (await orgOwners(orgA.orgId)).some((owner) => owner.role === "owner"),
+        `owners after=${JSON.stringify(await orgOwners(orgA.orgId))}`,
+      );
+    }
+
+    // --- T5: requirement 3's OTHER half -- a grant that is STALE, not absent ----------
+    //
+    // T3 uses a grant that never existed, which is a weaker condition than a stale one. The product
+    // enforces `expires_at > now` in CONSUME_REAUTH_SQL, and that TTL is a real requirement, so it gets
+    // its own case.
+    //
+    // The staleness is produced by SETTING UP A FIXTURE: the grant is issued by the real endpoint and
+    // then its expiry is moved into the past in D1. That is arranging the situation, not weakening the
+    // product -- the TTL check under test is untouched, and it is the check being exercised. The write
+    // is asserted to have touched exactly one row and the row is read BACK, because a fixture that
+    // silently did nothing would leave this case testing a fresh grant and passing for the wrong reason.
+    //
+    // The write is asserted by READING THE ROW BACK rather than by a change count, and that is not a
+    // shortcut. `wrangler d1 execute --json` does not emit `meta.changes` for an UPDATE -- the whole
+    // payload is `{"results": [], "success": true, "meta": {"duration": 0}}` -- so a helper reporting
+    // `changes` would return 0 for a write that succeeded, and this case would have failed while the
+    // fixture was in exactly the state it claims. Asserting the EFFECT is the stronger assertion
+    // anyway: it is what the product will read.
+    const staleGrant = await freshReauth(alice.jar, "alice-stale");
+    if (staleGrant) {
+      await d1Rows(
+        `UPDATE reauthentication_grants SET expires_at = '2020-01-01T00:00:00.000Z' ` +
+          `WHERE grant_id = '${staleGrant.reauth_grant_id}'`,
+        "V01 age one re-auth grant into the past",
+      );
+      const grantRow = await d1Rows(
+        `SELECT expires_at, consumed_at FROM reauthentication_grants ` +
+          `WHERE grant_id = '${staleGrant.reauth_grant_id}'`,
+        "V01 the aged grant read back",
+      );
+      expect(
+        "the grant really is unconsumed and already expired, read back from D1 rather than assumed -- " +
+          "this is the assertion that says T5 attacked what it claims to have attacked",
+        grantRow.length === 1 &&
+          grantRow[0].consumed_at === null &&
+          String(grantRow[0].expires_at) < "2026-01-01",
+        `row=${JSON.stringify(grantRow)}`,
+      );
+      const t5 = await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+        { target_membership_id: malloryInA.membership_id, ...staleGrant },
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t5-${probe.nonce}`) },
+      );
+      attacks.push({
+        class_: "ownership-transfer",
+        label: "T5 a valid transfer with an EXPIRED re-auth grant",
+        status: t5.status,
+        grade: t5.status >= 200 && t5.status < 300 ? "granted" : "refused",
+        reason: t5.payload?.error?.details?.reason,
+      });
+      expect(
+        "T5 a REAL grant that has EXPIRED is refused (FR-F02-006 requires RECENT re-authentication, and " +
+          "recency is the part T3 could not test)",
+        !(t5.status >= 200 && t5.status < 300) &&
+          t5.status !== 422 &&
+          t5.payload?.error?.details?.reason === "reauthentication_required",
+        `status=${t5.status} reason=${t5.payload?.error?.details?.reason}`,
+      );
+    }
+
     // --- control: all four requirements met, so the route WORKS --------------------
     const aliceGrant = await freshReauth(alice.jar, "alice-control");
     const control = aliceGrant

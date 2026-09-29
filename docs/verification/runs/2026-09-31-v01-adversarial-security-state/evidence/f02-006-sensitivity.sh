@@ -17,6 +17,19 @@
 #          -> T3, a transfer with no grant, SUCCEEDS. Detected by the status and by the specific
 #             `reauthentication_required` reason.
 #
+#   M4  the handler stops requiring the target to be ACTIVE
+#          -> T4, a transfer to a REMOVED member of the same org. Before V01-032 the transfer was still
+#             refused, but by the SQL rather than by the handler, and the SQL had already DEMOTED the
+#             current owner: the run's own database came back with `active owners: 0`. That is what
+#             V01-032 fixed, and after the fix this mutation leaves the owner in place -- so the two
+#             layers are now independent and this case detects the handler layer alone.
+#
+#   M5  `CONSUME_REAUTH_SQL` drops its `expires_at > ?6` predicate, with `?6` still bound
+#          -> T5, a transfer carrying a REAL but EXPIRED grant, SUCCEEDS. `?6` is also the value
+#             written by `SET consumed_at = ?6`, so the placeholder and the bind count both survive and
+#             `schema:bind-count` stays green. That is the only way to test the TTL without changing
+#             the statement's shape.
+#
 #   M3  `TRANSFER_OWNERSHIP_SQL` stops filtering on `org_id`
 #          -> **a deliberate KNOWN MISSED, and the finding is the point.** The handler looks the target
 #             up with `find_membership_by_id(&org_id, ..)` and returns 404 *before* the UPDATE runs, so
@@ -42,6 +55,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
 ORGS="$ROOT/apps/api/src/repositories/organizations.rs"
+IDENTITY="$ROOT/apps/api/src/repositories/identity.rs"
 ROUTES="$ROOT/apps/api/src/routes/organizations.rs"
 PROBE="apps/api/scripts/v01-privilege-escalation-probe.mjs"
 PROBE_ENV="V01_ESC_PERSIST_TO"
@@ -56,7 +70,7 @@ KNOWN_MISSED=()
 
 restore() {
   local status=$?
-  for pair in "v01-f0206-orgs.rs:$ORGS" "v01-f0206-routes.rs:$ROUTES"; do
+  for pair in "v01-f0206-orgs.rs:$ORGS" "v01-f0206-routes.rs:$ROUTES" "v01-f0206-identity.rs:$IDENTITY"; do
     local snap="$ROOT/target/${pair%%:*}" file="${pair##*:}"
     if [[ -f "$snap" ]]; then
       cp "$snap" "$file"
@@ -83,7 +97,7 @@ restore() {
 trap restore EXIT INT TERM HUP
 
 assert_clean() {
-  if ! git -C "$ROOT" diff --quiet -- "$ORGS" "$ROUTES"; then
+  if ! git -C "$ROOT" diff --quiet -- "$ORGS" "$ROUTES" "$IDENTITY"; then
     echo "REFUSING TO START: one of the files this script mutates already differs from HEAD."
     echo "An independent reference is the only thing that stops a fault already present when the"
     echo "snapshot is taken from being laundered into the baseline."
@@ -130,7 +144,7 @@ PY
 undo() {
   cp "$ROOT/target/v01-f0206-$1.orig" "$2"
   rm -f "$ROOT/target/v01-f0206-$1.orig"
-  if ! git -C "$ROOT" diff --quiet -- "$ORGS" "$ROUTES"; then
+  if ! git -C "$ROOT" diff --quiet -- "$ORGS" "$ROUTES" "$IDENTITY"; then
     echo "$1: THE SOURCE STILL DIFFERS FROM HEAD"
     exit 1
   fi
@@ -241,6 +255,65 @@ else
 fi
 VERDICTS+=("M3:$M3_RESULT")
 undo orgs "$ORGS"
+
+# --- M4 ------------------------------------------------------------------------
+apply routes "$ROUTES" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); s = p.read_text()
+old = """    if target.status != \"active\" {"""
+new = """    if false && target.status != \"active\" {"""
+assert s.count(old) == 1, "the active-target check is not where the mutation expects it"
+p.write_text(s.replace(old, new, 1))
+print("M4 applied: the target no longer has to be active")
+'
+build_fresh
+run_probe m4
+echo
+echo "=== M4: a transfer to a REMOVED member ==="
+grep -E "cases hold" "$WORK/m4.log" | cut -c1-80 || true
+grep -E "^  ownership-transfer" "$WORK/m4.log" | cut -c1-95 || true
+M4_EXIT="$(cat "$WORK/m4.exit")"
+if [[ "$M4_EXIT" == "2" ]]; then
+  M4_RESULT=invalid
+elif grep -qE "^  FAIL  T4 ownership cannot be transferred" "$WORK/m4.log"; then
+  echo "M4: DETECTED  (probe exit $M4_EXIT)"
+  M4_RESULT=detected
+else
+  echo "M4: NOT DETECTED  (probe exit $M4_EXIT)"
+  M4_RESULT=missed
+fi
+VERDICTS+=("M4:$M4_RESULT")
+undo routes "$ROUTES"
+
+# --- M5 ------------------------------------------------------------------------
+apply identity "$ROOT/apps/api/src/repositories/identity.rs" '
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); s = p.read_text()
+old = "  AND consumed_at IS NULL\n  AND expires_at > ?6\n"
+new = "  AND consumed_at IS NULL\n"
+assert s.count(old) == 1, "CONSUME_REAUTH_SQL is not where the mutation expects it"
+# ?6 is still bound and still written by SET consumed_at = ?6, so only the TTL predicate goes.
+p.write_text(s.replace(old, new, 1))
+print("M5 applied: CONSUME_REAUTH_SQL no longer checks the grant expiry")
+'
+build_fresh
+run_probe m5
+echo
+echo "=== M5: an EXPIRED re-auth grant ==="
+grep -E "cases hold" "$WORK/m5.log" | cut -c1-80 || true
+grep -E "^  ownership-transfer" "$WORK/m5.log" | cut -c1-95 || true
+M5_EXIT="$(cat "$WORK/m5.exit")"
+if [[ "$M5_EXIT" == "2" ]]; then
+  M5_RESULT=invalid
+elif grep -qE "^  FAIL  T5 a REAL grant that has EXPIRED" "$WORK/m5.log"; then
+  echo "M5: DETECTED  (probe exit $M5_EXIT)"
+  M5_RESULT=detected
+else
+  echo "M5: NOT DETECTED  (probe exit $M5_EXIT)"
+  M5_RESULT=missed
+fi
+VERDICTS+=("M5:$M5_RESULT")
+undo identity "$ROOT/apps/api/src/repositories/identity.rs"
 
 echo
 echo "=== summary ==="
