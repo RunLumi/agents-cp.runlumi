@@ -162,7 +162,7 @@ mod tests {
         ("decode_stored_bytes", "UNTRIAGED"),
         (
             "deny_enrollment_statement",
-            "V01-041, now called by the `deny_enrollment` handler: POST .../enrollments/{id}/deny. A pending enrollment could be approved and never denied, so a human control had an affirmative branch and no negative one.",
+            "UNTRIAGED",
         ),
         ("find_active_credential", "UNTRIAGED"),
         ("find_active_route_version", "UNTRIAGED"),
