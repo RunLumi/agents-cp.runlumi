@@ -1,30 +1,38 @@
+
+> lumi-agents-control-plane@0.0.0 verify:collection-tenancy /Volumes/SSD/agents-cp.runlumi
+> pnpm --filter @runlumi/agents-cp-api verify:collection-tenancy
+
+
+> @runlumi/agents-cp-api@0.0.0 verify:collection-tenancy /Volumes/SSD/agents-cp.runlumi/apps/api
+> node scripts/v01-collection-tenancy-probe.mjs
+
   PASS  fresh D1 applies the full migration ledger  — 21 migration rows
-  PASS  development Worker is healthy  — http://127.0.0.1:57256
-  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-QF1GNC/802eb7123abb5b08e62faf6bf2402a3ce64bbb60-index_bg.wasm is 79s newer than src/repositories/runs.rs
+  PASS  development Worker is healthy  — http://127.0.0.1:51665
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-a10c3y/802eb7123abb5b08e62faf6bf2402a3ce64bbb60-index_bg.wasm is 1651s newer than src/routes/automations.rs
   PASS  every collection route this probe claims to cover is still in the router  — 43 covered, all present
   PASS  every org-scoped GET collection route is either covered here or credited to another gate  — 32 GET collection route(s): 43 covered, 4 credited elsewhere, none missing
   PASS  signup Collection Alice  — status=201
   PASS  verify Collection Alice  — status=200
   PASS  login start Collection Alice  — status=202
   PASS  login complete Collection Alice  — status=200
-  PASS  user Collection Alice has an opaque ID  — usr_3c281267138141b59064a36b32e53665
+  PASS  user Collection Alice has an opaque ID  — usr_f5cf9bb5281546769b3bbdc23cbf3dc7
   PASS  signup Collection Bob  — status=201
   PASS  verify Collection Bob  — status=200
   PASS  login start Collection Bob  — status=202
   PASS  login complete Collection Bob  — status=200
-  PASS  user Collection Bob has an opaque ID  — usr_8db40c8f7c8b48618689d38ec797d602
+  PASS  user Collection Bob has an opaque ID  — usr_41f467a35b924deab38816f6e7f548f2
   PASS  create Collection A  — status=201
-  PASS  Collection A organization ID  — org_d415c565013b3e7ef0b26efb33ff86f6
+  PASS  Collection A organization ID  — org_bdef90fb9995eba79903851d50c62d13
   PASS  create Collection B  — status=201
-  PASS  Collection B organization ID  — org_39c5488c34942c1e7a41e0d7ee66a8aa
-  PASS  CONTROL: Bravo's project was created, or the project needle would be missing  — status=201 id=prj_10589d68a7aa4ebaa3efd24617a9880b body={"archived":false,"created_at":"2026-09-29T03:35:19.666Z","created_by_user_id":"usr_8db40c8f7c8b48618689d38ec797d602","id":"prj_10589d68a7aa
-  PASS  CONTROL: Bravo's agent was created, or the agent needle would be missing  — status=201 id=agd_4b1cc76b521e4d398374a11527a4660f body={"allowed_tool_ids":[],"created_at":"2026-09-29T03:35:19.683Z","default_model_alias":null,"description":null,"id":"agd_4b1cc76b521e4d398374a
+  PASS  Collection B organization ID  — org_70e2eca5a6afcfcd7bc44f7d1dc46d2e
+  PASS  CONTROL: Bravo's project was created, or the project needle would be missing  — status=201 id=prj_1be6fd3fcb9341298be9fd9294a3b1d2 body={"archived":false,"created_at":"2026-09-29T02:59:47.233Z","created_by_user_id":"usr_41f467a35b924deab38816f6e7f548f2","id":"prj_1be6fd3fcb93
+  PASS  CONTROL: Bravo's agent was created, or the agent needle would be missing  — status=201 id=agd_ab0ec0894d474d76bdc2f97627e9ede1 body={"allowed_tool_ids":[],"created_at":"2026-09-29T02:59:47.250Z","default_model_alias":null,"description":null,"id":"agd_ab0ec0894d474d76bdc2f
   PASS  CONTROL: every needle was found in D1, so the leak search below is searching for something  — found org, project, user, agent -- a leak search over an empty needle set finds nothing and reports PASS, which is the most useless outcome this probe could produce
 
-  needles (Bravo): org=org_39c5488c…  project=prj_10589d68…  user=usr_8db40c8f…  agent=agd_4b1cc76b…
-  needle (email fragment): collection-bob-mum4i7r74d5o
+  needles (Bravo): org=org_70e2eca5…  project=prj_1be6fd3f…  user=usr_41f467a3…  agent=agd_ab0ec089…
+  needle (email fragment): collection-bob-mum38ihqhuuw
   ok    /api/v1/orgs/{org_id} -> 200 
-  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}  — status=200 body={"org_id":"org_d415c565013b3e7ef0b26efb33ff86f6","display_name":"Collection A","slug":"coll-a-mum4i7r74d5o","state":"act
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}  — status=200 body={"org_id":"org_bdef90fb9995eba79903851d50c62d13","display_name":"Collection A","slug":"coll-a-mum38ihqhuuw","state":"act
   ok    /api/v1/orgs/{org_id}/agents -> 200 
   PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/agents  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
   ok    /api/v1/orgs/{org_id}/approvals -> 200 
@@ -63,14 +71,14 @@
   ok    /api/v1/orgs/{org_id}/api-keys -> 200 
   PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/api-keys  — status=200 body={"items":[],"page":{"limit":50,"next_cursor":null}}
   ok    /api/v1/orgs/{org_id}/audit -> 200 
-  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/audit  — status=200 body={"items":[{"event_id":"sec_c689a3d331e84418885b9e02e96b1862","org_id":"org_d415c565013b3e7ef0b26efb33ff86f6","actor_type
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/audit  — status=200 body={"items":[{"event_id":"sec_a5d09ab16aeb45ef8aac3aadea0e522f","org_id":"org_bdef90fb9995eba79903851d50c62d13","actor_type
   n/a   /api/v1/orgs/{org_id}/billing/subscription -> 404 {"error":{"code":"not_found","message":"The requested resource was not found.","request_id -- no fixture for this resource here, so "no leak" is not claimed
   ok    /api/v1/orgs/{org_id}/catalog -> 200 
   PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/catalog  — status=200 body={"aliases":[{"alias":"coding-default","alias_id":"mal_00000000000000000000000000000001","created_at":"2026-09-24T00:00:0
   ok    /api/v1/orgs/{org_id}/credentials -> 200 
   PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/credentials  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
   ok    /api/v1/orgs/{org_id}/data-policy -> 200 
-  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/data-policy  — status=200 body={"backup_lifecycle":"platform_35_day_expiry","class_retention_overrides":{},"created_at":"2026-09-29T03:35:21.486Z","def
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/data-policy  — status=200 body={"backup_lifecycle":"platform_35_day_expiry","class_retention_overrides":{},"created_at":"2026-09-29T02:59:48.524Z","def
   ok    /api/v1/orgs/{org_id}/deletions -> 200 
   PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/deletions  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
   n/a   /api/v1/orgs/{org_id}/entitlements -> 422 {"error":{"code":"validation_failed","message":"The billing request is not valid for the c -- no fixture for this resource here, so "no leak" is not claimed
@@ -106,11 +114,8 @@ not GET routes (405, excluded -- the static parse called these collections):
 NOT_APPLICABLE (no fixture for the resource in this probe):
   - /api/v1/orgs/{org_id}/billing/subscription -> 404
   - /api/v1/orgs/{org_id}/entitlements -> 422
-  FAIL  CONTROL: the same search FINDS Org A's own project id in Org A's own collection, so 'found nothing' means absent and not incapable  — status=200 needles=1 looking for prj_2dce45f60c7f42a08e506cecf5f9663f in {"has_more":false,"items":[{"archived":false,"created_at":"2026-09-29T03:35:19.676Z","created_by_user_id":"usr_3c281267138141b59064a36b32e53665","id":"prj_2dce4 -- if this fails, every leak verdict above is measuring a search that finds nothing regardless of what the response contains
+  PASS  CONTROL: the same search FINDS Org A's own project id in Org A's own collection, so 'found nothing' means absent and not incapable  — status=200 looking for prj_4f115991a83e416d82bdfc31848ff7ac in {"has_more":false,"items":[{"archived":false,"created_at":"2026-09-29T02:59:47.242Z","created_by_user_id":"usr_f5cf9bb5281546769b3bbdc23cbf3dc7","id":"prj_4f115 -- if this fails, every leak verdict above is measuring a search that finds nothing regardless of what the response contains
 
 30 collection route(s) MEASURED against 4 Org B identifier(s) plus Bravo's email; 0 leak(s). Excluded: 7 not-GET, 2 without a fixture.
 
-53/54 V01 collection-tenancy cases hold
-
-1 case(s) failed:
-  - CONTROL: the same search FINDS Org A's own project id in Org A's own collection, so 'found nothing' means absent and not incapable
+54/54 V01 collection-tenancy cases hold
