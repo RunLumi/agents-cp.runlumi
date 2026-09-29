@@ -427,6 +427,52 @@ the domain has, and the fix in both cases belongs **at the boundary**: in V01-03
 all **55** call sites needing the new argument, so the change was type-checked rather than searched
 for.
 
+**A capability can be built completely and wired to nothing — and fixing one instance does not close the
+class.** Four times now, and the pattern is exact every time: a schema column, a correct statement, a
+repository method, a unit test over that statement's SQL, and **no route**. `pnpm check` was green
+throughout.
+
+| | capability | enforcement | lever |
+|---|---|---|---|
+| V01-040 | support-grant **use** | not implemented | not implemented |
+| V01-041 | device-enrollment **denial** | — | added: a pending enrollment could be **approved but never denied**, so a human control had an affirmative branch and no negative one |
+| V01-042 | idempotency-record **purge** | — | added: a bounded, indexed, validated purge with **no caller**, in a sweep running every minute |
+| V01-043 | plugin **quarantine** | enforced on **four** paths | added: the platform could detect, report and refuse — and never *make* a quarantine |
+
+The last is the worst shape: **neither direction existed.** A kill switch with no lever is not a control
+that is weak, it is a control that cannot be operated during the incident it exists for. ADR 0007 puts
+quarantine deliberately in staff hands, the role holds `PluginQuarantine`, and there was nothing to
+exercise it with.
+
+**`security::repository_liveness` is the repair, and it is a check rather than a fix.** Every `pub` fn in
+`repositories/` must have a non-test caller, or be on `REVIEWED_UNCALLED` **with a reason**. The
+unexamined scan that motivated it listed 53 names; the list turns them into 53 recorded decisions, and
+two of the four findings were sitting in that output. Entries are labelled resolved, deliberately out of
+band, a known gap, examined, or **`UNTRIAGED`** — the untriaged remainder say so rather than carry an
+invented justification, because *53, of which 48 are untriaged* is a to-do list and an absent list is a
+false assurance.
+
+Three things about the check that are worth more than the check:
+
+- **A stale entry is refused**, so the list cannot grow into a permission slip. The check *documented*
+  that rule and did not apply it — it computed the stale set and asserted nothing — and then three
+  entries went stale within the hour, because the very commit that found V01-043 wired those routes.
+  **A check that describes a rule it does not enforce is worse than one that omits the rule, because a
+  reader trusts the prose.**
+- **It is a liveness check, and says so.** A function called once from dead code passes; a
+  macro-generated call is invisible; a name collision would be a false pass. It would not have caught any
+  of the four on its own — it caught V01-043 by being *run once by hand*. What it does is make the next
+  one impossible to add without a decision.
+- **It flagged its own author's work.** With the quarantine handlers written but unrouted, clippy
+  reported the path constants and the request body as never used — correctly, because an unrouted `pub`
+  handler in a `pub(crate)` module chain is unreachable. The check added hours earlier caught the commit
+  that added it.
+
+Sensitivity: **M1, M2, M3 all detected.** M1 *adds* an unwired capability rather than removing a caller,
+because two earlier attempts at the latter **broke the build** — in a statically linked language,
+removing the only call to a function almost always fails to compile, so such a mutation measures the
+compiler rather than the check, and adding one is also the historical shape of all four findings.
+
 **A documented, tested helper with no caller is a durable false signal.** ADR 0007 requires a staff
 audit event on grant creation **and on every use**. The *use* half does not exist: no route consumes a
 grant, and `PlatformOperationsRepository::find_grants_for_staff_and_org` — whose doc comment reads *"the
