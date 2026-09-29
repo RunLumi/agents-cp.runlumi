@@ -1436,11 +1436,23 @@ async fn run_inference(
     if alias.lifecycle == "disabled" {
         return Err(gateway_error(&context, "model_not_allowed"));
     }
+    // `model_not_allowed`, NOT `route_unavailable`.
+    //
+    // The route lookup is scoped by org, so a miss means *this organization has no route for this
+    // alias* -- which is the same fact `policy.allows_alias` reports one line above, and that
+    // condition already maps to `PermissionDenied`. Raising `route_unavailable` here instead sent
+    // the client a `503 service_unavailable` for something it caused and can fix: it named a model
+    // it is not entitled to, and it would retry, back off and page someone (V01-021).
+    //
+    // The other `route_unavailable` sites are deliberately left alone, because for them the
+    // question is genuinely different -- a route that exists but is not published, a version
+    // missing, a config that does not parse. Reclassifying those on the strength of this one
+    // measurement would be guessing.
     let route = repository
         .find_route_by_alias(&org_id, &request.model)
         .await
         .map_err(|error| database_error(&context, error))?
-        .ok_or_else(|| gateway_error(&context, "route_unavailable"))?;
+        .ok_or_else(|| gateway_error(&context, "model_not_allowed"))?;
     if route.lifecycle != "published" {
         return Err(gateway_error(&context, "route_unavailable"));
     }
@@ -4337,5 +4349,141 @@ mod tests {
             },
         }));
         assert!(!is_meaningful_stream_event(&ProviderStreamEvent::Done));
+    }
+}
+
+#[cfg(test)]
+mod v01_021_gateway_error_reasons {
+    //! Every reason the gateway can raise must be CLASSIFIED, because the default is wrong.
+    //!
+    //! `gateway_error` maps a hand-written list of reasons to specific codes and sends **everything
+    //! else** to `ServiceUnavailable`. So its safety depends on a list nobody can check at compile
+    //! time, and a reason added without adding it to the list is reported to the client as an
+    //! outage. V01-021 measured one: a caller naming a model alias its organization had no route for
+    //! got `503 service_unavailable` / `details.reason = "route_unavailable"` for a condition it
+    //! caused and could fix.
+    //!
+    //! The hazard is one level deeper. `route_error_reason` has its own `_ => "route_unavailable"`
+    //! arm, so **any** `RouteSelectionError` the product does not enumerate also arrives as
+    //! `route_unavailable` and becomes a 503. Two catch-alls, one wrong answer.
+    //!
+    //! So the test below does NOT demand that every reason be a 4xx — several are correctly 5xx, and
+    //! insisting on that would be its own kind of wrong. It demands that every reason be
+    //! **classified**, into one of two lists, and that a reason in neither list fails. A new reason
+    //! therefore cannot be added without somebody deciding whether it is the client's fault, which
+    //! is the decision that was skipped when `route_unavailable` was passed to a lookup the CALLER
+    //! controls.
+    //!
+    //! The two lists are the decision. They live next to the test so that changing one means
+    //! changing the argument.
+
+    /// Reasons the CLIENT caused or can fix. These must be a 4xx: a client told "the service is
+    /// unavailable" for something it did will retry, back off, and page someone.
+    const CLIENT_CORRECTABLE: &[&str] = &[
+        "model_not_allowed",
+        "unsupported_capability",
+        "credential_unavailable",
+        "budget_exceeded",
+        "resource_scope_mismatch",
+        "device_revoked",
+        "device_not_approved",
+        "run_not_managed",
+        "run_not_found",
+        "session_not_found",
+        "agent_not_found",
+        "project_not_found",
+        "device_not_found",
+        "resource_not_found",
+        "run_terminal",
+        "invalid_run_transition",
+        "session_closed",
+        "project_archived",
+    ];
+
+    /// Reasons that genuinely denote a transient server-side condition, where 503 is the honest
+    /// answer and a 4xx would be a lie:
+    ///
+    /// * `request_timeout` — the upstream did not answer in time.
+    /// * `upstream_invalid_response` — the upstream answered with something unparseable.
+    /// * `budget_state_unavailable` — the AUTHORITATIVE budget state could not be read, and the
+    ///   objective requires unavailable authoritative budget state to be refused rather than
+    ///   guessed at. Refusing with 503 is refusing.
+    /// * `provider_rate_limited`, `rate_limit_exceeded`, `concurrency_limit_exceeded` — mapped to
+    ///   `RateLimited`, which is a 4xx, and listed here only so the classification is exhaustive.
+    /// * `request_cancelled` — the caller went away; nobody reads the status, and it is recorded so
+    ///   the class is complete rather than because 503 is meaningful.
+    /// * `route_unavailable` — the route exists but cannot serve: not published, no active version,
+    ///   or a config that does not parse. That is a server-side state, so 503 is defensible. The one
+    ///   site where it was NOT defensible — the org-scoped lookup a caller reaches by naming an
+    ///   alias — now raises `model_not_allowed` instead, which is the whole of V01-021's repair.
+    const LEGITIMATELY_TRANSIENT: &[&str] = &[
+        "request_timeout",
+        "upstream_invalid_response",
+        "budget_state_unavailable",
+        "provider_rate_limited",
+        "rate_limit_exceeded",
+        "concurrency_limit_exceeded",
+        "request_cancelled",
+        "route_unavailable",
+    ];
+
+    const SOURCE: &str = include_str!("inference.rs");
+
+    #[test]
+    fn every_reason_this_file_raises_is_classified() {
+        let mut unclassified: Vec<String> = Vec::new();
+        let text = SOURCE;
+        let mut i = 0usize;
+        while let Some(at) = text[i..].find("gateway_error(") {
+            let start = i + at;
+            let window = &text[start..(start + 120).min(text.len())];
+            if let Some(q1) = window.find('"')
+                && let Some(end) = window[q1 + 1..].find('"')
+            {
+                let reason = &window[q1 + 1..q1 + 1 + end];
+                let known = !reason.is_empty()
+                    && (CLIENT_CORRECTABLE.contains(&reason)
+                        || LEGITIMATELY_TRANSIENT.contains(&reason));
+                if !known {
+                    unclassified.push(reason.to_owned());
+                }
+            }
+            i = start + 1;
+        }
+        assert!(
+            unclassified.is_empty(),
+            "these reasons reach `gateway_error` and are in NEITHER class, so each is answered \
+             `503 service_unavailable` by default: {unclassified:?}. Classify each as the client's \
+             fault (a 4xx) or as a genuinely transient server state (503), and put it in the \
+             corresponding list."
+        );
+    }
+
+    #[test]
+    fn the_two_classes_do_not_overlap() {
+        for reason in CLIENT_CORRECTABLE {
+            assert!(
+                !LEGITIMATELY_TRANSIENT.contains(reason),
+                "`{reason}` is in both classes, so the classification says nothing about it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_org_scoped_route_lookup_no_longer_reports_an_outage() {
+        // The specific instance, pinned: a caller naming an alias their organization has no route
+        // for is an AUTHORITY condition, and the reason it must not report is that this lookup is
+        // the one a client reaches by naming something. If this ever goes back to
+        // `route_unavailable`, the client is told the service is down for its own typo again.
+        let window_start = SOURCE
+            .find("find_route_by_alias(&org_id, &request.model)")
+            .expect("the org-scoped route lookup is still present");
+        let window = &SOURCE[window_start..(window_start + 260).min(SOURCE.len())];
+        assert!(
+            window.contains("model_not_allowed"),
+            "the org-scoped `find_route_by_alias` miss must raise `model_not_allowed`, not \
+             `route_unavailable`: a miss means THIS ORGANIZATION has no route for this alias, which \
+             is the same fact the line above reports as `model_not_allowed`."
+        );
     }
 }

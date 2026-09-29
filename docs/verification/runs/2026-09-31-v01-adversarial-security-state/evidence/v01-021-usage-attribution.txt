@@ -1,0 +1,52 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01usage4
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:62336
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-7a7Cla/ed0fe7d398454dd8e57594061caa7c5f255e531b-index_bg.wasm is 114s newer than src/routes/inference.rs
+  PASS  signup Alpha  — status=201
+  PASS  verify Alpha  — status=200
+  PASS  login start Alpha  — status=202
+  PASS  login complete Alpha  — status=200
+  PASS  user Alpha has an opaque ID  — usr_dc9e169c93cd4956a7e4a5405206f2a8
+  PASS  create Alpha Org  — status=201
+  PASS  Alpha Org organization ID  — org_6d837b9e525d178ae767ecfa2fca5d53
+  PASS  CONTROL: Alpha has a hard organization budget, so a reservation is actually taken  — status=201 budget_id=bud_1600b9ecee254206af73114c52958b68
+  PASS  CONTROL: Alpha has a real project  — status=201
+  PASS  CONTROL: the Alpha route is published  — status=200 alias=v01-usage-alpha
+  PASS  signup Bravo  — status=201
+  PASS  verify Bravo  — status=200
+  PASS  login start Bravo  — status=202
+  PASS  login complete Bravo  — status=200
+  PASS  user Bravo has an opaque ID  — usr_3d666a51391449c1998cc8907467dc22
+  PASS  create Bravo Org  — status=201
+  PASS  Bravo Org organization ID  — org_d9437d4a465dfc7daf4967fee18de9e5
+  PASS  CONTROL: Bravo has a hard organization budget, so a reservation is actually taken  — status=201 budget_id=bud_e11999ef51de40b488ee23b4eeef93f2
+  PASS  CONTROL: Bravo has a real project  — status=201
+  PASS  CONTROL: the Bravo route is published  — status=200 alias=v01-usage-bravo
+
+  Alpha: org=org_6d837b9e525d178ae767ecfa2fca5d53 project=prj_784fed9226a3409dad6196fae177ca74 alias=v01-usage-alpha
+  Bravo: org=org_d9437d4a465dfc7daf4967fee18de9e5 project=prj_bfe0e211336b4e698ad3d8fb4bd1a5e5 alias=v01-usage-bravo
+
+  Alpha inference -> 200, Bravo inference -> 200
+  PASS  CONTROL: Alpha's own inference succeeds, so every attribution failure below is a mis-attribution rather than a request that never worked  — status=200 body={"alias":"v01-usage-alpha","choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from Lumi.","role":"assistant"}}],"fallback_count":0,"id":"req_6b4950d16a8a463f973f0667a6a15499","model":"v01-usage-alpha","model_id":"mdl_0
+  PASS  CONTROL: Bravo's own inference succeeds too, so the cross-tenant case has two real organizations to compare  — status=200 body={"alias":"v01-usage-bravo","choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from Lumi.","role":"assistant"}}],"fallback_count":0,"id":"req_6003fca5629b41eabe2fb51169560a34","model":"v01-usage-bravo","model_id":"mdl_0
+  PASS  CONTROL: both inferences wrote usage rows, so the attribution invariants below have something to check  — usage_events went 0 -> 2; an empty table would make every assertion vacuous
+
+  usage_events now holds 2 row(s):
+    org=6d837b9e project= principal=dc9e169c run= cred=_f5c4c15 alias=v01-usage-alpha
+    org=d9437d4a project= principal=3d666a51 run= cred=_7096bdd alias=v01-usage-bravo
+  PASS  every usage row is INTERNALLY CONSISTENT: the project, principal, credential and run it names all belong to the org it names  — 2 row(s), each self-consistent
+  PASS  each organization's usage is charged to ITS OWN alias, so one tenant cannot spend another's route  — aliases seen: ["v01-usage-alpha","v01-usage-bravo"]
+
+  escalating: Alpha will name Bravo's project (bfe0e211), run () and alias (v01-usage-bravo)
+    a foreign project_id   -> 422 code=validation_failed reason=none message="The request contains invalid fields." (usage rows +0)
+  PASS  Alpha naming a foreign project_id is refused, or is answered without spending Bravo's budget  — status=422 usage rows written=0 -- a 2xx that wrote a row here is the claim failing, whatever the status says
+  SKIP  Alpha naming Bravo's run_id  — Bravo produced no run, so there is no foreign run to name. An unread case, reported rather than dropped.
+    a foreign model alias  -> 403 code=permission_denied reason=model_not_allowed message="The inference request could not be completed." (usage rows +0)
+  PASS  Alpha naming a foreign model alias is refused, or is answered without spending Bravo's budget  — status=403 usage rows written=0 -- a 2xx that wrote a row here is the claim failing, whatever the status says
+  PASS  NO row written by Alpha names ANY of Bravo's identifiers — its org, project, credential, alias, run or user  — 1 Alpha row(s), none naming Bravo
+
+  escalation summary: a foreign project_id=422(+0), a foreign model alias=403(+0)
+  1 Alpha usage row(s) and 1 Bravo row(s) in total
+
+31/31 V01 usage attribution cases hold, 1 skipped
