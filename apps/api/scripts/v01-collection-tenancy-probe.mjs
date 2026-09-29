@@ -398,8 +398,16 @@ await runProbe("V01 collection-tenancy", async (probe) => {
   const ownBody = JSON.stringify(ownProjects.payload ?? ownProjects.text ?? "");
   expect(
     "CONTROL: the same search FINDS Org A's own project id in Org A's own collection, so 'found nothing' means absent and not incapable",
-    ownProjects.status === 200 && alphaNeedles.every((value) => ownBody.includes(value)),
-    `status=${ownProjects.status} looking for ${alphaNeedles.join(", ") || "(none seeded)"} in ` +
+    // `alphaNeedles.length > 0` is load-bearing and was MISSING. `[].every(..)` is `true`, so with
+    // the needle set empty this control passed while proving nothing -- found by the sensitivity
+    // harness's M2, which removes Org A's own project and expected this to fail. It did not. A
+    // positive-match control that passes when there is nothing to match is the same defect as a
+    // negative assertion graded on an empty set, and it is the sixth time this campaign has hit one.
+    alphaNeedles.length > 0 &&
+      ownProjects.status === 200 &&
+      alphaNeedles.every((v) => ownBody.includes(v)),
+    `status=${ownProjects.status} needles=${alphaNeedles.length} ` +
+      `looking for ${alphaNeedles.join(", ") || "(none seeded)"} in ` +
       `${probe.brief(ownProjects.payload, 160)} -- if this fails, every leak verdict above is measuring ` +
       `a search that finds nothing regardless of what the response contains`,
   );

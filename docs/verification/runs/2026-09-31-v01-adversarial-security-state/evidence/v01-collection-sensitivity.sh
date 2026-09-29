@@ -160,7 +160,13 @@ run_probe() {
   echo "$code"
 }
 
-fired() { grep -qE "^  FAIL.*$2" "$LOGDIR/v01-collection-sensitivity-$1.log" 2>/dev/null; }
+# FIXED-STRING matching, and the reason is a false MISSED this harness itself produced on its first
+# run. M1 leaked three identifiers and the probe printed
+#   LEAK  /api/v1/orgs/{org_id}/agents -> 200 leaked org=org_9cf8..., project=prj_e79a..., agent=agd_...
+# and the probe's own assertion FAILED -- and `fired` reported MISSED, because the needle was fed
+# through `grep -E` and `{org_id}` is an interval metacharacter. A harness that reports a detection
+# as a miss is worse than one that cannot detect: it turns a caught defect into a recorded gap.
+fired() { grep -qF -- "$2" "$LOGDIR/v01-collection-sensitivity-$1.log" 2>/dev/null; }
 
 verdicts=()
 record() {
@@ -178,7 +184,7 @@ record() {
   printf '  %-9s %s\n' "$got" "$label"
 }
 
-LEAK="/orgs/{org_id}/agents"
+LEAK="body of GET /api/v1/orgs/{org_id}/agents"
 POSITIVE="the same search FINDS Org A's own project id"
 
 CLEAN=0
@@ -209,6 +215,17 @@ if [ "$BASE_FAILS" != "0" ]; then
   exit 1
 fi
 grep -E "MEASURED against" "$LOGDIR/v01-collection-sensitivity-baseline.log" | sed 's/^/  /'
+# The harness's own vacuity guard. A detection needle that already appears in the BASELINE log would
+# make every mutation "detected" for free, which is the same class of defect as a control that cannot
+# fail. So the baseline is required NOT to contain either needle.
+for needle in "$LEAK" "$POSITIVE"; do
+  if grep -qF -- "$needle" "$LOGDIR/v01-collection-sensitivity-baseline.log"; then
+    echo "HAIRNESS DEFECT: the needle \"$needle\" already appears in the green baseline, so every" >&2
+    echo "mutation below would be graded DETECTED without anything being detected." >&2
+    exit 1
+  fi
+done
+echo "  neither detection needle appears in the baseline, so a detection has to be earned"
 restore_all
 
 # -------------------------------------------------------------------- M1
