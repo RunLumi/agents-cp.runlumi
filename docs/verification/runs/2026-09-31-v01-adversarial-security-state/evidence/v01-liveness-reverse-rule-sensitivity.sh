@@ -126,15 +126,28 @@ python3 - << 'PYEOF'
 import pathlib, re
 f = pathlib.Path("apps/api/src/security/repository_liveness.rs")
 s = f.read_text()
-# `deny_enrollment_statement` is called by its handler and its entry now records the resolution.
-m = re.search(r'\(\s*"deny_enrollment_statement",\s*"[^"]*"(?:\s*"[^"]*")*', s)
-assert m, "the deny_enrollment_statement entry was not found"
-start = m.start()
-end = s.index("),", m.end()) + 2
-s = s[:start] + '(\n            "deny_enrollment_statement",\n            "UNTRIAGED",\n        )' + s[end:]
+name = "deny_enrollment_statement"
+# The whole tuple: opening paren through the reason string's closing quote and paren.
+m = re.search(r'\(\s*"' + name + r'",\s*"[^"]*"\s*,?\s*\)', s)
+assert m, "the whole deny_enrollment_statement entry was not found -- the mutation cannot run"
+s = s[:m.start()] + f'(\\n            "{name}",\\n            "UNTRIAGED",\\n        )'.replace("\\n", "\n") + s[m.end():]
+# Assert the name now carries the UNTRIAGED reason and appears exactly once. A regex that matched a
+# PREFIX of a multi-line tuple would otherwise leave a second copy behind, the build would still
+# compile, and the case would report MISSED for a run that never happened.
+assert s.count('"' + name + '"') == 1, "the mutation left a duplicate entry behind"
+assert re.search(r'"' + name + r'",\s*\n?\s*"UNTRIAGED"', s), "the relabelling did not apply"
 f.write_text(s)
 PYEOF
-cmp -s "$TARGET" "$SNAP/baseline.rs" && { echo "M4 changed nothing" >&2; exit 1; }
+# `cmp` proves the bytes changed, which a mis-anchored edit also satisfies. The python block asserts
+# the intended EFFECT; this re-checks it from the outside, so a mutation that rewrote the file without
+# applying cannot reach a verdict.
+grep -q '"deny_enrollment_statement"' "$TARGET" && \
+  { python3 -c "
+import re,sys
+s=open('$TARGET').read()
+sys.exit(0 if re.search(r'"deny_enrollment_statement",\s*
+?\s*"UNTRIAGED"', s) else 1)
+" || { echo "M4 did not take effect; refusing to report a verdict for a run that did not happen" >&2; exit 1; } }
 run_case "M4 (an UNTRIAGED entry whose function IS called)" "DETECTED" "relabelled to UNTRIAGED"
 
 # --- M5: the rule removed ---------------------------------------------------------------------
