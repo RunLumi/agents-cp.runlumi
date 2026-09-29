@@ -2,8 +2,10 @@
 
 ## Status
 
-**the attribution claim PASSES** (31/31, exit 0). One adjacent defect found and **repaired**:
-a refusal reported a `503`.
+**the attribution claim PASSES** (43/43, exit 0), with **no SKIPs** — the `run_id` leg is closed and
+the **one previously reported result in this record was wrong** and has been corrected. Two adjacent
+defects found and **repaired**: a refusal reported a `503`, and a non-disclosure check in this
+probe passed **vacuously**.
 
 ## Severity of the attribution claim itself
 
@@ -23,7 +25,7 @@ asked **whose** usage it was.
 | **Actual** | **exactly that.** 31/31, exit 0. `NO row written by Alpha names ANY of Bravo's identifiers — its org, project, credential, alias, run or user — 1 Alpha row, none naming Bravo`. |
 | **Evidence** | `evidence/v01-021-usage-attribution.txt` |
 | **Verdict** | **PASS** on attribution. **FAIL, repaired** on the shape of a refusal (below). |
-| **Regression gap** | the `run_id` case is **SKIPPED**, named: Bravo produced no run to name. See the gap below. |
+| **Regression gap** | **none remaining.** The `run_id` case was SKIPPED in the first version of this probe and is now closed: a real managed run is built per organization and named across the tenant boundary. |
 | **Severity** | none for the claim; **medium** for the refusal shape |
 
 ## Why the invariant is the assertion, and not a status
@@ -123,3 +125,169 @@ leg is the only one that goes through *resolution* rather than through a body fi
 ignores. Exercising it needs a **managed** run: a real device, an agent session, and
 `POST /api/v1/devices/runs`, none of which any current probe builds. Recorded as a gap, not as a
 pass.
+
+---
+
+# Addendum — the SKIP is closed, and this record contained a wrong result
+
+**43/43, exit 0, no SKIPs.** Both halves of the addendum are about the *verifier*, because the
+product was correct in every case. That is the point of writing them down: the previous version of
+this record reported a result that was true of the probe and false of the product.
+
+## 1. A reported result was measuring my own malformed request
+
+The two cases that name another organization's `project_id` and `run_id` were recorded as
+**`422 validation_failed`, zero usage rows, "refused"**. That was wrong in a way that mattered:
+**the 422 was my own bad request**, and "refused with nothing written" was asserted as a result.
+
+`/api/v1/inference/responses` deserialises `NativeRequest` — `messages`, each with a `content`
+**array** of `{type, text}` parts. The probe sent `input: [{role, content: "..."}]`, which is the
+Chat Completions shape. The route answered a correct `422`, and the assertion "refused, or answered
+without spending Bravo's budget" passed on it.
+
+**A route that rejected every request would have passed those two cases.** There was no control to
+say otherwise, which is the gap the campaign's own rule — *a positive control per case, or "refused"
+is uninterpretable* — exists to close, and which I had applied to other probes and not here.
+
+The repair is in the probe, not the product:
+
+- the body shape is now stated **once**, in `nativeBody(..)`, so the managed leg, the escalation and
+  the control cannot drift apart again;
+- **every** escalation case now makes the same request **without** the foreign identifier first and
+  requires a `2xx`. Only then is a refusal attributable to the identifier.
+
+With both in place the three escalations read, and every control answered `200`:
+
+| Alpha names | result | usage rows | what it means now |
+|---|---|---|---|
+| Bravo's `project_id` | `403 permission_denied` / `model_not_allowed` | **+0** | a real refusal, and the same fact `policy.allows_alias` reports |
+| Bravo's `run_id` | `404 not_found` / `run_not_found` | **+0** | the run resolves inside Alpha's org and is not there |
+| Bravo's model alias | `403 permission_denied` / `model_not_allowed` | **+0** | the V01-021 repair, unchanged |
+
+**The numbers improved and the claim did not change**, which is the only reason to believe the
+numbers now.
+
+## 2. The managed run, and the four fixture traps on the way to it
+
+`run_id` is only reachable through a **managed** run, so each organization now gets a real one:
+enrollment → approval → device proof → binding → agent session → `POST .../runs` with
+`execution_mode: "managed"` → `start`. `p05-smoke` already proved the sequence; no probe reused it,
+which is why the leg was SKIPPED. Four things were wrong on the way, and each is a trap rather than
+a bug:
+
+1. **Device mutations require an `Idempotency-Key`.** `POST /api/v1/devices/sessions` answers a
+   correct `400 idempotency_key_required` without one. The fixture's controls reported *"no managed
+   run"* — they said something was **absent** and never said **why**, which cost a run. A control
+   that reports *what is missing* is worth more than one that reports only that something is.
+2. **A managed run cannot execute without a persisted model policy.** `run_inference` refuses any
+   managed scope whose org has no `org_model_policies` row, with `model_not_allowed` — correctly,
+   since a managed run must not fall back to the environment's test seam for authority. The route
+   that creates one is `PUT /api/v1/orgs/{org}/policy`.
+3. **Publishing a policy changes the *unmanaged* path too.** The record replaces the environment
+   fallback for *every* request, not only managed ones, so the fixture has to restate the fallback
+   (`platform_or_organization`, which is what `policy_from_record` returns for an org with no policy
+   in development) or it breaks the very control inferences it is enabling. Both `platform_only` and
+   `organization_only` refused the route with `route_unavailable`.
+4. **An empty allowlist is an allow-*nothing* set.** `allows_model` and `allows_provider` test
+   `values.contains(x)`, so `[]` denies every provider and model; only `None` is unrestricted — and
+   the `PUT` always serialises an array, so **"unrestricted" is not expressible through this
+   endpoint**. The policy must name the provider and model the route uses.
+
+The managed leg now writes usage rows that carry a `run_id` — **2 of 4 rows** — and the probe
+asserts that count is non-zero, because the internal-consistency invariant's `run_id` clause grades
+nothing when no row names a run. That is the third time this campaign has built a check that could
+pass on an empty set.
+
+## 3. A new check of my own passed vacuously, and the fix is a check on the check
+
+The objective asks that denial "not leak unintended existence", and a foreign `run_id` answers
+`404` — so I added a non-disclosure control: name a **well-formed but absent** run id and require an
+indistinguishable answer.
+
+**It passed on the first run, for the wrong reason.** The helper was `async` and I did not `await`
+it, so both sides of the comparison were `Promise` objects, `foreignRun.status` and
+`phantomRun.status` were both `undefined`, and `undefined === undefined` is `true`. The log line I
+had already printed said `undefined/undefined` and I read past it.
+
+This is the **fourth** vacuous pass in this campaign and the **second** where the failure was
+plainly visible in output I had already seen. The rule is now in the probe as an assertion:
+
+> grade the **inputs** of a comparison before grading its **verdict** — if either side's status is
+> not a number, the helper's result was never awaited and the comparison is `undefined === undefined`.
+
+Graded for real, the two answers are the same:
+
+```
+non-disclosure: a real foreign run -> 404/run_not_found, a run that never existed -> 404/run_not_found
+```
+
+so the `404` is **not** an existence oracle: a caller cannot tell another organization's run from a
+random 32-hex id, and cannot enumerate runs by probing.
+
+## 4. Root cause, in one line
+
+**verifier weakness**, in all four parts. No product defect was found in this addendum, and that is
+recorded as plainly as a repair would be: the product refused every foreign identifier, wrote zero
+usage rows for each, and answered the phantom run identically to the real one. What was broken was
+the instrument, twice in the same record — once reporting a refusal that was really a malformed
+request, once reporting a proof that graded nothing.
+
+## 5. The gate can fail — and the mutation found the load-bearing assertion
+
+`evidence/v01-usage-sensitivity.sh`, **exit 0, both mutations DETECTED**. A gate nobody has watched
+fail is an assumption, and this one had just gained two new Tier-0 assertions.
+
+### M1 — `find_run` binds `org_id` but no longer filters on it
+
+`AND org_id = ?2` becomes `AND ?2 = ?2`: the placeholder stays, so the statement stays valid, and
+only the scoping goes. A foreign run now resolves and is refused for a different reason:
+
+```
+a real foreign run        -> 403 / resource_scope_mismatch
+a run that never existed  -> 404 / run_not_found
+```
+
+**The escalation case still PASSED.** Exactly one assertion failed out of the whole sheet, and it was
+the non-disclosure one. That is the finding, and it is worth more than the detection:
+
+> "Alpha naming Bravo's `run_id` is refused, or answered without spending Bravo's budget" accepts
+> **any** non-2xx with zero usage rows — so it is blind to *which* refusal, by construction. The
+> objective's "prove denial does not leak unintended existence" is therefore defended by a
+> **different and single** assertion from the one that proves the run is refused at all. Under this
+> mutation the product leaked — any caller could distinguish another organization's run from a
+> random id and enumerate — and the escalation reported success.
+
+If the non-disclosure control had not been added, this gate would have gone on reporting a clean
+`run_id` boundary while the boundary was gone.
+
+### The first M1 was invalid, and it is the more interesting half
+
+The obvious edit — deleting `AND org_id = ?2` — is the **wrong** mutation, and it produced a clean
+looking **MISSED**:
+
+- the bind list still had two values and the SQL one placeholder, so D1 refused the statement;
+- `find_run` then raised `run_state_unavailable`, and **both** probes answered `503`;
+- identical answers, so the non-disclosure control **passed**, and the run reported the mutation
+  undetected.
+
+A gate reporting a correct-shaped pass on a build that cannot execute the query at all is the "a
+verdict is only worth what its reference is worth" class reached from the other side: the reference
+was **broken** rather than wrong. It is the same bind-count trap the tenant audit keeps finding —
+here from the other direction, a dropped predicate with an untouched bind list — and it cost one
+6-minute run to learn. `assert_changed` could not have caught it: the file *had* changed.
+
+So the rule earns its place: **a mutation must break the claim, not the statement.** A predicate
+removal that also removes a placeholder tests SQLite's bind checker, not the tenant boundary.
+
+### M2 — the usage row stops naming its run
+
+The `run_id` bind becomes `BindValue::Null`, unconditionally. Nothing fails: every inference still
+succeeds, and org, project, principal and credential attribution all still look clean, because the
+row simply no longer names a run. The probe's "at least one usage row carries a `run_id`" control
+**DETECTED** it.
+
+That control is the whole reason the run leg of the invariant is trustworthy. Without it, this
+mutation turns the objective's `run` clause into an assertion over an empty set — which is the
+third vacuous pass this campaign has produced and the first one *prevented* rather than discovered.
+
+

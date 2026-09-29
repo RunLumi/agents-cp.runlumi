@@ -1,0 +1,73 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01-usage-scratch/db-m2
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:58106
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-UW7CYB/2e37aca2ef035538ac376443ae208a6de8c79419-index_bg.wasm is 76s newer than src/repositories/ai.rs
+  PASS  signup Alpha  — status=201
+  PASS  verify Alpha  — status=200
+  PASS  login start Alpha  — status=202
+  PASS  login complete Alpha  — status=200
+  PASS  user Alpha has an opaque ID  — usr_5eea65febe48473c8e2397e242b4ef93
+  PASS  create Alpha Org  — status=201
+  PASS  Alpha Org organization ID  — org_a61aed4cadde2b1f292d5470f331fb35
+  PASS  CONTROL: Alpha has a hard organization budget, so a reservation is actually taken  — status=201 budget_id=bud_376e4dff848442628fe76c9c6ecd2d7e
+  PASS  CONTROL: Alpha has a real project  — status=201
+  PASS  CONTROL: the Alpha route is published  — status=200 alias=v01-usage-alpha
+  PASS  Alpha published a model policy, without which every managed inference is refused by design  — status=200 body={"allowed_aliases":["v01-usage-alpha"],"allowed_models":["mdl_00000000000000000000000000000002","mock-success"],"allowed_providers":["prv_00000000000000000000000000000002","mock-success"],"created_at"
+    Alpha session -> 201 {"agent_definition_id":"agd_997e0595946b4cd2a586dce9a011e84c","agent_definition_version":1,"agent_session_id":"rse_0c2d13f4d711496d91cb529672effe6a","created_at":"2026-09-29T01:13:27.928Z","device_id"
+    Alpha run -> 201 {"agent_definition_id":"agd_997e0595946b4cd2a586dce9a011e84c","agent_definition_version":1,"agent_session_id":"rse_0c2d13f4d711496d91cb529672effe6a","attempt":1,"cancel_requested_at":null,"created_at"
+  PASS  CONTROL: Alpha has a real MANAGED run, so the run_id leg of this attack is reachable at all  — run=run_c67bf047142d4fd999fe3d717dd7e023 session=rse_0c2d13f4d711496d91cb529672effe6a
+  PASS  signup Bravo  — status=201
+  PASS  verify Bravo  — status=200
+  PASS  login start Bravo  — status=202
+  PASS  login complete Bravo  — status=200
+  PASS  user Bravo has an opaque ID  — usr_a79dfc48625648b387219a47e0e1c613
+  PASS  create Bravo Org  — status=201
+  PASS  Bravo Org organization ID  — org_1c14444b97032aec73e9664eb5475d4f
+  PASS  CONTROL: Bravo has a hard organization budget, so a reservation is actually taken  — status=201 budget_id=bud_7c7139d788e14b06b7bbd38119578be3
+  PASS  CONTROL: Bravo has a real project  — status=201
+  PASS  CONTROL: the Bravo route is published  — status=200 alias=v01-usage-bravo
+  PASS  Bravo published a model policy, without which every managed inference is refused by design  — status=200 body={"allowed_aliases":["v01-usage-bravo"],"allowed_models":["mdl_00000000000000000000000000000002","mock-success"],"allowed_providers":["prv_00000000000000000000000000000002","mock-success"],"created_at"
+    Bravo session -> 201 {"agent_definition_id":"agd_034e1a18c3684538ad1f14b577fef352","agent_definition_version":1,"agent_session_id":"rse_a83f76c409f94e8a8800ea0ee8ebf7a2","created_at":"2026-09-29T01:13:29.182Z","device_id"
+    Bravo run -> 201 {"agent_definition_id":"agd_034e1a18c3684538ad1f14b577fef352","agent_definition_version":1,"agent_session_id":"rse_a83f76c409f94e8a8800ea0ee8ebf7a2","attempt":1,"cancel_requested_at":null,"created_at"
+  PASS  CONTROL: Bravo has a real MANAGED run, so the run_id leg of this attack is reachable at all  — run=run_d23d3bcba6174dcd8a37ebe1a37a1a04 session=rse_a83f76c409f94e8a8800ea0ee8ebf7a2
+
+  Alpha: org=org_a61aed4cadde2b1f292d5470f331fb35 project=prj_0d022968bc5d4abe951b53eeaf503e58 alias=v01-usage-alpha
+  Bravo: org=org_1c14444b97032aec73e9664eb5475d4f project=prj_3dc6b4239524434fbdc361f389663832 alias=v01-usage-bravo
+  managed inference: Alpha -> 403 {"error":{"code":"permission_denied","message":"The run is outside the current execution scope.","request_id":"req_df68a4b742df4b29b6a7b86f810f807e","details":{"reason":"resource_scope_mismatch"}}} | Bravo -> 403 {"error":{"code":"permission_denied","message":"The run is outside the current execution scope.","request_id":"req_faed0e84679b4a5695407416755ed099","details":{"reason":"resource_scope_mismatch"}}}
+
+  Alpha inference -> 200, Bravo inference -> 200
+  PASS  CONTROL: Alpha's own inference succeeds, so every attribution failure below is a mis-attribution rather than a request that never worked  — status=200 body={"alias":"v01-usage-alpha","choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from Lumi.","role":"assistant"}}],"fallback_count":0,"id":"req_26586cff52ba4cb4b1d1ff79dcd7780f","model":"v01-usage-alpha","model_id":"mdl_0
+  PASS  CONTROL: Bravo's own inference succeeds too, so the cross-tenant case has two real organizations to compare  — status=200 body={"alias":"v01-usage-bravo","choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from Lumi.","role":"assistant"}}],"fallback_count":0,"id":"req_237dd1cfafdc47a592c5149c1c0fec0b","model":"v01-usage-bravo","model_id":"mdl_0
+  PASS  CONTROL: both inferences wrote usage rows, so the attribution invariants below have something to check  — usage_events went 0 -> 2; an empty table would make every assertion vacuous
+
+  usage_events now holds 2 row(s):
+    org=a61aed4c project=0d022968 principal=5eea65fe run= cred=_1956bf1 alias=v01-usage-alpha
+    org=1c14444b project=3dc6b423 principal=a79dfc48 run= cred=_77a12d4 alias=v01-usage-bravo
+  PASS  every usage row is INTERNALLY CONSISTENT: the project, principal, credential and run it names all belong to the org it names  — 2 row(s), each self-consistent
+  FAIL  at least one usage row carries a run_id, so the run leg of the invariant above is exercised rather than vacuous  — 0 of 2 row(s) name a run. With none, the run check above is grading nothing -- the same vacuous pass this campaign has hit three times, and the reason the managed-run fixture exists
+  PASS  each organization's usage is charged to ITS OWN alias, so one tenant cannot spend another's route  — aliases seen: ["v01-usage-alpha","v01-usage-bravo"]
+
+  escalating: Alpha will name Bravo's project (3dc6b423), run (d23d3bcb) and alias (v01-usage-bravo)
+    non-disclosure: a real foreign run -> 404/run_not_found, a run that never existed -> 404/run_not_found
+  PASS  both non-disclosure probes returned a real status, so the comparison below is not undefined === undefined  — foreign={"status":404,"reason":"run_not_found"} phantom={"status":404,"reason":"run_not_found"} — a non-numeric status means the helper's result was never awaited, and the indistinguishability check would then pass on two undefineds
+  PASS  a foreign run_id and a run_id that never existed are indistinguishable, so the 404 is not an existence oracle  — foreign=404/run_not_found phantom=404/run_not_found — a difference here would let any caller enumerate another organization's runs by probing ids, which is the leak the objective's tenant-isolation bullet asks about
+  PASS  the non-disclosure probe names a well-formed but absent run id, so the comparison is meaningful  — phantomRunId=run_00000000000000000000000000000000
+  PASS  POSITIVE CONTROL: the same request WITHOUT a foreign project_id succeeds, so a refusal is attributable to the identifier and not to a malformed body  — status=200 body=(no body) — without this, a route that rejected EVERY request would pass this case, which is precisely what happened here before the body shape was corrected
+    a foreign project_id   -> 403 code=permission_denied reason=model_not_allowed message="The inference request could not be completed." (usage rows +0)
+  PASS  Alpha naming a foreign project_id is refused, or is answered without spending Bravo's budget  — status=403 usage rows written=0 -- a 2xx that wrote a row here is the claim failing, whatever the status says
+  PASS  POSITIVE CONTROL: the same request WITHOUT a foreign run_id succeeds, so a refusal is attributable to the identifier and not to a malformed body  — status=200 body=(no body) — without this, a route that rejected EVERY request would pass this case, which is precisely what happened here before the body shape was corrected
+    a foreign run_id       -> 404 code=not_found reason=run_not_found message="The requested run context was not found." (usage rows +0)
+  PASS  Alpha naming a foreign run_id is refused, or is answered without spending Bravo's budget  — status=404 usage rows written=0 -- a 2xx that wrote a row here is the claim failing, whatever the status says
+  PASS  POSITIVE CONTROL: the same request WITHOUT a foreign model alias succeeds, so a refusal is attributable to the identifier and not to a malformed body  — status=200 body={"alias":"v01-usage-alpha","choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from Lumi.","role":"assistant"}}],"fallback_count":0,"id":"req_ed93f3868b924441a32371ac3205719b","model":"v01-usage-alpha","model_id":"mdl_0 — without this, a route that rejected EVERY request would pass this case, which is precisely what happened here before the body shape was corrected
+    a foreign model alias  -> 403 code=permission_denied reason=model_not_allowed message="The inference request could not be completed." (usage rows +0)
+  PASS  Alpha naming a foreign model alias is refused, or is answered without spending Bravo's budget  — status=403 usage rows written=0 -- a 2xx that wrote a row here is the claim failing, whatever the status says
+  PASS  NO row written by Alpha names ANY of Bravo's identifiers — its org, project, credential, alias, run or user  — 4 Alpha row(s), none naming Bravo
+
+  escalation summary: a foreign project_id=403(+0), a foreign run_id=404(+0), a foreign model alias=403(+0)
+  4 Alpha usage row(s) and 1 Bravo row(s) in total
+
+42/43 V01 usage attribution cases hold
+
+1 case(s) failed:
+  - at least one usage row carries a run_id, so the run leg of the invariant above is exercised rather than vacuous

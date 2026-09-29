@@ -49,10 +49,116 @@
 // Org A was attacking.** That is graded by searching the serialised rows for Org B's actual ids, not
 // by trusting a status.
 
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { runProbe } from "./lib/smoke-harness.mjs";
 
 await runProbe("V01 usage attribution", async (probe) => {
-  const { request, expect, expectStatus, d1Rows, browserMutation, browserHeaders } = probe;
+  const { request, expect, expectStatus, d1Rows, browserMutation, browserHeaders, registerSecret } =
+    probe;
+
+  const anonJar = () => ({ header: () => "" });
+
+  /**
+   * The `/api/v1/inference/responses` body, in the ONE shape the route accepts.
+   *
+   * `responses` deserialises `NativeRequest`, which is `messages`, each with a `content` ARRAY of
+   * `{type, text}` parts. The first version of this probe sent `input: [{role, content: "..."}]`,
+   * which is the Chat Completions shape, and the route answered a correct `422 validation_failed`
+   * — after which the escalation assertions read "refused, zero usage rows written" and called it a
+   * result. So the foreign-`project_id` case had been measuring MY malformed request.
+   *
+   * This function exists so the shape is stated once and cannot drift between the managed leg, the
+   * escalation and the positive control below.
+   */
+  /** The status/reason pair an inference answered, for comparing two refusals for indistinguishability. */
+  const escalationShapeProbe = async (runId) => {
+    const result = await request(
+      a.owner.jar,
+      "POST",
+      "/api/v1/inference/responses",
+      nativeBody(a.alias, { run_id: runId }),
+      {
+        ...headersFor(a),
+        ...browserMutation(a.owner.jar, `v01-usage-shape-${String(runId).slice(4, 12)}`),
+      },
+    );
+    return {
+      status: result.status,
+      reason: result.payload?.error?.details?.reason ?? "none",
+    };
+  };
+
+  const nativeBody = (alias, extra = {}) => ({
+    model: alias,
+    messages: [{ role: "user", content: [{ type: "text", text: "V01 usage attribution" }] }],
+    ...extra,
+  });
+
+  /**
+   * Headers for a device-authenticated mutation.
+   *
+   * `POST /api/v1/devices/sessions` requires an `Idempotency-Key` and answers a correct `400`
+   * without one — which is the right answer, and cost this probe one run to learn, because the
+   * fixture's own controls reported "no managed run" rather than "the session was refused". The
+   * lesson is the third instance of one rule: a control that reports *what is missing* is worth
+   * more than a control that reports only that something is.
+   */
+  const deviceMutation = (token, label) => ({
+    Authorization: `DeviceToken ${token}`,
+    "Idempotency-Key": `v01-usage-${label}-${probe.nonce}`,
+  });
+
+  /**
+   * A real enrolled device, because the managed-run, session and binding routes authenticate with a
+   * DEVICE token and not with a session. The enrollment challenge is signed with the same key the
+   * device presents, which is the point of the device-proof check, so a stand-in signer would make
+   * the case untestable rather than easy.
+   */
+  const enrollDevice = async (owner, orgId, orgSlug, label) => {
+    if (typeof orgSlug !== "string") return null;
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const device = {
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      keyFingerprint: createHash("sha256")
+        .update(publicKey.export({ type: "spki", format: "der" }))
+        .digest("hex"),
+      sign: (message) => sign(null, Buffer.from(message), privateKey).toString("hex"),
+    };
+    const tag = label.replaceAll(/\W+/g, "-");
+    const created = await request(anonJar(), "POST", "/api/v1/devices/enrollments", {
+      org_slug: orgSlug,
+      public_key: device.publicKeyPem,
+      key_fingerprint: device.keyFingerprint,
+      device_name: label,
+      platform: "darwin-arm64",
+      app_version: "0.5.0",
+    });
+    const enrollmentId = created.payload?.enrollment_id;
+    if (typeof enrollmentId !== "string") return null;
+    await request(
+      owner.jar,
+      "POST",
+      `/api/v1/orgs/${orgId}/devices/enrollments/${enrollmentId}/approve`,
+      {},
+      browserMutation(owner.jar, `v01-usage-approve-${tag}`),
+    );
+    const challenge = await request(
+      anonJar(),
+      "GET",
+      `/api/v1/devices/enrollments/${enrollmentId}`,
+    );
+    if (typeof challenge.payload?.challenge !== "string") return null;
+    const finished = await request(
+      anonJar(),
+      "POST",
+      `/api/v1/devices/enrollments/${enrollmentId}/complete`,
+      { signature: device.sign(challenge.payload.challenge) },
+    );
+    const token = finished.payload?.device_token;
+    if (typeof token !== "string") return null;
+    registerSecret(token);
+    return token;
+  };
 
   console.log("");
   await probe.setup({ persistEnvVar: "V01_USAGE_PERSIST_TO", portEnvVar: "V01_USAGE_PORT" });
@@ -183,7 +289,135 @@ await runProbe("V01 usage attribution", async (probe) => {
     if (typeof budgetId !== "string" || typeof projectId !== "string" || !aliasUsable) {
       return null;
     }
-    return { label, owner, orgId, budgetId, projectId, credentialId, alias };
+
+    // --- a MANAGED run -------------------------------------------------------
+    //
+    // A managed run is how device work actually happens: the device owns the session and the run,
+    // and the server fills in the org, the project and the device from the CREDENTIAL rather than
+    // from the body. It is also the only way to reach the `run_id` leg of this attack, because a
+    // plain chat completion creates no run at all -- which is exactly why that leg was SKIPPED in
+    // the first version of this probe, and why "no probe builds one" was true of the whole suite.
+    // The sequence is the one `p05-smoke` already proves.
+    const orgSlug = (
+      await d1Rows(`SELECT slug FROM organizations WHERE org_id = '${orgId}'`, `V01 ${label} slug`)
+    )[0]?.slug;
+    // A MANAGED run cannot execute without a persisted model policy.
+    //
+    // `run_inference` refuses any managed scope whose org has no `org_model_policies` row, with
+    // `model_not_allowed` — deliberately, because a managed run must not fall back to the
+    // environment's test seam for authority. That made my first managed leg a dead end, and the
+    // honest reading of the 403 was "this fixture has no policy", not "the product refuses".
+    // `PUT /api/v1/orgs/{org}/policy` is the route that creates one.
+    const policy = await request(
+      owner.jar,
+      "PUT",
+      `/api/v1/orgs/${orgId}/policy`,
+      {
+        allowed_aliases: [alias],
+        // NOT empty arrays. An empty allowlist is an ALLOW-NOTHING set here — `allows_model` and
+        // `allows_provider` test `values.contains(x)`, so `[]` denies every provider and model, and
+        // only `None` means unrestricted. There is no way to express "unrestricted" through this
+        // PUT, because the API always serialises an array. Sending `[]` made every inference fail
+        // with `route_unavailable`, which cost two runs to localise.
+        allowed_models: [model.model_id, model.provider_model_id].filter(Boolean),
+        allowed_providers: [provider.provider_id, provider.provider_key].filter(Boolean),
+        // `platform_or_organization` — the same mode `policy_from_record` returns for an org with
+        // NO policy in a development environment. Publishing a policy CHANGES the unmanaged path
+        // too (the record replaces the fallback for every request, not only managed ones), so the
+        // fixture has to restate the fallback or it breaks the very controls it is meant to enable.
+        // Both `platform_only` and `organization_only` refused the route with `route_unavailable`.
+        credential_mode: "platform_or_organization",
+        managed_route_enabled: true,
+        version: 0,
+      },
+      browserMutation(owner.jar, `v01-usage-policy-${label.toLowerCase()}`),
+    );
+    expect(
+      `${label} published a model policy, without which every managed inference is refused by design`,
+      policy.status === 200 || policy.status === 201,
+      `status=${policy.status} body=${probe.brief(policy.payload, 200)}`,
+    );
+
+    const device = await enrollDevice(owner, orgId, orgSlug, `${label} device`);
+    let managedRun = null;
+    if (device) {
+      const agent = await request(
+        owner.jar,
+        "POST",
+        `/api/v1/orgs/${orgId}/agents`,
+        { name: `${label} agent`, project_id: projectId },
+        mutation("agent"),
+      );
+      const agentId = agent.payload?.id ?? agent.payload?.agent?.id;
+      const binding = await request(
+        anonJar(),
+        "POST",
+        "/api/v1/devices/bindings",
+        {
+          project_id: projectId,
+          workspace_identity: `v01-usage-${label.toLowerCase()}-${probe.nonce}`,
+          display_name: `${label} binding`,
+          environment_type: "local",
+        },
+        deviceMutation(device, `${label.toLowerCase()}-binding`),
+      );
+      const bindingId = binding.payload?.id;
+      if (typeof agentId === "string" && typeof bindingId === "string") {
+        const session = await request(
+          anonJar(),
+          "POST",
+          "/api/v1/devices/sessions",
+          {
+            project_id: projectId,
+            agent_definition_id: agentId,
+            workspace_binding_id: bindingId,
+            external_id: `v01-usage-${label.toLowerCase()}-${probe.nonce}`,
+            title: `${label} session`,
+          },
+          deviceMutation(device, `${label.toLowerCase()}-session`),
+        );
+        const sessionId = session.payload?.id ?? session.payload?.agent_session_id;
+        console.log(
+          `    ${label} session -> ${session.status} ${probe.brief(session.payload, 200)}`,
+        );
+        if (typeof sessionId === "string") {
+          const run = await request(
+            anonJar(),
+            "POST",
+            `/api/v1/devices/sessions/${sessionId}/runs`,
+            {
+              model_alias: alias,
+              input_ref: `local://v01-usage/${probe.nonce}/${label}`,
+              execution_mode: "managed",
+            },
+            deviceMutation(device, `${label.toLowerCase()}-run`),
+          );
+          const runId = run.payload?.id ?? run.payload?.run_id;
+          console.log(`    ${label} run -> ${run.status} ${probe.brief(run.payload, 200)}`);
+          if (run.status === 201 && typeof runId === "string") {
+            managedRun = { sessionId, runId, agentId, bindingId, deviceToken: device };
+            await request(
+              anonJar(),
+              "POST",
+              `/api/v1/devices/runs/${runId}/start`,
+              {},
+              deviceMutation(device, `${label.toLowerCase()}-start`),
+            );
+          }
+        }
+      }
+    }
+    expect(
+      `CONTROL: ${label} has a real MANAGED run, so the run_id leg of this attack is reachable at all`,
+      managedRun !== null,
+      managedRun
+        ? `run=${managedRun.runId} session=${managedRun.sessionId}`
+        : "no managed run, so a foreign run_id cannot be named. The strongest leg of the " +
+            "objective's attribution item would then be UNREAD rather than proven, and saying so is " +
+            "a better report than passing the easier legs",
+    );
+
+    return { label, owner, orgId, budgetId, projectId, credentialId, alias, managedRun, device };
   };
 
   probe.stage = "fixtures";
@@ -240,6 +474,36 @@ await runProbe("V01 usage attribution", async (probe) => {
   const before = await usageCount();
   const okA = await infer(a, "alpha");
   const okB = await infer(b, "bravo");
+
+  // A MANAGED inference in each organization, so a usage row that carries a `run_id` exists at all.
+  // Without one, the run leg of the internal-consistency invariant below has nothing to check and
+  // would pass vacuously -- which is the shape this campaign has now hit three times.
+  //
+  // There is no `runs/{id}/messages` route: a managed inference is an ordinary
+  // `/api/v1/inference/responses` call whose body names the `run_id` and `agent_session_id`, which
+  // is precisely what sends `run_inference` down `resolve_managed_run_scope` instead of the
+  // unmanaged path. So the managed leg is exercised the way a real caller would exercise it, and
+  // the escalation below reuses the same route with the OTHER organization's run.
+  const managedInfer = async (who) => {
+    if (!who.managedRun) return null;
+    return request(
+      who.owner.jar,
+      "POST",
+      "/api/v1/inference/responses",
+      nativeBody(who.alias, {
+        run_id: who.managedRun.runId,
+        agent_session_id: who.managedRun.sessionId,
+      }),
+      { ...headersFor(who), ...browserMutation(who.owner.jar, "v01-usage-managed") },
+    );
+  };
+  const managedA = await managedInfer(a);
+  const managedB = await managedInfer(b);
+  console.log(
+    `  managed inference: Alpha -> ${managedA?.status ?? "skipped"} ` +
+      `${probe.brief(managedA?.payload, 200)} | Bravo -> ${managedB?.status ?? "skipped"} ` +
+      `${probe.brief(managedB?.payload, 200)}`,
+  );
   console.log(`\n  Alpha inference -> ${okA.status}, Bravo inference -> ${okB.status}`);
   expect(
     "CONTROL: Alpha's own inference succeeds, so every attribution failure below is a mis-attribution rather than a request that never worked",
@@ -342,6 +606,14 @@ await runProbe("V01 usage attribution", async (probe) => {
       ? `${rows.length} row(s), each self-consistent`
       : `${mismatches.length} mis-attribution(s): ${mismatches.slice(0, 6).join("; ")}`,
   );
+  const runBearing = rows.filter((r) => r.run_id);
+  expect(
+    "at least one usage row carries a run_id, so the run leg of the invariant above is exercised rather than vacuous",
+    runBearing.length > 0,
+    `${runBearing.length} of ${rows.length} row(s) name a run. With none, the run check above is ` +
+      `grading nothing -- the same vacuous pass this campaign has hit three times, and the reason ` +
+      `the managed-run fixture exists`,
+  );
   expect(
     "each organization's usage is charged to ITS OWN alias, so one tenant cannot spend another's route",
     rows.every((r) => r.model_alias === a.alias || r.model_alias === b.alias),
@@ -352,12 +624,17 @@ await runProbe("V01 usage attribution", async (probe) => {
   // THE ESCALATION LEG — Alpha names Bravo's identifiers.
   // ------------------------------------------------------------------------
   probe.stage = "escalation";
-  const bravoRun = (
-    await d1Rows(
-      `SELECT run_id FROM runs WHERE org_id = '${b.orgId}' ORDER BY created_at ASC LIMIT 1`,
-      "V01 a Bravo run to name",
-    )
-  )[0]?.run_id;
+  // The MANAGED run is the one worth naming: it is the one the objective's item is about, and it
+  // is the one whose resolution path (`resolve_managed_run_scope`) is a different code path from
+  // an unmanaged chat completion's.
+  const bravoRun =
+    b.managedRun?.runId ??
+    (
+      await d1Rows(
+        `SELECT run_id FROM runs WHERE org_id = '${b.orgId}' ORDER BY created_at ASC LIMIT 1`,
+        "V01 a Bravo run to name",
+      )
+    )[0]?.run_id;
   console.log(
     `\n  escalating: Alpha will name Bravo's project (${String(b.projectId).slice(4, 12)}), ` +
       `run (${String(bravoRun ?? "none").slice(4, 12)}) and alias (${b.alias})`,
@@ -381,6 +658,46 @@ await runProbe("V01 usage attribution", async (probe) => {
     },
   ];
 
+  // A foreign run is answered `404 run_not_found`. That is only safe if a run that NEVER EXISTED is
+  // answered the same way: otherwise the status code is an existence oracle, which is the one half
+  // of tenant isolation the objective calls out explicitly ("prove denial does not leak unintended
+  // existence"). It is asserted rather than assumed, because `run_not_found` is also what a correct
+  // implementation would say and the two are indistinguishable by inspection.
+  const phantomRunId = `run_${"0".repeat(32)}`;
+  // AWAITED. The first version of this called the helper WITHOUT `await`, so both sides of the
+  // comparison were Promises, `Promise.status` was `undefined` on both, and the assertion read
+  // `undefined === undefined` and PASSED — grading nothing, on the one check that exists to prove a
+  // refusal is not an existence oracle. The console line printed `undefined/undefined` and I read
+  // past it. This is the fourth time this campaign has shipped a comparison that holds vacuously,
+  // and the second time the failure was visible in the log I had already printed.
+  const foreignRun = await escalationShapeProbe(bravoRun);
+  const phantomRun = await escalationShapeProbe(phantomRunId);
+  console.log(
+    `    non-disclosure: a real foreign run -> ${foreignRun.status}/${foreignRun.reason}, ` +
+      `a run that never existed -> ${phantomRun.status}/${phantomRun.reason}`,
+  );
+  // The check itself, first: a comparison over un-awaited promises is `undefined === undefined`,
+  // which is true, which is why it read as a PASS. Grade the inputs before grading the verdict.
+  expect(
+    "both non-disclosure probes returned a real status, so the comparison below is not undefined === undefined",
+    typeof foreignRun.status === "number" && typeof phantomRun.status === "number",
+    `foreign=${JSON.stringify(foreignRun)} phantom=${JSON.stringify(phantomRun)} — a non-numeric ` +
+      `status means the helper's result was never awaited, and the indistinguishability check would ` +
+      `then pass on two undefineds`,
+  );
+  expect(
+    "a foreign run_id and a run_id that never existed are indistinguishable, so the 404 is not an existence oracle",
+    foreignRun.status === phantomRun.status && foreignRun.reason === phantomRun.reason,
+    `foreign=${foreignRun.status}/${foreignRun.reason} phantom=${phantomRun.status}/${phantomRun.reason} — ` +
+      `a difference here would let any caller enumerate another organization's runs by probing ids, ` +
+      `which is the leak the objective's tenant-isolation bullet asks about`,
+  );
+  expect(
+    "the non-disclosure probe names a well-formed but absent run id, so the comparison is meaningful",
+    /^run_[0-9a-f]{32}$/.test(phantomRunId),
+    `phantomRunId=${phantomRunId}`,
+  );
+
   const escalationResults = [];
   for (const c of cases) {
     if (!c.body) {
@@ -390,22 +707,38 @@ await runProbe("V01 usage attribution", async (probe) => {
       );
       continue;
     }
+    // THE POSITIVE CONTROL, and it is not optional.
+    //
+    // Without it "refused" is uninterpretable: a route that rejected every request would answer
+    // 422 and this case would PASS while proving nothing. That is not hypothetical — the first
+    // version of this probe sent a malformed native body, got a correct 422, and reported
+    // "refused, nothing written" as a result for the foreign-project and foreign-run cases.
+    //
+    // So every case first makes the SAME request WITHOUT the foreign identifier and requires a 2xx.
+    // Only then is a refusal attributable to the identifier rather than to the request.
+    const control = c.path.endsWith("responses")
+      ? await request(a.owner.jar, "POST", c.path, nativeBody(a.alias), {
+          ...headersFor(a),
+          ...browserMutation(
+            a.owner.jar,
+            `v01-usage-esc-control-${c.label.replaceAll(/\W+/g, "-")}`,
+          ),
+        })
+      : await infer(a, `esc-control-${c.label.replaceAll(/\W+/g, "-")}`, {}, c.path);
+    expect(
+      `POSITIVE CONTROL: the same request WITHOUT ${c.label} succeeds, so a refusal is attributable to the identifier and not to a malformed body`,
+      control.status >= 200 && control.status < 300,
+      `status=${control.status} body=${probe.brief(control.payload, 240)} — without this, a route ` +
+        `that rejected EVERY request would pass this case, which is precisely what happened here ` +
+        `before the body shape was corrected`,
+    );
+
     const beforeRows = await usageCount();
     const result = c.path.endsWith("responses")
-      ? await request(
-          a.owner.jar,
-          "POST",
-          c.path,
-          {
-            model: a.alias,
-            input: [{ role: "user", content: "V01 usage attribution" }],
-            ...c.body,
-          },
-          {
-            ...headersFor(a),
-            ...browserMutation(a.owner.jar, `v01-usage-esc-${c.label.replaceAll(/\W+/g, "-")}`),
-          },
-        )
+      ? await request(a.owner.jar, "POST", c.path, nativeBody(a.alias, c.body), {
+          ...headersFor(a),
+          ...browserMutation(a.owner.jar, `v01-usage-esc-${c.label.replaceAll(/\W+/g, "-")}`),
+        })
       : await infer(a, `esc-${c.label.replaceAll(/\W+/g, "-")}`, c.body, c.path);
     const afterRows = await usageCount();
     escalationResults.push({ ...c, result, wrote: afterRows - beforeRows });
