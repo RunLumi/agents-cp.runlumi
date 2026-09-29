@@ -383,6 +383,107 @@ await runProbe("V01 path-id tenancy", async (probe) => {
   // `/revoke` and `/rotate` children are -- and listing the bare parent made the coverage assertion
   // report a path this gate drives that the product does not have. The denominator is the router, so a
   // path here that is not in the router is a claim about a route that does not exist.
+  // --- a FRESH row in org A per control -------------------------------------------------
+  //
+  // Each control gets its own row, because a control that MUTATES its fixture invalidates the next
+  // control that reuses it. `credentials/{id}/revoke` succeeded and revoked Alice's credential, and then
+  // `credentials/{id}/rotate` was refused `404` for it -- because `find_credential_for_owner` filters
+  // `status <> 'revoked'` and a revoked credential no longer matches. That read as an UNPROVEN product
+  // question for a whole run, and the cause was this file's own ordering.
+  //
+  // It is the same defect as the shared `Idempotency-Key`, one layer up: **a control that shares mutable
+  // state with the next case is measuring the previous case.** Reordering the controls would not fix it --
+  // the destructive one is still destructive wherever it sits. The fix is to give every control its own
+  // row, so the controls are independent by construction rather than by luck of ordering.
+  //
+  // Only org A is re-seeded. The attack and the phantom address org B's row, and the STORED assertion
+  // requires it to be byte-identical afterwards, so re-seeding B per route would defeat the assertion.
+  let refixtureCounter = 0;
+  const refixture = {
+    members: async () => {
+      const member = await probe.authenticatedUser(`Member ${++refixtureCounter}`);
+      await probe.inviteAndAccept(alice, member, orgA.orgId, "member");
+      const row = (
+        await d1Rows(
+          `SELECT m.membership_id, m.version FROM memberships m JOIN users u ON u.user_id = m.user_id
+           WHERE m.org_id = '${orgA.orgId}' AND u.email = '${member.email}'`,
+          "V01 a fresh member in org A",
+        )
+      )[0];
+      return row ? { id: row.membership_id, version: row.version } : null;
+    },
+    invitations: async () => {
+      const email = `refixture-${++refixtureCounter}-${nonce}@example.com`;
+      await invite(alice.jar, orgA.orgId, email);
+      const row = (
+        await d1Rows(
+          `SELECT invitation_id FROM invitations WHERE org_id = '${orgA.orgId}' AND email = '${email}'`,
+          "V01 a fresh invitation in org A",
+        )
+      )[0];
+      return row ? { id: row.invitation_id, version: undefined } : null;
+    },
+    serviceAccounts: async () => {
+      const name = `Refixture ${++refixtureCounter}`;
+      await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/service-accounts`,
+        { name, capabilities: ["projects.read"] },
+        browserMutation(alice.jar, `pathid-refixture-sa-${name}-${nonce}`),
+      );
+      const row = (
+        await d1Rows(
+          `SELECT service_account_id, version FROM service_accounts
+           WHERE org_id = '${orgA.orgId}' AND name = '${name}'`,
+          "V01 a fresh service account in org A",
+        )
+      )[0];
+      return row ? { id: row.service_account_id, version: row.version } : null;
+    },
+    credentials: async () => {
+      const label = `refixture-${++refixtureCounter}`;
+      await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/credentials`,
+        {
+          provider_id: providerA?.provider_id,
+          owner_type: "user",
+          label,
+          secret: `v01-pathid-${label}-${nonce}`,
+        },
+        browserMutation(alice.jar, `pathid-refixture-cred-${label}-${nonce}`),
+      );
+      const row = (
+        await d1Rows(
+          `SELECT credential_id, version FROM credentials
+           WHERE org_id = '${orgA.orgId}' AND label = '${label}'`,
+          "V01 a fresh credential in org A",
+        )
+      )[0];
+      return row ? { id: row.credential_id, version: row.version } : null;
+    },
+    agents: async () => {
+      const name = `Refixture agent ${++refixtureCounter}`;
+      await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/agents`,
+        { name },
+        browserMutation(alice.jar, `pathid-refixture-agent-${name}-${nonce}`),
+      );
+      const row = (
+        await d1Rows(
+          `SELECT agent_definition_id, version FROM agent_definitions
+           WHERE org_id = '${orgA.orgId}' AND name = '${name}'`,
+          "V01 a fresh agent in org A",
+        )
+      )[0];
+      return row ? { id: row.agent_definition_id, version: row.version } : null;
+    },
+  };
+
   // Bodies are the shape each handler DECLARES, read from the `Json<...>` in its signature rather than
   // guessed. Four of the first five were wrong and each looked like a broken route: `resend` takes
   // `EmptyRequest` (so `{}`, and a `version` is a 422), `rotate` takes `RotateCredentialRequest
@@ -395,16 +496,18 @@ await runProbe("V01 path-id tenancy", async (probe) => {
   // after nine optional ones, and a truncated listing of the struct is how it was first read as
   // versionless.
   //
-  // `controlWeakened` marks an entry whose OWN control cannot be established, with the question
-  // recorded beside it. ONE remains: `credentials/{id}/rotate`, which answers 404 for a credential D1
-  // shows as user-owned in the same organization.
+  // `controlWeakened` is supported per entry and is used for NOTHING today. Three entries once carried
+  // it and all three have been resolved, which is worth recording twice over:
   //
-  // The two service-account entries were degraded for V01-033 and are no longer: their controls were a
-  // `409 version_conflict` on the organization's OWN record because the batch evaluated a
-  // compare-and-set guard AFTER the statement that bumped the version, so the route could never succeed.
-  // They are asserted at full `2xx` strength again, and the marker is removed rather than left behind --
-  // a degraded check that no longer needs degrading is a check quietly under-claiming, which is the same
-  // failure in the opposite direction.
+  //   * the two service-account entries were degraded, and their controls were a real defect -- V01-033,
+  //     a guard evaluated after the statement that bumps the version, so the route could never succeed.
+  //     They are asserted at full `2xx` strength again.
+  //   * `credentials/{id}/rotate` was degraded, and it was THIS FILE's fault: the revoke control
+  //     consumed the shared credential, so the rotate control was refused `404` for an already-revoked
+  //     row. Every control now creates its own row, so the controls are independent by construction.
+  //
+  // Both times the marker was REMOVED rather than left behind. A degraded check that no longer needs
+  // degrading is a check quietly under-claiming, which is the same failure in the opposite direction.
   const ROUTES = [
     {
       family: "members",
@@ -463,12 +566,12 @@ await runProbe("V01 path-id tenancy", async (probe) => {
       path: "/api/v1/orgs/{org_id}/credentials/{credential_id}/rotate",
       methods: [
         {
+          // `RotateCredentialRequest { label?, secret? }` declares both optional, so `{}` parses -- and
+          // the route then answers 422, because there is nothing to rotate. A rotation without a new
+          // secret is not a rotation, and the field is optional in the struct and required in the
+          // handler, which is a real (if minor) contract wrinkle worth naming rather than working around.
           method: "POST",
-          body: {},
-          // UNRESOLVED: the owner's own rotate answers 404 resource_not_found for a credential D1 shows
-          // as user-owned in the same org, and `find_credential_for_owner` should match. The cause is
-          // not established. UNPROVEN, not a defect claim.
-          controlWeakened: true,
+          body: { secret: `v01-pathid-rotate-${nonce}` },
         },
       ],
     },
@@ -669,11 +772,19 @@ await runProbe("V01 path-id tenancy", async (probe) => {
       //    that answers 404 for its own resource and make every refusal below vacuous.
       // The body that was SENT, next to the body that came back. A 409 here once read as "the route is
       // broken" for three runs; it meant the request carried a version the fixture had guessed.
-      const controlBody = await buildBody(await currentVersion(seed.a));
+      //
+      // The control gets its OWN row, freshly created for this route and method. Nothing above it may
+      // hand the control a row an earlier control already consumed.
+      const fresh = await refixture[route.family]?.();
+      const controlId = fresh?.id ?? seed.a;
+      const controlVersion = versioned
+        ? (fresh?.version ?? (await currentVersion(controlId)))
+        : undefined;
+      const controlBody = await buildBody(controlVersion);
       const control = await request(
         alice.jar,
         entry.method,
-        withId(seed.a),
+        withId(controlId),
         controlBody,
         headersFor("control"),
       );
@@ -706,7 +817,7 @@ await runProbe("V01 path-id tenancy", async (probe) => {
             : "works, so the refusal below is about tenancy"),
         controlHolds,
         `status=${control.status} sent=${JSON.stringify(controlBody)} ` +
-          `rowRead=${JSON.stringify((await readRow(seed.a))[0] ?? null).slice(0, 220)} ` +
+          `rowRead=${JSON.stringify((await readRow(controlId))[0] ?? null).slice(0, 200)} ` +
           `body=${JSON.stringify(control.payload ?? {}).slice(0, 140)}`,
       );
 
