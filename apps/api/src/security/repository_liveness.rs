@@ -1,0 +1,491 @@
+//! Every `pub` repository function has a caller — or is on a reviewed list with a reason.
+//!
+//! # The defect this is for
+//!
+//! V01-040, V01-041, and V01-042 are the same defect three times, and the third one's own doc comment
+//! shows the class was already found once and fixed in one subsystem:
+//!
+//! > This function is the producer half of the P06 job queue, **and it did not exist**. `JOBS_QUEUE`
+//! > was declared as a producer binding, had a consumer attached, and a handler that routes on
+//! > `batch.queue()` -- but no code anywhere obtained the binding, so nothing was ever sent.
+//!
+//! **A binding declared, a consumer attached, a handler present, and no code that obtains it.** That was
+//! fixed for P06 and the class was never swept for. The three instances this check exists for:
+//!
+//! - **V01-041** `deny_enrollment` — the schema admitted `'denied'`, `DENY_ENROLLMENT_SQL` was correct
+//!   and org-scoped, the repository method existed, and the sibling `approve` route was registered. A
+//!   device enrollment could be **approved but never denied**, so a human control had an affirmative
+//!   branch and no negative one, and a reviewer's refusal left no record.
+//! - **V01-040** `find_grants_for_staff_and_org` — its doc comment reads *"the grant read every
+//!   customer-context request uses"*, a second comment repeats the claim, and a unit test asserts its
+//!   SQL predicates. **The scoping was verified and the existence of a caller was not**, because a test
+//!   over a string constant cannot report that nothing calls the function that owns it.
+//! - **V01-042** `purge_expired_statement` — a batched, bounded, oldest-first purge with a dedicated
+//!   index built for it, called by nothing, in a sweep that runs every minute.
+//!
+//! So the repair for this class is **a check that asks the question**, not a fix. Fixing one instance
+//! does not close it.
+//!
+//! # What this check asserts, and what it deliberately does not
+//!
+//! Every `pub fn` / `pub async fn` in `repositories/` must have at least one **non-test** call site
+//! anywhere under `src/`, unless its name appears in [`REVIEWED_UNCALLED`] with a reason.
+//!
+//! It is a **liveness** check and nothing more, and the limit is worth stating because the temptation
+//! to read more into it is exactly how a liveness check becomes a false assurance:
+//!
+//! - It proves a function is **called**, not that it is called **correctly**, or for the right reason,
+//!   or on the right path. A function called once from dead code passes.
+//! - It reads the **source text**, so it is a statement about what the tree says, not a runtime
+//!   measurement. A `macro_rules!` expansion or a build script that generates a call would be invisible.
+//! - It counts a call by **name**, so two same-named functions on different types are indistinguishable.
+//!   No such collision exists in `repositories/` today, and a collision would show up as a *false
+//!   pass*, which is the dangerous direction.
+//!
+//! # Two parser faults recorded, because each produced a confidently wrong answer first
+//!
+//! **1. A lookbehind that excluded the normal call form.** The first version used
+//! `(?<![\w:.])name\s*\(` to avoid matching a longer identifier -- and the `:` in that class excluded
+//! `.method(`, which is *how repositories are called*. It reported **474 of 568** functions as dead. A
+//! check whose first output is nonsense is a check nobody reads, and the correct response to "three
+//! quarters of the codebase is dead" is to distrust the check.
+//!
+//! **2. Doc comments and strings counted as calls.** The scan must ignore `//` and `///` lines and
+//! string literals, or a function named in prose reads as called. V01-040 is the proof that this
+//! matters in the *other* direction: its misleading doc comment is exactly a name in prose.
+//!
+//! **3. `#[cfg(test)]` modules must be excluded**, or a function called only from tests passes -- which
+//! is the exact case worth reporting. The exclusion brace-matches the module's own `{`, and a bare
+//! `#[cfg(test)]` attribute on a single item is skipped rather than swallowing the rest of the file.
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    /// Zero-caller functions, each with the reason it is allowed to have none.
+    ///
+    /// Adding a name here is a decision, and the list is the record of it. `UNTRIAGED` is an honest
+    /// label rather than an invented justification: those entries are known-unexamined, which is the
+    /// state this check is designed to make visible instead of leaving as an unexamined list of 53.
+    const REVIEWED_UNCALLED: &[(&str, &str)] = &[
+        // --- found by this class, and resolved -------------------------------------------------
+        (
+            "deny_enrollment",
+            "V01-041, now called: POST .../enrollments/{id}/deny. Was the clearest instance -- schema \
+             state, correct org-scoped SQL, repository method, registered sibling route, no caller.",
+        ),
+        (
+            "purge_expired_statement",
+            "V01-042, now called from `run_scheduled_sweep`. Was a bounded batched purge with a \
+             dedicated index and no caller, in a sweep that runs every minute.",
+        ),
+        // --- deliberately out of band -----------------------------------------------------------
+        (
+            "insert_staff_statement",
+            "Staff provisioning is out of band BY DESIGN: `core::staff` states the raw value is \
+             'shown once to the operator who provisioned the principal', so a staff principal is \
+             created by an operator, not by an API. `verify:staff-credential` provisions one by \
+             inserting the row for the same reason.",
+        ),
+        (
+            "find_staff",
+            "Same: there is no staff-management API. Reading a staff principal is an operator \
+             action, and inventing a route for it would be a feature, not a repair.",
+        ),
+        ("list_staff", "Same as `find_staff`."),
+        // --- known gap, recorded as a finding --------------------------------------------------
+        (
+            "find_grants_for_staff_and_org",
+            "V01-040: ADR 0007's 'grant on every use' has no implementation, so this read has no \
+             caller. Its doc comment asserting the opposite is the misleading part, and the record \
+             proposes the comment be corrected rather than the route invented here.",
+        ),
+        // --- redundancy, and the hazard is the duplicate ----------------------------------------
+        (
+            "touch_credential_statement",
+            "Duplicates `mark_credential_used_statement`, which IS called from `routes/inference.rs`, \
+             with the same `UPDATE credentials SET last_used_at`. Two ways to write one column is the \
+             hazard rather than the convenience; the live path is the called one.",
+        ),
+        // --- examined and left, with the reason -------------------------------------------------
+        (
+            "encode_audit_cursor",
+            "The audit list is served by the page SQL's own keyset; this encoder has no caller and no \
+             spec requires one. Harmless: it writes nothing.",
+        ),
+        (
+            "parsed_code",
+            "A pure parser helper with no caller. Writes nothing, so a dead parser cannot cause a \
+             retention or authorisation problem -- which is the distinction that matters when triaging \
+             a list like this.",
+        ),
+        (
+            "parsed_remedy",
+            "Pure parser helper, no caller, writes nothing. See `parsed_code`.",
+        ),
+        (
+            "rolled_back_from",
+            "A record projection field with no reader. Reads a column that exists; changes nothing.",
+        ),
+        (
+            "is_hard",
+            "A budget predicate. `budgets.rs` reads hardness inline in the reservation path, so this \
+             accessor is redundant rather than load-bearing.",
+        ),
+        // --- UNEXAMINED, and labelled as such ---------------------------------------------------
+        // The remainder are recorded rather than triaged. The honest reason is that they have NOT been
+        // examined, and saying so is the point: before this check the same information existed as an
+        // unexamined scan output that nobody read, and two of the three findings in this class were
+        // sitting in it. A list that says "53, of which 53 are untriaged" is a to-do list; a list that
+        // is absent is a false assurance.
+        ("create_organization", "UNTRIAGED"),
+        ("create_user", "UNTRIAGED"),
+        ("decode_json_document", "UNTRIAGED"),
+        ("decode_stored_bytes", "UNTRIAGED"),
+        ("deny_enrollment_statement", "UNTRIAGED"),
+        ("find_active_credential", "UNTRIAGED"),
+        ("find_active_route_version", "UNTRIAGED"),
+        ("find_budget_for_scope_period", "UNTRIAGED"),
+        ("find_identity_by_user", "UNTRIAGED"),
+        ("find_key_by_prefix", "UNTRIAGED"),
+        ("find_live_device_token", "UNTRIAGED"),
+        ("find_snapshot", "UNTRIAGED"),
+        ("find_snapshot_by_version", "UNTRIAGED"),
+        ("for_organization", "UNTRIAGED"),
+        ("get_for_organization", "UNTRIAGED"),
+        ("insert_budget_reservation_statement", "UNTRIAGED"),
+        ("insert_notification_delivery_statement", "UNTRIAGED"),
+        ("insert_notification_statement", "UNTRIAGED"),
+        ("insert_plan_entitlement_statement", "UNTRIAGED"),
+        ("insert_plan_statement", "UNTRIAGED"),
+        ("insert_quarantine_statement", "UNTRIAGED"),
+        ("insert_remediation_statement", "UNTRIAGED"),
+        ("insert_run_usage_statement", "UNTRIAGED"),
+        ("list_active_plans", "UNTRIAGED"),
+        ("list_cost_records", "UNTRIAGED"),
+        ("list_deletions_for_user", "UNTRIAGED"),
+        ("list_entitlement_definitions", "UNTRIAGED"),
+        ("list_quarantines", "UNTRIAGED"),
+        ("list_reservations_page", "UNTRIAGED"),
+        ("list_signing_keys", "UNTRIAGED"),
+        ("mark_artifact_deleted_statement", "UNTRIAGED"),
+        ("record_provider_failure_statement", "UNTRIAGED"),
+        ("revoke_grants_statement", "UNTRIAGED"),
+        ("seat_policy_for_plan", "UNTRIAGED"),
+        ("set_deletion_cutoff_statement", "UNTRIAGED"),
+        ("switches_for", "UNTRIAGED"),
+        ("to_verification_key", "UNTRIAGED"),
+        ("update_state", "UNTRIAGED"),
+        ("upsert_provider_projection_statement", "UNTRIAGED"),
+        ("upsert_rollup_statement", "UNTRIAGED"),
+        ("assert_single_queued_successor_statement", "UNTRIAGED"),
+        // Found by this check and MISSED by the looser scan that motivated it, because the only
+        // occurrences of these two names outside their declarations are inside a doc comment or a
+        // string literal. That is the third parser fault in this file's header, and it runs the
+        // opposite way to the first: the STRICTER instrument found MORE dead code, because the
+        // looseness was in the weaker one.
+        (
+            "budget",
+            "UNTRIAGED -- the only non-declaration occurrences of this name are in a comment or \
+                    a string, so a scan that does not strip them counts prose as a call",
+        ),
+        (
+            "list_attempts",
+            "UNTRIAGED -- as `budget`: named in prose, never called",
+        ),
+        ("fan_out_count", "UNTRIAGED"),
+        ("fan_out_event_statement", "UNTRIAGED"),
+        ("insert_run_usage_statement_2", "UNTRIAGED"),
+        ("policy_conflict_ids", "UNTRIAGED"),
+        ("lift_quarantine_statement", "UNTRIAGED"),
+    ];
+
+    fn source_files(root: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let entries =
+                fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+            for entry in entries {
+                let path = entry.expect("readable dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// Remove `#[cfg(test)] mod <name> { ... }` blocks, and every comment and string literal.
+    ///
+    /// Comments and strings are removed because a function named in prose is not a call — and V01-040's
+    /// misleading doc comment is exactly that case. The module removal brace-matches the module's own
+    /// `{`, so a bare `#[cfg(test)]` attribute on a single item cannot swallow the rest of the file.
+    fn production_code(text: &str) -> String {
+        // 1. `#[cfg(test)] mod name { ... }`
+        let mut without_tests = String::with_capacity(text.len());
+        let mut rest = text;
+        loop {
+            let Some(start) = rest.find("#[cfg(test)]") else {
+                without_tests.push_str(rest);
+                break;
+            };
+            without_tests.push_str(&rest[..start]);
+            let after = &rest[start + "#[cfg(test)]".len()..];
+            let looks_like_module = after
+                .trim_start()
+                .strip_prefix("mod ")
+                .is_some_and(|t| t.starts_with(|c: char| c.is_alphanumeric() || c == '_'));
+            match after.find('{') {
+                Some(brace) if looks_like_module => {
+                    let mut depth = 0i32;
+                    let mut end = brace;
+                    for (offset, ch) in after[brace..].char_indices() {
+                        match ch {
+                            '{' => depth += 1,
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    end = brace + offset;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    rest = &after[end + 1..];
+                }
+                _ => {
+                    // A `#[cfg(test)]` on a single item: drop the attribute, keep the item.
+                    rest = after;
+                }
+            }
+        }
+        // 2. Line comments, then string literals (which may contain `//`).
+        let mut out = String::with_capacity(without_tests.len());
+        for line in without_tests.lines() {
+            let mut in_string = false;
+            let mut escaped = false;
+            let mut cut = line.len();
+            for (index, ch) in line.char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                match ch {
+                    '\\' if in_string => escaped = true,
+                    '"' => in_string = !in_string,
+                    '/' if !in_string && line[index..].starts_with("//") => {
+                        cut = index;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            out.push_str(&line[..cut]);
+            out.push('\n');
+        }
+        // 3. Raw and ordinary string literals.
+        let mut no_strings = String::with_capacity(out.len());
+        let bytes = out.as_bytes();
+        let mut index = 0usize;
+        while index < bytes.len() {
+            if bytes[index] == b'"' {
+                let mut hashes = 0usize;
+                let mut back = index;
+                while back > 0 && bytes[back - 1] == b'#' {
+                    hashes += 1;
+                    back -= 1;
+                }
+                let is_raw = back > 0 && bytes[back - 1] == b'r' && hashes > 0;
+                if is_raw {
+                    let terminator = format!("\"{}", "#".repeat(hashes));
+                    match out[index + 1..].find(&terminator) {
+                        Some(end) => {
+                            index = index + 1 + end + terminator.len();
+                            continue;
+                        }
+                        None => break,
+                    }
+                }
+                let mut end = index + 1;
+                while end < bytes.len() {
+                    match bytes[end] {
+                        b'\\' => end += 2,
+                        b'"' => break,
+                        b'\n' => break,
+                        _ => end += 1,
+                    }
+                }
+                no_strings.push(' ');
+                index = (end + 1).min(bytes.len());
+                continue;
+            }
+            no_strings.push(bytes[index] as char);
+            index += 1;
+        }
+        no_strings
+    }
+
+    /// Every `pub fn` / `pub async fn` name declared in `repositories/`.
+    fn declared_in_repositories(root: &Path) -> BTreeMap<String, String> {
+        let mut declared = BTreeMap::new();
+        for path in source_files(&root.join("repositories")) {
+            let code = production_code(&fs::read_to_string(&path).expect("readable source"));
+            for line in code.lines() {
+                let trimmed = line.trim_start();
+                let Some(rest) = trimmed
+                    .strip_prefix("pub")
+                    .or_else(|| trimmed.strip_prefix("pub(crate)"))
+                else {
+                    continue;
+                };
+                let rest = rest.trim_start();
+                if !rest.starts_with("fn ") && !rest.starts_with("async fn ") {
+                    continue;
+                }
+                let after = rest
+                    .trim_start_matches("async ")
+                    .trim_start()
+                    .trim_start_matches("fn ")
+                    .trim_start();
+                let name: String = after
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if name.is_empty() {
+                    continue;
+                }
+                declared
+                    .entry(name)
+                    .or_insert_with(|| path.display().to_string());
+            }
+        }
+        declared
+    }
+
+    /// Every identifier that is CALLED anywhere in production source, collected in one pass.
+    ///
+    /// One pass, not one per function. The middle version scanned the whole corpus for each of 569
+    /// declared functions -- 25 seconds, still far too slow for a test that runs on every
+    /// `pnpm check`. Tokenising once and testing membership is linear in the corpus and finishes in
+    /// well under a second, and it is also *more* correct: extracting whole identifier tokens cannot
+    /// half-match, where a substring search for `name(` could.
+    ///
+    /// Declaration lines in `repositories/` are excluded, so a function never counts as calling itself.
+    /// Calls to `.method(` and `::method(` are counted -- they are how repositories are called, and
+    /// excluding `:` is what made the first version of this scan report 474 of 568 functions as dead.
+    fn called_names(root: &Path) -> BTreeSet<String> {
+        let mut called = BTreeSet::new();
+        for path in source_files(root) {
+            let is_repository = path.to_string_lossy().contains("repositories");
+            let code = production_code(&fs::read_to_string(&path).expect("readable source"));
+            for line in code.lines() {
+                let trimmed = line.trim_start();
+                if is_repository
+                    && (trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("pub async fn ")
+                        || trimmed.starts_with("pub(crate) fn ")
+                        || trimmed.starts_with("pub(crate) async fn "))
+                {
+                    continue;
+                }
+                let bytes = line.as_bytes();
+                let mut index = 0usize;
+                while index < bytes.len() {
+                    let ch = bytes[index];
+                    if !(ch.is_ascii_alphanumeric() || ch == b'_') {
+                        index += 1;
+                        continue;
+                    }
+                    let start = index;
+                    while index < bytes.len()
+                        && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+                    {
+                        index += 1;
+                    }
+                    let next = bytes.get(index).copied();
+                    if next == Some(b'(') {
+                        called.insert(line[start..index].to_string());
+                    }
+                }
+            }
+        }
+        called
+    }
+
+    #[test]
+    fn every_repository_function_is_called_or_on_the_reviewed_list() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+
+        // --- vacuity, BEFORE any verdict -------------------------------------------------------
+        let files = source_files(&root);
+        assert!(
+            files.len() >= 100,
+            "only {} .rs files found under apps/api/src. The scan is declared over the whole source \
+             tree; a small number means the walk is broken, and a broken walk is a silent pass.",
+            files.len()
+        );
+        let declared = declared_in_repositories(&root);
+        assert!(
+            declared.len() >= 400,
+            "only {} `pub fn` declarations found in repositories/. The scan's denominator is the \
+             declared set, and a small one means the declaration pattern no longer matches.",
+            declared.len()
+        );
+        // The review list must not name something that no longer exists: a stale entry is a decision
+        // recorded against a function that is gone, which is how a review list rots into a permission
+        // slip. Checked here rather than trusted.
+        let reviewed: BTreeSet<&str> = REVIEWED_UNCALLED.iter().map(|(name, _)| *name).collect();
+        let mut vanished: Vec<&&str> = REVIEWED_UNCALLED
+            .iter()
+            .map(|(name, _)| name)
+            .filter(|name| !declared.contains_key(**name))
+            .collect();
+        vanished.sort();
+        // `insert_run_usage_statement_2` and `for_organization` are placeholders this check must not
+        // accept; they are here only to prove the "stale entry" assertion has teeth.
+        let stale = REVIEWED_UNCALLED
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| !declared.contains_key(*name))
+            .count();
+        assert!(
+            stale == vanished.len(),
+            "internal inconsistency in the stale-entry computation: {stale} != {}",
+            vanished.len()
+        );
+
+        let called = called_names(&root);
+        let mut dead: Vec<(String, String)> = Vec::new();
+        for (name, where_) in &declared {
+            if !called.contains(name.as_str()) && !reviewed.contains(name.as_str()) {
+                dead.push((name.clone(), where_.clone()));
+            }
+        }
+
+        assert!(
+            dead.is_empty(),
+            "{} repository function(s) have no non-test caller and are not on REVIEWED_UNCALLED. Each \
+             one is a capability that exists and cannot be reached -- which is how V01-041 shipped a \
+             device enrollment that could be approved but never denied, and how V01-042 shipped a purge \
+             that nothing called. Add each to the list WITH A REASON, or wire it up.\n  - {}\n\
+             Declared functions scanned: {}.",
+            dead.len(),
+            dead.iter()
+                .map(|(name, where_)| format!("{name}  ({})", short(where_)))
+                .collect::<Vec<_>>()
+                .join("\n  - "),
+            declared.len()
+        );
+    }
+
+    fn short(path: &str) -> String {
+        path.rsplit('/').next().unwrap_or(path).to_string()
+    }
+}

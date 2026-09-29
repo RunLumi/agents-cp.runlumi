@@ -10,7 +10,9 @@
 //! - `secret_canary` — can any secret reach a log, a `Debug`, or a projection?
 //! - `release_docs` — do the checked-in release documents still match the code?
 //! - `actor_type_correspondence` — can the code write an `actor_type` the schema would refuse?
+//! - `repository_liveness` — can the code reach every repository capability it declares?
 pub(crate) mod actor_type_correspondence;
 pub(crate) mod release_docs;
+pub(crate) mod repository_liveness;
 pub(crate) mod secret_canary;
 pub(crate) mod tenant_audit;
