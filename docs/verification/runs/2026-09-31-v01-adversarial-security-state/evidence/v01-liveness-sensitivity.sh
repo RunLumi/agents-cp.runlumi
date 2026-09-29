@@ -20,6 +20,9 @@
 #   M2  a function that is genuinely dead is REMOVED from the reviewed list. The check must then report
 #       it. This is the other half, and it is the one that matters most for the list's integrity: a
 #       review list that can absorb entries silently is a permission slip, not a record of decisions.
+#   M3  a STALE entry is ADDED to the reviewed list -- one naming a function that does not exist. The
+#       check must refuse it. The first version of the check DOCUMENTED this rule and did not apply it,
+#       and three entries went stale within the hour; this is what gives the applied rule teeth.
 #
 # Attacking only M1 would prove the scan works and say nothing about whether the list is trustworthy.
 #
@@ -246,6 +249,49 @@ restore
 cmp -s "$CHECK" "$SNAPSHOT/$(basename "$CHECK")" || { log "  !! $CHECK was not restored"; exit 1; }
 log "  $CHECK is back to its snapshot"
 
+# ================================================================================ M3
+head2 "M3: a STALE entry is added to the reviewed list"
+# The list must not name functions that no longer exist, or it stops describing the present and starts
+# accumulating history. The check DOCUMENTED that rule in its first version and did not apply it: it
+# computed the stale set, sorted it, and asserted nothing. A check that describes a rule it does not
+# enforce is worse than one that omits the rule, because a reader trusts the prose -- and three entries
+# went stale within the same hour, when V01-043 wired the quarantine routes.
+#
+# This mutation is what gives that assertion teeth. Without it, "ENFORCED" in the source would be an
+# unverified claim about the source, which is the failure this campaign keeps finding.
+python3 - "$CHECK" <<'PY3'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+anchor = '        (\n            "budget",\n'
+assert text.count(anchor) == 1, f"insertion anchor found {text.count(anchor)} times"
+fake = ('        (\n            "a_function_that_does_not_exist",\n'
+        '            "UNTRIAGED -- a deliberate fake, to prove the staleness assertion has teeth",\n'
+        '        ),\n')
+path.write_text(text.replace(anchor, fake + anchor, 1))
+assert path.read_text() != text, "the write did not change the file"
+print("  applied: added one entry naming a function that does not exist")
+PY3
+assert_changed "$CHECK"
+RESULT="$(run_the_check)"
+case "$RESULT" in
+  assertion-failed)
+    if grep -q "no longer exist" "$SNAPSHOT/last-run.log"; then
+      VERDICTS+=("M3: DETECTED")
+      log "  M3: DETECTED -- a stale entry is refused, so the list cannot rot into a permission slip."
+    else
+      VERDICTS+=("M3: DETECTED-WRONG-REASON")
+      log "  M3: the check FAILED but not on the staleness rule."
+    fi
+    ;;
+  clean)     VERDICTS+=("M3: MISSED"); log "  M3: MISSED -- a stale entry passed, so the list only grows." ;;
+  *)         VERDICTS+=("M3: HARNESS ($RESULT)"); log "  M3: the HARNESS failed ($RESULT), not a verdict." ;;
+esac
+grep -E "no longer exist" "$SNAPSHOT/last-run.log" | head -1 | fold -w 110 | sed 's/^/    | /'
+restore
+cmp -s "$CHECK" "$SNAPSHOT/$(basename "$CHECK")" || { log "  !! $CHECK was not restored"; exit 1; }
+log "  $CHECK is back to its snapshot"
+
 # ================================================================================ restore, re-verify
 head2 "Restored: the check passes again"
 FINAL="$(run_the_check)"
@@ -263,7 +309,7 @@ head2 "Verdicts"
 for v in "${VERDICTS[@]}"; do log "  $v"; done
 
 MISSED=0
-for required in "M1" "M2"; do
+for required in "M1" "M2" "M3"; do
   line="$(printf '%s\n' "${VERDICTS[@]}" | grep "^$required:" || true)"
   if [ -z "$line" ]; then
     log ""
