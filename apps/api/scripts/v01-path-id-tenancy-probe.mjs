@@ -799,7 +799,26 @@ await runProbe("V01 path-id tenancy", async (probe) => {
     "/api/v1/orgs/{org_id}/deletions/{deletion_id}/resume":
       "needs a deletion paused mid-flight, which requires reaching that state deliberately",
     "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve":
-      "needs a pending device enrollment",
+      "needs a pending device enrollment, and now has one: verify:revoked-device builds a real ed25519 " +
+      "enrollment. What is still missing is the OTHER organization's -- this route takes ONE id, so the " +
+      "cross-tenant leg needs two orgs to each have a pending enrollment, and this gate builds neither. " +
+      "1 of the 4 assertions (the own-row 2xx control) is covered there; the foreign id, the phantom " +
+      "comparison and the byte-identical stored row are not",
+    // V01-041. Named, NOT credited, and the distinction is the point.
+    //
+    // `verify:revoked-device` drives this route on the organization's OWN enrollment and gets a 200 --
+    // which is assertion 1 of 4. It does not substitute another organization's id, does not compare a
+    // phantom, and does not read a foreign row back to assert it is unchanged. Crediting the route to
+    // that gate would claim four assertions on the strength of one, which is the same error as dropping
+    // it from the denominator: both make the coverage look larger than it is.
+    //
+    // So it sits here with the reason, and the reason is now specific and achievable: two orgs, each
+    // with a pending enrollment. `NOT_YET_SEEDED` is the honest home until this gate can build that.
+    "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/deny":
+      "needs a pending device enrollment in BOTH organizations. verify:revoked-device covers assertion 1 " +
+      "of 4 (the own-row 2xx) plus the load-bearing claim that a denied enrollment cannot obtain a " +
+      "credential; the foreign-id refusal, the phantom comparison and the byte-identical stored row are " +
+      "unproven here",
     "/api/v1/orgs/{org_id}/exports/{export_id}": "needs a completed export",
     "/api/v1/orgs/{org_id}/exports/{export_id}/download":
       "needs a completed export whose body is in R2, which the local queue does not deliver",

@@ -288,21 +288,47 @@ impl<'a> DeviceRepository<'a> {
         Ok(())
     }
 
-    pub async fn deny_enrollment(
+    /// The denial as a PREPARED statement, so it can commit in the same batch as the audit event.
+    ///
+    /// V01-041. `deny_enrollment` below used to be the only form, and it executed immediately — which is
+    /// why the route could not exist as written: a denial and the `security_events` row recording it
+    /// have to commit together, or a crash between them leaves a reviewer having refused access with no
+    /// record that they did. Every other mutation on this repository has a `*_statement` form for
+    /// exactly that reason.
+    ///
+    /// The SQL and the bind list live here and nowhere else. `deny_enrollment` is now implemented in
+    /// terms of this, so the two cannot drift — two ways to write the same row is the hazard, not the
+    /// convenience.
+    pub fn deny_enrollment_statement(
         &self,
         enrollment_id: &str,
         org_id: &str,
         now: &Timestamp,
-    ) -> worker::Result<bool> {
-        let statement = self.database.prepare(
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
             DENY_ENROLLMENT_SQL,
             &[
                 BindValue::Text(enrollment_id),
                 BindValue::Text(org_id),
                 BindValue::Text(now.as_str()),
             ],
-        )?;
-        let result = statement.run().await?;
+        )
+    }
+
+    /// Deny a pending enrollment and report whether a row changed.
+    ///
+    /// Prefer [`Self::deny_enrollment_statement`] wherever the denial should be batched with an audit
+    /// event; this exists for a caller that genuinely wants the write on its own.
+    pub async fn deny_enrollment(
+        &self,
+        enrollment_id: &str,
+        org_id: &str,
+        now: &Timestamp,
+    ) -> worker::Result<bool> {
+        let result = self
+            .deny_enrollment_statement(enrollment_id, org_id, now)?
+            .run()
+            .await?;
         Ok(D1Adapter::changes(&result)? > 0)
     }
 

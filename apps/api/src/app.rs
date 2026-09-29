@@ -257,6 +257,15 @@ pub fn router(env: Env) -> Router {
             "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve",
             post(devices::approve_enrollment),
         )
+        // V01-041. The negative branch of the same human control. Registered beside `approve` so the
+        // pair is read together: without it the enrollment state machine had an affirmative branch and
+        // no negative one, so a reviewer's decision NOT to grant access left no record -- the row
+        // either lingered `pending` or was later marked `expired`, making a human refusal
+        // indistinguishable from nobody looking.
+        .route(
+            "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/deny",
+            post(devices::deny_enrollment),
+        )
         .route(
             "/api/v1/devices/enrollments",
             post(devices::begin_enrollment),

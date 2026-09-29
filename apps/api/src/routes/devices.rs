@@ -59,6 +59,10 @@ const REVOKE_DEVICE_PATH: &str = "/api/v1/orgs/{org_id}/devices/{device_id}";
 
 /// A TEMPLATE for the same reason as `REVOKE_DEVICE_PATH`: the claim's scope must not vary with the
 /// enrollment id, or a client retrying the same logical approval would miss its own claim.
+// V01-041. The sibling of `APPROVE_ENROLLMENT_PATH`. The enrollment state machine has an affirmative
+// branch and no negative one: this is the path a denial is recorded against, and without it the
+// idempotency claim has nothing to key on.
+const DENY_ENROLLMENT_PATH: &str = "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/deny";
 const APPROVE_ENROLLMENT_PATH: &str =
     "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve";
 
@@ -1316,6 +1320,122 @@ pub struct ListQuery {
 /// Approve a pending enrollment: any active org member may confirm a device
 /// presented to them (device-flow trust model, mirroring the P02 approve
 /// route). Device + enrollment close + first token commit atomically.
+/// V01-041. Deny a pending device enrollment.
+///
+/// The negative branch of the same human control `approve_enrollment` is the positive branch of. The
+/// domain below this handler was complete: `device_enrollments.status` admits `'denied'`, and
+/// `DENY_ENROLLMENT_SQL` sets it, org-scoped on `org_id` and guarded on `status = 'pending'`. The
+/// repository method `deny_enrollment` existed too, and occurred exactly once in the tree — its own
+/// definition. So this handler is not a new decision; it surfaces one the schema, the statement and the
+/// repository had already made.
+///
+/// Mirrors `approve_enrollment` field for field on purpose, because a divergent twin is how the two
+/// branches drift: the same `Permission::DevicesRead`, the same `require_csrf`, the same idempotency
+/// claim taken AFTER authorization and the org check and BEFORE the state check, and the same `409` for
+/// a row that is no longer pending. The state check is what the SQL's own guard would do anyway; doing
+/// it here is what turns "the statement changed nothing" into a stable `409` rather than a `200` that
+/// lies.
+///
+/// The audit event is the point of the whole repair. Before it, a reviewer's decision NOT to grant
+/// access left no record at all — the row either lingered `pending` or was later marked `expired` by
+/// the sweep, so a human refusal was indistinguishable from nobody looking. F16 names "device
+/// enrollment/revocation" as an event class; this is the enrollment half that was missing.
+#[worker::send]
+pub async fn deny_enrollment(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path((org_id, enrollment_id)): Path<(String, String)>,
+) -> Result<Response<Body>, ApiError> {
+    let access = authorize_org(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        Permission::DevicesRead,
+        Some("device"),
+        None,
+    )
+    .await?;
+    require_csrf(&headers, &access.session, &context).await?;
+    let key = idempotency_key(&headers, &context)?;
+    let database = database(&state, &context)?;
+    let repository = DeviceRepository::new(database);
+    let enrollment = repository
+        .find_enrollment(&enrollment_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?
+        .filter(|enrollment| enrollment.org_id == org_id)
+        .ok_or_else(|| {
+            denial(
+                &context,
+                ApiErrorCode::NotFound,
+                "device_not_found",
+                "No such enrollment.",
+            )
+        })?;
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "POST",
+        DENY_ENROLLMENT_PATH,
+        &json!({}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+    if EnrollmentStatus::parse(&enrollment.status) != Some(EnrollmentStatus::Pending) {
+        return Err(denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "enrollment_not_pending",
+            "The enrollment is no longer pending.",
+        ));
+    }
+    // The same compare-and-set shape as the rest of the surface: the statement is guarded on
+    // `status = 'pending'`, and the read above is the same guard read from the row. A concurrent
+    // approve or expire between the two loses here, and the batch changes nothing.
+    let changed = repository
+        .deny_enrollment_statement(&enrollment_id, org_id.as_str(), &context.received_at)
+        .map_err(|_| service_unavailable(&context))?;
+    let audit = security_event_statement(
+        database,
+        &context,
+        Some(&access.principal),
+        None,
+        Some(org_id.as_str()),
+        SecurityEventId::generate(),
+        "device.enrollment.denied.v1",
+        "device",
+        Some(&enrollment_id),
+        "success",
+        &json!({ "enrollment_id": enrollment_id }),
+    )?;
+    let body = json!({ "enrollment_id": enrollment_id, "status": "denied" });
+    let success =
+        StoredSuccess::new(200, body.clone()).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![changed], audit).await? {
+        ScopedMutationCommit::Committed => {}
+        ScopedMutationCommit::Replayed(replay) => return Ok(replay_response(replay)),
+        ScopedMutationCommit::Guarded => {
+            return Err(denial(
+                &context,
+                ApiErrorCode::Conflict,
+                "enrollment_not_pending",
+                "The enrollment is no longer pending.",
+            ));
+        }
+    }
+    // Mirrors `approve_enrollment`'s return shape exactly. A twin that answers through a different
+    // helper is a twin that can drift in status code as well as in body.
+    Ok((StatusCode::OK, Json(body)).into_response())
+}
+
 #[worker::send]
 pub async fn approve_enrollment(
     State(state): State<Arc<AppState>>,

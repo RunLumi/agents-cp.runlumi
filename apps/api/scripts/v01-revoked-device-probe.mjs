@@ -394,5 +394,139 @@ await runProbe("V01 revoked device", async (probe) => {
       `count other than 1 and 1 means the coupling this claim rests on is not what it was read to be`,
   );
 
+  // =========================================================================================
+  // V01-041 — a DENIED enrollment must not be able to obtain a device credential.
+  //
+  // The claim is not "the deny route exists". A route returning 2xx proves a handler is wired; it says
+  // nothing about whether the credential it was supposed to prevent was actually prevented. So this
+  // class walks the whole flow and attacks the end: begin, deny, then attempt to complete.
+  //
+  // Its own device identity and its own enrollment. Nothing above may hand this class a row an earlier
+  // case consumed -- the same rule that fixed the path-id gate, and the reason this is a fresh keypair
+  // rather than a reuse of `device`.
+  // =========================================================================================
+  probe.stage = "denied-enrollment";
+  {
+    const { publicKey: denyPub, privateKey: denyPriv } = generateKeyPairSync("ed25519");
+    const denyDevice = {
+      publicKeyPem: denyPub.export({ type: "spki", format: "pem" }).toString(),
+      keyFingerprint: createHash("sha256")
+        .update(denyPub.export({ type: "spki", format: "der" }))
+        .digest("hex"),
+      sign: (message) => sign(null, Buffer.from(message), denyPriv).toString("hex"),
+    };
+
+    const beginDenied = await request(anonJar(), "POST", "/api/v1/devices/enrollments", {
+      org_slug: orgSlug,
+      public_key: denyDevice.publicKeyPem,
+      key_fingerprint: denyDevice.keyFingerprint,
+      device_name: "V01 denied device",
+      platform: "darwin-arm64",
+      app_version: "0.5.0",
+    });
+    const deniedId = beginDenied.payload?.enrollment_id;
+    expect(
+      "D0: a SECOND enrollment begins on its own key, so the denial case is independent of the one above",
+      beginDenied.status === 201 && typeof deniedId === "string",
+      `status=${beginDenied.status} id=${deniedId ?? "-"} body=${probe.brief(beginDenied.payload, 160)}`,
+    );
+
+    if (typeof deniedId === "string") {
+      // --- the denial itself, with its OWN idempotency key ---------------------------------
+      const deny = await request(
+        admin.jar,
+        "POST",
+        `/api/v1/orgs/${org.orgId}/devices/enrollments/${deniedId}/deny`,
+        {},
+        probe.browserMutation(admin.jar, "v01-rev-deny", {
+          "Idempotency-Key": probe.idempotencyKey("v01-rev-deny"),
+        }),
+      );
+      expectStatus(
+        "D1: a pending enrollment can be DENIED -- the negative branch exists",
+        deny,
+        [200],
+      );
+
+      const deniedRow = (
+        await d1Rows(
+          `SELECT status FROM device_enrollments WHERE enrollment_id = '${deniedId}'`,
+          "V01 reading the enrollment after the denial",
+        )
+      )[0];
+      expect(
+        "D1: and the STORED status is 'denied' -- graded on the row, not on the status code",
+        deniedRow?.status === "denied",
+        `row=${JSON.stringify(deniedRow)} body=${probe.brief(deny.payload, 140)}`,
+      );
+
+      // --- THE ATTACK: complete a denied enrollment ---------------------------------------
+      // If this succeeds, the device holds a live credential for an organization that refused it, and
+      // the refusal was decorative. The proof challenge is read the same way the approve path reads
+      // it, so the completion is a well-formed request rather than a malformed one.
+      const challenge = await request(anonJar(), "GET", `/api/v1/devices/enrollments/${deniedId}`);
+      const complete = await request(
+        anonJar(),
+        "POST",
+        `/api/v1/devices/enrollments/${deniedId}/complete`,
+        { signature: denyDevice.sign(challenge.payload?.challenge ?? "v01-no-challenge") },
+      );
+      expect(
+        "D2: a DENIED enrollment cannot be completed, so the refusal is not decorative",
+        complete.status >= 400,
+        `status=${complete.status} body=${probe.brief(complete.payload, 160)}`,
+      );
+
+      // Graded on stored state: a 2xx that ignored the denial would be CORRECT, and a device token
+      // row is the only thing that distinguishes the two.
+      const tokenRows = (
+        await d1Rows(
+          `SELECT COUNT(*) AS n FROM device_tokens WHERE device_id IN
+             (SELECT device_id FROM devices WHERE key_fingerprint = '${denyDevice.keyFingerprint}')`,
+          "V01 counting device tokens issued to the denied device",
+        )
+      )[0];
+      expect(
+        "D2: and NO device token exists for the denied device -- read out of D1, because a 2xx that " +
+          "ignored the denial would satisfy a status-only assertion",
+        Number(tokenRows?.n ?? 0) === 0,
+        `tokenRows=${tokenRows?.n ?? "unread"} completeStatus=${complete.status}`,
+      );
+
+      // --- the control: a different-key call on the same route, so the route is not simply broken -
+      const denyReplay = await request(
+        admin.jar,
+        "POST",
+        `/api/v1/orgs/${org.orgId}/devices/enrollments/${deniedId}/deny`,
+        {},
+        probe.browserMutation(admin.jar, "v01-rev-deny-again", {
+          "Idempotency-Key": probe.idempotencyKey("v01-rev-deny-again"),
+        }),
+      );
+      expect(
+        "D3: a DIFFERENT-key denial of the same (now denied) enrollment is refused, which is what " +
+          "proves the route is doing the state check rather than the key being irrelevant -- the " +
+          "lesson V01-009's approve_enrollment leg turned on",
+        denyReplay.status >= 400,
+        `status=${denyReplay.status} body=${probe.brief(denyReplay.payload, 140)}`,
+      );
+
+      // --- the audit event, which is the other half of why the route exists -------------------
+      const denyEvents =
+        (await d1Rows(
+          `SELECT action, actor_type, resource_id FROM security_events
+            WHERE action LIKE 'device.enrollment.denied%' AND resource_id = '${deniedId}'`,
+          "V01 reading the audit row the denial must have written",
+        )) ?? [];
+      expect(
+        "D4: the denial wrote a customer-visible audit event naming the enrollment, because before " +
+          "this route a reviewer's refusal left no record at all and was indistinguishable from " +
+          "nobody looking",
+        denyEvents.length === 1 && denyEvents[0].actor_type === "user",
+        `events=${JSON.stringify(denyEvents)}`,
+      );
+    }
+  }
+
   probe.finish(probe.failures.length > 0 ? 1 : 0);
 });
