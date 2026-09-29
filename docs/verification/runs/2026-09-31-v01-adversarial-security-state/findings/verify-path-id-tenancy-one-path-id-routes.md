@@ -38,7 +38,7 @@ The control is asserted at **full 2xx strength**, not "not 5xx", because "not 5x
 that answers 404 for its own resource. V01-030 is what that costs: six cross-tenant rows reporting `PASS`
 for a route its own owner could not use.
 
-**Result: 162/162, exit 0, 45 named skips.** `smoke:p08`'s unproven count moved **69 → 60** and
+**Result: 198/198, exit 0, 40 named skips.** `smoke:p08`'s unproven count moved **69 → 60** and
 stayed 47/47.
 
 ## The defect this gate had in its first form: it was replaying its own control
