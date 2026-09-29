@@ -2325,9 +2325,23 @@ WHERE automation_id = ?1 AND org_id = ?2
         attempt: i64,
     ) -> worker::Result<D1PreparedStatement> {
         self.database.prepare(
+            // V01-023. The `guard!` macro aborts when its condition returns NO rows, so a guard must
+            // state a POSITIVE precondition. This one stated the negative of its own name: the
+            // condition was "a run link already exists", `NOT EXISTS` inverted it, and the guard
+            // aborted precisely when there was NO link -- so every legitimate first `start` was
+            // refused and `start_occurrence` could never succeed for any organization. The symptom
+            // was `lease_fence_invalid`, which names a lease, because that is what a guard abort is
+            // mapped to at the call site.
+            //
+            // The condition is now "no run link exists for this attempt", which is what the
+            // function's name, its doc comment and the route's comment at the call site have always
+            // said. `SELECT 1 WHERE <expr>` is valid SQLite without a FROM, and is the only way to
+            // express an absence as a positive row.
             guard!(
-                "SELECT 1 FROM automation_run_links
-                   WHERE occurrence_id = ?1 AND attempt = ?2"
+                "SELECT 1 WHERE NOT EXISTS (
+                   SELECT 1 FROM automation_run_links
+                   WHERE occurrence_id = ?1 AND attempt = ?2
+                 )"
             ),
             &[BindValue::Text(occurrence_id), BindValue::Int64(attempt)],
         )

@@ -3088,7 +3088,18 @@ pub async fn start_occurrence(
                     )
                         .into_response())
                 }
-                None => Err(domain_failure(&context, DomainError::LeaseFenceInvalid)),
+                None => {
+                    // V01-010's shape, and the reason this arm can be trusted at all: a batch failure
+                    // that is NOT a guard violation is mapped to `lease_fence_invalid` here, and the
+                    // error's own text was discarded. `worker::Error` carries SQLite's message and the
+                    // failing statement, never the bound values -- so this is safe to log, and without
+                    // it a genuine constraint failure is indistinguishable from a lost race.
+                    worker::console_error!(
+                        "automation start: the batch failed but no run link exists, so this was not a concurrent start; the underlying error was {}",
+                        format!("{error:?}")
+                    );
+                    Err(domain_failure(&context, DomainError::LeaseFenceInvalid))
+                }
             };
         }
         Err(_) => return Err(service_unavailable(&context)),

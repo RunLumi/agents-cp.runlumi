@@ -428,47 +428,26 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
           : ""),
     );
 
-    // `start_occurrence` re-reads the entitlement immediately before creating the run, and refuses
-    // with `permission_denied` / `entitlement_not_granted` when the organization does not hold it.
-    // That is deliberate -- the route's own comment says "a value captured at schedule creation is
-    // never authority" -- and this probe's organization has no automation entitlement, so the
-    // two-phase transition is UNPROVEN here rather than failing.
+    // THE START HALF OF THIS CASE MOVED, and the reason is worth recording.
     //
-    // It is reported as a skip with the reason, not quietly dropped: an unread assertion is an
-    // unmeasured claim, and a silent drop would shrink the denominator without saying so. The gap
-    // is recorded -- this probe needs an entitled organization to test the START transition, and
-    // the recorded severity of the `started_at` half of V01-013 rests on reading the route until
-    // that exists.
-    const entitlementBlocked =
-      started.status === 403 &&
-      (started.payload?.error?.code === "permission_denied" ||
-        /entitlement/i.test(started.payload?.error?.message ?? ""));
-    if (entitlementBlocked) {
-      probe.skip(
-        "V01-013: the START transition records started_at, so a lease that began work is distinguishable from one that never did",
-        `status=403 code=${started.payload?.error?.code} ` +
-          `reason=${started.payload?.error?.details?.reason ?? "n/a"} -- ${started.payload?.error?.message ?? ""}. ` +
-          `start_occurrence re-reads the entitlement immediately before creating the run, and this ` +
-          `organization holds none. The claim did NOT check it, which is why the lease was granted: ` +
-          `see the finding. UNPROVEN until the probe has an entitled organization.`,
-      );
-    } else {
-      expect(
-        "V01-013: the START transition records started_at, so a lease that began work is distinguishable from one that never did",
-        started.status >= 200 &&
-          started.status < 300 &&
-          typeof afterStart?.started_at === "string" &&
-          afterStart.started_at.length === 24,
-        `start status=${started.status} state=${afterStart?.state} ` +
-          `started_at=${afterStart?.started_at ?? "null"} body=${probe.brief(started.payload, 200)}`,
-      );
-      expect(
-        "V01-013: the START transition does NOT advance the attempt counter -- it transitions an attempt that already exists, and an unconditional assignment would spend a second attempt on one start",
-        Number(afterStart?.attempt) === Number(afterClaim?.attempt),
-        `attempt ${afterClaim?.attempt} -> ${afterStart?.attempt} across the start; with ` +
-          `max_start_attempts: 1 an accidental increment here would consume the whole budget`,
-      );
-    }
+    // It used to be a named SKIP: `start_occurrence` re-reads the entitlement immediately before
+    // creating the run and this organization held none, so the two-phase transition could not be
+    // observed here at all. The comment recorded the consequence honestly -- "the recorded severity of
+    // the `started_at` half of V01-013 rests on reading the route until that exists" -- and the
+    // recorded GAP-008 said the same: the probe needed an entitled organization.
+    //
+    // **It was never an environmental gap.** V01-023 was behind it: `start_occurrence` could not
+    // succeed for ANY organization, entitled or not, because one of its four batch guards asserted
+    // the presence of a run link and `NOT EXISTS` inverted it -- so the guard aborted precisely when
+    // there was no link, i.e. on every legitimate first start. A live defect sat behind a recorded
+    // coverage limitation for the life of the probe, undiscoverable without an entitled org.
+    //
+    // The OBS-001 control below now grants the entitlement and asserts BOTH of these things against
+    // a start that genuinely succeeds, so the assertion is stronger than the one it replaces rather
+    // than merely relocated. The claim half above stays, because it is about attempt allocation and
+    // the control's occurrence is a different row.
+    void started;
+    void afterStart;
   }
 
   // --- step 4: a second claim while the first lease is live -------------------
@@ -621,6 +600,243 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     activeAfterThird.length === 0,
     `active_leases=${activeAfterThird.length} after a ${third.status} claim`,
   );
+
+  // =========================================================================
+  // OBS-001 -- a CLAIM that can never START, and the attempt it consumes.
+  // =========================================================================
+  //
+  // `claim_occurrence` and `start_occurrence` do not agree on what makes an occurrence workable.
+  // `start_occurrence` re-reads dispatch eligibility immediately before creating the run and refuses
+  // when the organization cannot dispatch ("a value captured at schedule creation is never
+  // authority"). `claim_occurrence` reads the occurrence and the retry policy, computes
+  // `attempt = occurrence.attempt + 1`, checks it against `max_start_attempts`, and hands out a
+  // lease. It never asks whether the automation is dispatchable.
+  //
+  // So the ATTEMPT is consumed at claim time for work that provably cannot start. With the tightest
+  // legal bound (`max_start_attempts: 1`, which is what this probe's automation uses) one such claim
+  // leaves the occurrence permanently unstartable: the budget is spent, the run does not exist, and
+  // the sweep resolves the slot to `failed`. The claim is the only place the counter moves, so a
+  // check at start time cannot undo it.
+  //
+  // WHO can do this: any active device in the organization. It is not cross-tenant, so the severity
+  // is availability of the org's own automations rather than isolation -- but the state it leaves is
+  // durable, and `verify:attempt-exhaustion` exists precisely because that counter is the thing
+  // standing between a failing automation and an infinite retry loop.
+  //
+  // THE ORDER MATTERS, and it is the reason this is two cases and not one:
+  //   1. ATTACK, on the unentitled organization this probe already has: claim succeeds, start is
+  //      refused, and the occurrence is left with a spent attempt and no run.
+  //   2. CONTROL, on the SAME organization once it is granted the entitlement: claim then start
+  //      SUCCEEDS and a run exists.
+  //
+  // The control is what makes the attack's assertion mean anything. "No run was created" is
+  // satisfied by an organization that can never start anything -- which is the state the attack
+  // asserts about -- so without a positive case the attack grades its own premise. The control also
+  // closes this probe's long-standing named SKIP, because the two-phase START transition can only be
+  // observed where a start actually succeeds.
+  probe.stage = "claim-without-dispatch";
+  const grantAutomationEntitlement = async (orgId, label) => {
+    // `entitlement_grants` is empty in every seeded database, which is why this probe's organization
+    // is unentitled. Seeding a grant is a FIXTURE, not a relaxation: it makes the control stricter by
+    // giving the product somewhere it is *allowed* to succeed, so the attack's refusal is
+    // attributable to the missing entitlement rather than to the harness never having tried.
+    //
+    // `value_json` is a bare JSON integer (the repository deserialises it with `from_str::<i64>`),
+    // and the F18 CHECK -- an override must expire, carry a reason and name a grantor -- applies only
+    // to `source = 'internal_override'`, so a `plan` grant needs none of that.
+    // `grant_id` is CHECKed to be EXACTLY 36 characters with an `egr_` prefix. My first attempt
+    // built it from the nonce plus a label and came out 28 characters, so the INSERT was refused by
+    // the schema and the probe DIED -- 41 assertions in, with the control never reached. Worth
+    // recording because that failure mode is the expensive kind: the attack half had already printed
+    // four PASSes, so the sheet looked healthy right up until the run refused to finish.
+    //
+    // So the shape is asserted before the statement runs. A fixture that silently writes nothing is
+    // indistinguishable from one that worked, and this campaign has now hit that three ways.
+    const grantId = `egr_${createHash("sha256")
+      .update(`${probe.nonce}-${label}`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    if (!/^egr_[0-9a-f]{32}$/.test(grantId)) {
+      probe.finish(
+        2,
+        `the entitlement grant id ${grantId} is not 36 characters, so the schema would refuse it`,
+      );
+      return null;
+    }
+    // 24 characters, `????-??-??T??:??:??.???Z`, because three columns CHECK `length(...) = 24`.
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
+    await d1Rows(
+      `INSERT INTO entitlement_grants
+         (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
+       VALUES ('${grantId}', '${orgId}', 'automations.max_active', 'organization', '5', 'plan',
+               '${now}', '${now}', '${now}')`,
+      `V01 granting automations.max_active to ${label}`,
+    );
+    const rows = await d1Rows(
+      `SELECT entitlement_key, value_json FROM entitlement_grants
+        WHERE org_id = '${orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      `V01 the grant is readable by the product's own query`,
+    );
+    return rows.length === 1 ? rows[0] : null;
+  };
+
+  const attackId = await newOccurrence("obs-001-attack");
+  if (attackId) {
+    // Assert the precondition rather than assuming it: an attack on an organization that IS entitled
+    // would be measuring nothing, and the two cases below would be indistinguishable.
+    const eligibleBefore = await d1Rows(
+      `SELECT COUNT(*) AS n FROM entitlement_grants
+        WHERE org_id = '${org.orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      "V01 the attack organization holds no automation entitlement",
+    );
+    expect(
+      "CONTROL: the attack organization holds NO automation entitlement, so a start refusal is attributable to the entitlement and not to something else",
+      Number(eligibleBefore[0]?.n ?? 0) === 0,
+      `grants=${eligibleBefore[0]?.n ?? "unread"} -- without this the attack below and its control ` +
+        `would be the same case twice, and "no run was created" would be vacuous`,
+    );
+
+    const attackClaim = await claimOn(attackId);
+    const attackLease = attackClaim.payload ?? {};
+    const afterAttackClaim = (await rowFor(attackId))[0];
+    const activeLeases = await d1Rows(
+      `SELECT COUNT(*) AS n FROM automation_leases
+        WHERE occurrence_id = '${attackId}' AND state = 'active'`,
+      "V01 the lease the claim created",
+    );
+    console.log(
+      `\n  OBS-001 attack: claim -> ${attackClaim.status} state=${afterAttackClaim?.state} ` +
+        `attempt=${afterAttackClaim?.attempt} active_leases=${activeLeases[0]?.n ?? "?"} ` +
+        `run_id=${afterAttackClaim?.run_id ?? "null"}`,
+    );
+    expect(
+      "CONTROL: the claim SUCCEEDED on an organization that cannot dispatch, so the asymmetry below is real and not a refusal I mistook for one",
+      attackClaim.status >= 200 && attackClaim.status < 300,
+      `claim status=${attackClaim.status} body=${probe.brief(attackClaim.payload, 200)}`,
+    );
+    expect(
+      "OBS-001: the claim consumed an attempt and an active lease for an occurrence that can never start",
+      Number(afterAttackClaim?.attempt) === 1 && Number(activeLeases[0]?.n ?? 0) === 1,
+      `after the claim: attempt=${afterAttackClaim?.attempt} active_leases=${activeLeases[0]?.n} ` +
+        `run_id=${afterAttackClaim?.run_id ?? "null"} -- the attempt counter is the automation's whole ` +
+        `retry budget, and this occurrence's is now spent on work the product will refuse to start`,
+    );
+
+    const attackStart = await startOccurrence(attackId, attackLease);
+    const afterAttackStart = (await rowFor(attackId))[0];
+    console.log(
+      `  OBS-001 attack: start -> ${attackStart.status} ` +
+        `code=${attackStart.payload?.error?.code ?? "none"} ` +
+        `reason=${attackStart.payload?.error?.details?.reason ?? "n/a"} ` +
+        `state=${afterAttackStart?.state} attempt=${afterAttackStart?.attempt} ` +
+        `run_id=${afterAttackStart?.run_id ?? "null"}`,
+    );
+    expect(
+      "OBS-001: the start is REFUSED for want of dispatch eligibility, which is what makes the attempt spent for nothing",
+      attackStart.status === 403,
+      `start status=${attackStart.status} code=${attackStart.payload?.error?.code ?? "none"} ` +
+        `reason=${attackStart.payload?.error?.details?.reason ?? "n/a"} body=${probe.brief(attackStart.payload, 200)}`,
+    );
+    expect(
+      "OBS-001: no run exists after a claim and a refused start, so the attempt bought nothing",
+      afterAttackStart?.run_id === null || afterAttackStart?.run_id === undefined,
+      `run_id=${afterAttackStart?.run_id ?? "null"} state=${afterAttackStart?.state} ` +
+        `attempt=${afterAttackStart?.attempt} -- this is the durable damage: the occurrence is at its ` +
+        `attempt ceiling with no run, and this probe's automation has max_start_attempts = 1`,
+    );
+    expect(
+      "OBS-001: the spent attempt is recorded on the OCCURRENCE, so nothing downstream can un-spend it",
+      Number(afterAttackStart?.attempt) === 1,
+      `attempt=${afterAttackStart?.attempt} -- a check at start time cannot undo a counter that the ` +
+        `claim already moved, which is why the claim is the only place this can be prevented`,
+    );
+  }
+
+  // --- the entitled control: the same two calls, on an organization that may dispatch ----------
+  probe.stage = "entitled-control";
+  const granted = await grantAutomationEntitlement(org.orgId, "control");
+  expect(
+    "CONTROL: the entitlement grant is present and readable, so a successful start below is attributable to the grant",
+    granted !== null,
+    `grants found=${granted === null ? 0 : 1} -- without this, "the start creates no run" in the ` +
+      `attack above would be exactly what a successful start looks like`,
+  );
+  const controlId = await newOccurrence("obs-001-control");
+  if (controlId && granted) {
+    const controlClaim = await claimOn(controlId);
+    const controlLease = controlClaim.payload ?? {};
+    const storedLease = await d1Rows(
+      `SELECT lease_id, state, attempt, lease_version, lease_fence, lease_token_fingerprint
+         FROM automation_leases WHERE occurrence_id = '${controlId}'`,
+      "V01 the stored lease the control's start must match",
+    );
+    const presentedFingerprint = `sha256:${createHash("sha256")
+      .update(controlLease.lease_token ?? "")
+      .digest("hex")}`;
+    console.log(`  OBS-001 control: claim body = ${probe.brief(controlClaim.payload, 300)}`);
+    console.log(
+      `  OBS-001 control: presented lease_version=${controlLease.lease_version} ` +
+        `lease_fence=${controlLease.lease_fence} fingerprint=${presentedFingerprint}`,
+    );
+    console.log(`  OBS-001 control: stored lease=${JSON.stringify(storedLease)}`);
+    const controlStart = await startOccurrence(controlId, controlLease);
+    const afterControl = (await rowFor(controlId))[0];
+    // DIAGNOSTIC, and deliberately only on failure.
+    //
+    // `start_occurrence` maps a guard abort to `lease_fence_invalid`, and the abort's own text is the
+    // only thing that distinguishes "a lost race" from "a guard that always fires" -- which is
+    // exactly how V01-023 stayed invisible, and how it was finally found. The route now logs that
+    // text (the V01-010 shape: a batch error that was reported as something else and discarded), so
+    // when this case fails the cause is one line away instead of four wrong hypotheses deep.
+    //
+    // The polarity itself is NOT checked here. It is pinned by `pnpm guard:probe`, against real
+    // SQLite, for all nine guards in both states -- which is the right layer, because a guard is a
+    // property of its SQL and its tables and has nothing to do with a Worker. An earlier version of
+    // this case rebuilt the four guards by hand and read them AFTER the start, so it graded
+    // post-transition state; every one of those checks is now gone, and the matrix that replaced them
+    // fails when a tenth guard appears.
+    if (controlStart.status < 200 || controlStart.status >= 300) {
+      const plain = probe.workerConsole(60_000).replace(/\[[0-9;]*m/g, "");
+      const at = plain.lastIndexOf("the underlying error was");
+      console.log(
+        at >= 0
+          ? `  OBS-001 control: the route logged -> ${plain.slice(at, at + 1200).replace(/\s+/g, " ")}`
+          : "  OBS-001 control: the route logged nothing, so this is not a guard abort",
+      );
+    }
+    const controlRuns = await d1Rows(
+      `SELECT COUNT(*) AS n FROM automation_run_links WHERE occurrence_id = '${controlId}'`,
+      "V01 the run link the control's start created",
+    );
+    console.log(
+      `  OBS-001 control: claim -> ${controlClaim.status}, start -> ${controlStart.status} ` +
+        `state=${afterControl?.state} attempt=${afterControl?.attempt} ` +
+        `run_id=${afterControl?.run_id ?? "null"} run_links=${controlRuns[0]?.n ?? "?"}`,
+    );
+    expect(
+      "CONTROL: on the SAME organization once entitled, claim then start SUCCEEDS and a run exists -- so the attack measured the entitlement, not the harness",
+      controlStart.status >= 200 &&
+        controlStart.status < 300 &&
+        typeof afterControl?.run_id === "string" &&
+        Number(controlRuns[0]?.n ?? 0) >= 1,
+      `claim=${controlClaim.status} start=${controlStart.status} body=${probe.brief(controlStart.payload, 200)} ` +
+        `run_id=${afterControl?.run_id ?? "null"} run_links=${controlRuns[0]?.n ?? "?"}`,
+    );
+    // This is the probe's former named SKIP, and it is only observable here: a start that succeeds
+    // is the only way to see whether the START transition records `started_at`.
+    expect(
+      "V01-013: the START transition records started_at, now that a start actually succeeds",
+      typeof afterControl?.started_at === "string" && afterControl.started_at.length === 24,
+      `started_at=${afterControl?.started_at ?? "null"} state=${afterControl?.state} -- this case was a ` +
+        `named SKIP for the whole life of the probe because no organization here was entitled`,
+    );
+    expect(
+      "V01-013: the START transition does NOT advance the attempt counter",
+      Number(afterControl?.attempt) === 1,
+      `attempt=${afterControl?.attempt} -- the claim allocated it; a start that also incremented would ` +
+        `consume the whole budget on a single attempt`,
+    );
+  }
 
   // --- the summary ----------------------------------------------------------
   const everyAttempt = await d1Rows(
