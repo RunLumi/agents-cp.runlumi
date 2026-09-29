@@ -823,13 +823,6 @@ await runProbe("V01 path-id tenancy", async (probe) => {
     "/api/v1/orgs/{org_id}/exports/{export_id}/download":
       "needs a completed export whose body is in R2, which the local queue does not deliver",
     "/api/v1/orgs/{org_id}/mcp/{mcp_id}": "needs a registered MCP server",
-    "/api/v1/orgs/{org_id}/plugins/{package_id}": "needs an installed plugin package",
-    "/api/v1/orgs/{org_id}/plugins/{package_id}/approve": "needs a plugin awaiting approval",
-    "/api/v1/orgs/{org_id}/plugins/{package_id}/block": "needs an installed plugin to block",
-    "/api/v1/orgs/{org_id}/plugins/{package_id}/install":
-      "needs an installable package in the registry",
-    "/api/v1/orgs/{org_id}/plugins/{package_id}/pin": "needs an installed plugin to pin",
-    "/api/v1/orgs/{org_id}/plugins/{package_id}/unblock": "needs a blocked plugin",
     "/api/v1/orgs/{org_id}/routes/{route_id}": "needs a managed model route",
     "/api/v1/orgs/{org_id}/routes/{route_id}/history": "needs a route with published history",
     "/api/v1/orgs/{org_id}/routes/{route_id}/publish": "needs a draft route to publish",
@@ -849,6 +842,200 @@ await runProbe("V01 path-id tenancy", async (probe) => {
       "org-scoped before there is a fixture to attack",
   };
 
+  // =========================================================================================
+  // The `plugins` family's REAL tenant boundary, attacked directly.
+  //
+  // The registry (`plugin_publishers` / `plugin_packages` / `plugin_versions`) has NO `org_id`: it is
+  // platform-wide, so a `package_id` is the SAME identifier in every organization and substituting it
+  // addresses the identical row. That is why the six routes below are NOT_APPLICABLE to a substitution
+  // attack -- and it is also why naming them would be the whole of the coverage if nothing else
+  // attacked the boundary that actually exists.
+  //
+  // That boundary is the org-scoped INSTALL: `GET /plugins/{package_id}` calls
+  // `find_install(&org_id, &package_id)`, whose SQL filters on `org_id = ?1`. A handler that passed any
+  // other org, or a lookup that forgot the predicate, would return org B's install state -- its
+  // `install_id`, `version`, `review_state`, `review_reason`, `approved_by` -- to org A. Every one of
+  // those is a value, and a 200 is CORRECT for the package, so only the BODY can show the leak.
+  //
+  // Graded on the whole serialised body, searched for identifiers that belong to org B only.
+  // =========================================================================================
+  let leakCaseRan = false;
+  {
+    const publisherId = `pub_${createHash("sha256").update(`${nonce}-pid-pub`).digest("hex").slice(0, 32)}`;
+    const packageId = `pkg_${createHash("sha256").update(`${nonce}-pid-pkg`).digest("hex").slice(0, 32)}`;
+    const versionId = `pvr_${createHash("sha256").update(`${nonce}-pid-pvr`).digest("hex").slice(0, 32)}`;
+    const stamp = "2026-09-29T00:00:00.000Z";
+    const version = "1.0.0";
+    const digest = createHash("sha256").update(`${nonce}-pid-digest`).digest("hex");
+    // All eight fields `trg_plugin_versions_manifest_is_complete` requires, and no `"*"` for
+    // `trg_plugin_versions_no_wildcard_manifest`. `browser_capability` and `external_data_handling`
+    // are STRINGS from closed vocabularies, not booleans -- the trigger only requires the keys to
+    // exist, so a boolean satisfies the trigger and is then refused by `parse_manifest`.
+    const manifest = JSON.stringify({
+      name: "v01-pathid",
+      tools: [],
+      mcp_servers: [],
+      network_destinations: [],
+      filesystem_scopes: [],
+      process_spawn: false,
+      secret_handles: [],
+      browser_capability: "none",
+      external_data_handling: "none",
+    });
+    const seeded = await (async () => {
+      try {
+        await d1Rows(
+          `INSERT INTO plugin_publishers (publisher_id, display_name, official, status, created_at, updated_at)
+           VALUES ('${publisherId}', 'V01 PathId Publisher', 1, 'active', '${stamp}', '${stamp}')`,
+          "V01 seeding an OFFICIAL plugin publisher",
+        );
+        await d1Rows(
+          `INSERT INTO plugin_packages (package_id, publisher_id, display_name, status, created_at, updated_at)
+           VALUES ('${packageId}', '${publisherId}', 'V01 PathId Package', 'active', '${stamp}', '${stamp}')`,
+          "V01 seeding a plugin package",
+        );
+        await d1Rows(
+          `INSERT INTO plugin_versions
+             (plugin_version_id, package_id, version, runtime_min, runtime_max, content_digest,
+              signature, manifest_json, published_at, created_at)
+           VALUES ('${versionId}', '${packageId}', '${version}', '0.1.0', '99.0.0', '${digest}',
+                   '${digest}', '${manifest}', '${stamp}', '${stamp}')`,
+          "V01 publishing a plugin version",
+        );
+        return true;
+      } catch (e) {
+        console.log(`    could not seed the plugin registry: ${String(e).slice(0, 140)}`);
+        return false;
+      }
+    })();
+
+    if (seeded) {
+      // --- the state to leak: org B INSTALLS the package, so there is install state to leak -------
+      const installBody = { version, host_runtime_version: "1.0.0", content_digest: digest };
+      const bInstall = await request(
+        bob.jar,
+        "POST",
+        `/api/v1/orgs/${orgB.orgId}/plugins/${packageId}/install`,
+        installBody,
+        browserMutation(bob.jar, `v01-pid-plugin-install-b-${nonce}`),
+      );
+      const bRow = (
+        await d1Rows(
+          `SELECT install_id, org_id, review_state, approved_by FROM plugin_installs
+            WHERE org_id = '${orgB.orgId}' AND package_id = '${packageId}'`,
+          "V01 reading org B's install row",
+        )
+      )[0];
+      expect(
+        "PL0 CONTROL: org B has an install row to leak, and it names org B -- so a later no-leak " +
+          "verdict means absent rather than incapable",
+        Boolean(bRow) && bRow.org_id === orgB.orgId && Boolean(bRow.install_id),
+        `installStatus=${bInstall.status} row=${JSON.stringify(bRow)?.slice(0, 150)}`,
+      );
+
+      if (bRow) {
+        // --- the attack: org A asks for the SAME global package, which is a legitimate 200 --------
+        const aRead = await request(
+          alice.jar,
+          "GET",
+          `/api/v1/orgs/${orgA.orgId}/plugins/${packageId}`,
+          undefined,
+          browserHeaders(alice.jar),
+        );
+        const body = JSON.stringify(aRead.payload ?? {});
+        expect(
+          "PL1: org A CAN read the shared registry entry -- the package is global, so a refusal here " +
+            "would be the bug, not the control",
+          aRead.status === 200,
+          `status=${aRead.status} body=${probe.brief(aRead.payload, 150)}`,
+        );
+        // The whole point: a 200 is correct, so the verdict is read from the body.
+        for (const [label, needle] of [
+          ["org B's install_id", bRow.install_id],
+          ["org B's organization id", orgB.orgId],
+        ]) {
+          expect(
+            `PL2: org A's response carries NO trace of ${label} -- a handler that passed another org, ` +
+              "or a lookup that forgot its predicate, would return it inside a perfectly valid 200",
+            typeof needle === "string" && needle.length > 0 && !body.includes(needle),
+            `status=${aRead.status} needle=${String(needle).slice(0, 40)} present=${body.includes(String(needle))}`,
+          );
+        }
+        // A positive control on the search itself: the body MUST mention the package it describes, or
+        // "found nothing" could mean the search cannot find anything.
+        expect(
+          "PL3 CONTROL: the same search DOES find org A's own package in the body, so a negative above " +
+            "means absent rather than incapable of searching",
+          body.includes(packageId),
+          `status=${aRead.status} packageIdPresent=${body.includes(packageId)}`,
+        );
+        // And org A's own install state, once it has one, is the mirror image: it must be absent too,
+        // which is a different assertion than org B's -- it would catch a lookup that returned the
+        // WRONG org's row rather than an unscoped one.
+        const aInstall = await request(
+          alice.jar,
+          "POST",
+          `/api/v1/orgs/${orgA.orgId}/plugins/${packageId}/install`,
+          installBody,
+          browserMutation(alice.jar, `v01-pid-plugin-install-a-${nonce}`),
+        );
+        const aRead2 = await request(
+          alice.jar,
+          "GET",
+          `/api/v1/orgs/${orgA.orgId}/plugins/${packageId}`,
+          undefined,
+          browserHeaders(alice.jar),
+        );
+        const body2 = JSON.stringify(aRead2.payload ?? {});
+        const aRow = (
+          await d1Rows(
+            `SELECT install_id FROM plugin_installs
+              WHERE org_id = '${orgA.orgId}' AND package_id = '${packageId}'`,
+            "V01 reading org A's install row",
+          )
+        )[0];
+        expect(
+          "PL4: with an install in EACH org, org A sees its own and still not org B's -- a lookup that " +
+            "returned the wrong org's row rather than an unscoped one is a different defect, and this " +
+            "is the assertion that separates them",
+          aInstall.status < 400 &&
+            Boolean(aRow) &&
+            body2.includes(aRow.install_id) &&
+            !body2.includes(bRow.install_id),
+          `installStatus=${aInstall.status} aInstall=${aRow?.install_id ?? "-"} ` +
+            `aPresent=${aRow ? body2.includes(aRow.install_id) : "-"} ` +
+            `bPresent=${body2.includes(bRow.install_id)}`,
+        );
+      }
+    }
+    leakCaseRan = seeded; // if seeding failed, PL0 already failed honestly above
+  }
+
+  // The `plugins` family is NOT_APPLICABLE to a SUBSTITUTION attack, and the reason is structural
+  // rather than a missing fixture.
+  //
+  // `plugin_publishers`, `plugin_packages` and `plugin_versions` have **no `org_id`** -- they are a
+  // platform-wide registry. A `package_id` is therefore the SAME identifier in every organization, so
+  // "substitute org B's package id" addresses the identical row and cannot cross a tenant boundary by
+  // construction. Requiring a refusal here would be requiring a bug.
+  //
+  // The tenant boundary in this family is real but it is somewhere else: `GET /plugins/{package_id}`
+  // reads `find_install(&org_id, &package_id)`, so the **org-scoped install state** is what could leak.
+  // That is a leak assertion, not a substitution one, and it is attacked directly below rather than
+  // being satisfied by naming these routes. A route excluded from a check is only honest when something
+  // else checks the thing that actually matters.
+  const NOT_APPLICABLE_TO_SUBSTITUTION = {
+    "/api/v1/orgs/{org_id}/plugins/{package_id}":
+      "the package id is a GLOBAL registry identifier with no org_id, so substituting it addresses the " +
+      "same row; the org-scoped boundary here is the INSTALL state, attacked as a leak below",
+    "/api/v1/orgs/{org_id}/plugins/{package_id}/install":
+      "as above -- the install is org-scoped and the package is not, so this is a leak boundary",
+    "/api/v1/orgs/{org_id}/plugins/{package_id}/approve": "as above",
+    "/api/v1/orgs/{org_id}/plugins/{package_id}/block": "as above",
+    "/api/v1/orgs/{org_id}/plugins/{package_id}/unblock": "as above",
+    "/api/v1/orgs/{org_id}/plugins/{package_id}/pin": "as above",
+  };
+
   // --- the denominator is closed -----------------------------------------------------
   probe.stage = "coverage";
   const coveredPaths = new Set(ROUTES.map((route) => route.path));
@@ -858,8 +1045,24 @@ await runProbe("V01 path-id tenancy", async (probe) => {
     stale.length === 0,
     `no longer in the router: ${stale.join(", ")}`,
   );
+  // A route named NOT_APPLICABLE is excluded from the denominator only because something ELSE checks
+  // the boundary that matters -- asserted here, so the exclusion cannot outlive that check.
+  const notApplicable = Object.keys(NOT_APPLICABLE_TO_SUBSTITUTION);
+  for (const path of notApplicable) {
+    expect(
+      `${path} is named NOT_APPLICABLE to substitution only because its org-scoped boundary is ` +
+        "attacked as a leak, not because the route was dropped",
+      leakCaseRan,
+      "the plugins leak case must run BEFORE the denominator is closed, or this exclusion is an " +
+        "unbacked claim that a later edit could satisfy with a dead assertion",
+    );
+  }
   const uncovered = [...router.keys()].filter(
-    (path) => !coveredPaths.has(path) && !(path in CREDITED_ELSEWHERE) && !(path in NOT_YET_SEEDED),
+    (path) =>
+      !coveredPaths.has(path) &&
+      !(path in CREDITED_ELSEWHERE) &&
+      !(path in NOT_YET_SEEDED) &&
+      !(path in NOT_APPLICABLE_TO_SUBSTITUTION),
   );
   expect(
     "every one-path-id org-scoped route is driven here, credited to a named gate, or named with a " +
@@ -873,12 +1076,23 @@ await runProbe("V01 path-id tenancy", async (probe) => {
   for (const [path, why] of Object.entries(NOT_YET_SEEDED)) {
     expect(`the route deferred for "${why}" is still in the router`, router.has(path), path);
   }
+  for (const [path, why] of Object.entries(NOT_APPLICABLE_TO_SUBSTITUTION)) {
+    expect(
+      `the route named NOT_APPLICABLE ("${why.slice(0, 60)}...") is still in the router -- an exclusion ` +
+        "that outlives its route would let a deleted path keep a standing exemption",
+      router.has(path),
+      path,
+    );
+  }
   // Named skips, so the deferral is visible in the tally rather than only in this file.
   for (const path of Object.keys(CREDITED_ELSEWHERE)) {
     probe.skip(`${path} -- substitution`, `covered by ${CREDITED_ELSEWHERE[path]}`);
   }
   for (const [path, why] of Object.entries(NOT_YET_SEEDED)) {
     probe.skip(`${path} -- substitution`, why);
+  }
+  for (const [path, why] of Object.entries(NOT_APPLICABLE_TO_SUBSTITUTION)) {
+    probe.skip(`${path} -- substitution`, `NOT_APPLICABLE: ${why}`);
   }
 
   // --- the attacks -------------------------------------------------------------------
