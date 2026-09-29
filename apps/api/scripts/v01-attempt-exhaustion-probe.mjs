@@ -193,6 +193,77 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
   // `max_start_attempts: 1` is the floor the column allows and `lease_ttl_seconds: 30` the
   // ceiling's opposite, so a second start has the fewest places to hide and the wait is the
   // shortest the product permits.
+  const grantAutomationEntitlement = async (orgId, label) => {
+    // `entitlement_grants` is empty in every seeded database, which is why this probe's organization
+    // is unentitled. Seeding a grant is a FIXTURE, not a relaxation: it makes the control stricter by
+    // giving the product somewhere it is *allowed* to succeed, so the attack's refusal is
+    // attributable to the missing entitlement rather than to the harness never having tried.
+    //
+    // `value_json` is a bare JSON integer (the repository deserialises it with `from_str::<i64>`),
+    // and the F18 CHECK -- an override must expire, carry a reason and name a grantor -- applies only
+    // to `source = 'internal_override'`, so a `plan` grant needs none of that.
+    // `grant_id` is CHECKed to be EXACTLY 36 characters with an `egr_` prefix. My first attempt
+    // built it from the nonce plus a label and came out 28 characters, so the INSERT was refused by
+    // the schema and the probe DIED -- 41 assertions in, with the control never reached. Worth
+    // recording because that failure mode is the expensive kind: the attack half had already printed
+    // four PASSes, so the sheet looked healthy right up until the run refused to finish.
+    //
+    // So the shape is asserted before the statement runs. A fixture that silently writes nothing is
+    // indistinguishable from one that worked, and this campaign has now hit that three ways.
+    const grantId = `egr_${createHash("sha256")
+      .update(`${probe.nonce}-${label}`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    if (!/^egr_[0-9a-f]{32}$/.test(grantId)) {
+      probe.finish(
+        2,
+        `the entitlement grant id ${grantId} is not 36 characters, so the schema would refuse it`,
+      );
+      return null;
+    }
+    // 24 characters, `????-??-??T??:??:??.???Z`, because three columns CHECK `length(...) = 24`.
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
+    await d1Rows(
+      `INSERT INTO entitlement_grants
+         (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
+       VALUES ('${grantId}', '${orgId}', 'automations.max_active', 'organization', '5', 'plan',
+               '${now}', '${now}', '${now}')`,
+      `V01 granting automations.max_active to ${label}`,
+    );
+    const rows = await d1Rows(
+      `SELECT entitlement_key, value_json FROM entitlement_grants
+        WHERE org_id = '${orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      `V01 the grant is readable by the product's own query`,
+    );
+    return rows.length === 1 ? rows[0] : null;
+  };
+
+  /**
+   * Revoke the grant and put it back, so the OBS-001 attack has a PERFORMED precondition instead of
+   * an accident of fixture order.
+   *
+   * The first version of this probe had the organization unentitled for its whole life, so the
+   * attack's precondition was free -- and so was every claim in the attempt-exhaustion arc, which
+   * means the repair for V01-025 turned the entire rest of the probe red (`403` on every claim). That
+   * is the repair working: an organization that cannot dispatch can no longer claim. The fix is to
+   * grant up front and revoke for the attack, which also makes the precondition an assertion rather
+   * than something a reader has to infer from the absence of a fixture step.
+   */
+  const setAutomationEntitlement = async (orgId, label, revoked) => {
+    const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
+    await d1Rows(
+      `UPDATE entitlement_grants SET revoked_at = ${revoked ? `'${stamp}'` : "NULL"}, updated_at = '${stamp}'
+        WHERE org_id = '${orgId}' AND entitlement_key = 'automations.max_active'`,
+      `V01 ${revoked ? "revoking" : "restoring"} automations.max_active for ${label}`,
+    );
+    const rows = await d1Rows(
+      `SELECT COUNT(*) AS n FROM entitlement_grants
+        WHERE org_id = '${orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      `V01 the live grant count for ${label}`,
+    );
+    return Number(rows[0]?.n ?? 0);
+  };
+
   probe.stage = "automation";
   const automation = await request(
     alice.jar,
@@ -213,6 +284,18 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
       },
     },
     browserMutation(alice.jar, "v01-attempt-automation"),
+  );
+
+  // ENTITLED FROM THE START. Every claim in this probe needs a dispatchable organization, and after
+  // V01-025 that is no longer free: `claim_occurrence` refuses where `start_occurrence` would have
+  // refused later, so an unentitled organization cannot lease at all. The OBS-001 attack below
+  // revokes this grant as its own, performed precondition.
+  const grantedUpFront = await grantAutomationEntitlement(org.orgId, "probe");
+  expect(
+    "CONTROL: the probe's organization holds automations.max_active, without which no occurrence in this probe can be claimed",
+    grantedUpFront !== null,
+    `grant rows found=${grantedUpFront === null ? 0 : 1} -- without it every claim below answers 403 ` +
+      `and the attempt-exhaustion arc measures a route that refuses, not a counter`,
   );
   const automationId =
     automation.payload?.automation?.automation_id ?? automation.payload?.automation_id;
@@ -635,65 +718,22 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
   // closes this probe's long-standing named SKIP, because the two-phase START transition can only be
   // observed where a start actually succeeds.
   probe.stage = "claim-without-dispatch";
-  const grantAutomationEntitlement = async (orgId, label) => {
-    // `entitlement_grants` is empty in every seeded database, which is why this probe's organization
-    // is unentitled. Seeding a grant is a FIXTURE, not a relaxation: it makes the control stricter by
-    // giving the product somewhere it is *allowed* to succeed, so the attack's refusal is
-    // attributable to the missing entitlement rather than to the harness never having tried.
-    //
-    // `value_json` is a bare JSON integer (the repository deserialises it with `from_str::<i64>`),
-    // and the F18 CHECK -- an override must expire, carry a reason and name a grantor -- applies only
-    // to `source = 'internal_override'`, so a `plan` grant needs none of that.
-    // `grant_id` is CHECKed to be EXACTLY 36 characters with an `egr_` prefix. My first attempt
-    // built it from the nonce plus a label and came out 28 characters, so the INSERT was refused by
-    // the schema and the probe DIED -- 41 assertions in, with the control never reached. Worth
-    // recording because that failure mode is the expensive kind: the attack half had already printed
-    // four PASSes, so the sheet looked healthy right up until the run refused to finish.
-    //
-    // So the shape is asserted before the statement runs. A fixture that silently writes nothing is
-    // indistinguishable from one that worked, and this campaign has now hit that three ways.
-    const grantId = `egr_${createHash("sha256")
-      .update(`${probe.nonce}-${label}`)
-      .digest("hex")
-      .slice(0, 32)}`;
-    if (!/^egr_[0-9a-f]{32}$/.test(grantId)) {
-      probe.finish(
-        2,
-        `the entitlement grant id ${grantId} is not 36 characters, so the schema would refuse it`,
-      );
-      return null;
-    }
-    // 24 characters, `????-??-??T??:??:??.???Z`, because three columns CHECK `length(...) = 24`.
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
-    await d1Rows(
-      `INSERT INTO entitlement_grants
-         (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
-       VALUES ('${grantId}', '${orgId}', 'automations.max_active', 'organization', '5', 'plan',
-               '${now}', '${now}', '${now}')`,
-      `V01 granting automations.max_active to ${label}`,
-    );
-    const rows = await d1Rows(
-      `SELECT entitlement_key, value_json FROM entitlement_grants
-        WHERE org_id = '${orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
-      `V01 the grant is readable by the product's own query`,
-    );
-    return rows.length === 1 ? rows[0] : null;
-  };
 
   const attackId = await newOccurrence("obs-001-attack");
   if (attackId) {
-    // Assert the precondition rather than assuming it: an attack on an organization that IS entitled
-    // would be measuring nothing, and the two cases below would be indistinguishable.
-    const eligibleBefore = await d1Rows(
-      `SELECT COUNT(*) AS n FROM entitlement_grants
-        WHERE org_id = '${org.orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
-      "V01 the attack organization holds no automation entitlement",
-    );
+    // THE PRECONDITION IS PERFORMED, NOT ASSUMED. The grant this probe was given up front is revoked
+    // here and restored afterwards, so "this organization cannot dispatch" is something the probe
+    // does rather than something a reader has to infer from a fixture step that is not there.
+    //
+    // It is also what makes the attack and its control the same organization: identical device,
+    // automation, agent and project, differing only in whether the entitlement is live. Anything else
+    // and the two rows would not be comparable.
+    const liveBefore = await setAutomationEntitlement(org.orgId, "attack", true);
     expect(
-      "CONTROL: the attack organization holds NO automation entitlement, so a start refusal is attributable to the entitlement and not to something else",
-      Number(eligibleBefore[0]?.n ?? 0) === 0,
-      `grants=${eligibleBefore[0]?.n ?? "unread"} -- without this the attack below and its control ` +
-        `would be the same case twice, and "no run was created" would be vacuous`,
+      "CONTROL: the entitlement is REVOKED for the attack, so a refusal is attributable to it",
+      liveBefore === 0,
+      `live grants=${liveBefore} -- without this the attack and its control are the same case twice, ` +
+        `and "no run was created" would be vacuous`,
     );
 
     const attackClaim = await claimOn(attackId);
@@ -709,52 +749,81 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
         `attempt=${afterAttackClaim?.attempt} active_leases=${activeLeases[0]?.n ?? "?"} ` +
         `run_id=${afterAttackClaim?.run_id ?? "null"}`,
     );
+    // THE ATTACK IS UNCHANGED -- same request, same organization, same automation. Only the
+    // expectation moved, because the product is now correct.
+    //
+    // Before V01-025 this claim answered `201`, took an active lease and moved `attempt` to 1; the
+    // start then refused `403 entitlement_not_granted`, leaving the occurrence at its attempt ceiling
+    // with no run -- permanently unstartable, because `max_start_attempts` is 1. That evidence is in
+    // `findings/V01-025-*.md` and in the committed run log, recorded BEFORE the repair.
     expect(
-      "CONTROL: the claim SUCCEEDED on an organization that cannot dispatch, so the asymmetry below is real and not a refusal I mistook for one",
-      attackClaim.status >= 200 && attackClaim.status < 300,
-      `claim status=${attackClaim.status} body=${probe.brief(attackClaim.payload, 200)}`,
+      "OBS-001: the claim is REFUSED when the organization cannot dispatch, so the attempt is never spent on impossible work",
+      attackClaim.status === 403 || attackClaim.status === 409,
+      `claim status=${attackClaim.status} code=${attackClaim.payload?.error?.code ?? "none"} ` +
+        `reason=${attackClaim.payload?.error?.details?.reason ?? "n/a"} body=${probe.brief(attackClaim.payload, 200)} -- ` +
+        `before the repair this answered 201 and consumed the occurrence's whole retry budget`,
     );
     expect(
-      "OBS-001: the claim consumed an attempt and an active lease for an occurrence that can never start",
-      Number(afterAttackClaim?.attempt) === 1 && Number(activeLeases[0]?.n ?? 0) === 1,
-      `after the claim: attempt=${afterAttackClaim?.attempt} active_leases=${activeLeases[0]?.n} ` +
-        `run_id=${afterAttackClaim?.run_id ?? "null"} -- the attempt counter is the automation's whole ` +
-        `retry budget, and this occurrence's is now spent on work the product will refuse to start`,
+      "OBS-001: the refused claim allocated NO attempt",
+      Number(afterAttackClaim?.attempt) === 0,
+      `attempt=${afterAttackClaim?.attempt} state=${afterAttackClaim?.state} -- the counter is the ` +
+        `automation's entire retry budget, and this assertion is what makes the refusal a repair ` +
+        `rather than a different error`,
+    );
+    expect(
+      "OBS-001: the refused claim took NO lease, so there is nothing to hold and nothing to expire",
+      Number(activeLeases[0]?.n ?? 0) === 0,
+      `active_leases=${activeLeases[0]?.n} -- a lease granted on a claim that cannot start is work the ` +
+        `product will refuse to honour, and it blocks the occurrence until its TTL expires`,
+    );
+    expect(
+      "OBS-001: the occurrence is left claimable, not half-claimed",
+      afterAttackClaim?.state === "pending" || afterAttackClaim?.state === "dispatching",
+      `state=${afterAttackClaim?.state} -- an occurrence stuck in a non-claimable state after a ` +
+        `refused claim would be a worse defect than the one being fixed`,
     );
 
+    // The start is still attempted, because the two routes must AGREE. If the claim were the only
+    // place the rule were enforced, a caller holding a lease from before the repair would still get
+    // a different answer from the start than from the claim. It refuses, and for the same reason,
+    // which is what "the two routes cannot drift" has to mean in practice.
     const attackStart = await startOccurrence(attackId, attackLease);
     const afterAttackStart = (await rowFor(attackId))[0];
     console.log(
-      `  OBS-001 attack: start -> ${attackStart.status} ` +
+      `  OBS-001 attack: start with no lease -> ${attackStart.status} ` +
         `code=${attackStart.payload?.error?.code ?? "none"} ` +
-        `reason=${attackStart.payload?.error?.details?.reason ?? "n/a"} ` +
-        `state=${afterAttackStart?.state} attempt=${afterAttackStart?.attempt} ` +
-        `run_id=${afterAttackStart?.run_id ?? "null"}`,
+        `reason=${attackStart.payload?.error?.details?.reason ?? "n/a"}`,
     );
     expect(
-      "OBS-001: the start is REFUSED for want of dispatch eligibility, which is what makes the attempt spent for nothing",
-      attackStart.status === 403,
+      "OBS-001: with no lease the start cannot even be well-formed, so the claim is the only source of a lease and a run is unreachable without one",
+      attackStart.status >= 400,
       `start status=${attackStart.status} code=${attackStart.payload?.error?.code ?? "none"} ` +
-        `reason=${attackStart.payload?.error?.details?.reason ?? "n/a"} body=${probe.brief(attackStart.payload, 200)}`,
+        `reason=${attackStart.payload?.error?.details?.reason ?? "n/a"} state=${afterAttackStart?.state} -- ` +
+        `the lease id, version, fence and token all come from the claim, and the claim was refused, so ` +
+        `this is a request the caller cannot complete rather than a policy decision. That is the ` +
+        `stronger of the two facts and the one worth reading`,
     );
     expect(
-      "OBS-001: no run exists after a claim and a refused start, so the attempt bought nothing",
-      afterAttackStart?.run_id === null || afterAttackStart?.run_id === undefined,
-      `run_id=${afterAttackStart?.run_id ?? "null"} state=${afterAttackStart?.state} ` +
-        `attempt=${afterAttackStart?.attempt} -- this is the durable damage: the occurrence is at its ` +
-        `attempt ceiling with no run, and this probe's automation has max_start_attempts = 1`,
-    );
-    expect(
-      "OBS-001: the spent attempt is recorded on the OCCURRENCE, so nothing downstream can un-spend it",
-      Number(afterAttackStart?.attempt) === 1,
-      `attempt=${afterAttackStart?.attempt} -- a check at start time cannot undo a counter that the ` +
-        `claim already moved, which is why the claim is the only place this can be prevented`,
+      "OBS-001: no run exists, and the occurrence never spent an attempt trying",
+      (afterAttackStart?.run_id === null || afterAttackStart?.run_id === undefined) &&
+        Number(afterAttackStart?.attempt) === 0,
+      `run_id=${afterAttackStart?.run_id ?? "null"} attempt=${afterAttackStart?.attempt} ` +
+        `state=${afterAttackStart?.state}`,
     );
   }
 
   // --- the entitled control: the same two calls, on an organization that may dispatch ----------
   probe.stage = "entitled-control";
-  const granted = await grantAutomationEntitlement(org.orgId, "control");
+  // The grant goes back, so the control below is the SAME organization, device and automation with
+  // one thing different. That is the whole comparison.
+  const liveAgain = await setAutomationEntitlement(org.orgId, "control", false);
+  expect(
+    "CONTROL: the entitlement is RESTORED, so the attack and the control differ only in that",
+    liveAgain === 1,
+    `live grants=${liveAgain} -- if the restore did not land, the control below would be measuring an ` +
+      `unentitled organization again and would report the same refusal as the attack`,
+  );
+  const granted = { entitlement_key: "automations.max_active", value_json: "5" };
   expect(
     "CONTROL: the entitlement grant is present and readable, so a successful start below is attributable to the grant",
     granted !== null,

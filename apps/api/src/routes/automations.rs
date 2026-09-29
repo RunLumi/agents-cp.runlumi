@@ -2495,6 +2495,39 @@ pub async fn claim_occurrence(
     let retry = automation
         .execution_retry()
         .map_err(|error| domain_failure(&context, error))?;
+    // V01-025. The claim and the start must agree on what "dispatchable" means, and the claim is the
+    // only place this can be enforced for free.
+    //
+    // The ATTEMPT is allocated here, not at the start, so a claim on an automation that cannot
+    // dispatch spends the occurrence's entire retry budget on work the product will refuse: the
+    // start answers `403 entitlement_not_granted`, the counter has already moved, and with the
+    // tightest legal bound (`max_start_attempts: 1`) that single claim leaves the occurrence
+    // permanently unstartable. A check at start time cannot undo a counter the claim already moved.
+    //
+    // `start_occurrence` keeps its own re-read and that one is load-bearing -- eligibility can lapse
+    // between a claim and a start, and the comment above its check says exactly that. This is the
+    // same function called one step earlier in the same lifecycle, not a second definition of the
+    // rule, so the two routes cannot drift apart.
+    let eligibility = crate::jobs::automations::read_dispatch_eligibility(
+        database,
+        &automation,
+        &context.received_at,
+    )
+    .await
+    .map_err(|error| store_failure(&context, error))?;
+    if let Some(block) = crate::jobs::automations::dispatch_block(&automation, &eligibility) {
+        return Err(match block {
+            crate::jobs::automations::DispatchBlock::Authorization(error) => {
+                domain_failure(&context, error)
+            }
+            crate::jobs::automations::DispatchBlock::Reason(code) => domain_error(
+                &context,
+                ApiErrorCode::Conflict,
+                code,
+                "The automation is not currently dispatchable.",
+            ),
+        });
+    }
     let current_state = occurrence
         .state()
         .map_err(|error| domain_failure(&context, error))?;

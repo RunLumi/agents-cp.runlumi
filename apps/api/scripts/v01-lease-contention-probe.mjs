@@ -233,6 +233,48 @@ await runProbe("V01 automation-lease", async (probe) => {
       },
     },
   ];
+  // ENTITLED UP FRONT. V01-025 made `claim_occurrence` check dispatch eligibility before it
+  // allocates an attempt, so an organization without `automations.max_active` can no longer take a
+  // lease at all -- which is the repair working, and which turned every claim in this probe into a
+  // 403. This gate measures lease CONTENTION, so it needs an organization that is allowed to
+  // dispatch; the grant is seeded here and asserted, because a gate that silently measures a route
+  // refusing everyone reports contention of zero and calls it exclusivity.
+  //
+  // `entitlement_grants` is empty in every seeded database. `value_json` is a bare JSON integer (the
+  // repository reads it with `from_str::<i64>`), and the F18 CHECK -- an override must expire, carry a
+  // reason and name a grantor -- applies only to `source = 'internal_override'`, so a `plan` grant
+  // needs none of that. `grant_id` is CHECKed to be exactly 36 characters with an `egr_` prefix.
+  const grantId = `egr_${createHash("sha256")
+    .update(`${probe.nonce}-lease-contention`)
+    .digest("hex")
+    .slice(0, 32)}`;
+  expect(
+    "CONTROL: the lease-contention grant id is well formed, or the schema would refuse the fixture and every claim would 403",
+    /^egr_[0-9a-f]{32}$/.test(grantId),
+    `grantId=${grantId} (needs 36 characters)`,
+  );
+  {
+    const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
+    await d1Rows(
+      `INSERT INTO entitlement_grants
+         (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
+       VALUES ('${grantId}', '${org.orgId}', 'automations.max_active', 'organization', '5', 'plan',
+               '${stamp}', '${stamp}', '${stamp}')`,
+      "V01 granting automations.max_active so this organization may claim",
+    );
+    const live = await d1Rows(
+      `SELECT COUNT(*) AS n FROM entitlement_grants
+        WHERE org_id = '${org.orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      "V01 the lease-contention organization is entitled",
+    );
+    expect(
+      "CONTROL: the organization holds automations.max_active, so a refused claim means contention and not ineligibility",
+      Number(live[0]?.n ?? 0) === 1,
+      `live grants=${live[0]?.n ?? "unread"} -- with none, all 8 racers are refused for the same ` +
+        `non-reason and "exactly one winner" is satisfied by zero winners`,
+    );
+  }
+
   let automation = null;
   let automationId = null;
   const attempts = [];

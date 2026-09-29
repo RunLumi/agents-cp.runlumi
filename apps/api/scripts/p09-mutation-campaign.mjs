@@ -612,6 +612,24 @@ if (process.argv.includes("--preflight")) {
 }
 
 if (process.argv.includes("--self-test")) {
+  // A banner, because of what happened the first time this block's output was read.
+  //
+  // Each line below prints a probe's name and a summary line that is CHARACTER-FOR-CHARACTER the
+  // format a real run of that probe prints -- including a plausible count -- and this block runs
+  // inside `pnpm check`, whose surrounding output is full of real results. A reader scanning for
+  // "did p05 pass?" found `PASS p05 clean=true P05 smoke: 185 checks passed; 0 failures` here, took
+  // it for a gate result, and concluded that `pnpm check` and a direct `pnpm smoke:p05` disagreed
+  // about p05 by two checks. They did not. `185` is a canned string in `SELF_TEST`; no probe runs
+  // here at all, and the real p05 answer was 187/0 in both invocations.
+  //
+  // That cost a full investigation and left a false UNPROVEN on the campaign record, which is the
+  // expensive kind of wrong: an "unexplained harness defect" is exactly the kind of finding nobody
+  // re-derives -- they inherit it. So the banner is here, every verdict line is marked `fixture`,
+  // and the summary says in words that no probe ran.
+  console.log(
+    "\n=== VERDICT-PARSER SELF-TEST -- no probe is run. Every count below is a canned\n" +
+      "=== fixture string, NOT a measurement. Do not read these lines as gate results.",
+  );
   let failed = 0;
   for (const [name, output, wantClean] of SELF_TEST) {
     const verdict = SMOKE_SCRIPTS[name].tally(output);
@@ -620,7 +638,7 @@ if (process.argv.includes("--self-test")) {
     if (!ok) failed += 1;
     const label = wantClean === null ? "no verdict (harness fault)" : `clean=${wantClean}`;
     console.log(
-      `  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(8)} ${label.padEnd(24)} ${
+      `  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(8)} ${label.padEnd(24)} fixture: ${
         verdict ? verdict.reported : "null"
       }`,
     );
@@ -630,7 +648,10 @@ if (process.argv.includes("--self-test")) {
       );
     }
   }
-  console.log(`\n${SELF_TEST.length - failed}/${SELF_TEST.length} verdict-parsing cases hold`);
+  console.log(
+    `\n${SELF_TEST.length - failed}/${SELF_TEST.length} verdict-parsing cases hold ` +
+      `(parser only; no probe was executed)`,
+  );
   if (failed > 0) {
     console.log(
       "\nA verdict parser that no longer recognises its probe will relabel mutants as\n" +
