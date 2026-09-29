@@ -141,13 +141,25 @@ PYEOF
 # `cmp` proves the bytes changed, which a mis-anchored edit also satisfies. The python block asserts
 # the intended EFFECT; this re-checks it from the outside, so a mutation that rewrote the file without
 # applying cannot reach a verdict.
-grep -q '"deny_enrollment_statement"' "$TARGET" && \
-  { python3 -c "
-import re,sys
-s=open('$TARGET').read()
-sys.exit(0 if re.search(r'"deny_enrollment_statement",\s*
-?\s*"UNTRIAGED"', s) else 1)
-" || { echo "M4 did not take effect; refusing to report a verdict for a run that did not happen" >&2; exit 1; } }
+#
+# Written as a heredoc, not `python3 -c`: the shell expands backslash escapes inside a double-quoted
+# -c argument, so the regex's `\n` became a REAL newline inside the Python string literal and the
+# check died with a SyntaxError instead of answering. M4's mutation and M4's verifier were failing
+# for two different quoting reasons inside the same case. A verifier that cannot run cannot report,
+# and it is worth separating that from a verifier that ran and said MISSED.
+if ! python3 - "$TARGET" << 'CHECK_M4'
+import re, sys
+
+source = open(sys.argv[1]).read()
+name = "deny_enrollment_statement"
+if source.count('"' + name + '"') != 1:
+    sys.exit("M4 left a duplicate or missing entry")
+sys.exit(0 if re.search(r'"' + name + r'",\s*"UNTRIAGED"', source) else "M4 did not relabel")
+CHECK_M4
+then
+  echo "FATAL: M4 did not take effect; refusing to report a verdict for a run that did not happen" >&2
+  exit 1
+fi
 run_case "M4 (an UNTRIAGED entry whose function IS called)" "DETECTED" "relabelled to UNTRIAGED"
 
 # --- M5: the rule removed ---------------------------------------------------------------------
