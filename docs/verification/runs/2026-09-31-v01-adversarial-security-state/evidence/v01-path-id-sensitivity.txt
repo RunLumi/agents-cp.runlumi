@@ -1,0 +1,31 @@
+baseline HEAD de39d068ebcfc588b69878075a59ce6526604c72
+M1 applied: find_membership_by_id no longer filters on org_id
+built: 29 Sep 15:35
+probe exit 1
+
+=== M1: the membership lookup no longer filters on org_id ===
+160/162 V01 path-id tenancy cases hold, 45 skipped
+  FAIL  NON-DISCLOSURE /api/v1/orgs/{org_id}/members/{member_id} PATCH -- a foreign id and an id that exists in NEITHER organization answer identically, so this route is not an existence ora
+  FAIL  NON-DISCLOSURE /api/v1/orgs/{org_id}/members/{member_id} DELETE -- a foreign id and an id that exists in NEITHER organization answer identically, so this route is not an existence or
+M1: DETECTED  (probe exit 1)
+M1: the source is back to HEAD
+M2 applied: REMOVE_MEMBERSHIP_SQL no longer filters on org_id
+built: 29 Sep 15:38
+probe exit 0
+
+=== M2: the member-removal UPDATE no longer filters on org_id ===
+162/162 V01 path-id tenancy cases hold, 45 skipped
+M2: KNOWN MISSED  (probe exit 0) -- expected, and the finding is which statement carries
+    the claim. change_role and remove_member resolve the target through the org-scoped lookup in
+    M1 BEFORE their UPDATE runs, so a foreign id never reaches REMOVE_MEMBERSHIP_SQL and its
+    org_id predicate is defence in depth with no route exercising it. A reviewer should protect
+    that predicate knowingly: it is the only thing between a future reordering and a
+    cross-tenant write.
+M2: the source is back to HEAD
+
+=== summary ===
+  M1:detected
+  M2:known-missed
+  declared known-missed: M2:known-missed
+every reachable mutation detected
+rebuilt from the restored source: 29 Sep 15:40
