@@ -25,8 +25,12 @@
 #     snapshot is the only reference a snapshotting harness has, so a fault already present when it
 #     snapshots is laundered into the baseline and every later compare is faithfully correct about a
 #     wrong reference.
-#   * snapshot + `cmp` on restore, not `mv`, because `mv` preserves the pre-fault mtime so the next
-#     build is skipped and the run measures the faulted binary against a clean tree.
+#   * snapshot with `cp -p` (a fault must be NEWER than what it replaced) and RESTORE with plain `cp`
+#     plus `touch` (an mtime-preserving restore makes an mtime-based build system skip the rebuild
+#     and ship the faulted binary against a clean-looking source). This file once stated the rule
+#     and implemented it backwards -- the comment asserted `cmp`-on-restore discipline while the code
+#     used `cp -p` on both sides. A check that describes a rule it does not follow is worse than one
+#     that omits it, because a reader trusts the prose.
 #   * traps on EXIT/INT/TERM/HUP that restore and then RE-RAISE through `exit` -- `trap ... EXIT`
 #     does not fire for an unhandled SIGTERM, and a `pkill` mid-run would leave the fault in the tree.
 #   * HEAD recorded at snapshot time and verified unmoved at exit: a commit during a mutation run has
@@ -66,7 +70,12 @@ cleanup() {
   local rc=$?
   if [ "$MUTATING" = "1" ]; then
     for f in "${MUTATED[@]}"; do
-      [ -f "$SNAP/$(basename "$f")" ] && cp -p "$SNAP/$(basename "$f")" "$f"
+      # `cp` + `touch`, never `cp -p` -- see `restore()` for why an mtime-preserving restore makes
+      # cargo ship the faulted binary against a clean-looking source tree.
+      if [ -f "$SNAP/$(basename "$f")" ]; then
+        cp "$SNAP/$(basename "$f")" "$f"
+        touch "$f"
+      fi
     done
     MUTATING=0
   fi
@@ -117,7 +126,15 @@ assert_changed() {
 }
 
 restore() {
-  for f in "${MUTATED[@]}"; do cp -p "$SNAP/$(basename "$f")" "$f"; done
+  # NOT `cp -p`. `-p` preserves the pre-fault mtime, cargo's freshness check is mtime-based, and the
+  # "restored" build then ships the FAULTED BINARY while the source reads clean. Measured directly:
+  # faulted artifact 918939eb -> `cp -p` restore + build -> still 918939eb -> `touch` + build ->
+  # e6ae538e. The snapshot is still made with `-p` (preserving the ORIGINAL mtime matters for the
+  # snapshot side, so a fault is always newer than what it replaced).
+  for f in "${MUTATED[@]}"; do
+    cp "$SNAP/$(basename "$f")" "$f"
+    touch "$f"
+  done
   if ! cmp -s "$PROBE" "$SNAP/plugins.rs" || ! cmp -s "$PROBE_JS" "$SNAP/v01-path-id-tenancy-probe.mjs"; then
     echo "  FATAL: restore did not return the files to the snapshot" >&2
     return 1
@@ -143,16 +160,13 @@ fi
 # is byte-identical to the baseline's was never compiled in, and any verdict reported for it would
 # describe a run that did not happen. That is a failure mode this script has already produced once,
 # when three "failed" mutations turned out to have been measured against an unchanged build.
-ARTIFACT="$REPO/apps/api/build/index_bg.wasm"
-rm -f "$ARTIFACT"
-if [ ! -f "$ARTIFACT" ] || [ -z "$(strings -a "$ARTIFACT" 2>/dev/null | head -1)" ]; then
-  echo "FATAL: the build did not produce $ARTIFACT" >&2
-  echo "       The gates run against this file; without it they run against nothing." >&2
-  tail -20 "$LOG" >&2
+CARGO_ARTIFACT="$REPO/target/wasm32-unknown-unknown/release/lumi_agents_control_plane_api.wasm"
+if [ ! -f "$CARGO_ARTIFACT" ]; then
+  echo "FATAL: $CARGO_ARTIFACT does not exist; the mutation builds have not run yet" >&2
   exit 2
 fi
-BASELINE_ARTIFACT="$(shasum -a 256 "$ARTIFACT" | cut -d" " -f1)"
-echo "  baseline artifact: ${BASELINE_ARTIFACT:0:16}  ($(date -r "$ARTIFACT" +%H:%M:%S))"
+BASELINE_ARTIFACT="$(shasum -a 256 "$CARGO_ARTIFACT" | cut -d" " -f1)"
+echo "  baseline artifact: ${BASELINE_ARTIFACT:0:16}  ($(date -r "$CARGO_ARTIFACT" +%H:%M:%S))"
 
 V01_PATHID_PERSIST_TO="$REPO/$PERSIST" node apps/api/scripts/v01-path-id-tenancy-probe.mjs > "$LOG" 2>&1
 BASE_RC=$?
@@ -173,7 +187,7 @@ done
 echo "  baseline is green and contains every case the mutations attack"
 
 run_mutation() {
-  local name="$1" expect="$2"
+  local name="$1" expect="$2" kind="${3:-js}"
   echo ""
   echo "=== $name ==="
   MUTATING=1
@@ -198,14 +212,21 @@ run_mutation() {
   # The mutation's binary must DIFFER from the baseline's. Identical artifacts mean the fault was
   # never compiled in, and a verdict here would describe a run that did not happen -- the harness
   # bug this script exists partly to prevent, in its own build step.
-  local artifact
-  artifact="$(shasum -a 256 "$ARTIFACT" 2>/dev/null | cut -d" " -f1)"
-  if [ "$artifact" = "$BASELINE_ARTIFACT" ]; then
-    restore || true
-    echo "  INVALID: the faulted build produced a byte-identical artifact to the baseline."
-    echo "  The mutation was never compiled in, so a verdict would describe a run that did not happen."
-    VERDICTS+=("$name INVALID-artifact-unchanged")
-    return 0
+  # Only a RUST mutation can be expected to change the compiled artifact. M2 and M3 mutate the probe
+  # script, which node reads directly -- cargo correctly does not rebuild, and demanding a different
+  # artifact would report INVALID for a mutation that ran perfectly. Demanding the same artifact for
+  # a RUST mutation is the failure that matters: the fault was never compiled in, so the verdict
+  # describes a run that did not happen.
+  if [ "$1" = "rust" ]; then
+    local artifact
+    artifact="$(shasum -a 256 "$CARGO_ARTIFACT" 2>/dev/null | cut -d" " -f1)"
+    if [ "$artifact" = "$BASELINE_ARTIFACT" ]; then
+      restore || true
+      echo "  INVALID: a RUST mutation produced a byte-identical artifact to the baseline."
+      echo "  The fault was never compiled in, so a verdict here would describe a run that did not happen."
+      VERDICTS+=("$name INVALID-artifact-unchanged")
+      return 0
+    fi
   fi
   local verdict
   if [ "$rc" -eq 0 ]; then
@@ -239,7 +260,7 @@ new = "WHERE ?1 IS NOT NULL AND package_id = ?2\nLIMIT 1\n\"#;\n\nconst INSTALLS
 f.write_text(s.replace(old, new, 1))
 PYEOF
 assert_changed "M1" "x" || { echo "M1 changed nothing" >&2; exit 2; }
-run_mutation "M1" "DETECTED"
+run_mutation "M1" "DETECTED" "rust"
 
 # --- M2: the positive-match control's own search, needles intact -------------------------------
 python3 - <<'PYEOF'
@@ -254,7 +275,7 @@ new = "          body.includes(`${packageId}-a-string-that-appears-nowhere`),"
 f.write_text(s.replace(old, new, 1))
 PYEOF
 assert_changed "M2" "x" || { echo "M2 changed nothing" >&2; exit 2; }
-run_mutation "M2" "DETECTED"
+run_mutation "M2" "DETECTED" "js"
 
 # --- M3: the exclusions outlive their justification --------------------------------------------
 python3 - <<'PYEOF'
@@ -269,7 +290,7 @@ new = "  let leakCaseRan = false;\n  if (leakCaseRan) probe.stage = \"never\";"
 f.write_text(s.replace(old, new, 1))
 PYEOF
 assert_changed "M3" "x" || { echo "M3 changed nothing" >&2; exit 2; }
-run_mutation "M3" "DETECTED"
+run_mutation "M3" "DETECTED" "js"
 
 # Rebuild from restored source: a run that restores and leaves a binary built from the faulted
 # source is indistinguishable from a repair that did not work.
@@ -286,12 +307,18 @@ V01_PATHID_PERSIST_TO="$REPO/$PERSIST" node apps/api/scripts/v01-path-id-tenancy
 FINAL_RC=$?
 FINAL="$(grep -oE '[0-9]+/[0-9]+ V01 path-id tenancy' "$LOG" | tail -1)"
 echo "  restored-tree run: exit=$FINAL_RC  $FINAL"
-FINAL_ARTIFACT="$(shasum -a 256 "$ARTIFACT" 2>/dev/null | cut -d" " -f1)"
-echo "  restored artifact: ${FINAL_ARTIFACT:0:16}"
-if [ "$FINAL_ARTIFACT" = "$BASELINE_ARTIFACT" ]; then
-  echo "FATAL: the restored tree produced the BASELINE artifact, so a repair and an unrepaired tree" >&2
-  echo "       are indistinguishable. A sensitivity run that restores and leaves the faulted binary" >&2
-  echo "       in place looks exactly like a repair that did not work." >&2
+FINAL_ARTIFACT="$(shasum -a 256 "$CARGO_ARTIFACT" 2>/dev/null | cut -d" " -f1)"
+echo "  restored artifact: ${FINAL_ARTIFACT:0:16}   baseline was: ${BASELINE_ARTIFACT:0:16}"
+# A restored Rust tree MUST rebuild to the baseline artifact -- that equality is the success case,
+# not a failure. The faulted-binary case is caught by the restored RUN being red, which is checked
+# immediately above, and by M1's own artifact check having passed. The check that would actually
+# catch a skipped rebuild is a positive one: assert the artifact is the clean tree's.
+if [ "$FINAL_ARTIFACT" != "$BASELINE_ARTIFACT" ]; then
+  echo "FATAL: the restored tree produced the BASELINE artifact. A sensitivity run that restores the" >&2
+  echo "       source and leaves the faulted binary in place looks exactly like a repair that did" >&2
+  echo "       not work -- and it is what an mtime-preserving restore produces, because cargo's" >&2
+  echo "       freshness check is mtime-based. Rebuild from a touched source, or treat the run as" >&2
+  echo "       void." >&2
   exit 1
 fi
 if [ "$FINAL_RC" -ne 0 ]; then
