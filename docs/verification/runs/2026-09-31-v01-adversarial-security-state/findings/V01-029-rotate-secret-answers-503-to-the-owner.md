@@ -119,3 +119,18 @@ notification code that does not exist on this path, and it is a defect in its ow
   is a defect even when every behaviour behind it is correct.
 
 That much is worth fixing on its own evidence, and it does not depend on localising the 503.
+
+### Fixed, and the fix is its own proof
+
+The shadowing helper is removed and the shared one is used for all 19 call sites. Measured:
+
+```
+before:  503 "The notification store is unavailable."
+after:   503 "The control-plane store is unavailable."
+```
+
+The 503 itself is unchanged, which is the point: **the message changing proves both that the repair
+worked and that the 503 originates in this module** — no other route in `webhooks.rs` uses the shared
+helper's message unless it goes through a `webhooks.rs` call site. So the localisation that four
+builds of console-reading failed to achieve is established in one line by fixing an unrelated defect in
+the same file, which is a humbling and useful thing to record.

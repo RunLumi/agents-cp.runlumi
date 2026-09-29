@@ -355,13 +355,21 @@ pub struct PageResponse<T> {
 // Shared helpers
 // -----------------------------------------------------------------------------
 
-fn service_unavailable(context: &RequestContext) -> ApiError {
-    errors::api_error(
-        context,
-        ApiErrorCode::ServiceUnavailable,
-        "The notification store is unavailable.",
-    )
-}
+// V01-029. This module DEFINED its own `service_unavailable`, shadowing the shared one for all 19 of
+// its call sites, and its message named the wrong subsystem: "The notification store is unavailable."
+// So a failed endpoint lookup, a failed credential rotation, a failed delivery transition and a
+// failed notification preference write all answered `503` claiming the NOTIFICATION store was down.
+//
+// That is a defect in the reporting even when every behaviour behind it is correct, and it has a
+// concrete cost: an operator reading a 503 from a credential or webhook route is sent to the wrong
+// subsystem to investigate. It also cost this campaign four builds, because the message was the only
+// clue to which file the 503 came from.
+//
+// The shared helper says "The control-plane store is unavailable.", which is true of every table this
+// module touches. A module-wide alias keeps the 19 call sites unchanged and makes the message
+// accurate; the notification routes get the same answer, which is correct, because they read the same
+// store.
+use crate::routes::agents::service_unavailable;
 
 fn not_found(context: &RequestContext) -> ApiError {
     errors::api_error(
