@@ -1001,5 +1001,279 @@ await runProbe("V01 staff-credential", async (probe) => {
     ["authentication_required", "permission_denied", "staff_authentication_required"],
   );
 
+  // =========================================================================================
+  // V01-043 -- the ENFORCEMENT half. Does a quarantine actually stop an install?
+  //
+  // The three routes were added in the previous round and this class exists because their existence is
+  // not the claim. A route returning 201 proves a handler is wired; it says nothing about whether the
+  // control it was added to protect does anything. The claim is:
+  //
+  //   > A quarantined plugin version cannot be installed.
+  //
+  // BRACKETED BY TWO CONTROLS, which is what makes the middle result attributable. The install is
+  // attempted three times with the same body: once before any quarantine, once while one is engaged, and
+  // once after it is lifted. The middle attempt differs from the outer two by exactly one thing -- the
+  // existence of a quarantine row -- so the refusal cannot be attributed to the fixture, the publisher,
+  // the policy, or the manifest.
+  //
+  // That bracketing is also why this class does not need to predict the success path. It asserts the
+  // control is a NON-refusal and the attack is a refusal naming `plugin_quarantined`; if the control is
+  // also a refusal, the class says so and names the fixture as the suspect, which is the honest outcome
+  // and still a real result.
+  //
+  // Every assertion on the write side is graded on the STORED row: a 2xx that ignored the refusal would
+  // be correct, and an install row is the only thing that distinguishes "refused" from "installed".
+  // =========================================================================================
+  probe.stage = "quarantine-enforcement";
+  {
+    // --- the package fixture, seeded because there is no create/publish API -----------------
+    // No `create`/`register`/`publish` handler exists for publishers, packages, or versions, so a
+    // quarantinable artifact can only be provisioned the way an operator would: by writing the rows.
+    // Nothing about the product's authentication is relaxed -- this is a fixture, not a bypass.
+    const publisherId = `pub_${createHash("sha256").update(`${probe.nonce}-quarantine-publisher`).digest("hex").slice(0, 32)}`;
+    const packageId = `pkg_${createHash("sha256").update(`${probe.nonce}-quarantine-package`).digest("hex").slice(0, 32)}`;
+    const stamp = "2026-09-29T00:00:00.000Z";
+    const version = "1.0.0";
+    const digest = createHash("sha256").update(`${probe.nonce}-quarantine-digest`).digest("hex");
+    const runtimeRange = { runtime_min: "0.1.0", runtime_max: "99.0.0" };
+    // `official = 1` is load-bearing and not cosmetic: `install_decision` checks publisher mode BEFORE
+    // quarantine, so a non-official publisher is refused for `PublisherUnapproved` and the quarantine
+    // branch is never reached. A fixture that is official isolates the one control under test.
+    await d1Rows(
+      `INSERT INTO plugin_publishers (publisher_id, display_name, official, status, created_at, updated_at)
+       VALUES ('${publisherId}', 'V01 Quarantine Publisher', 1, 'active', '${stamp}', '${stamp}')`,
+      "V01 seeding an OFFICIAL plugin publisher",
+    );
+    await d1Rows(
+      `INSERT INTO plugin_packages (package_id, publisher_id, display_name, status, created_at, updated_at)
+       VALUES ('${packageId}', '${publisherId}', 'V01 Quarantine Package', 'active', '${stamp}', '${stamp}')`,
+      "V01 seeding a plugin package",
+    );
+    // `plugin_versions` is keyed by `plugin_version_id` (`pvr_` + 32) and carries NO `updated_at` --
+    // the publisher and package tables do, and the first version of this insert assumed all three had
+    // the same shape. Read from `pragma_table_info` rather than guessed; that is the second time this
+    // class has been bitten by an assumed column list, and the error said so plainly.
+    // All eight fields the trigger requires, every one empty or false. Two reasons, both load-bearing:
+    // the trigger refuses the row without all eight, and a manifest that GRANTED a capability would trip
+    // `PluginDenyReason::PermissionExpanded` first -- so a non-empty manifest would make the install
+    // refused for a reason unrelated to the quarantine under test.
+    //
+    // Built as a variable rather than inline: the first attempt used `+` concatenation INSIDE the
+    // template literal, so the concatenation became literal SQL text and the trigger fired again with
+    // the same message, which looked like the fix having had no effect.
+    const manifest = JSON.stringify({
+      name: "v01-quarantine",
+      tools: [],
+      network_destinations: [],
+      secret_handles: [],
+      // STRINGS, not booleans: `BrowserCapability::parse` accepts none|read|interact|computer_use and
+      // `ExternalDataHandling::parse` accepts none|declared|unknown. The database trigger only requires
+      // the KEYS to be present, so a boolean satisfied the trigger and was then refused by
+      // `parse_manifest` with `manifest_invalid` -- two layers, two vocabularies, and only the second
+      // one is the domain's.
+      browser_capability: "none",
+      external_data_handling: "none",
+      filesystem_scopes: [],
+      mcp_servers: [],
+      process_spawn: false,
+    });
+    const versionId = `pvr_${createHash("sha256").update(`${probe.nonce}-quarantine-version`).digest("hex").slice(0, 32)}`;
+    await d1Rows(
+      `INSERT INTO plugin_versions
+         (plugin_version_id, package_id, version, runtime_min, runtime_max, content_digest, signature,
+          manifest_json, published_at, created_at)
+       VALUES ('${versionId}', '${packageId}', '${version}', '${runtimeRange.runtime_min}',
+               '${runtimeRange.runtime_max}', '${digest}', '${digest}',
+               '${manifest}', '${stamp}', '${stamp}')`,
+      "V01 publishing a plugin version to quarantine",
+    );
+    const seeded = (
+      await d1Rows(
+        `SELECT p.package_id, v.version, pub.official, v.content_digest
+           FROM plugin_packages p
+           JOIN plugin_publishers pub ON pub.publisher_id = p.publisher_id
+           JOIN plugin_versions v ON v.package_id = p.package_id
+          WHERE p.package_id = '${packageId}'`,
+        "V01 reading back the seeded package",
+      )
+    )[0];
+    expect(
+      "Q0: a package with a published version EXISTS and its publisher is official, so the install " +
+        "refusal under test cannot be publisher mode in disguise",
+      Boolean(seeded) && Number(seeded.official) === 1 && seeded.content_digest === digest,
+      `row=${JSON.stringify(seeded)?.slice(0, 170)}`,
+    );
+
+    if (seeded) {
+      const installBody = {
+        version,
+        host_runtime_version: "1.0.0",
+        content_digest: digest,
+      };
+      const install = (label) =>
+        request(
+          grantUser.jar,
+          "POST",
+          `/api/v1/orgs/${orgA.orgId}/plugins/${packageId}/install`,
+          installBody,
+          browserMutation(grantUser.jar, `v01-quarantine-install-${label}-${probe.nonce}`),
+        );
+      const installRows = async () =>
+        Number(
+          (
+            await d1Rows(
+              `SELECT COUNT(*) AS n FROM plugin_installs
+                WHERE org_id = '${orgA.orgId}' AND package_id = '${packageId}'`,
+              "V01 counting install rows for the package",
+            )
+          )[0]?.n ?? -1,
+        );
+
+      // --- CONTROL 1: no quarantine, so the install must NOT be refused for quarantine ----------
+      const before = await install("before");
+      const rowsBefore = await installRows();
+      expect(
+        "Q1 CONTROL: with NO quarantine the install is not refused -- so the refusal below is " +
+          "attributable to the quarantine and to nothing else in the fixture",
+        before.status < 400,
+        `status=${before.status} body=${probe.brief(before.payload, 180)} installRows=${rowsBefore}`,
+      );
+      console.log(
+        `    CONTROL install (no quarantine) -> ${before.status} ` +
+          `installRows=${rowsBefore} reason=${before.payload?.error?.details?.reason ?? "-"}`,
+      );
+
+      // --- the permission control: `support` does NOT hold PluginQuarantine -------------------
+      // `permissions_for` assigns `PluginQuarantine` to `security` only. A holder of a role that does
+      // not have it must be refused, and the refusal must be visible in the STORED state: a 2xx that
+      // ignored the permission would be correct, and a quarantine row would be a privilege escalation.
+      const supportEngage = await request(
+        anonJar(),
+        "POST",
+        "/api/v1/internal/plugin-quarantines",
+        { package_id: packageId, version, reason: "V01 a role with no quarantine permission" },
+        // The `engineering` principal -- `PREFIX` with `REAL_SECRET`, paired. The first version passed
+        // `SWITCH_PREFIX` with `REAL_SECRET` and got 401 `staff_authentication_required`, which was
+        // CORRECT: V01-034's fix refusing a mismatched pair. A test that wanted a 403 and got a 401
+        // would have concluded the permission model was untestable rather than that the token was wrong.
+        asStaff(token(PREFIX, REAL_SECRET)),
+      );
+      const supportRows = (
+        await d1Rows(
+          `SELECT COUNT(*) AS n FROM plugin_quarantines WHERE package_id = '${packageId}'`,
+          "V01 counting quarantine rows after the unprivileged attempt",
+        )
+      )[0];
+      expect(
+        "Q1: a staff role WITHOUT PluginQuarantine cannot engage a quarantine, and no row is written",
+        supportEngage.status === 403 && Number(supportRows?.n ?? -1) === 0,
+        `status=${supportEngage.status} reason=${supportEngage.payload?.error?.details?.reason ?? "-"} ` +
+          `quarantineRows=${supportRows?.n ?? "unread"}`,
+      );
+
+      // --- ATTACK: engage the quarantine as `security`, then install ---------------------------
+      const engage = await request(
+        anonJar(),
+        "POST",
+        "/api/v1/internal/plugin-quarantines",
+        { package_id: packageId, version, reason: "V01 known-vulnerable version" },
+        {
+          ...asStaff(token(SWITCH_PREFIX, SWITCH_SECRET)),
+          "Idempotency-Key": probe.idempotencyKey("v01-quarantine-engage"),
+        },
+      );
+      const quarantineId = engage.payload?.quarantine_id;
+      expect(
+        "Q2: a `security` principal CAN engage a quarantine, and the row records the reason and the actor",
+        engage.status === 201 && typeof quarantineId === "string",
+        `status=${engage.status} id=${quarantineId ?? "-"} body=${probe.brief(engage.payload, 170)}`,
+      );
+      const engagedRow = quarantineId
+        ? (
+            await d1Rows(
+              `SELECT reason, engaged_by_staff_principal_id, lifted_at FROM plugin_quarantines
+                WHERE quarantine_id = '${quarantineId}'`,
+              "V01 reading the engaged quarantine",
+            )
+          )[0]
+        : null;
+      expect(
+        "Q2: and the STORED row names the staff actor and the reason -- the schema requires both, and a " +
+          "quarantine with neither is a control nobody can audit",
+        Boolean(engagedRow) &&
+          engagedRow.engaged_by_staff_principal_id === switchStaffId &&
+          engagedRow.reason === "V01 known-vulnerable version" &&
+          engagedRow.lifted_at === null,
+        `row=${JSON.stringify(engagedRow)?.slice(0, 180)}`,
+      );
+
+      const during = await install("during");
+      const rowsDuring = await installRows();
+      expect(
+        "Q3 ATTACK: a QUARANTINED version cannot be installed, and the refusal names the quarantine",
+        during.status === 409 || during.status === 403,
+        `status=${during.status} reason=${during.payload?.error?.details?.reason ?? "-"} ` +
+          `body=${probe.brief(during.payload, 170)}`,
+      );
+      expect(
+        "Q3: and the reason is `plugin_quarantined` specifically -- `Blocked`, `PublisherUnapproved` and " +
+          "`PolicyConflict` are DIFFERENT runbooks, and a refusal for the wrong one would be a pass here",
+        during.payload?.error?.details?.reason === "plugin_quarantined",
+        `reason=${during.payload?.error?.details?.reason ?? "-"} status=${during.status}`,
+      );
+      expect(
+        "Q3: and NO additional install row was written -- read from D1, because a 2xx that ignored the " +
+          "quarantine would satisfy a status-only assertion",
+        rowsDuring === rowsBefore,
+        `installRows before=${rowsBefore} during=${rowsDuring}`,
+      );
+
+      // --- LIFT, and the install returns to the control's shape --------------------------------
+      const lift = await request(
+        anonJar(),
+        "POST",
+        `/api/v1/internal/plugin-quarantines/${quarantineId}/lift`,
+        { version: 1, reason: "V01 lifting the control it just engaged" },
+        {
+          ...asStaff(token(SWITCH_PREFIX, SWITCH_SECRET)),
+          "Idempotency-Key": probe.idempotencyKey("v01-quarantine-lift"),
+        },
+      );
+      const liftedRow = quarantineId
+        ? (
+            await d1Rows(
+              `SELECT lifted_at, lifted_by FROM plugin_quarantines WHERE quarantine_id = '${quarantineId}'`,
+              "V01 reading the quarantine after the lift",
+            )
+          )[0]
+        : null;
+      expect(
+        "Q4: the quarantine can be LIFTED -- a lever that can be pulled but not released is its own " +
+          "outage, and the stored row must show who lifted it and when",
+        lift.status === 200 &&
+          Boolean(liftedRow) &&
+          liftedRow.lifted_at !== null &&
+          liftedRow.lifted_by === switchStaffId,
+        `status=${lift.status} row=${JSON.stringify(liftedRow)?.slice(0, 150)} ` +
+          `body=${probe.brief(lift.payload, 150)}`,
+      );
+
+      const after = await install("after");
+      expect(
+        "Q4: and after the lift the install is no longer refused for quarantine -- the control is " +
+          "restored, not merely removed",
+        after.status < 400 || after.status === 409,
+        `status=${after.status} reason=${after.payload?.error?.details?.reason ?? "-"} ` +
+          `body=${probe.brief(after.payload, 170)}`,
+      );
+      expect(
+        "Q4: and if it is still refused, it is refused for a DIFFERENT reason than the quarantine -- so " +
+          "the lift is what changed, not the fixture",
+        after.payload?.error?.details?.reason !== "plugin_quarantined",
+        `reason=${after.payload?.error?.details?.reason ?? "-"} status=${after.status}`,
+      );
+    }
+  }
+
   probe.stage = "done";
 });

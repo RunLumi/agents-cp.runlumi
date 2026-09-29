@@ -1,0 +1,80 @@
+V01 staff-credential -- V01-043 quarantine ENFORCEMENT, POST-FIX
+captured: 2026-09-29T12:36:53Z
+
+57/57, exit 0. The claim is not 'the routes exist' but:
+  > A quarantined plugin version cannot be installed.
+
+BRACKETED by two successful installs, so the middle refusal is attributable to the
+quarantine and to nothing else in the fixture:
+
+  CONTROL  install, no quarantine      -> 200, installRows=1
+  ATTACK   install, quarantine engaged -> 409 plugin_quarantined, installRows unchanged
+  RESTORED install, quarantine lifted  -> not refused for quarantine
+
+Also proven here:
+  * a staff role WITHOUT PluginQuarantine is refused 403 and NO row is written;
+  * the engaged row records the staff actor and the reason (the schema requires both);
+  * the lifted row records lifted_at and lifted_by.
+
+The publisher is seeded official ON PURPOSE: install_decision checks publisher mode BEFORE
+quarantine, so a non-official publisher would be refused for PublisherUnapproved and the
+quarantine branch would never be reached.
+
+--------------------------------------------------------------------------------
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:61268
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-Fsh8sK/b342aa4e24e85e9a375aacdef998bb3c26141986-index_bg.wasm is 1208s newer than src/repositories/automations.rs
+  PASS  signup V01 Grant Target  — status=201
+  PASS  verify V01 Grant Target  — status=200
+  PASS  login start V01 Grant Target  — status=202
+  PASS  login complete V01 Grant Target  — status=200
+  PASS  user V01 Grant Target has an opaque ID  — usr_3b7009dd377046aa85037bd62c804005
+  PASS  create V01 Grant Target Org  — status=201
+  PASS  V01 Grant Target Org organization ID  — org_d188162c7ec10f6c17c30acd0d5e7bb6
+  PASS  the support-grant fixture names a real organization, so a constraint violation cannot be mistaken for a broken route  — orgId=org_d188162c7ec10f6c17c30acd0d5e7bb6 payload={"orgId":"org_d188162c7ec10f6c17c30acd0d5e7bb6","slug":"v01-grant-mumntanke3ln"}
+  PASS  the fixture's own shapes are what StaffKey::parse demands, or the forged tokens are MALFORMED and their refusal would prove nothing  — prefix=ef2be94728403fd7 unknownPrefix=de0f8d88d5f05b5a real=43 forged=43 other=43 chars (43 each, and all three distinct)
+  PASS  CONTROL: the staff principal was really written, with credential_hash == sha256(real secret)  — row={"staff_principal_id":"stf_0dc2a4366ae6ba48b3c5bd6d6e4ec349","staff_role":"engineering","status":"active","credential_prefix":"ef2be94728403fd7","credential_hash":"6ddb48fc4778cc69 expectedHash=6ddb48fc4778cc69...
+  PASS  CONTROL: the second staff principal exists, with role 'security' and a real stored hash  — row={"staff_principal_id":"stf_9a8618e24497dd402178f0ca40b0e170","staff_role":"security","credential_hash":"92909681ccc324eeb04e5cc3b2d66e36d0e6439615eb9a79e52d9d7a
+  PASS  CONTROL C1: the REAL secret authenticates and /internal/feature-flags answers  — status=200
+  PASS  CONTROL: the REAL token created a feature flag  — status=200
+  PASS  CONTROL: the flag row EXISTS, so 'the version did not advance' can be non-vacuous  — row={"flag_key":"v01_flag_mumntanke3ln","version":1,"enabled":1}
+  PASS  ATTACK A1: a well-formed token whose SECRET is wrong is refused on the read route  — status=401 reason=staff_authentication_required
+  PASS  ATTACK A2: a second, different forged secret is refused too -- so A1 is not one unlucky string  — status=401 reason=staff_authentication_required
+  PASS  ATTACK A3: a FORGED secret did not change the stored flag -- graded on D1, not on the status  — status=401 before={"flag_key":"v01_flag_mumntanke3ln","version":1,"enabled":1} after={"flag_key":"v01_flag_mumntanke3ln","version":1,"enabled":1} body={"error":{"code":"authentication_required","message":"Authentication is required.","request_id":"req_1c25aefb9c6d4314b0f2b56373a6c8c4","details":{"reason":"staf
+  PASS  ATTACK A3: and the forged write was refused, not merely ignored  — status=401 reason=staff_authentication_required
+  PASS  NON-DISCLOSURE A4: a well-formed token for a principal that does not exist is refused  — status=401 reason=staff_authentication_required
+  PASS  NON-DISCLOSURE A4: a wrong secret and a nonexistent principal answer IDENTICALLY once `request_id` is set aside, so the endpoint is not an existence oracle for staff principals  — wrongSecret:   401 {"error":{"code":"authentication_required","message":"Authentication is required.","request_id":"req_a33fa07fb
+  PASS  W1 create_flag: the REAL token created a feature flag  — status=200 body={"feature_flag":{"cohort":"none","created_at":"2026-09-29T12:35:54.656Z","enabled":true,"expires_at":"2027-01-01T00:00:00.000Z","flag_key":"v01_flag_m
+  PASS  W2 patch_flag: a legitimate PATCH is accepted AND the stored row changed  — status=200 before={"flag_key":"v01_flag_mumntanke3ln","version":1,"enabled":1} after={"flag_key":"v01_flag_mumntanke3ln","version":2,"enabled":0,"rollout_percentage":50} body={"feature_flag":{"cohort":"none","created_at":"2026-09-29T12:35:54.656Z","enabled":false,"expires_at":"2027-01-01T00:00:00.000Z","flag_key":
+  PASS  W3 create_kill_switch: a legitimate create is accepted AND the switch is stored engaged  — status=200 row={"kill_switch_id":"ksw_072818c3c135484fb6808a3dd1bd235c","state":"engaged","version":1,"target_class":"mcp_server"} body={"kill_switch":{"engaged_at":"2026-09-29T12:35:59.245Z","engaged_by_staff_principal_id":"stf_9a8618e24497dd402178f0ca40b0e170","expires_at":
+  PASS  W4 lift_kill_switch: a legitimate lift is accepted AND the stored state became 'lifted'  — status=200 before={"kill_switch_id":"ksw_072818c3c135484fb6808a3dd1bd235c","state":"engaged","version":1,"target_class":"mcp_server"} after={"kill_switch_id":"ksw_072818c3c135484fb6808a3dd1bd235c","state":"lifted","version":2,"lift_reason":"V01 lifting the control it just armed"} body={"kill_switch":{"engaged_at":"2026-09-29T12:35:59.245Z","engaged_by_staff_principal_id":"stf_9a8618e24497dd402178f0ca40b0e170","expires_at":
+  PASS  W5: every internal write that SUCCEEDED (4 of them) produced a security_events row for this staff principal  — expected=["feature_flag.created","feature_flag.updated","kill_switch.engaged","kill_switch.lifted"] written=["feature_flag.created","feature_flag.updated","kill_switch.engaged","kill_switch.lifted"] missing=[]
+  PASS  W5: and the actor is recorded as a STAFF actor, which is the whole point of ADR 0007's three actor kinds  — actorTypes=["staff"]
+  PASS  A5: no staff credential material appears in an authenticated internal listing  — listing={"items":[{"cohort":"none","created_at":"2026-09-29T12:35:54.656Z","enabled":false,"expires_at":"2027-01-01T00:00:00.000Z","flag_key":"v01_flag_mumntanke3ln","org_allowlist":[],"owner_staff_principal_
+  PASS  R1: /internal/feature-flags/{flag_key} is PATCH-only, so a GET is refused rather than routed to something that does not exist  — status=405
+  PASS  R1: and the refusal says the METHOD is not allowed, which is a different answer from a missing resource -- so a client can tell the two apart  — status=405 message=This method is not allowed for the requested resource.
+  PASS  R2 GET /internal/kill-switches: the collection answers  — status=200
+  PASS  R3 POST /internal/support-grants: a legitimate grant is accepted AND the row names the real org  — status=200 row={"grant_id":"sgr_b320f77a92ab4791b815992218c9d244","organization_id":"org_d188162c7ec10f6c17c30acd0d5e7bb6","version":1,"revoked_at":null} body={"support_grant":{"capabilities":["org.lookup"],"expires_at":"2026-09-29T12:51:03.749Z","grant_id":"sgr_b320f77a92ab4791b815992218c9d244","i
+  PASS  R4 POST /internal/support-grants/{id}/revoke: a legitimate revoke is accepted AND the stored grant is no longer usable  — status=200 before={"grant_id":"sgr_b320f77a92ab4791b815992218c9d244","organization_id":"org_d188162c7ec10f6c17c30acd0d5e7bb6","version":1,"revoked_at":null} after={"grant_id":"sgr_b320f77a92ab4791b815992218c9d244","version":2,"revoked_at":"2026-09-29T12:36:05.304Z","revoke_reason":"V01 revoking the grant it just created"} body={"support_grant":{"capabilities":["org.lookup"],"expires_at":"2026-09-29T12:51:03.749Z","grant_id":"sgr_b320f77a92ab4791b815992218c9d244","i
+  PASS  R5: support-grant creation and revocation EACH wrote a security_events row, which is ADR 0007's MUST stated for grants specifically  — grantCreated=200 grantRevoked=200 rows=2 distinctActions=["support_grant.issued","support_grant.revoked"]
+  PASS  R5: and every one of those rows is attributed to a STAFF actor, not to a customer principal  — actorTypes=["staff"]
+  PASS  B1: a STAFF token is refused on a CUSTOMER org-scoped route, so the two boundaries are separate  — status=401 reason=authentication_required
+  PASS  B1: and the refusal is the SAME for an organization that does not exist, so a staff token is not a cross-tenant existence oracle  — realOrg: 401 {"error":{"code":"authentication_required","message":"Authentication is required.","reques
+  PASS  B2: a REAL machine key was minted, in the `lumik_` scheme, or B2 would be testing a malformed token -- which proves nothing  — account=200/svc_18d4748a6843423c965edf837c2171ec key=200 token=lumik_feddc2…(62) body={"api_key":{"capabilities":["org.read"],"created_at":"2026-09-29T12:36:08.776Z","expires_at":null,"fingerprint":"eba8254b889443e6","id":"key
+  PASS  B2: a MACHINE key is refused on a STAFF route -- the `lumik_` and `lumi_staff_` schemes are disjoint, so neither parser can accept the other's input  — status=401 reason=staff_authentication_required
+  PASS  B2: and that same machine key WORKS on /machine/whoami -- the one route that accepts a machine actor -- so the refusal above is a BOUNDARY and not a broken credential  — machineWhoami=200 body={"actor":"machine","api_key_id":"key_ef117ad9968d442a9a7955191895ff30","capabilities":["org.read"],"key_prefix":"feddc214f280","network_restricted":fa
+  PASS  V01-039: a key that AUTHENTICATES and is then denied for its scope is refused with permission_denied (403), not authentication_required (401) -- the credential was presented and accepted, and reporting otherwise makes a scope problem look like a credential problem  — status=403 code=permission_denied reason=scope_denied body={"error":{"code":"permission_denied","message":"You do not have permission to perform this action.","request_id":"req_1b1e4b40cd9f
+  PASS  B2: the stored secret_hash IS sha256(the secret half of the wire value), so the minter and the verifier agree on what is being hashed  — prefix=feddc214f280 (len 12) secretLen=43 rowStatus=active storedHash=3239259130daabaf... computedHash=3239259130daabaf... equal=true
+  PASS  B2: and whoami describes the SERVICE ACCOUNT the key was minted for, so a 2xx there would prove the RIGHT credential answered rather than some other one  — payload={"actor":"machine","api_key_id":"key_ef117ad9968d442a9a7955191895ff30","capabilities":["org.read"],"key_prefix":"feddc214f280","network_restricted":false,"organization_id":"org_d188162c7ec10f6c17c30ac
+  PASS  B3: a CUSTOMER session is refused on a STAFF route -- a `MembershipRole` never satisfies a `StaffPermission`, so no customer role can reach platform authority  — status=401 reason=staff_authentication_required
+  PASS  Q0: a package with a published version EXISTS and its publisher is official, so the install refusal under test cannot be publisher mode in disguise  — row={"package_id":"pkg_626ae6eb723921848aa94531f6d8bef1","version":"1.0.0","official":1,"content_digest":"c6529fbd1bd47b6f460c2afb402717cf9ee6c84e5618108633878ad92c1ddf4a"}
+  PASS  Q1 CONTROL: with NO quarantine the install is not refused -- so the refusal below is attributable to the quarantine and to nothing else in the fixture  — status=200 body={"install":{"package_id":"pkg_626ae6eb723921848aa94531f6d8bef1","permission_diff":{"classes":[{"added":[],"class":"tools","removed":[],"verdict":"unchanged"},{"added":[],"class":"m installRows=1
+  PASS  Q1: a staff role WITHOUT PluginQuarantine cannot engage a quarantine, and no row is written  — status=403 reason=staff_permission_denied quarantineRows=0
+  PASS  Q2: a `security` principal CAN engage a quarantine, and the row records the reason and the actor  — status=201 id=pqr_3162eb02ed584d33b49f530316fe0752 body={"package_id":"pkg_626ae6eb723921848aa94531f6d8bef1","quarantine_id":"pqr_3162eb02ed584d33b49f530316fe0752","version":"1.0.0"}
+  PASS  Q2: and the STORED row names the staff actor and the reason -- the schema requires both, and a quarantine with neither is a control nobody can audit  — row={"reason":"V01 known-vulnerable version","engaged_by_staff_principal_id":"stf_9a8618e24497dd402178f0ca40b0e170","lifted_at":null}
+  PASS  Q3 ATTACK: a QUARANTINED version cannot be installed, and the refusal names the quarantine  — status=409 reason=plugin_quarantined body={"error":{"code":"conflict","message":"This plugin version is quarantined by the platform.","request_id":"req_3309c916b93943d2ac3825fd7ea54106","details":{"reason":"plugi
+  PASS  Q3: and the reason is `plugin_quarantined` specifically -- `Blocked`, `PublisherUnapproved` and `PolicyConflict` are DIFFERENT runbooks, and a refusal for the wrong one would be a pass here  — reason=plugin_quarantined status=409
+  PASS  Q3: and NO additional install row was written -- read from D1, because a 2xx that ignored the quarantine would satisfy a status-only assertion  — installRows before=1 during=1
+  PASS  Q4: the quarantine can be LIFTED -- a lever that can be pulled but not released is its own outage, and the stored row must show who lifted it and when  — status=200 row={"lifted_at":"2026-09-29T12:36:20.837Z","lifted_by":"stf_9a8618e24497dd402178f0ca40b0e170"} body={"lifted_at":"2026-09-29T12:36:20.837Z","quarantine_id":"pqr_3162eb02ed584d33b49f530316fe0752"}
+  PASS  Q4: and after the lift the install is no longer refused for quarantine -- the control is restored, not merely removed  — status=200 reason=- body={"install":{"package_id":"pkg_626ae6eb723921848aa94531f6d8bef1","permission_diff":{"classes":[{"added":[],"class":"tools","removed":[],"verdict":"unchanged"},{"added":[],
+  PASS  Q4: and if it is still refused, it is refused for a DIFFERENT reason than the quarantine -- so the lift is what changed, not the fixture  — reason=- status=200

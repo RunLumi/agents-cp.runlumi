@@ -160,14 +160,77 @@ Recorded because the repeats are the finding.
 **That last one is the new standing check doing its job on the same commit that added it.** The check
 existed, and it flagged my own work within minutes of writing it.
 
-## What this did NOT get covered, stated rather than implied
+## The enforcement half, closed
 
-**The enforcement path is still unproven.** Driving it needs a quarantinable package **and** a published
-version **and** an install attempt — a fixture no probe builds today, and `verify:path-id-tenancy`
-credits `/plugins/{package_id}/install` for exactly that reason. So what is proven here is
-**operability**: the three routes work, they are permission-gated, and the rows and audit events land.
-That the customer-facing install path then refuses is the next piece, and it is the piece that makes the
-control worth having.
+The previous version of this record named the enforcement path as unproven, and that gap is now closed.
+**The claim is not "the routes exist" — it is that a quarantined version cannot be installed**, and that
+is what `verify:staff-credential`'s quarantine class attacks.
+
+**Bracketed by two successful installs**, which is what makes the middle result attributable. The same
+install is attempted three times with the same body:
+
+| attempt | state | result |
+|---|---|---|
+| **CONTROL** | no quarantine | **200**, one `plugin_installs` row |
+| **ATTACK** | quarantine engaged | **409 `plugin_quarantined`**, row count **unchanged** |
+| **RESTORED** | quarantine lifted | not refused for quarantine |
+
+The middle attempt differs from the outer two by exactly one thing — the existence of a quarantine row —
+so the refusal cannot be attributed to the fixture, the publisher, the org policy, or the manifest. That
+bracketing is also why the class does not need to predict the success path: it asserts the control is a
+non-refusal and the attack is a refusal naming `plugin_quarantined`, and if the control were *also* a
+refusal the class would say so and name the fixture as the suspect.
+
+Three things this class had to get right, each of which a wrong guess would have made the whole thing
+vacuous:
+
+- **The publisher is seeded `official = 1`.** `install_decision` checks `Blocked`, `PolicyConflict` and
+  publisher mode **before** quarantine, so a non-official publisher is refused for `PublisherUnapproved`
+  and the quarantine branch is **never reached**. A test that installed successfully-then-failed for the
+  wrong reason would have looked like a pass.
+- **The refusal reason is asserted specifically** as `plugin_quarantined`. The module's own comment says
+  each reason is "a DIFFERENT runbook" — `Blocked` is the org's decision, `Quarantined` is the platform's
+  — so a refusal for the wrong one is not this control.
+- **The install row count is read from D1**, because a `2xx` that ignored the quarantine would be correct
+  and would satisfy a status-only assertion.
+
+**The permission control is in the same class**, and it is the part that makes the lever safe rather than
+merely present: a staff role *without* `PluginQuarantine` is refused **403** and **no row is written**,
+graded on stored state — because a `2xx` that ignored the permission would be correct, and a quarantine
+row would be a privilege escalation. `permissions_for` assigns it to `security` alone.
+
+The engage and lift rows are also asserted: the engaged row names the staff actor and the reason (the
+schema requires both, so a quarantine with neither is a control nobody can audit), and the lifted row
+carries `lifted_at` and `lifted_by`.
+
+**`verify:staff-credential` 46/46 → 57/57, exit 0, 0 skipped.** Evidence:
+`evidence/v01-043-quarantine-enforcement.txt`.
+
+## Five fixture faults, each caught by a named rule rather than by guessing
+
+The class took five attempts and every failure named its own rule. They are recorded because the pattern
+is the lesson: **the database and the domain each have a vocabulary, and a value that satisfies one is
+frequently rejected by the other.**
+
+1. `plugin_versions` has no `updated_at`, and is keyed by `plugin_version_id` (`pvr_` + 32) — not by
+   `(package_id, version)` as the publisher and package tables' shape suggested. Read from
+   `pragma_table_info` after that.
+2. `trg_plugin_versions_manifest_is_complete` requires **eight** manifest fields, and
+   `trg_plugin_versions_no_wildcard_manifest` rejects any `"*"`. Its error named the rule exactly.
+3. Hoisting the manifest into a `JSON.stringify` variable **dropped the SQL quotes**, so the bare `{`
+   reached SQLite: `unrecognized token: "{" at offset 471`. **The offset was the diagnosis** — it is the
+   position of that brace — and reading the generated statement rather than the error was the fix.
+4. `browser_capability` and `external_data_handling` are **strings** parsed by closed vocabularies
+   (`none|read|interact|computer_use`, `none|declared|unknown`), not booleans. The trigger only requires
+   the keys to *exist*, so `false` satisfied the trigger and was then refused by `parse_manifest` with
+   `manifest_invalid` — **two layers, two vocabularies, and only the second is the domain's.**
+5. The permission control passed `SWITCH_PREFIX` with `REAL_SECRET` — a **mismatched pair** — and got
+   `401 staff_authentication_required`. That answer was **correct**: it is V01-034's fix refusing a
+   secret that does not belong to that prefix. A test that wanted a `403` and received a `401` would have
+   concluded the permission model was untestable rather than that its own token was wrong.
+
+Point 5 is the one worth keeping. The bug produced a *plausible* answer from a *correct* control, and
+only the expectation (`403`) distinguished "the permission is enforced" from "the token is malformed".
 
 ## Regression proof
 
