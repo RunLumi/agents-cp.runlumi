@@ -1,0 +1,54 @@
+baseline HEAD c9d042c319b65ae0f9bf53bc93ee7624a6aec656
+M1 applied: find_membership_by_id no longer filters on org_id
+built: 29 Sep 13:10
+probe exit 1
+
+=== M1: a membership from another org now resolves ===
+76/82 V01 privilege-escalation cases hold
+  ownership-transfer 403     refused           T1 a plain member transfers ownership
+  ownership-transfer 409     refused           T2a a membership belonging to org B
+  ownership-transfer 403     refused           T2b a membership that exists in neither org
+  ownership-transfer 403     refused           T3 a valid transfer with no re-auth grant
+  ownership-transfer 403     refused           C an owner transfers to an active member of thei
+  FAIL  T2a and T2b answer IDENTICALLY, so the route is not an existence oracle: a membership that exists in another organization is indistinguishable from one that exists nowhere  — foreign
+M1: DETECTED  (probe exit 1) -- by the NON-DISCLOSURE assertion, not by the refusal
+orgs: the source is back to HEAD
+M2 applied: the re-auth requirement no longer refuses
+built: 29 Sep 13:13
+probe exit 1
+
+=== M2: a transfer with no re-auth grant ===
+80/82 V01 privilege-escalation cases hold
+  ownership-transfer 403     refused           T1 a plain member transfers ownership
+  ownership-transfer 404     refused           T2a a membership belonging to org B
+  ownership-transfer 404     refused           T2b a membership that exists in neither org
+  ownership-transfer 200     granted           T3 a valid transfer with no re-auth grant
+  ownership-transfer 403     refused           C an owner transfers to an active member of thei
+M2: DETECTED  (probe exit 1)
+routes: the source is back to HEAD
+M3 applied: the transfer UPDATE no longer filters on org_id
+built: 29 Sep 13:15
+probe exit 0
+
+=== M3: the transfer UPDATE is no longer org-scoped ===
+82/82 V01 privilege-escalation cases hold
+  ownership-transfer 403     refused           T1 a plain member transfers ownership
+  ownership-transfer 404     refused           T2a a membership belonging to org B
+  ownership-transfer 404     refused           T2b a membership that exists in neither org
+  ownership-transfer 403     refused           T3 a valid transfer with no re-auth grant
+  ownership-transfer 200     granted           C an owner transfers to an active member of thei
+M3: KNOWN MISSED  (probe exit 0) -- expected, and the finding is which statement carries
+    the claim. transfer_ownership looks the target up with find_membership_by_id(&org_id, ..) and
+    returns 404 BEFORE the UPDATE runs, so a foreign target cannot reach TRANSFER_OWNERSHIP_SQL
+    at all. The statement's org_id predicate is defence in depth with no route exercising it, and
+    a reviewer should protect it as the only thing standing between a future refactor and a
+    cross-tenant ownership write.
+orgs: the source is back to HEAD
+
+=== summary ===
+  M1:detected
+  M2:detected
+  M3:known-missed
+  declared known-missed: M3:known-missed
+every reachable mutation detected
+rebuilt from the restored source: 29 Sep 13:18
