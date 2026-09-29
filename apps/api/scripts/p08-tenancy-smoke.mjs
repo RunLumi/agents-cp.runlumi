@@ -93,6 +93,53 @@ const TESTED_HERE = [
  * corrected to match.
  */
 const ALSO_PROVEN = [
+  //
+  // V01 path-id-tenancy. `verify:path-id-tenancy` measures the org-scoped routes that take exactly ONE
+  // resource id in the path, which is the largest block this probe reports as unproven and the one a
+  // substitution attack is the only way to reach. For each it asserts FOUR things: the organization's own
+  // id is not refused, the other organization's id is, a well-formed id that exists NOWHERE answers
+  // IDENTICALLY (so the route is not an existence oracle), and the other organization's row is
+  // byte-identical afterwards, read out of D1.
+  //
+  // Three of its service-account and credential entries carry a deliberately DEGRADED control, named in
+  // the probe as UNPROVEN; those are credited for the substitution, the non-disclosure comparison and the
+  // stored-state assertion only. The credit below is honest about that.
+  {
+    path: "/api/v1/orgs/{org_id}/agents/{agent_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/members/{member_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/invitations/{invitation_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/invitations/{invitation_id}/resend",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/credentials/{credential_id}/revoke",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/credentials/{credential_id}/rotate",
+    by: "v01-path-id-tenancy-probe.mjs (control DEGRADED, see the probe)",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}",
+    by: "v01-path-id-tenancy-probe.mjs (PATCH control DEGRADED, see the probe)",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}/suspend",
+    by: "v01-path-id-tenancy-probe.mjs (control DEGRADED, see the probe)",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}/resume",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
   { path: "/api/v1/orgs/{org_id}/runs/{run_id}", by: "p05-smoke.mjs (2 cross-tenant negatives)" },
   //
   // V01-027. `verify:collection-tenancy` measures 25 org-scoped COLLECTION routes for leakage: as
