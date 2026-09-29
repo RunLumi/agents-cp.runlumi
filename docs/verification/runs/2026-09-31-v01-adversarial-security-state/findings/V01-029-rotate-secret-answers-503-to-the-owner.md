@@ -11,7 +11,8 @@
 
 ## Status
 
-**OPEN.** Severity **high** (an organization cannot rotate its own webhook signing secret, so the
+**CLOSED — the defect was already repaired, by V01-028's fix, and this record did not say so.**
+Severity **high** (an organization cannot rotate its own webhook signing secret, so the
 outbound webhook path is unusable). Found immediately after repairing V01-028, which is what made it
 reachable.
 
@@ -43,6 +44,47 @@ is the *only* step here that takes a **resource context** (`Some(resource_type),
 every webhook route that works.
 
 (b) and (d) remain possible; both are a single line to instrument.
+
+## Resolution: it was (a), and V01-028's repair had already fixed it
+
+`verify:webhook-fanout`'s W7 drives this route against a real endpoint owned by a real organization
+by a real session, and it answers **`200`**:
+
+```
+W7 PASS  — status=200 idempotencyRows=1
+           body={"endpoint_id":"whe_...","secret":"...","secret_version_id":"whs_..."}
+```
+
+Graded on stored state, not the status:
+
+```
+webhook_secrets:  whs_109c94ef...  version 1   (created with the endpoint)
+                  whs_d4e257d3...  version 2   (added by the rotation)
+idempotency_records: completed, response_status 200
+```
+
+So the rotation **wrote a new secret version**, took its idempotency claim, and completed it. The
+prime suspect was correct: the failure was (a) `authorize_org`, and it was fixed by **V01-028's
+repair** — the bind-order defect this very record was written next to. Rotating a secret passes a
+resource context (`Some(resource_type), Some(&endpoint_id)`) while creating an endpoint does not, so
+the two routes exercised different bind orderings; correcting the one corrected both.
+
+**This record stayed OPEN for the rest of the campaign because nobody re-ran it.** The narrowing was
+written down carefully, the next action was named precisely, and the fixture needed for it — a real
+endpoint — was not built by any probe until the webhook fan-out class needed one for a different
+reason. A finding that says "one instrumented run will settle this" is only worth the run.
+
+**The generalisation:** a narrowed finding is not a closed one, and **the act of narrowing is where
+the cost of not finishing is cheapest to pay later**. Two facts were already true when this was
+written — the suspect was named, and its repair was in the tree — and neither was checked, because
+checking meant running something rather than reasoning about something. The re-run that closed it
+cost one assertion in a probe that already held the fixture.
+
+## Evidence
+
+`pnpm verify:webhook-fanout` — **21/21, exit 0**, with W7 and its idempotency-position companion.
+Adding a case to a probe that already builds its fixture is why this took minutes rather than the
+session the original record implies.
 
 ## What was ruled out, and how — because the negative results are the expensive part
 

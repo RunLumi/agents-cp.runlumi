@@ -277,6 +277,66 @@ await runProbe("V01 webhook fan-out", async (probe) => {
   console.log(`    deliveries and their events: ${JSON.stringify(forSubscribed)?.slice(0, 300)}`);
 
   // ==========================================================================================
+  // ============================================================================================
+  // V01-029 -- can the OWNER rotate their own webhook signing secret?
+  //
+  // Reported `503 service_unavailable` with NO `idempotency_records` row written, so the failure is
+  // BEFORE the idempotency claim. That record narrowed the cause to one of four steps and left
+  // `authorize_org` as the prime suspect, because it is the only step here that takes a RESOURCE
+  // context -- the one thing `create_webhook`, which works, does not do.
+  //
+  // Placed here because this probe already holds the one fixture it needs: a real endpoint owned by a
+  // real organization, created by a real session. That is the whole value of putting a new case in a
+  // probe that already builds its fixture -- the narrowing took a record, and the re-run took a
+  // fixture that another class had already paid for.
+  // ============================================================================================
+  const rotated = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${orgId}/webhooks/${endpointId}/rotate-secret`,
+    {},
+    browserMutation(alice.jar, `v01-webhook-rotate-${nonce}`),
+  );
+  const rotateRows = Number(
+    (
+      await d1Rows(
+        `SELECT COUNT(*) AS n FROM idempotency_records
+          WHERE organization_id = '${orgId}' AND path LIKE '%rotate-secret%'`,
+        "V01 idempotency rows for rotate-secret",
+      )
+    )[0]?.n ?? -1,
+  );
+  expect(
+    "W7: the OWNER can rotate their own webhook signing secret -- a 503 here makes the entire " +
+      "outbound webhook path unusable, since the secret cannot be reissued",
+    rotated.status < 400,
+    `status=${rotated.status} idempotencyRows=${rotateRows} ` +
+      `body=${probe.brief(rotated.payload, 170)}`,
+  );
+  // V01-029's most useful measurement: the 503 arrived with NO idempotency record, which places the
+  // failure before the claim. Asserted so that a future fix is graded on WHERE it moved the failure,
+  // not merely on whether the status changed.
+  expect(
+    "W7: and a successful rotation DOES take an idempotency claim -- so a `503` with no record is " +
+      "diagnostic (the failure is before the claim) and a `503` WITH one is a different fault",
+    rotated.status >= 400 || rotateRows > 0,
+    `status=${rotated.status} idempotencyRows=${rotateRows}`,
+  );
+  if (rotated.status >= 400) {
+    const secrets = Number(
+      (
+        await d1Rows(
+          `SELECT COUNT(*) AS n FROM webhook_secrets WHERE endpoint_id = '${endpointId}'`,
+          "V01 counting this endpoint's secrets",
+        )
+      )[0]?.n ?? -1,
+    );
+    console.log(
+      `    V01-029 REPRODUCED: rotate-secret -> ${rotated.status}, ` +
+        `idempotencyRows=${rotateRows}, secrets=${secrets}`,
+    );
+  }
+
   // THE OTHER HALF -- the documented-but-absent lever.
   //
   // A subscriber is not the only way an event should reach an endpoint: `replay_webhook_delivery`
