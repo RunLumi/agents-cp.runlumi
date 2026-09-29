@@ -1,0 +1,48 @@
+
+> lumi-agents-control-plane@0.0.0 verify:provider-faults /Volumes/SSD/agents-cp.runlumi
+> node apps/api/scripts/v01-provider-fault-probe.mjs
+
+
+  local fault server listening on 0.0.0.0:64656; candidate hosts: 127.0.0.1, localhost, 192.168.1.4
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:64657
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-SuTLH5/802eb7123abb5b08e62faf6bf2402a3ce64bbb60-index_bg.wasm is 1083s newer than src/routes/automations.rs
+  PASS  signup Fault Owner  — status=201
+  PASS  verify Fault Owner  — status=200
+  PASS  login start Fault Owner  — status=202
+  PASS  login complete Fault Owner  — status=200
+  PASS  user Fault Owner has an opaque ID  — usr_94068ecd7ed3418583bc5a22d1de794b
+  PASS  create Fault Org  — status=201
+  PASS  Fault Org organization ID  — org_6a918e8e518b714aa33564b407246ae3
+  PASS  CONTROL: a hard budget exists, so a reservation is taken and the finalisation claims are not vacuous  — status=201 budget_id=bud_9276e78379db4d49a8aeb4905df3a0fc
+  PASS  CONTROL: a provider pointing at the local ok endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.235Z","display_name":"V01 local ok","endpoint_id":"pe_93ef3e67522633cb357b719de29a24b0","endpoint_url":"http://127.0.0.1:64656/v1/ok","lifecycl
+  PASS  CONTROL: a model exists for the local ok provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.244Z","display_name":"V01 local ok model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_589c25bc47906f67352eaa3f
+  reachability via 127.0.0.1: http=503 server_calls=0
+  PASS  CONTROL: a provider pointing at the local ok endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.328Z","display_name":"V01 local ok","endpoint_id":"pe_205c4e91e5e9c78b882d2a73cffa972c","endpoint_url":"http://localhost:64656/v1/ok","lifecycl
+  PASS  CONTROL: a model exists for the local ok provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.337Z","display_name":"V01 local ok model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_8143551339bae99b832552d3
+  reachability via localhost: http=503 server_calls=0
+  PASS  CONTROL: a provider pointing at the local ok endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.391Z","display_name":"V01 local ok","endpoint_id":"pe_cc235f41d1f0f4d2808e2e25d62ce99f","endpoint_url":"http://192.168.1.4:64656/v1/ok","lifecy
+  PASS  CONTROL: a model exists for the local ok provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.402Z","display_name":"V01 local ok model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_4d778af0acb70d227edee0ce
+  reachability via 192.168.1.4: http=503 server_calls=0
+  PASS  CONTROL: a provider pointing at the local 429 endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.455Z","display_name":"V01 local 429","endpoint_id":"pe_c2a2a37bb3b195581ac90e9db4b43842","endpoint_url":"http://192.168.1.4:64656/v1/429","life
+  PASS  CONTROL: a model exists for the local 429 provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.464Z","display_name":"V01 local 429 model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_0146cfa68a6b324be4aa2b1
+  PASS  CONTROL: a provider pointing at the local 503 endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.499Z","display_name":"V01 local 503","endpoint_id":"pe_2c43232ff797d47efb83b116c73471d9","endpoint_url":"http://192.168.1.4:64656/v1/503","life
+  PASS  CONTROL: a model exists for the local 503 provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.508Z","display_name":"V01 local 503 model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_675f168ac9bd05d6c4d7f23
+  PASS  CONTROL: a provider pointing at the local malformed endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.544Z","display_name":"V01 local malformed","endpoint_id":"pe_f9a4a3b7f5c0bd6fc03ec28b8d1bfd41","endpoint_url":"http://192.168.1.4:64656/v1/malf
+  PASS  CONTROL: a model exists for the local malformed provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.553Z","display_name":"V01 local malformed model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_5fc6877b58a22674b
+  PASS  CONTROL: a provider pointing at the local 429 endpoint was accepted  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-09-29T02:50:19.597Z","display_name":"V01 local 429","endpoint_id":"pe_a60ba40351f677461dc2e5a6d32f23e8","endpoint_url":"http://192.168.1.4:64656/v1/429","life
+  PASS  CONTROL: a model exists for the local 429 provider  — status=201 body={"model":{"capabilities":["text"],"created_at":"2026-09-29T02:50:19.605Z","display_name":"V01 local 429 model","lifecycle":"active","max_input_tokens":null,"max_output_tokens":null,"model_id":"mdl_025f0185f84b895e3d8de8c
+  FAIL  CONTROL: the local provider was actually REACHED over a real socket, so the fault cases below are testing a dispatch and not a silence  — tried 3 host(s) -- 127.0.0.1: http=503 server_calls=0 | localhost: http=503 server_calls=0 | 192.168.1.4: http=503 server_calls=0
+
+  BLOCKED: the Worker's outbound fetch never reached the local server.
+  Every case in this probe is graded on that server's call tally, so none of them
+  can run. Exiting 2 — the harness could not run, which is not a product verdict.
+  the Worker logged NO cause for the failed dispatch. providers.rs maps every
+  fetch error to transport_error(); V01-010 makes it log, and this run was built
+  before that fix reached the binary, so its absence here is expected.
+
+25/26 V01 provider-http-faults cases hold, the local fault server was never reached, so no 429/5xx/malformed case was measured
+
+1 case(s) failed:
+  - CONTROL: the local provider was actually REACHED over a real socket, so the fault cases below are testing a dispatch and not a silence
+ ELIFECYCLE  Command failed with exit code 2.
