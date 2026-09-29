@@ -76,6 +76,8 @@ widens what a single security check can authorise, the other reuses an existing 
 
 ## GAP-002 — the last-owner rules have no HTTP-layer attack
 
+> **CLOSED.** See [`findings/GAP-002-last-owner-rules-attacked-at-the-http-layer.md`](findings/GAP-002-last-owner-rules-attacked-at-the-http-layer.md) and V01-031. Three HTTP attacks, graded on stored state, with C1/C2/C3 as controls, **68/68** on `verify:privilege-escalation`, **sensitivity 2/2**. The stated limit that remains: **FR-F02-006 ownership transfer** (`TransferOwnershipRequest`) is a separate requirement and has no attack of its own yet.
+
 `f02` requires that removing or demoting the last owner fails transactionally. `can_leave` and
 `can_remove_member` are unit-tested, and V01-003 proved `can_change_role` had a real defect
 behind a correct-looking test. Nothing attacks the *routes*: can the last owner be demoted,

@@ -822,6 +822,185 @@ await runProbe("V01 privilege-escalation", async (probe) => {
       .join("  ")}`,
   );
 
+  // ===================================================================
+  // GAP-002 -- the last-owner rules, at the HTTP layer.
+  //
+  // `f02` FR-F02-005: "An organization MUST have at least one active owner. Removing/demoting the last
+  // owner MUST fail transactionally." `can_leave` and `can_remove_member` are unit-tested, and V01-003
+  // proved that a correct-looking unit test had been sitting on top of a real defect. Nothing attacked
+  // the ROUTES: could the last owner demote themselves, remove themselves, or leave?
+  //
+  // Graded on STORED STATE in D1, not on the status: a 2xx is the claim, and a membership row that still
+  // says `owner` afterwards is the evidence. "Fail transactionally" is the part a status cannot express
+  // at all -- it means the refusal left nothing behind -- so every attack is followed by a re-read of the
+  // owner's own row and of the organization's active-owner count.
+  //
+  // THREE controls, because without them this block is the V01-030 shape exactly: a sheet of `PASS` rows
+  // measuring a route that refuses everyone, over a fixture that never had an owner to lose.
+  //
+  //   C1 the SOLO organization really has exactly ONE active owner before the first attack. If the
+  //      fixture were wrong, all three attacks would be refused for an unrelated reason and every one
+  //      would pass while proving nothing -- "the last owner" has to BE the last owner.
+  //   C2 the DUO organization really has TWO, so the control below removes a real second owner.
+  //   C3 in the DUO organization the SAME demotion SUCCEEDS. Without it, "every attack was refused" is
+  //      indistinguishable from "the route refuses everything" -- the failure mode that let V01-030
+  //      report six passing cross-tenant rows for a route its own owner could not use.
+  // ===================================================================
+  probe.stage = "last-owner";
+  const ownersIn = async (orgId) =>
+    d1Rows(
+      `SELECT u.email, m.role, m.status FROM memberships m
+       JOIN users u ON u.user_id = m.user_id
+       WHERE m.org_id = '${orgId}' AND m.role = 'owner' AND m.status = 'active'`,
+      `V01 the active owners of ${orgId.slice(0, 12)}`,
+    );
+
+  const solo = await probe.createOrganization(alice.jar, "Solo Org", `solo-org-${probe.nonce}`);
+  const duo = await probe.createOrganization(alice.jar, "Duo Org", `duo-org-${probe.nonce}`);
+  await probe.inviteAndAccept(alice, bob, duo.orgId, "member");
+  // The REAL version, not a guess. Sending `version: 0` is what made this fixture look like a
+  // last-owner refusal for four runs, and the answer it got was the misleading one V01-031 is about --
+  // so a fixture that guesses a version is a fixture that cannot tell a domain rule from a lost race.
+  const bobInDuo = await d1Rows(
+    `SELECT m.membership_id, m.version FROM memberships m JOIN users u ON u.user_id = m.user_id
+     WHERE m.org_id = '${duo.orgId}' AND u.email = '${bob.email}'`,
+    "V01 Bob's membership id in the duo organization",
+  );
+  expect(
+    "the duo fixture has exactly one Bob membership to promote",
+    bobInDuo.length === 1,
+    JSON.stringify(bobInDuo),
+  );
+  if (bobInDuo.length === 1) {
+    const promote = await request(
+      alice.jar,
+      "PATCH",
+      `/api/v1/orgs/${duo.orgId}/members/${bobInDuo[0].membership_id}`,
+      { role: "owner", version: bobInDuo[0].version },
+      { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-promote-${probe.nonce}`) },
+    );
+    expect(
+      "the fixture can promote a member to owner at all, so C3's later success is a fact about the " +
+        "last-owner rule and not about a route that refuses every role change",
+      promote.status >= 200 && promote.status < 300,
+      `status=${promote.status} body=${JSON.stringify(promote.payload ?? {}).slice(0, 200)}`,
+    );
+  }
+
+  const soloOwners = await ownersIn(solo.orgId);
+  expect(
+    "C1 the solo organization has EXACTLY ONE active owner before any attack, so 'the last owner' is " +
+      "the last owner -- otherwise all three attacks are refused for an unrelated reason and pass " +
+      "while proving nothing",
+    soloOwners.length === 1 && soloOwners[0].email === alice.email,
+    `owners=${JSON.stringify(soloOwners)}`,
+  );
+  const duoOwners = await ownersIn(duo.orgId);
+  expect(
+    "C2 the duo organization has EXACTLY TWO active owners, so the control below removes a real second " +
+      "owner",
+    duoOwners.length === 2,
+    `owners=${JSON.stringify(duoOwners)}`,
+  );
+
+  const aliceInSolo = await d1Rows(
+    `SELECT m.membership_id, m.role, m.status FROM memberships m JOIN users u ON u.user_id = m.user_id
+     WHERE m.org_id = '${solo.orgId}' AND u.email = '${alice.email}'`,
+    "V01 Alice's membership id in the solo organization",
+  );
+  expect(
+    "Alice's own membership row in the solo organization is readable and active, so there is a row " +
+      "for the attacks to try to end",
+    aliceInSolo.length === 1 && aliceInSolo[0].status === "active",
+    JSON.stringify(aliceInSolo),
+  );
+
+  if (aliceInSolo.length === 1) {
+    const membershipId = aliceInSolo[0].membership_id;
+    const ownRole = aliceInSolo[0].role;
+    const versionRow = await d1Rows(
+      `SELECT version FROM memberships WHERE membership_id = '${membershipId}'`,
+      "V01 Alice's membership version in the solo organization",
+    );
+    const version = versionRow[0]?.version ?? 0;
+
+    /** One attack, and the stored-state assertions that give it meaning. */
+    const lastOwnerAttack = async (label, method, path, body) => {
+      const result = await request(alice.jar, method, path, body, {
+        ...browserHeaders(alice.jar),
+        ...browserMutation(alice.jar, `esc-${label}-${probe.nonce}`),
+      });
+      // `grade` is not optional here: the verbose attack table reads `a.grade.padEnd(17)`, and
+      // omitting it crashed the probe AFTER every assertion had run -- 64 passed, 4 failed, and a
+      // harness failure that hid the whole sheet behind a `Cannot read properties of undefined`.
+      attacks.push({
+        class_: "last-owner",
+        label,
+        status: result.status,
+        grade: result.status >= 200 && result.status < 300 ? "granted" : "refused",
+        reason: result.payload?.error?.details?.reason,
+        message: result.payload?.error?.message,
+      });
+      expect(
+        `the last owner cannot ${label} their own organization (FR-F02-005)`,
+        !(result.status >= 200 && result.status < 300),
+        `status=${result.status} body=${JSON.stringify(result.payload ?? {}).slice(0, 200)}`,
+      );
+      const after = await ownersIn(solo.orgId);
+      expect(
+        `the organization still has at least one active owner after the last owner tried to ${label}`,
+        after.length >= 1,
+        `owners after=${JSON.stringify(after)}`,
+      );
+      const row = await d1Rows(
+        `SELECT role, status FROM memberships WHERE membership_id = '${membershipId}'`,
+        `V01 Alice's membership after she tried to ${label}`,
+      );
+      expect(
+        `Alice's own membership is UNCHANGED after she tried to ${label} -- the refusal was ` +
+          `transactional, not a status with a half-applied write behind it`,
+        row.length === 1 && row[0].role === ownRole && row[0].status === "active",
+        `before role=${ownRole}/active  after=${JSON.stringify(row)}`,
+      );
+      return result;
+    };
+
+    await lastOwnerAttack("demote", "PATCH", `/api/v1/orgs/${solo.orgId}/members/${membershipId}`, {
+      role: "member",
+      version,
+    });
+    await lastOwnerAttack("remove", "DELETE", `/api/v1/orgs/${solo.orgId}/members/${membershipId}`);
+    await lastOwnerAttack("leave", "POST", `/api/v1/orgs/${solo.orgId}/leave`, {});
+
+    const aliceInDuo = await d1Rows(
+      `SELECT m.membership_id, m.version FROM memberships m JOIN users u ON u.user_id = m.user_id
+       WHERE m.org_id = '${duo.orgId}' AND u.email = '${alice.email}'`,
+      "V01 Alice's membership id in the duo organization",
+    );
+    if (aliceInDuo.length === 1) {
+      const control = await request(
+        alice.jar,
+        "PATCH",
+        `/api/v1/orgs/${duo.orgId}/members/${aliceInDuo[0].membership_id}`,
+        { role: "member", version: aliceInDuo[0].version },
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-c3-${probe.nonce}`) },
+      );
+      expect(
+        "C3 with a second active owner present, the SAME demotion SUCCEEDS -- so the three refusals " +
+          "above are about the last-owner rule and not about a route that refuses every role change",
+        control.status >= 200 && control.status < 300,
+        `status=${control.status} body=${JSON.stringify(control.payload ?? {}).slice(0, 200)}`,
+      );
+      const duoAfter = await ownersIn(duo.orgId);
+      expect(
+        "C3 the duo organization is left with exactly one active owner, so the demotion really did " +
+          "remove an owner and the count moved",
+        duoAfter.length === 1 && duoAfter[0].email === bob.email,
+        `owners after=${JSON.stringify(duoAfter)}`,
+      );
+    }
+  }
+
   // Every attack, with its status and grade.
   //
   // The aggregate distribution is not enough to grade a sensitivity case, and finding

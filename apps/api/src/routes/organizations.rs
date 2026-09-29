@@ -961,6 +961,24 @@ pub async fn change_role(
             "You do not have permission to change this role.",
         ));
     }
+    // V01-031. `CHANGE_ROLE_SQL` puts the last-owner guard in its `WHERE`, so a `false` from the
+    // update means "no row matched" -- and that is true for a STALE VERSION as well as for the
+    // guard. Both were reported as `last_owner_required: "The last active owner cannot be demoted."`,
+    // which is the more alarming of the two answers and the wrong one: a client that lost a race was
+    // told the ownership rule stopped it, and an operator reading that would go looking for an
+    // ownership problem that does not exist.
+    //
+    // The version is compared here, against the row this handler has already read, which is the
+    // convention `ai_catalog.rs` uses for `version_conflict`. After this, a `false` can only mean the
+    // guard refused.
+    if body.version != target.version {
+        return Err(domain_error(
+            &context,
+            ApiErrorCode::Conflict,
+            "version_conflict",
+            "This membership changed. Refresh and try again.",
+        ));
+    }
     if !repository
         .change_role(
             &member_id,
@@ -1142,16 +1160,34 @@ pub async fn remove_member(
             "You do not have permission to remove this member.",
         ));
     }
+    // V01-031, the same collapse as `change_role`. `DELETE` carries no client version, so this one
+    // passes the version this handler just read and the only way to lose the race is a concurrent write
+    // between the read and the update. That race was reported as "the last active owner cannot be
+    // removed". The re-read costs one query and happens ONLY on the failure path, and it is what makes
+    // the two answers distinguishable instead of merely different.
     if !repository
         .remove_member(&member_id, &org_id, target.version, &context.received_at)
         .await
         .map_err(|error| database_error(&context, error))?
     {
+        let moved = repository
+            .find_membership_by_id(&org_id, &member_id)
+            .await
+            .map_err(|error| database_error(&context, error))?
+            .is_some_and(|current| current.version != target.version);
         return Err(domain_error(
             &context,
             ApiErrorCode::Conflict,
-            "last_owner_required",
-            "The last active owner cannot be removed.",
+            if moved {
+                "version_conflict"
+            } else {
+                "last_owner_required"
+            },
+            if moved {
+                "This membership changed. Refresh and try again."
+            } else {
+                "The last active owner cannot be removed."
+            },
         ));
     }
     IdentityRepository::new(database)
