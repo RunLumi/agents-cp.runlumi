@@ -59,7 +59,7 @@ const staffSecret = () => randomBytes(32).toString("base64url");
 const sha256Hex = (value) => createHash("sha256").update(value).digest("hex");
 
 await runProbe("V01 staff-credential", async (probe) => {
-  const { request, expect, expectStatus, d1Rows } = probe;
+  const { request, expect, expectStatus, d1Rows, browserMutation } = probe;
 
   console.log("");
   await probe.setup({ persistEnvVar: "V01_STAFF_PERSIST_TO", portEnvVar: "V01_STAFF_PORT" });
@@ -736,6 +736,269 @@ await runProbe("V01 staff-credential", async (probe) => {
     "R5: and every one of those rows is attributed to a STAFF actor, not to a customer principal",
     grantEvents.every((e) => e.actor_type === "staff"),
     `actorTypes=${JSON.stringify([...new Set(grantEvents.map((e) => e.actor_type))])}`,
+  );
+
+  // =========================================================================================
+  // ADR 0007's CENTRAL claim, never tested at the HTTP layer: the three actor kinds cannot reach
+  // each other's routes.
+  //
+  //   "A machine or staff caller cannot reach a route that only calls `authorize`, because those
+  //    routes take `Option<&Principal>`."                                   -- ADR 0007
+  //   "The prefixes do not overlap, so the two parsers cannot produce a successful result for the
+  //    other's input."                                                        -- core/staff.rs
+  //
+  // This is the load-bearing security property of the whole three-boundary design, and it has been
+  // asserted only by unit tests over SQL strings. Three directions, because a boundary that holds in
+  // one direction and not the other is half a boundary:
+  //
+  //   B1  a STAFF token on a CUSTOMER org-scoped route  -> must be refused
+  //   B2  a MACHINE key on a STAFF route                -> must be refused
+  //   B3  a CUSTOMER session on a STAFF route           -> must be refused
+  //
+  // Each is graded on the STATUS AND on what the body discloses, and B1 additionally asserts the
+  // answer does not differ from a well-formed request naming an organization that does not exist --
+  // a staff token that is refused differently depending on whether the org is real is an existence
+  // oracle across tenants, which is the whole reason the check is here.
+  // =========================================================================================
+  probe.stage = "actor-boundaries";
+  const PROJECTS = `/api/v1/orgs/${orgA.orgId}/projects`;
+
+  // -- B1: staff on a customer route ----------------------------------------------------------
+  const b1 = await request(
+    anonJar(),
+    "GET",
+    PROJECTS,
+    undefined,
+    asStaff(token(PREFIX, REAL_SECRET)),
+  );
+  expectStatus(
+    "B1: a STAFF token is refused on a CUSTOMER org-scoped route, so the two boundaries are separate",
+    b1,
+    [401, 403, 404],
+    ["authentication_required", "permission_denied", "not_found"],
+  );
+  const b1Phantom = await request(
+    anonJar(),
+    "GET",
+    `/api/v1/orgs/org_${"0".repeat(32)}/projects`,
+    undefined,
+    asStaff(token(PREFIX, REAL_SECRET)),
+  );
+  expect(
+    "B1: and the refusal is the SAME for an organization that does not exist, so a staff token is not " +
+      "a cross-tenant existence oracle",
+    b1.status === b1Phantom.status &&
+      withoutRequestId(b1.payload) === withoutRequestId(b1Phantom.payload),
+    `realOrg: ${b1.status} ${probe.brief(b1.payload, 90)}\n` +
+      `       phantom: ${b1Phantom.status} ${probe.brief(b1Phantom.payload, 90)}`,
+  );
+
+  // -- B2: a real machine key on a staff route -------------------------------------------------
+  // A REAL key, minted through the API, because a malformed one being refused proves nothing -- the
+  // same reason the forged STAFF token is well-formed by construction. A machine key is
+  // `lumik_<12 hex>_<43 base64url>`, and `core::staff::StaffKey::parse` cannot accept it, which is the
+  // property under test.
+  let machineToken = null;
+  {
+    const account = await request(
+      grantUser.jar,
+      "POST",
+      `/api/v1/orgs/${orgA.orgId}/service-accounts`,
+      // `org.read` on the ACCOUNT as well as the key: the create route enforces "a key's capabilities
+      // must be a subset of its service account's capabilities", and it says so -- a 422 naming the rule,
+      // which is worth contrasting with the silent 401s this round spent several rounds diagnosing.
+      { name: "V01 boundary probe", capabilities: ["projects.read", "org.read"] },
+      browserMutation(grantUser.jar, `v01-staff-boundary-sa-${probe.nonce}`),
+    );
+    // The id field is `id` here, not `service_account_id` -- and this repository is deliberately
+    // inconsistent about that: `agents` answers `id`, `automations` answers `automation_id`,
+    // `service_accounts` answers `id`. Guessing the long form earned a "the fixture was not created"
+    // failure for an account the API had created with a `200`, so the chain is kept AND the failure
+    // message prints the KEYS -- which is what made the mismatch obvious in one read instead of one
+    // guess at a time.
+    const accountId =
+      account.payload?.service_account?.id ??
+      account.payload?.service_account?.service_account_id ??
+      account.payload?.service_account_id ??
+      account.payload?.id;
+    if (accountId) {
+      const key = await request(
+        grantUser.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/api-keys`,
+        {
+          service_account_id: accountId,
+          name: "V01 boundary key",
+          // `org.read` is REQUIRED, and the reason is the finding rather than a fixture detail:
+          // `machine_whoami` calls `authorize_machine(..., &Permission::OrgRead, ...)` AFTER
+          // `require_machine`, and `machine_denial` codes a SCOPE denial as
+          // `AuthenticationRequired` (401). So a key minted without `org.read` is refused with
+          // "Authentication is required." for a key that authenticated perfectly -- which sent this
+          // probe hunting an authentication bug for several rounds. That is V01-039.
+          capabilities: ["org.read"],
+        },
+        browserMutation(grantUser.jar, `v01-staff-boundary-key-${probe.nonce}`),
+      );
+      // The field is `secret`, not `token` -- and the module says why it is `secret` and not something
+      // more inviting: "The secret appears exactly once", in the create and rotate responses only, and
+      // `api_key_json` (every other projection) has no field for one at all. So a list or get can never
+      // leak it, which is the property worth preserving in a probe -- and the reason this fixture reads
+      // the create response and nothing else.
+      machineToken =
+        key.payload?.api_key?.secret ?? key.payload?.secret ?? key.payload?.api_key?.token ?? null;
+      expect(
+        "B2: a REAL machine key was minted, in the `lumik_` scheme, or B2 would be testing a " +
+          "malformed token -- which proves nothing",
+        typeof machineToken === "string" && machineToken.startsWith("lumik_"),
+        `account=${account.status}/${accountId} key=${key.status} ` +
+          `token=${typeof machineToken === "string" ? `${machineToken.slice(0, 12)}…(${machineToken.length})` : JSON.stringify(machineToken)} ` +
+          `body=${probe.brief(key.payload, 140)}`,
+      );
+    } else {
+      expect(
+        "B2: a service account was created for the machine-key fixture",
+        false,
+        `status=${account.status} topKeys=${JSON.stringify(Object.keys(account.payload ?? {}))} ` +
+          `serviceAccountKeys=${JSON.stringify(Object.keys(account.payload?.service_account ?? {}))}`,
+      );
+    }
+  }
+
+  if (machineToken) {
+    probe.registerSecret(machineToken);
+    const b2 = await request(anonJar(), "GET", FLAGS, undefined, {
+      Authorization: `Bearer ${machineToken}`,
+    });
+    expectStatus(
+      "B2: a MACHINE key is refused on a STAFF route -- the `lumik_` and `lumi_staff_` schemes are " +
+        "disjoint, so neither parser can accept the other's input",
+      b2,
+      [401, 403],
+      ["authentication_required", "permission_denied", "staff_authentication_required"],
+    );
+
+    // And the control: the same key must WORK where a machine actor is accepted, or the refusal above
+    // is satisfied by a key that is simply broken rather than by a boundary that holds.
+    //
+    // The first version of this control used `GET /orgs/{id}/projects` and asserted 2xx. It answers
+    // 401 -- correctly, and for the reason ADR 0007 states: that route "only calls `authorize`" and
+    // takes `Option<&Principal>`, and a machine key is deliberately not a `Principal`. So the control
+    // was asking the wrong question, and a control that asserts the wrong thing is worse than none,
+    // because it reports a working boundary as broken.
+    //
+    // `/api/v1/machine/whoami` is the ONE route in the tree that calls `require_machine`, and it exists
+    // precisely to answer "is this credential live". That is the right control, and using it also
+    // documents the surface: machine identity has exactly one accepting route, which is worth knowing.
+    const b2Control = await request(anonJar(), "GET", "/api/v1/machine/whoami", undefined, {
+      Authorization: `Bearer ${machineToken}`,
+    });
+    expect(
+      "B2: and that same machine key WORKS on /machine/whoami -- the one route that accepts a machine " +
+        "actor -- so the refusal above is a BOUNDARY and not a broken credential",
+      b2Control.status >= 200 && b2Control.status < 300,
+      `machineWhoami=${b2Control.status} body=${probe.brief(b2Control.payload, 150)}`,
+    );
+
+    // A minted credential MUST authenticate. Stated as its own case, with the arithmetic shown, because
+    // "the key was refused on a staff route" and "the key does not work at all" are DIFFERENT defects and
+    // the refusal alone cannot tell them apart.
+    //
+    // `MachineKeyMaterial::from_random_bytes` stores `sha256_hex_of(secret)` where `secret` is the
+    // base64url half, and `require_machine` verifies `sha256_hex_of(key.secret())` -- the same half, and
+    // `machine.rs`'s own test asserts those are equal and that neither equals the wire value's hash. So
+    // the comparison below should find them equal, and when it does not the message says WHICH side
+    // disagrees instead of leaving a 401 to be interpreted.
+    const machineParts = machineToken.split("_");
+    const machinePrefix = machineParts[1];
+    const machineSecret = machineParts.slice(2).join("_");
+    const machineComputed = createHash("sha256").update(machineSecret).digest("hex");
+    const machineRow = (
+      await d1Rows(
+        `SELECT key_prefix, secret_hash, status FROM api_keys WHERE key_prefix = '${machinePrefix}'`,
+        "V01 reading the machine key row the API just created",
+      )
+    )[0];
+    // V01-039. A key that authenticates and is then DENIED must not be told it failed to authenticate.
+    //
+    // Minted without `org.read`, presented to the one route that requires it. The credential is valid --
+    // proved by the sibling control above, an identically-shaped key WITH the capability answered 2xx --
+    // so a 401 here is an authorization failure wearing an authentication code.
+    //
+    // Asserted on the CODE, not merely "not 2xx": a 2xx would be a breach, 403 or 404 would be correct,
+    // and asserting only that it is refused would pass straight through the defect.
+    const narrowAccount = await request(
+      grantUser.jar,
+      "POST",
+      `/api/v1/orgs/${orgA.orgId}/service-accounts`,
+      { name: "V01 narrow scope", capabilities: ["projects.read"] },
+      browserMutation(grantUser.jar, `v01-staff-narrow-sa-${probe.nonce}`),
+    );
+    const narrowAccountId = narrowAccount.payload?.service_account?.id;
+    let narrowToken = null;
+    if (narrowAccountId) {
+      const narrowKey = await request(
+        grantUser.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/api-keys`,
+        {
+          service_account_id: narrowAccountId,
+          name: "V01 narrow key",
+          capabilities: ["projects.read"],
+        },
+        browserMutation(grantUser.jar, `v01-staff-narrow-key-${probe.nonce}`),
+      );
+      narrowToken = narrowKey.payload?.api_key?.secret ?? null;
+    }
+    if (narrowToken) {
+      const narrow = await request(anonJar(), "GET", "/api/v1/machine/whoami", undefined, {
+        Authorization: `Bearer ${narrowToken}`,
+      });
+      expect(
+        "V01-039: a key that AUTHENTICATES and is then denied for its scope is refused with " +
+          "permission_denied (403), not authentication_required (401) -- the credential was presented " +
+          "and accepted, and reporting otherwise makes a scope problem look like a credential problem",
+        narrow.status === 403,
+        `status=${narrow.status} code=${narrow.payload?.error?.code ?? "-"} ` +
+          `reason=${narrow.payload?.error?.details?.reason ?? "-"} ` +
+          `body=${probe.brief(narrow.payload, 130)}`,
+      );
+    } else {
+      expect(
+        "V01-039: a narrow-scope key was minted for the denial-code case",
+        false,
+        `account=${narrowAccount.status}/${narrowAccountId}`,
+      );
+    }
+
+    expect(
+      "B2: the stored secret_hash IS sha256(the secret half of the wire value), so the minter and the " +
+        "verifier agree on what is being hashed",
+      Boolean(machineRow) &&
+        machineRow.secret_hash === machineComputed &&
+        machineRow.status === "active",
+      `prefix=${machinePrefix} (len ${machinePrefix.length}) secretLen=${machineSecret.length} ` +
+        `rowStatus=${machineRow?.status ?? "NO ROW"} ` +
+        `storedHash=${machineRow?.secret_hash?.slice(0, 16) ?? "-"}... ` +
+        `computedHash=${machineComputed.slice(0, 16)}... equal=${machineRow?.secret_hash === machineComputed}`,
+    );
+    expect(
+      "B2: and whoami describes the SERVICE ACCOUNT the key was minted for, so a 2xx there would prove " +
+        "the RIGHT credential answered rather than some other one",
+      typeof b2Control.payload?.service_account_id === "string" ||
+        typeof b2Control.payload?.machine?.service_account_id === "string" ||
+        typeof b2Control.payload?.key?.service_account_id === "string",
+      `payload=${probe.brief(b2Control.payload, 200)}`,
+    );
+  }
+
+  // -- B3: a customer session on a staff route ---------------------------------------------------
+  const b3 = await request(grantUser.jar, "GET", FLAGS, undefined, {});
+  expectStatus(
+    "B3: a CUSTOMER session is refused on a STAFF route -- a `MembershipRole` never satisfies a " +
+      "`StaffPermission`, so no customer role can reach platform authority",
+    b3,
+    [401, 403],
+    ["authentication_required", "permission_denied", "staff_authentication_required"],
   );
 
   probe.stage = "done";

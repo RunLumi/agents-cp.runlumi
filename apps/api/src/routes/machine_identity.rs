@@ -1255,18 +1255,39 @@ pub async fn machine_whoami(
 /// distinct from `scope_denied` so an operator reading the log knows whether to
 /// widen the key's scope or clear a platform switch.
 pub(crate) fn machine_denial(context: &RequestContext, reason: MachineDenyReason) -> ApiError {
+    // V01-039. The mapping used to send ELEVEN reasons to `AuthenticationRequired`, including eight that
+    // are authorization outcomes. A key that authenticated, was found valid, and was then denied for
+    // its scope was answered "Authentication is required." -- and the same body carried
+    // `details.reason = "scope_denied"`, so the code field and the reason field contradicted each other.
+    //
+    // Split by what the reason actually IS:
+    //
+    //   * CREDENTIAL STATE -- the presented credential is not valid, so 401 is the truthful answer.
+    //   * AUTHORIZATION -- the credential is valid and insufficient, so 403 is.
+    //
+    // `ResourceScopeMismatch` is the one worth arguing about: a resource outside the key's scope could
+    // be answered 404 to avoid confirming the resource exists. But the key is already valid, so the
+    // caller knows who they are -- and the response ALREADY returned `details.reason` under the 401, so
+    // anyone who could read it could already tell a scope denial from a bad credential. "401 discloses
+    // less" is a reasonable-sounding reason to leave a misclassification alone, and it is exactly why
+    // this survived: correcting the code discloses nothing the current response does not.
+    //
+    // The cost of getting this wrong is not abstract. A probe control asserted a minted key would work
+    // on a customer route; it answered 401, and the natural reading was "machine keys do not
+    // authenticate anywhere" -- a critical-sounding conclusion that was entirely wrong. The real cause
+    // was a capability the key did not hold, reported as an authentication failure.
     let code = match reason {
         MachineDenyReason::AuthenticationRequired
         | MachineDenyReason::MachineKeyRevoked
         | MachineDenyReason::MachineKeyExpired
-        | MachineDenyReason::MachineKeySuspended
-        | MachineDenyReason::ScopeDenied
+        | MachineDenyReason::MachineKeySuspended => ApiErrorCode::AuthenticationRequired,
+        MachineDenyReason::ScopeDenied
         | MachineDenyReason::ScopeProjectMismatch
         | MachineDenyReason::ScopeNetworkUnavailable
         | MachineDenyReason::ScopeNetworkDenied
         | MachineDenyReason::ScopeModelDenied
-        | MachineDenyReason::ResourceScopeMismatch => ApiErrorCode::AuthenticationRequired,
-        MachineDenyReason::HumanOnlyAction
+        | MachineDenyReason::ResourceScopeMismatch
+        | MachineDenyReason::HumanOnlyAction
         | MachineDenyReason::OrganizationSuspended
         | MachineDenyReason::OrganizationPendingDeletion
         | MachineDenyReason::KillSwitchActive => ApiErrorCode::PermissionDenied,
