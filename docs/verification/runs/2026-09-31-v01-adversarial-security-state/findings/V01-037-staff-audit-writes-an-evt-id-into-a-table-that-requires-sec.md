@@ -3,8 +3,8 @@
 - **Claim ID:** V01-037
 - **Family:** Authentication / availability (found while attacking V01-034, after V01-035 and V01-036)
 - **Severity:** **HIGH**
-- **Status:** OPEN — recorded **before** repair
-- **Verdict:** FAIL
+- **Status:** CLOSED — recorded before repair, updated with root cause, fix, and proof
+- **Verdict:** FAIL → **PASS** (re-attack 401/identical; probe 22/22)
 
 ## Claim
 
@@ -116,9 +116,73 @@ did not measure is the recurring failure**, and here the instrument was my hand-
   control failed first. A gate whose control fails reports one failure and hides every case behind
   it. This probe reports the blocked cases by name for that reason.
 
-## Repair (recorded on closure, not now)
+## Root cause
 
-`staff_audit` builds its `event_id` with `SecurityEventId::generate()` — the generator that already
-exists for exactly this column, in the module that already documents this exact class. No schema
-change, no new type, and no new reasoning: the fix is to use the one the repository already wrote down
-fifteen times.
+A **partially applied fix**. `routes/support.rs` already contains the complete remedy for this class
+in a dedicated `SecurityEventId` type, with `PREFIX = "sec_"`, `LENGTH = 36`, a `new()` that
+**asserts** the namespace, and `generate()`. Its doc comment names the failure mode exactly:
+
+> A `&str` parameter accepts both, and the failure surfaces as a D1 CHECK violation *inside a batch*,
+> hundreds of lines from the call that caused it. **Fifteen call sites** passed
+> `adapters::new_event_id()` — the `evt_` constructor — to `security_event_statement`, and every one
+> took its whole transaction down.
+
+`staff_audit` **bypasses the type**: it builds its statement inline with a raw `prepare` rather than
+through `security_event_statement`, so the type has no presence in that function and the compiler has
+nothing to check. It is the sixteenth site of a class where fifteen were converted.
+
+> A type-level guarantee protects only its users, and "nobody uses the type here" is
+> indistinguishable from "the type is unnecessary" without a check that counts its users.
+
+## Fix
+
+One line, using the generator the repository already wrote down fifteen times:
+
+```rust
+crate::adapters::d1::BindValue::Text(
+    crate::routes::support::SecurityEventId::generate().as_str(),
+)
+```
+
+No schema change, no new type, no new reasoning.
+
+## Two-variable confirmation
+
+Run directly against a copy of the probe's own database, changing only the id's prefix:
+
+| `event_id` | result |
+|---|---|
+| `evt_` + 32 hex (what `new_event_id()` produces) | **REFUSED** |
+| `sec_` + 32 hex (what `SecurityEventId::generate()` produces) | ACCEPTED |
+
+## Regression proof
+
+`verify:staff-credential` W1–W5, driven with a legitimate staff token. W5 asserts one
+`security_events` row per write that **succeeded**, derived from the outcomes rather than a
+hard-coded count, and asserts every one carries `actor_type = "staff"` — which is the whole point of
+ADR 0007's three actor kinds and is what no row could satisfy before migration 0022.
+
+## The flaw in my own earlier reasoning, recorded because it is the more useful half
+
+V01-035's record states the batch "commits successfully in the database". **That was wrong, and the way
+it was wrong matters more than the defect.** I reproduced the batch by hand, in one transaction,
+against a copy of the probe's own database — and **hand-wrote every id**. The product writes an `evt_`
+id; I wrote a plausible `sec_` one. My reproduction was faithful in *shape* and wrong in *value*, so
+it agreed with a batch that cannot commit.
+
+> When reproducing a statement by hand to find a cause, every value must come from the product's own
+> generator. A plausible value is a guess, and a guess that happens to be valid tests a statement the
+> product never sends.
+
+The same flaw sits one step earlier: V01-035's two-variable experiment held `actor_type` as the only
+variable, which correctly established that `'staff'` is refused, and never asked whether the rest of
+the statement was valid. **A two-variable experiment proves the variable matters; it does not prove
+nothing else does.**
+
+## Regression gap that closed
+
+`commit_scoped_mutation` had been reporting SQLite's own message through `report_error` since an
+earlier round, and the harness printed the Worker's log only on a **bail**. A failing case is not a
+bail — so the cause was available and unreachable at the same time. `smoke-harness.mjs` now reads the
+log before stopping services and prints the lines naming a cause whenever a case failed, including an
+explicit line saying so when there are none.

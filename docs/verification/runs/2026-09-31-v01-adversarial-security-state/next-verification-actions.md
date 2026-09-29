@@ -83,6 +83,41 @@ widens what a single security check can authorise, the other reuses an existing 
 behind a correct-looking test. Nothing attacks the *routes*: can the last owner be demoted,
 removed, or made to leave? `smoke:p08` does not reach these routes. Add an owner-actor class to
 `verify:privilege-escalation` that tries to end with zero active owners.
+## The platform's own control plane had no gate — and four defects, and a bypass
+
+> **CLOSED.** See
+> [`findings/four-defects-in-one-ungated-surface.md`](findings/four-defects-in-one-ungated-surface.md)
+> and the four records it parents.
+
+This was not on any list, which is the point. `/api/v1/internal/**` is staff-authenticated, no probe
+could mint a staff principal, and so nothing drove it. It turned out to carry:
+
+- **V01-034 (CRITICAL)** — a staff credential's **secret is never verified**. The token resolves by its
+  16-hex lookup prefix, so any well-formed token with a known prefix authenticates, and a wrong secret
+  and an unknown prefix answered *differently*, making the endpoint an existence oracle too.
+- **V01-035 / V01-036 / V01-037** — three independent reasons every internal **write** answered `503`,
+  stacked, the outermost firing before any statement was prepared so it masked the other two.
+- **V01-033's sixth site** — `lift_kill_switch`, invisible to a sweep that enumerated four variable
+  names.
+
+Four fixes and a bypass in fifty lines of one file. Two general lessons are now in `AGENTS.md`:
+
+- **A documented command that cannot start is a gate that provides no evidence.** Found in the same
+  round: `pnpm verify:filter-tenancy` had never run, because the probe's name contained a `/` and the
+  harness put it in a filesystem path. It had a recorded 65/65 baseline and four detected mutations,
+  all real, because its sensitivity script exported the persist-dir variable and took a different
+  branch. A clean **exit 2** is the reason nobody noticed.
+- **A verdict with no cause is the same failure as a verdict with no evidence.**
+  `commit_scoped_mutation` had been logging SQLite's own message all along and the harness printed it
+  only on a bail — so five repairs were spent on one route while the actual cause sat unread.
+
+**What is still open here:** the standing check for V01-035's class is
+`security::actor_type_correspondence`, and it grades **hard-coded `actor_type` literals only** — three
+of the four sites in this repository *bind* the column, and a static scan cannot follow a bind. The
+file counts them so the sheet never implies coverage it lacks, but the class is not closed for bound
+values; a probe that drives each writer and reads the row is the only thing that closes it, and
+`verify:staff-credential` now does that for all four.
+
 ## Unattacked, by family
 
 Refreshed after V01-009. Six of the eleven families are now closed or partly closed; the
@@ -97,7 +132,7 @@ first written.
 | 4 | inference streaming | provider faults are unit-tested in Rust (`p09_failure_tests`) but never driven through a real Worker: **429, 5xx, malformed chunk, timeout, client disconnect**, and emit-content-then-fail. Four `mock://` fault modes exist and have never been driven over HTTP. | A unit test is not an attack across a router. |
 | 5 | ~~D1 / migrations~~ | **closed in V01-007** — 0015 and 0019 with stored idempotency claims, 19/19, both mutations detected first attempt. Still open: only two cut points, no assertion about a backfill's *content*, foreign keys not exercised. | mostly closed |
 | 6b | ~~tenant isolation — the **collection** routes~~ | **closed for 25 of 32 in V01-027.** `verify:collection-tenancy` is **54/54, 0 leaks**: 25 org-scoped GET collections fetched as Org A and each whole body searched for 4 Org B identifiers read out of D1 plus Org B's email, with a positive-match control and a runtime method classification. `smoke:p08`'s headline moved **80 -> 64 of 104** once the credit was recorded, and its unproven set is now printed **grouped by shape**: 48 one-path-id, 12 collection, 4 nested. | a content search catches a `WHERE` that forgot `org_id`, which no substitution can; the 48 that remain need a parent row each |
-| 6c | ~~tenant isolation — the **one-path-id** routes~~ | **9 of 48 closed in `verify:path-id-tenancy`** (148/148, sensitivity 1 detected + 1 declared KNOWN MISSED), and `smoke:p08`'s unproven count moved 69 -> 60. **Three of its nine carry a DEGRADED control and are UNPROVEN**, not passed: `service-accounts/{id}` PATCH and `/suspend` answer `409 version_conflict` on the owner's own record at the version D1 reports, and `credentials/{id}/rotate` answers `404` for a credential D1 shows user-owned in the same org. The remaining 41 are credited by name, most with the specific fixture each needs. Two of them — `internal.rs`'s feature-flag PATCH and both `plugins.rs` policy writes — **had no gate at all** and were found dead by V01-033's two-order experiment rather than by a probe, because nothing exercises them. Covering them is the next piece of work, and it is the same work the other credited routes need. Two session paths are credited with a **design question** rather than a gap: `login_sessions` has no `org_id`, so `close` needs deciding between caller-scoped and org-scoped |
+| 6c | tenant isolation — the **one-path-id** routes | **18 of 48 closed in `verify:path-id-tenancy`** (198/198, every assertion at full strength, 0 degraded controls, 40 named skips). The `automations` family was added this round and needed an `automations.max_active` entitlement — `entitlement_grants` is **empty in every seeded database**, so without it every create is refused for a reason unrelated to tenancy — plus a project, an agent, and for `resume` a prior **state** rather than merely a prior row. The remaining credited families are named in the probe with the fixture each needs48/148, sensitivity 1 detected + 1 declared KNOWN MISSED), and `smoke:p08`'s unproven count moved 69 -> 60. **Three of its nine carry a DEGRADED control and are UNPROVEN**, not passed: `service-accounts/{id}` PATCH and `/suspend` answer `409 version_conflict` on the owner's own record at the version D1 reports, and `credentials/{id}/rotate` answers `404` for a credential D1 shows user-owned in the same org. The remaining 41 are credited by name, most with the specific fixture each needs. Two of them — `internal.rs`'s feature-flag PATCH and both `plugins.rs` policy writes — **had no gate at all** and were found dead by V01-033's two-order experiment rather than by a probe, because nothing exercises them. Covering them is the next piece of work, and it is the same work the other credited routes need. Two session paths are credited with a **design question** rather than a gap: `login_sessions` has no `org_id`, so `close` needs deciding between caller-scoped and org-scoped |
 | 6 | ~~tenant isolation~~ | **mutating half closed in V01-008** (43/43) and the **query-string half closed in `verify:filter-tenancy`** (54/54): 6 filter routes, a foreign keyset cursor and 5 nested paths, graded by searching the whole body for the other org's identifiers. **and the query-string half closed in `verify:filter-tenancy`** (65/65): 6 filter routes, a foreign keyset cursor, 5 nested paths and the audit route's 12 id filters, graded by searching the whole body for the other org's identifiers. **No leak found on any surface.** Still open: the 28 org-scoped routes beyond the 11 driven, and runs/sessions/automations/usage, which are SKIPped for want of a run fixture. |
 | ~~6b~~ | ~~tenant isolation — the **audit** route~~ | **closed** — `AuditListQuery`'s twelve id filters are attacked with values that exist in the other org, read out of that org's own audit rows. **Eight driven, no leak**, including through `metadata_json`, which the route returns in full. The remaining four (`run_id`, `agent_session_id`, `tool_call_id`, `device_id`) have no value in either org and are SKIPped for want of a run fixture. |
 | 7a | ~~automation lease contention~~ | **the exclusivity claim is CLOSED and the family is no longer at zero.** `verify:lease-contention` drives 8 simultaneous claims on one occurrence and 2 devices racing: **exactly one winner, exactly one active lease, `state_version` advanced once, one attempt row, no loser carrying the winner's lease or raw token**, and the token is never persisted. It was **blocked by V01-011** until that route was repaired. **Two things remain:** the gate's sensitivity proof, and **V01-013** (`attempt` and `started_at` are written by nothing, so `max_start_attempts` is unenforceable), whose fix touches a statement shared by four routes and needs its own claim → lease-expiry → second-claim attack. **That attack is written and registered** (`pnpm verify:attempt-exhaustion`, finding V01-014) but **has not been run**, so the recorded severity is still the bookkeeping one rather than the proven one. It matters because a dead counter and an unenforced bound look identical to a single claim: the difference is whether one scheduled slot can run twice |

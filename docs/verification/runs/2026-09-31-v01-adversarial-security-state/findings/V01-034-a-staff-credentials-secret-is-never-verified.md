@@ -3,8 +3,8 @@
 - **Claim ID:** V01-034
 - **Family:** Authentication
 - **Severity:** **CRITICAL**
-- **Status:** OPEN — recorded **before** repair, as the campaign requires
-- **Verdict:** FAIL
+- **Status:** CLOSED — recorded before repair, updated with root cause, fix, and proof, as the campaign requires
+- **Verdict:** FAIL → **PASS** (re-attack 401/identical; probe 22/22)
 
 ## Claim
 
@@ -131,12 +131,70 @@ and is simply not checking it.
 - No gate drove `/api/v1/internal/**` at all. This family is the one V01-033 found **three
   permanently dead routes** in, and the reason they were dead is that nothing exercises it.
 
-## Repair (recorded on closure, not now)
+## Root cause
 
-Intended behaviour is unambiguous and already specified, so this is an implementation defect and not
-a contract change: compare `sha256_hex(presented secret)` against the stored `credential_hash` in
-constant time, exactly as the machine path eleven lines above already does, and refuse with the same
-error used for a nonexistent prefix so A1 and A4 stay indistinguishable.
+`require_staff` parsed the presented `StaffKey`, looked the row up by prefix, checked that the stored
+role parses and the principal is active, and returned. It never read `key.secret()`. The
+`StaffKey` was constructed *inside* `resolve_staff_credential`, which takes the whole presented
+string and returns a row — so nothing downstream could reach the secret even in principle.
 
-No spec, ADR, frozen contract, or migration is changed, and no production cryptographic semantic is
-replaced by test-only logic: the forged token is presented to the real verifier.
+The column was not decorative by accident: `platform_ops.rs` inserts it, a struct field carries it,
+and a unit test asserts `credential_hash.len() == 64`. It was written, validated, and never compared.
+
+## Fix
+
+`apps/api/src/http/auth.rs`. Parse the key in `require_staff` (so the secret is reachable on this side
+of the lookup) and compare, in constant time, exactly as the machine path eleven lines above does:
+
+```rust
+let presented_staff_hash = machine_secret_hash(key.secret());
+if !core_constant_time_eq(
+    presented_staff_hash.as_bytes(),
+    resolved.credential_hash.as_bytes(),
+) {
+    return Err(staff_authentication_required(context));
+}
+```
+
+`staff_authentication_required` is the **same** error the nonexistent-prefix case returns, so A4's
+non-disclosure comparison holds. That was not incidental: pre-fix the two answers differed (`200`
+versus `401`), so the defect was an existence oracle as well as an authentication bypass, and a fix
+using a different error would have closed only half of it.
+
+## Regression proof
+
+`pnpm verify:staff-credential` (`apps/api/scripts/v01-staff-credential-probe.mjs`), which the
+campaign added in the same round. Behavioural, over real HTTP, against a real D1:
+
+- **C1** the correct secret is accepted — and it runs **first**, and a red C1 stops the probe, because
+  a refusal alone is satisfied by a route that refuses everyone.
+- **A1 / A2** two *different* well-formed forged secrets are both refused `401`. Two shapes, so A1 is
+  not one unlucky string.
+- **A3** a forged secret on a **write** route, graded on the **stored row in D1**, not the status: a
+  `2xx` that ignored the token would be correct and a `2xx` that applied the write is a breach.
+- **A4** a wrong secret and a nonexistent principal answer **identically** once `request_id` is set
+  aside. Not "both non-2xx" — that passes straight through an existence oracle.
+- **A5** no credential material appears in an authenticated internal listing.
+
+**9/19 with 2 skipped → 22/22 with 0 skipped**, exit 0, the probe byte-identical across the repair
+except for three *probe* fixes recorded in the file.
+
+## Regression gap that closed
+
+`core::staff`'s own test asserts `key.secret()` **equals** the expected secret. That is a property of
+`parse`, not of authentication, and it passes with the verifier absent — which is why nothing failed
+when the verifier was missing. The gap is now a real HTTP case with a control that must be green.
+
+## Residual risk, stated rather than implied
+
+A `16`-hex-character prefix is the only thing an attacker needs, and it is not brute-forceable in
+the aggregate. So this is disclosure-dependent rather than unauthenticated — **and that is exactly why
+it cannot be waved through**: the system has an authentication factor and was simply not checking it.
+The prefix is also carried into `StaffActor` and from there into audit rows, so it is a value the
+system itself propagates. Suspension remains the only control that works, and it is not discoverable
+from the token.
+
+## Severity
+
+**CRITICAL**, on the basis that the affected surface is the platform control plane and the factor
+exists but is unchecked. Re-assess to HIGH if the prefix can be shown never to leave the database.

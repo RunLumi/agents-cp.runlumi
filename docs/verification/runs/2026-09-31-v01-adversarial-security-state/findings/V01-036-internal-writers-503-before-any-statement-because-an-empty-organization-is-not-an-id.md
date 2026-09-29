@@ -3,8 +3,8 @@
 - **Claim ID:** V01-036
 - **Family:** Authentication / availability (found while attacking V01-034, after repairing V01-035)
 - **Severity:** **HIGH**
-- **Status:** OPEN — recorded **before** repair
-- **Verdict:** FAIL
+- **Status:** CLOSED — recorded before repair, updated with root cause, fix, and proof
+- **Verdict:** FAIL → **PASS** (re-attack 401/identical; probe 22/22)
 
 ## Claim
 
@@ -128,13 +128,64 @@ three times over and reports one symptom.
   `&str` and therefore cannot express the case at all. A `&str` parameter where the domain has three
   states — an id, none, or invalid — is the shape that hides this.
 
-## Repair (recorded on closure, not now)
+## Root cause
 
-`prepare_scoped_mutation` must treat an empty organization as `None` rather than as a malformed id,
-because that is what the schema's `DEFAULT ''`, all four callers, and `IdempotencyScope`'s own
-`Option` already mean. An empty string is a **valid** value at that boundary, not an invalid one, and
-the fix belongs where the boundary is rather than in four call sites — a call-site fix would leave the
-type able to reject the schema's own default, which is the defect.
+**`''` is the designed representation of "no organization", and the type layer refused it.**
 
-Intended behaviour is already specified, so this is an implementation defect and not a requirement
-change.
+`idempotency_records.organization_id` is `TEXT NOT NULL DEFAULT ''` — the empty string, not NULL, and
+migration 0020 is the null-safety pass that settled it. All four staff routes pass `""` for exactly
+that reason; the other 27 call sites pass a real `org_` id. `IdempotencyScope::new` takes
+`Option<OrganizationId>`, so the *scope* layer was always ready for "no organization".
+
+`prepare_scoped_mutation` sat between them and converted `""` into `OrganizationId::new("")`, which
+splits on `_` and therefore cannot succeed. **The type has no representation for "no organization"
+at all**, so the conversion failed for the one value the design uses for precisely this case. The
+error mapped to `service_unavailable`, which is why a rejected *argument* presented as a store fault.
+
+## Fix
+
+At the boundary, in `apps/api/src/routes/usage.rs` — **not** in the four call sites. A call-site fix
+would leave the function still able to reject the schema's own default, and the defect *is* that the
+boundary and the schema disagreed about what a valid organization is:
+
+```rust
+let organization = if org_id.is_empty() {
+    None
+} else {
+    Some(OrganizationId::new(org_id).map_err(|_| service_unavailable(context))?)
+};
+```
+
+A **non-empty** value that does not parse is still a caller error and is still reported as before;
+only the empty case changes, and it changes from "impossible" to "meaning what the schema says".
+`organization_scope` already mapped `None` to `''` for the bind, so the `NOT NULL` column is satisfied
+without touching the schema.
+
+## Regression proof
+
+`verify:staff-credential` W1–W4, which drive all four writers with a **legitimate** staff token and
+assert both the `2xx` **and** the stored row in D1. Before: all four `503`. After: all four `2xx`
+with `feature_flags` and `kill_switches` rows written and read back.
+
+`verify:idempotency` **47/47** is the proof that the change did not disturb the other 27 call sites,
+and it is the gate that would have caught this: it exercises the idempotency claim path across every
+family, and it is what makes "one function, 31 call sites, one behaviour change" a measured claim
+rather than a hopeful one.
+
+## Why this one mattered most
+
+It was **upstream of the other three.** With it present, V01-035's CHECK violation and V01-037's id
+violation were both *unreachable* — the request died before a statement was prepared. Three repairs
+to one route produced no observable change, and that is what finally made "this is not one bug" the
+only hypothesis left standing.
+
+A single `503` with a single cause is a bug. A `503` with **three** independent causes, where fixing
+any one changes nothing observable, is a coverage statement.
+
+## Regression gap
+
+No test called `prepare_scoped_mutation` with an empty organization, because the four staff routes
+are the only callers that do and no gate drove them. The general shape: a value crosses a boundary —
+a `&str` into a validated id type — and nothing at the boundary asks whether the two agree. A `&str`
+parameter where the domain has three states (an id, none, or invalid) is the shape that hides this,
+and it is worth watching for elsewhere.

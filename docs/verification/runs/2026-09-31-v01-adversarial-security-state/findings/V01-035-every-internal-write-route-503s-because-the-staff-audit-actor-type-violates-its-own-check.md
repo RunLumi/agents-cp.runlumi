@@ -3,8 +3,8 @@
 - **Claim ID:** V01-035
 - **Family:** Authentication / audit (discovered while attacking V01-034)
 - **Severity:** **HIGH**
-- **Status:** OPEN — recorded **before** repair
-- **Verdict:** FAIL
+- **Status:** CLOSED — recorded before repair, updated with root cause, fix, and proof
+- **Verdict:** FAIL → **PASS** (re-attack 401/identical; probe 22/22)
 
 ## Claim
 
@@ -118,18 +118,65 @@ about this one table:
   bind-correspondence check, and it would have caught this the day it was written.
 - No gate drives `/api/v1/internal/**`.
 
-## Repair (recorded on closure, not now)
+## Root cause
 
-The intended behaviour is already specified, so this is an implementation defect and **not** a
-requirement change: ADR 0007's MUST is that a staff audit event is written, and the code writes one.
-The schema is what is behind.
+P07 added a third actor kind and did not extend the CHECK that names actor kinds. `0002` declared
+`security_events`; `0018` added `staff_principals`, `StaffActor`, and the entire
+`/api/v1/internal/**` surface sixteen migrations later. Nothing extended the `actor_type` list, so
+the MUST in ADR 0007 — *"a staff audit event is written on grant creation and on every use"* — was
+unsatisfiable, and the code lost.
 
-The repair is a **new, additive migration** extending the `actor_type` CHECK to include `'staff'`.
-It is additive rather than a rewrite because the migration ledger is append-only, and it must **not**
-be "fixed" by writing `'support'` instead: `'support'` is a `StaffRole`, and labelling a `security`
-or `engineering` staff member's action as `support` would make the audit trail misstate the actor
-kind — satisfying the CHECK by destroying the property the ADR is protecting.
+## Fix
 
-No ADR is rewritten: ADR 0007 already states the correct rule. The change is recorded there as a
-consequence, because a schema that predates the third actor kind is exactly the kind of drift a
-future reader needs warned about.
+`apps/api/migrations/0022_p07_staff_actor_type.sql`, additive, because the ledger is append-only and
+editing `0002` would fix a fresh database and nothing else. It names `'staff'`.
+
+**Not by writing `'support'`.** `'support'` is in the `0002` list and reads like the answer; it is a
+`StaffRole`, not an actor kind. Writing it would record a `security` or `engineering` staff member's
+platform action as a *support* action — satisfying the CHECK by making the audit trail misstate the
+actor kind, which is the property ADR 0007 exists to protect.
+
+Two things the migration had to get right, and one of them it got wrong first:
+
+- **All nineteen columns.** `0010` appended `run_id`, `agent_session_id`, `tool_call_id` with
+  `ALTER TABLE`, so they sit at the END. The first version copied `0002`'s sixteen and failed with
+  `no such column: run_id`. The mistake was auditing the ledger for the indexes and triggers the
+  rebuild would drop, and not for its columns. **The authority for a rebuild's shape is the live
+  schema; the ledger only says what changed.**
+- **Four indexes and both immutability triggers, recreated verbatim.** A rebuild that silently lost
+  the append-only guarantee on the audit table would be a worse defect than the one being repaired.
+
+Measured on a copy of a real database: identical column list and order, 5 indexes before and after,
+2 triggers before and after, and the **only** textual difference in the DDL is the addition of
+`'staff'`. Both `BEFORE UPDATE` and `BEFORE DELETE` still abort.
+
+## Regression proof
+
+`security::actor_type_correspondence` — a new standing check in `pnpm check`. It reads the permitted
+set from the **whole ledger** (a check that read only `0002` would report `'staff'` as forbidden
+forever, i.e. a verifier disagreeing with the database it exists to protect) and every `actor_type`
+literal the code can write, matched by **position** in the INSERT's `VALUES` tuple, which is the
+shape that hid this defect: the column is named in the column list and the value sits at the same
+ordinal, with nothing joining them but the number.
+
+Two assertions: the general one, and a specific one that fails with a message about ADR 0007 rather
+than about a set comparison. Vacuity is asserted **before** any verdict — the ledger was read, at
+least 100 source files were walked, and at least one literal was found — because a scan that read
+nothing reports a clean sheet while measuring nothing.
+
+**Sensitivity:** `evidence/v01-035-actor-type-sensitivity.sh`, **M1 (the writer emits a forbidden
+value) and M2 (the ledger loses `'staff'`) both DETECTED**, exit 0. Attacking both files matters: they
+are the two halves of the class, and a check that only catches one is half a check.
+
+The check's limit is in the file, not only in the record: three of the four sites **bind**
+`actor_type` as `?n` rather than hard-coding it, and a static scan cannot follow a bind. So it counts
+the binds it could not grade, and the failure message reports both numbers. Its power is exactly "a
+hard-coded literal the schema refuses" — a real class, not a general proof.
+
+## Also closed here
+
+`smoke-harness.mjs` now reads the Worker's log **before** stopping services and prints the lines
+naming a cause whenever a case fails — not only on a bail. `commit_scoped_mutation` had been
+reporting SQLite's message through `report_error` all along, so the cause of this defect was available
+and unreachable at the same time, and the sheet said "the route is broken" five times across four
+repairs. **A verdict with no cause is the same failure as a verdict with no evidence.**

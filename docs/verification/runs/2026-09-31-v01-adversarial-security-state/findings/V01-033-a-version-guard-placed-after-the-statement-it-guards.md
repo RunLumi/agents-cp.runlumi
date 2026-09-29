@@ -160,10 +160,11 @@ class rather than an accident.
 the source explaining that it was measured, that reordering it regressed budget-concurrency, and that the
 pattern is not the diagnosis — so the next reader does not "fix" it a second time.
 
-### Confirmed scope: 5 routes across 4 tables
+### Confirmed scope, as first measured: 5 routes across 4 tables
 
-`machine_identity.rs` ×2, `internal.rs` ×1, `plugins.rs` ×2. Every one was a permanently dead route
-reporting a concurrency problem.
+`machine_identity.rs` ×2, `internal.rs` ×1, `plugins.rs` ×2 — the five the sweep could reach.
+Every one was a permanently dead route reporting a concurrency problem. A sixth
+(`lift_kill_switch`) was added later; see below for why the sweep could not have found it.
 
 **No gate covers the feature-flag or plugin-policy routes**, which is why the two-order experiment rather
 than a gate run is the evidence here — and it is also a coverage gap in its own right, recorded below.
@@ -190,6 +191,39 @@ two-order experiment is what settled it, and it took a copy of the real database
 Reorder the batch so the guard precedes the version-bumping statement. This is the order 26 of the 33
 sites already use, and it is the only order in which a compare-and-set means anything: assert the version
 you read, then write against it.
+
+## A sixth site, found a campaign round later — and why the sweep could not see it
+
+Attacking the staff boundary turned up `lift_kill_switch` answering `409` for a lift that can never
+succeed. Same mechanism, and the sweep that found the first five **could not have found it**:
+
+```rust
+commit_scoped_mutation(..., vec![lift, guard], audit)
+```
+
+The original sweep looked for `vec![update, guard]` and `vec![statement, guard]` — four **variable
+names**. This one is `lift`.
+
+> **A scan over a naming convention is a scan over a convention.** The closing statement in this record
+> already said the pattern is not the diagnosis and that each site has to be established by running the
+> affected gate; the sharper form is that a name-based scan cannot enumerate the sites at all, so it
+> reports a *count* that reads like coverage while measuring a convention.
+
+Measured on `kill_switches` with the order as the only variable, on a copy of the probe's own
+database, the guard handed the pre-write version:
+
+| order | result |
+|---|---|
+| `vec![lift, guard]` (the code's order) | **ABORTED** — the switch stays `engaged` at version 1 |
+| `vec![guard, lift]` | **succeeds** — the switch becomes `lifted` at version 2 |
+
+Fixed. `verify:staff-credential`'s W4 asserts both the `2xx` and that the stored `state` became
+`lifted` with `version + 1`, read from D1.
+
+**Confirmed scope is now 6 routes across 5 tables**: `machine_identity` ×2, `internal.rs` ×2
+(`patch_flag`, `lift_kill_switch`), `plugins.rs` ×2 — over `service_accounts`, `feature_flags`,
+`plugin_policies`, and `kill_switches`. Every one was a permanently dead route reporting a
+concurrency problem.
 
 ## Coverage gap this exposed
 
