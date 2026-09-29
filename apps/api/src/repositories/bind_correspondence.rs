@@ -306,19 +306,46 @@ mod tests {
     /// The standing check. Named for what it asserts so a failure says which claim broke.
     #[test]
     fn v01_004_no_two_id_lookup_binds_its_ids_transposed() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/repositories");
+        // Every directory that holds `.prepare(` calls, asserted to EXIST before anything is scanned.
+        //
+        // Asserting existence is the point. A path typo in a list of directories produces a scan that
+        // reads less and reports a cleaner result, which is the failure this whole check is a reaction
+        // to -- 84 statements were once skipped by a region that was silently empty, and nothing said so.
+        // So a missing directory is a loud failure, never a smaller denominator.
+        const DIRECTORIES: [&str; 3] = ["repositories", "routes", "consumers"];
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        for directory in DIRECTORIES {
+            assert!(
+                base.join(directory).is_dir(),
+                "src/{directory} does not exist. The scan is declared over a fixed list of \
+                 directories, and a missing one must fail loudly rather than shrink the denominator -- \
+                 which is how 84 statements went unread for four runs while this check reported \
+                 success."
+            );
+        }
+
         let mut checked = 0usize;
         let mut transposed: Vec<String> = Vec::new();
         let mut two_id_lookups = 0usize;
+        // Per-directory, so the coverage is visible. A healthy total is not enough: it can be healthy
+        // while one whole directory contributed nothing, and in the total that is invisible.
+        let mut per_directory: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
 
-        let mut files: Vec<_> = fs::read_dir(&dir)
-            .expect("the repositories directory is readable")
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.extension().is_some_and(|ext| ext == "rs"))
-            .collect();
+        // Each file carries the directory it came from, so a count cannot be attributed to the wrong
+        // directory once the list is sorted together.
+        let mut files: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
+        for directory in DIRECTORIES {
+            let mut in_directory: Vec<_> = fs::read_dir(base.join(directory))
+                .unwrap_or_else(|error| panic!("src/{directory} must be readable: {error}"))
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+                .collect();
+            in_directory.sort();
+            files.extend(in_directory.into_iter().map(|path| (path, directory)));
+        }
         files.sort();
 
-        for path in &files {
+        for (path, directory) in &files {
             // Comments are stripped ONCE, here, so the const scan and the `prepare` scan cannot
             // disagree about what the file says.
             let raw = fs::read_to_string(path).expect("a repository module is readable");
@@ -328,6 +355,7 @@ mod tests {
                 .and_then(|n| n.to_str())
                 .unwrap_or("<unknown>")
                 .to_owned();
+            let slot = per_directory.entry(directory).or_insert((0, 0));
 
             // Every `const NAME: &str = r#"..."#` / `r"..."` in this file.
             let mut sql_by_name: BTreeMap<String, String> = BTreeMap::new();
@@ -365,6 +393,7 @@ mod tests {
                                 if let Some(body) = literal {
                                     sql_by_name.insert(ident, body);
                                     checked += 1;
+                                    slot.0 += 1;
                                 }
                             }
                         }
@@ -410,6 +439,7 @@ mod tests {
                     continue;
                 }
                 two_id_lookups += 1;
+                slot.1 += 1;
 
                 // The placeholders need not be 1 and 2 -- only that they are distinct -- so they are
                 // taken in ascending order and the binds are read positionally from there.
@@ -442,6 +472,21 @@ mod tests {
             "v01_004 bind correspondence: {checked} SQL constants read, {two_id_lookups} two-id \
              lookups examined, {} transposed",
             transposed.len()
+        );
+        for (directory, (constants, lookups)) in &per_directory {
+            eprintln!("v01_004   src/{directory}: {constants} SQL constants, {lookups} lookups");
+            assert!(
+                *constants > 0,
+                "src/{directory} contributed NO SQL constants, so it was not really scanned. A \
+                 directory that silently contributes nothing is the same failure as a region that is \
+                 silently empty, and it is invisible in the total."
+            );
+        }
+        assert_eq!(
+            per_directory.len(),
+            DIRECTORIES.len(),
+            "a declared directory produced no entry at all, which means the loop and the report \
+             disagree about what was scanned"
         );
 
         assert!(

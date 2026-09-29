@@ -62,7 +62,10 @@ One mismatch is a guess. Two mismatches in opposite directions is a transpositio
 `pnpm check` — so this is a standing gate, not a script someone has to remember:
 
 ```
-v01_004 bind correspondence: 527 SQL constants read, 122 two-id lookups examined, 0 transposed
+v01_004 bind correspondence: 661 SQL constants read, 124 two-id lookups examined, 0 transposed
+v01_004   src/consumers:   10 SQL constants, 0 lookups
+v01_004   src/repositories: 527 SQL constants, 122 lookups
+v01_004   src/routes:      124 SQL constants, 2 lookups
 ```
 
 The denominator is printed on every run and asserted, because the check's own history is the argument
@@ -127,9 +130,19 @@ Recorded so nobody reads more into a green run than is there:
   column is not caught.
 * `strip_comments` treats `//` inside a Rust string literal as a comment. No statement in this module is
   scanned through one, because every statement is a named `const`.
-* This covers `src/repositories`. Route modules, adapters and the consumer in `consumers/` are **not**
-  scanned. Extending it is mechanical; leaving it here is a decision, not an oversight, and it is the
-  first thing to do next.
+* It now covers `src/repositories`, `src/routes` and `src/consumers` — 661 constants, 124 two-id
+  lookups, reported per directory. Two directories are **asserted** to contribute at least one constant
+  and the count of directories is asserted against the declared list, so a path typo, a renamed module
+  or a moved file fails loudly instead of shrinking the total. That is not defensive decoration: fault 2
+  below is exactly a case where a whole scope was silently unread.
+* `src/consumers` contributes **0** two-id lookups and `src/routes` only **2**, from 10 and 124 constants
+  respectively. Both are stated limits, not gaps in the scan: `consumers/` reaches D1 through
+  `WebhookRepository`, so its statements live in `repositories/` and are examined there, while
+  `routes/` almost never spells SQL inline. What is *not* covered is a statement written inline — the
+  one `consumers/` `.prepare()` that takes a literal is invisible here, and `strip_comments` treats `//`
+  inside a Rust string as a comment, so an inline statement containing a URL would be mis-parsed rather
+  than missed. Handling inline SQL is the natural next extension and needs a real lexer, not a
+  substring search.
 * It proves **correspondence for the transposition shape**, and says nothing about whether the *right*
   columns are being filtered at all. `verify:collection-tenancy` and `verify:mutating-tenancy` are the
   checks for that; this one is the check for the thing they cannot see.
