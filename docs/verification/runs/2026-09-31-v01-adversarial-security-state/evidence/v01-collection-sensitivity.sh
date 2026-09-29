@@ -166,7 +166,15 @@ run_probe() {
 # and the probe's own assertion FAILED -- and `fired` reported MISSED, because the needle was fed
 # through `grep -E` and `{org_id}` is an interval metacharacter. A harness that reports a detection
 # as a miss is worse than one that cannot detect: it turns a caught defect into a recorded gap.
-fired() { grep -qF -- "$2" "$LOGDIR/v01-collection-sensitivity-$1.log" 2>/dev/null; }
+# Two greps, not one. The first version matched the needle anywhere in the log and the needle appears
+# on PASS lines too -- the baseline is full of them -- which is why the anti-vacuity guard below fired
+# on a green run. A detection is a needle on a line that STARTS with FAIL, so that is what is matched.
+# Fixed-string, because "{org_id}" is an interval metacharacter in grep -E and the first version
+# reported a real three-identifier leak as MISSED because of it.
+fired() {
+  grep -F -- "$2" "$LOGDIR/v01-collection-sensitivity-$1.log" 2>/dev/null |
+    grep -q "^  FAIL"
+}
 
 verdicts=()
 record() {
@@ -219,13 +227,13 @@ grep -E "MEASURED against" "$LOGDIR/v01-collection-sensitivity-baseline.log" | s
 # make every mutation "detected" for free, which is the same class of defect as a control that cannot
 # fail. So the baseline is required NOT to contain either needle.
 for needle in "$LEAK" "$POSITIVE"; do
-  if grep -qF -- "$needle" "$LOGDIR/v01-collection-sensitivity-baseline.log"; then
-    echo "HAIRNESS DEFECT: the needle \"$needle\" already appears in the green baseline, so every" >&2
-    echo "mutation below would be graded DETECTED without anything being detected." >&2
+  if grep -F -- "$needle" "$LOGDIR/v01-collection-sensitivity-baseline.log" 2>/dev/null | grep -q "^  FAIL"; then
+    echo "HARNESS DEFECT: the needle \"$needle\" already appears on a FAIL line in the green" >&2
+    echo "baseline, so every mutation below would be graded DETECTED without anything happening." >&2
     exit 1
   fi
 done
-echo "  neither detection needle appears in the baseline, so a detection has to be earned"
+echo "  neither detection needle appears on a FAIL line in the baseline, so a detection must be earned"
 restore_all
 
 # -------------------------------------------------------------------- M1
@@ -251,30 +259,31 @@ assert_changed
 M1_CODE="$(run_probe m1)"
 echo "  probe exit=$M1_CODE, FAIL lines=$(grep -c '^  FAIL' "$LOGDIR/v01-collection-sensitivity-m1.log" || true)"
 grep -E "^  LEAK" "$LOGDIR/v01-collection-sensitivity-m1.log" | head -3 | sed 's/^/  /'
-record m1 "GET $LEAK" DETECTED
+record m1 "$LEAK" DETECTED
 restore_all
 
 # -------------------------------------------------------------------- M2
-say "M2: the positive-match control is given nothing to find"
+say "M2: the positive-match control's own search is broken, with every needle intact"
 python3 - "$PROBE" << 'PY'
 import sys
 path = sys.argv[1]
 src = open(path).read()
-# Stop seeding Org A's own project, so the control that proves the search CAN find an identifier has
-# none to find. This is the only way to show a control is a control.
-old = '''  const projectA = await request(
-    alice.jar,
-    "POST",
-    `/api/v1/orgs/${orgA.orgId}/projects`,
-    { name: "Alpha Project", slug: `alpha-project-${probe.nonce}`, visibility: "org" },
-    browserMutation(alice.jar, "coll-project-a"),
-  );'''
-new = '''  const projectA = { status: 0, payload: null }; // M2: Alpha's own project is not seeded'''
+# Break the control's OWN SEARCH, and nothing else. The first version of this case removed Org A's
+# project instead, which the probe DID detect -- but by the needle control, which fires first, so the
+# case graded as a MISSED. A sensitivity case that asserts one particular assertion is the same
+# mistake as a control that asserts one particular wrong answer: it fails when the harness is wrong
+# and passes for the wrong reason when the harness is right.
+#
+# Prefixing the needle makes the positive-match control demand something that cannot be in the body,
+# with every other assertion -- needles included -- left intact. That isolates exactly the property
+# under test: the control can fail.
+old = "alphaNeedles.every((v) => ownBody.includes(v))"
+new = "alphaNeedles.every((v) => ownBody.includes(\"zzz\" + v))"
 if old not in src:
     print("M2 ANCHOR NOT FOUND", file=sys.stderr)
     sys.exit(1)
 open(path, "w").write(src.replace(old, new, 1))
-print("  Org A's own project is no longer seeded")
+print("  the positive-match control's search can no longer match")
 PY
 assert_probe_changed() {
   if git diff --quiet -- "$PROBE" 2>/dev/null; then
