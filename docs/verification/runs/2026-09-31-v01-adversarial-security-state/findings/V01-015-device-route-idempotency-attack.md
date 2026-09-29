@@ -2,9 +2,19 @@
 
 ## Status
 
-**run, then HALF repaired. `revoke_device` is closed; `approve_enrollment` is blocked on V01-020**
-(the helper cannot express a response built from the row it writes). 21/23, the two remaining failures
-being that site.
+**CLOSED — both halves. 23/23, exit 0.** The record previously read *HALF repaired, 21/23* with
+`approve_enrollment` "blocked on V01-020 (the helper cannot express a response built from the row it
+writes)". That block is lifted: the route's response is now built from the committed row —
+`devices.rs:73` names V01-020 in the doc comment on `device_json` — and the V01-041 denial work
+touched the same file.
+
+Both halves now pass, and the assertion that makes the count mean something is the last one: a route
+that refuses repeats for an **unrelated** reason would answer the different-key control the same way,
+so comparing the two answers — ignoring `request_id` — is the only way to distinguish *"the key was
+honoured"* from *"the route refuses everyone"*.
+
+`pnpm verify:revoked-device` 36/36, exit 0, on the same file.
+Evidence: `evidence/v01-015-device-idempotency-both-halves.txt`.
 
 ## Severity if it reproduces
 
