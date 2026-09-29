@@ -2,8 +2,9 @@
 
 ## Status
 
-**run. 19/23 — the defect is confirmed on both routes**, and the severity I recorded in advance
-(medium, not high) is what measurement returned.
+**run, then HALF repaired. `revoke_device` is closed; `approve_enrollment` is blocked on V01-020**
+(the helper cannot express a response built from the row it writes). 21/23, the two remaining failures
+being that site.
 
 ## Severity if it reproduces
 
@@ -53,8 +54,8 @@ is an **incidental state guard, not idempotency**, and the probe is built to say
 | **Expected** | the replay returns the first response, status and body alike, and writes nothing: one device row, one audit row, one revocation timestamp. |
 | **Actual** | **neither route replays.** `approve_enrollment`: first `201`, replay **`409 conflict` "The enrollment is no longer pending."** `revoke_device`: first **`204`**, replay **`409 conflict` "The device was already revoked."** In both cases the replay is **byte-identical to a different-key call** once `request_id` is set aside — so the key is not what distinguishes the two. |
 | **Evidence** | `evidence/v01-015-device-idempotency.txt` (19/23) |
-| **Verdict** | **FAIL — product defect, confirmed on 2 of 2 routes, severity medium** |
-| **Regression gap** | 4 named assertions in `verify:device-idempotency`, failing on purpose |
+| **Verdict** | **FAIL — confirmed on 2 of 2; `revoke_device` repaired and proven, `approve_enrollment` open pending V01-020** |
+| **Regression gap** | 2 named assertions remain, for `approve_enrollment` only. The two `revoke_device` assertions now pass |
 | **Severity** | **medium, measured** — the high hypothesis (a duplicated live device credential) was falsified |
 
 ## The design decision that this case lives or dies on
@@ -172,3 +173,72 @@ not to do this — is the kind of rule that decays.
 **And the fixed `bail()` earned its place on the same run:** it reported *exit 2, "DID NOT
 COMPLETE. 17 assertion(s) passed and 1 failed before it died"* instead of the exit 1 that would
 have let a partial run be read as a measurement.
+
+---
+
+# Half-closed: `revoke_device` repaired and proven, `approve_enrollment` blocked
+
+`pnpm verify:device-idempotency` is **21/23**. The two remaining failures are both
+`approve_enrollment`; both `revoke_device` assertions now pass.
+
+## Site 2 — `revoke_device` — CLOSED
+
+| | before | after |
+|---|---|---|
+| first call | `204` | `204` |
+| **replay, same key** | `409` *"The device was already revoked."* | **`204` — the stored response** |
+| **different key** | `409` | `409` — **preserved, and now distinguishable from the replay** |
+
+The different-key call is the control, and it is what makes the replay meaningful: a retried
+request and a genuinely new request are now answered **differently**, which is the whole claim.
+
+Three things made this repair possible without changing behaviour:
+
+- the claim is taken **after** authorization, so an unauthorized caller cannot learn whether a key is
+  live, and **before** the state decision, because that ordering is what makes a retry a replay;
+- the `409 "The device was already revoked."` refusal is kept **verbatim**, but is now decided from
+  the device record the route already reads, rather than from how many rows the write happened to
+  touch. That is the distinction the record above insisted on: *a test on the stored state would
+  have passed before this change and after it, and proved nothing*;
+- `DeviceRepository::revoke_device_statements` is split out so the route can compose the two
+  statements into the commit, and the old `revoke_device` is now a thin wrapper over it — **one
+  place** decides what a revocation writes and in which order, which matters because the second
+  statement is the only thing that makes revocation effective (V01-016, V01-019).
+
+## Site 1 — `approve_enrollment` — OPEN, and it is a shape limit, not an oversight
+
+Its `201` body is `device_json(&device)` for the row **its own commit inserts**, and
+`commit_scoped_mutation` requires the stored success *before* the write. I tried it anyway, and the
+probe caught the mistake where my reading of the code did not: I read the device back before
+committing, so every approval answered `503`, the enrollment stayed `pending`, and the fixture's own
+control reported *"the approve fixture could not be built"* with an **exit 2**.
+
+All 27 wired call sites build their response from inputs; **none** reads the row back. Repairing
+this route means either synthesising a ~12-field projection — duplicating the DDL's defaults in a
+second place, which is V01-011's shape one layer up — or changing a helper contract that 27 call
+sites depend on. That is an architectural decision, and I stopped rather than take it by
+inspection. Recorded as **V01-020**, with the measurement that establishes the limit (27 sites, 0
+read-backs) and an explicit note that **how many mutations the limit blocks is unknown** — one of
+three proven by trying, and no claim made about the rest.
+
+## The repair found a latent defect in the campaign's own pattern, which is the part worth keeping
+
+The first run after wiring `revoke_device` answered **`500` on every replay**. `replay_response` was
+`(status, Json(body))` for every status, and `(204, Json(..))` is not a legal HTTP response.
+
+It had never been seen because **all 27 wired sites store `200` or `201`** — across **182 call sites**
+of `replay_response`, not one of which had ever needed a bodyless status. So the helper the campaign
+has been using to close nine findings **could not replay one of the statuses the product actually
+returns**, and the symptom was a `500` on a retried request: the least diagnosable place for it to
+appear.
+
+Repaired, with four regression tests that cover **both directions** — a fix emptying every replay
+would be worse than the bug it replaced, since a retried `201` must stay distinguishable from a
+`204` — and one that pins `StoredSuccess::new` accepts 2xx only, so widening it cannot silently
+introduce a bodyless replay path nothing covers.
+
+The asymmetry with V01-020's read-back limit is the point. That limit is **documented and discovered
+by the compiler**: the signature states it, so the next route to hit it finds out immediately. The
+bodyless limit was **undocumented and discovered through production behaviour**. A shape a helper
+cannot express should be a shape it rejects; a shape it mishandles is a defect whether or not anyone
+has reached it yet.
