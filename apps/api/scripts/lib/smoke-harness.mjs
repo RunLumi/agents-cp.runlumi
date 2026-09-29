@@ -341,21 +341,48 @@ export class SmokeHarness {
    */
   parseD1Json(output, label) {
     const text = String(output).trim();
-    try {
-      return JSON.parse(text);
-    } catch {
-      const start = text.search(/[[{]/);
-      if (start >= 0) {
-        try {
-          return JSON.parse(text.slice(start));
-        } catch {
-          /* fall through to the diagnostic */
+    const parse = () => {
+      try {
+        return JSON.parse(text);
+      } catch {
+        const start = text.search(/[[{]/);
+        if (start >= 0) {
+          try {
+            return JSON.parse(text.slice(start));
+          } catch {
+            /* fall through to the diagnostic */
+          }
         }
+        throw new Error(
+          `${label} returned invalid Wrangler JSON: ${this.redact(text.slice(-2_000))}`,
+        );
       }
-      throw new Error(
-        `${label} returned invalid Wrangler JSON: ${this.redact(text.slice(-2_000))}`,
-      );
+    };
+    const parsed = parse();
+    // A statement D1 REFUSED and a statement that matched no rows arrive the same way from
+    // `d1Rows`: no `results`. Only the payload distinguishes them -- `{"success": false, "error":
+    // {"text": "no such column: version"}}` versus `{"results": [], "success": true}` -- and for at
+    // least one wrangler invocation the process still exits 0, so `runWrangler` does not throw.
+    //
+    // That makes a refused query report as "no such row", which a probe then reads as a fact about the
+    // PRODUCT. It is how the invitation fixture in `verify:path-id-tenancy` spent a run reporting
+    // `A=undefined` for a row that existed: the seed asked for a `version` column that `invitations`
+    // does not have, the statement was refused, and the probe concluded there was no invitation.
+    //
+    // So the refusal is raised here, once, for every probe that reads D1. An instrument that reports an
+    // absence it did not measure is the failure this campaign keeps meeting in a new place.
+    const statements = Array.isArray(parsed) ? parsed : [parsed];
+    for (const statement of statements) {
+      const failure = statement?.error?.text ?? statement?.error?.message;
+      if (failure || statement?.success === false) {
+        throw new Error(
+          `${label}: D1 refused the statement: ${this.redact(String(failure ?? "success was false"))}. ` +
+            `An empty result and a refused statement are different findings and this harness now ` +
+            `distinguishes them.`,
+        );
+      }
     }
+    return parsed;
   }
 
   /**
