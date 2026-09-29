@@ -50,7 +50,8 @@
     "verify:campaign-selftest": "node apps/api/scripts/p09-mutation-campaign.mjs --self-test",
     "verify:campaign-preflight": "node apps/api/scripts/p09-mutation-campaign.mjs --preflight",
     "schema:bind-count": "node apps/api/scripts/p09-bind-count-scan.mjs",
-    "test:sentry-bridge": "node --test apps/api/scripts/sentry-report-filter.test.mjs"
+    "test:sentry-bridge": "node --test apps/api/scripts/sentry-report-filter.test.mjs",
+    "verify:secret-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:secret-tenancy"
   },
   "devDependencies": {
     "oxfmt": "0.70.0",

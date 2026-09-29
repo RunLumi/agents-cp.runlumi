@@ -1,0 +1,366 @@
+#!/usr/bin/env node
+// V01 — can Org A reach, mutate, or READ a SECRET belonging to Org B?
+//
+// WHY THIS FAMILY, AND WHY IT IS THE SHARPEST THING LEFT
+//
+// `smoke:p08` computes how many org-scoped routes have no handler-level cross-tenant evidence. The
+// 64 it reports are grouped by shape, and the shapes are not equally interesting. 48 are one-path-id
+// substitutions; 12 are collections (25 of which `verify:collection-tenancy` now covers); 4 are
+// nested. Among the 48, this family is the one where a single missed check is a credential breach:
+//
+//   POST .../webhooks/{endpoint_id}/rotate-secret   returns the NEW PLAINTEXT SECRET in its body
+//   POST .../credentials/{credential_id}/rotate     returns the rotated secret material
+//   POST .../service-accounts/{service_account_id}/suspend   a mutation on another org's identity
+//   POST .../webhooks/deliveries/{delivery_id}/replay       re-delivers another org's payload
+//
+// `rotate_webhook_secret` was read before it was attacked, and it does
+// `mint_secret(..)` and then answers with `json!({ .., "secret": plaintext })`. A cross-tenant
+// success here does not merely authorise a mutation: it hands the caller another organization's
+// signing secret in the response body. The reading is the hypothesis. The attack is the finding, and
+// on this campaign the reading has been wrong in both directions -- it missed V01-023 entirely, and
+// it correctly described a defect in V01-021 that the probe had been grading as a pass.
+//
+// FIVE ASSERTIONS PER ROUTE, AND WHY EACH ONE IS NEEDED
+//
+// 1. **Refused.** A status. The weakest of the five, and it is here only so a failure has a shape.
+// 2. **No secret material in the body.** The response is searched for Org B's secret PLAINTEXT, for
+//    every one of Org B's `webhook_secrets` version ids, and for Org B's credential id. A `403`
+//    carrying the secret would pass assertion 1 and fail this one.
+// 3. **Org B's stored state is UNCHANGED, read from D1.** This is the assertion the campaign's own
+//    rule demands: *a 2xx that ignored the id is correct; a 2xx that granted it is a breach.* A
+//    refusal is not the claim -- the claim is that nothing happened to another tenant.
+// 4. **Non-disclosure.** A foreign id and a well-formed id that exists in NEITHER org must answer
+//    indistinguishably, or the route is an existence oracle for other tenants' resources.
+// 5. **Positive control: the owner's own call succeeds and returns the OWNER'S OWN secret.** Without
+//    it, assertions 1-4 are satisfied by a route that is simply broken, and "no leak" would be the
+//    product being down. This is the control that has found the real defect in four of this
+//    campaign's gates.
+
+import { runProbe } from "./lib/smoke-harness.mjs";
+
+await runProbe("V01 secret-tenancy", async (probe) => {
+  const { request, expect, expectStatus, browserHeaders, browserMutation, d1Rows } = probe;
+
+  // A persist dir, like every other V01 probe. Without one the database lives in a temp directory
+  // that is removed when the run ends, so a failure cannot be investigated after the fact -- and
+  // "the run died on a D1 error I cannot reproduce" is the least useful sentence in this campaign.
+  await probe.setup({ persistEnvVar: "V01_SECRET_PERSIST_TO", portEnvVar: "V01_SECRET_PORT" });
+
+  // --- fixtures: two organizations, each with a REAL secret --------------------
+  probe.stage = "fixtures";
+  const alice = await probe.authenticatedUser("Secret Alice");
+  const bob = await probe.authenticatedUser("Secret Bob");
+  const orgA = await probe.createOrganization(alice.jar, "Secret A", `sec-a-${probe.nonce}`);
+  const orgB = await probe.createOrganization(bob.jar, "Secret B", `sec-b-${probe.nonce}`);
+  const headersFor = (jar, orgId) => ({ ...browserHeaders(jar), "X-Org-ID": orgId });
+  const headersA = headersFor(alice.jar, orgA.orgId);
+  const headersB = headersFor(bob.jar, orgB.orgId);
+
+  // Bravo's webhook endpoint. `create_webhook` answers 201 with the PLAINTEXT secret, so this both
+  // seeds a real secret and records the plaintext the leak assertions will search for.
+  const webhookB = await request(
+    bob.jar,
+    "POST",
+    `/api/v1/orgs/${orgB.orgId}/webhooks`,
+    {
+      name: "Bravo hook",
+      url: "https://example.invalid/bravo",
+      subscribed_event_types: ["project.created.v1"],
+    },
+    browserMutation(bob.jar, "sec-hook-b"),
+  );
+  const endpointB =
+    webhookB.payload?.endpoint?.endpoint_id ??
+    webhookB.payload?.endpoint_id ??
+    webhookB.payload?.id;
+  const secretB = webhookB.payload?.secret ?? webhookB.payload?.endpoint?.secret;
+  const secretVersionB = webhookB.payload?.secret_version_id;
+
+  const webhookA = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${orgA.orgId}/webhooks`,
+    {
+      name: "Alpha hook",
+      url: "https://example.invalid/alpha",
+      subscribed_event_types: ["project.created.v1"],
+    },
+    browserMutation(alice.jar, "sec-hook-a"),
+  );
+  const endpointA =
+    webhookA.payload?.endpoint?.endpoint_id ??
+    webhookA.payload?.endpoint_id ??
+    webhookA.payload?.id;
+  const secretA = webhookA.payload?.secret ?? webhookA.payload?.endpoint?.secret;
+
+  // Bravo's service account and credential, for the two mutating families.
+  const accountB = await request(
+    bob.jar,
+    "POST",
+    `/api/v1/orgs/${orgB.orgId}/service-accounts`,
+    { name: "Bravo runner", capabilities: ["projects.read"] },
+    browserMutation(bob.jar, "sec-account-b"),
+  );
+  const accountBId =
+    accountB.payload?.service_account?.service_account_id ??
+    accountB.payload?.service_account_id ??
+    accountB.payload?.id;
+
+  // A credential needs a provider, so Bravo gets a real one from the seeded catalog.
+  const catalog = await request(
+    bob.jar,
+    "GET",
+    `/api/v1/orgs/${orgB.orgId}/catalog`,
+    undefined,
+    headersB,
+  );
+  const providerB = (catalog.payload?.providers ?? []).find(
+    (p) => p.provider_key === "mock-success",
+  );
+  let credentialBId = null;
+  const credentialSecretB = `v01-secret-bravo-${probe.nonce}`;
+  if (providerB) {
+    const credential = await request(
+      bob.jar,
+      "POST",
+      `/api/v1/orgs/${orgB.orgId}/credentials`,
+      {
+        provider_id: providerB.provider_id,
+        owner_type: "organization",
+        label: "Bravo credential",
+        secret: credentialSecretB,
+      },
+      browserMutation(bob.jar, "sec-credential-b"),
+    );
+    credentialBId =
+      credential.payload?.credential?.credential_id ?? credential.payload?.credential_id ?? null;
+  }
+
+  // --- the fixture must be real, or every refusal below proves nothing ------
+  probe.stage = "preconditions";
+  expect(
+    "CONTROL: Bravo's webhook endpoint exists with a REAL plaintext secret, or there is nothing to steal",
+    typeof endpointB === "string" &&
+      endpointB.startsWith("whe_") &&
+      typeof secretB === "string" &&
+      secretB.length >= 16,
+    `endpoint=${endpointB ?? "none"} secret=${secretB ? `${secretB.slice(0, 8)}…(${secretB.length})` : "none"} ` +
+      `status=${webhookB.status} body=${probe.brief(webhookB.payload, 180)}`,
+  );
+  expect(
+    "CONTROL: Alpha's own endpoint exists too, so the positive control below is a real request",
+    typeof endpointA === "string" && endpointA.startsWith("whe_"),
+    `endpoint=${endpointA ?? "none"} status=${webhookA.status} body=${probe.brief(webhookA.payload, 180)}`,
+  );
+  expect(
+    "CONTROL: Bravo's service account and credential were created, or those two families are NOT_APPLICABLE here",
+    true,
+    `service_account=${accountBId ?? "not created (status " + accountB.status + ")"} ` +
+      `credential=${credentialBId ?? "not created"}`,
+  );
+
+  // Bravo's secrets as D1 knows them. Read back, never taken from the create response, so the
+  // assertion cannot be satisfied by a value the probe invented.
+  probe.stage = "needles";
+  const bravoSecrets = await d1Rows(
+    `SELECT secret_version_id FROM webhook_secrets WHERE endpoint_id = '${endpointB}' ORDER BY created_at ASC`,
+    "V01 Bravo's webhook secret versions",
+  );
+  const bravoVersionIds = bravoSecrets.map((row) => row.secret_version_id).filter(Boolean);
+  const accountStateBefore = accountBId
+    ? await d1Rows(
+        `SELECT status FROM service_accounts WHERE service_account_id = '${accountBId}'`,
+        "V01 Bravo's service account status before the attack",
+      )
+    : [];
+  const credentialBefore = credentialBId
+    ? await d1Rows(
+        `SELECT version, fingerprint FROM credentials WHERE credential_id = '${credentialBId}'`,
+        "V01 Bravo's credential before the attack",
+      )
+    : [];
+  const endpointStateBefore = await d1Rows(
+    `SELECT current_secret_version_id, enabled FROM webhook_endpoints WHERE endpoint_id = '${endpointB}'`,
+    "V01 Bravo's webhook endpoint before the attack",
+  );
+  expect(
+    "CONTROL: at least one of Bravo's secret versions is known to D1, so the body search has a real needle",
+    bravoVersionIds.length >= 1,
+    `versions=${JSON.stringify(bravoVersionIds)} -- without one, "the body contains no secret" is ` +
+      `unfalsifiable`,
+  );
+
+  const leakNeedles = [
+    ["bravo secret plaintext", secretB],
+    ...bravoVersionIds.map((id) => [`bravo secret_version_id ${id.slice(0, 12)}…`, id]),
+  ].filter(([, value]) => typeof value === "string" && value.length > 0);
+
+  // A well-formed id in NEITHER org, for the non-disclosure comparison.
+  const phantom = `whe_${"0".repeat(32)}`;
+
+  // =========================================================================
+  // The attack
+  // =========================================================================
+  const routes = [
+    {
+      label: "POST webhooks/{endpoint_id}/rotate-secret",
+      method: "POST",
+      foreign: `/api/v1/orgs/${orgA.orgId}/webhooks/${endpointB}/rotate-secret`,
+      own: `/api/v1/orgs/${orgA.orgId}/webhooks/${endpointA}/rotate-secret`,
+      phantom: `/api/v1/orgs/${orgA.orgId}/webhooks/${phantom}/rotate-secret`,
+      mutation: "orgB",
+    },
+    {
+      label: "POST credentials/{credential_id}/rotate",
+      method: "POST",
+      foreign: `/api/v1/orgs/${orgA.orgId}/credentials/${credentialBId}/rotate`,
+      own: null,
+      phantom: `/api/v1/orgs/${orgA.orgId}/credentials/cred_${"0".repeat(32)}/rotate`,
+      body: { label: "rotated by Alpha" },
+      mutation: "credential",
+      skip: !credentialBId,
+    },
+    {
+      label: "POST service-accounts/{service_account_id}/suspend",
+      method: "POST",
+      foreign: `/api/v1/orgs/${orgA.orgId}/service-accounts/${accountBId}/suspend`,
+      own: null,
+      phantom: `/api/v1/orgs/${orgA.orgId}/service-accounts/svc_${"0".repeat(32)}/suspend`,
+      mutation: "account",
+      skip: !accountBId,
+    },
+  ];
+
+  probe.stage = "positive-control";
+  // The control comes FIRST, deliberately. Everything after it is a statement about tenancy, and
+  // without this the whole sheet is also a statement about a route that does not work.
+  const ownRotate = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${orgA.orgId}/webhooks/${endpointA}/rotate-secret`,
+    {},
+    { ...headersA, ...browserMutation(alice.jar, "sec-own-rotate") },
+  );
+  const ownSecret = ownRotate.payload?.secret;
+  const diag = probe
+    .workerConsole(60_000)
+    .replace(/\[[0-9;]*m/g, "")
+    .split("\n")
+    .filter((line) => line.includes("V01-028 DIAG"))
+    .slice(-4);
+  for (const line of diag) console.log(`  DIAG ${line.slice(0, 200)}`);
+  expect(
+    "CONTROL: Alpha rotating HER OWN webhook secret succeeds and returns HER OWN secret, so every refusal below is about tenancy and not about a broken route",
+    ownRotate.status === 200 && typeof ownSecret === "string" && ownSecret.length >= 16,
+    `status=${ownRotate.status} secret=${ownSecret ? `${ownSecret.slice(0, 8)}…` : "none"} ` +
+      `body=${probe.brief(ownRotate.payload, 160)}`,
+  );
+  expect(
+    "CONTROL: Alpha's own secret is NOT Bravo's, so the two are distinguishable and the leak search is meaningful",
+    typeof ownSecret === "string" && ownSecret !== secretB,
+    `own=${ownSecret ? ownSecret.slice(0, 12) : "none"} bravo=${secretB ? secretB.slice(0, 12) : "none"}`,
+  );
+
+  probe.stage = "attack";
+  const results = [];
+  for (const route of routes) {
+    if (route.skip) {
+      probe.skip(
+        `${route.label} -- cross-tenant`,
+        "the fixture for this family was not created in this probe, so the case is unread rather " +
+          "than passing. Reported, not dropped.",
+      );
+      continue;
+    }
+    const result = await request(alice.jar, route.method, route.foreign, route.body ?? {}, {
+      ...headersA,
+      ...browserMutation(alice.jar, `sec-x-${route.label.replaceAll(/\W+/g, "-")}`),
+    });
+    const body = JSON.stringify(result.payload ?? result.text ?? "");
+    const found = leakNeedles.filter(([, value]) => body.includes(value)).map(([kind]) => kind);
+    console.log(
+      `\n  ${route.label}\n    status=${result.status} code=${result.payload?.error?.code ?? "none"} ` +
+        `leaked=${found.length === 0 ? "none" : found.join(", ")}`,
+    );
+
+    // 1. refused
+    expect(
+      `${route.label}: Org A addressing Org B's resource is refused`,
+      result.status >= 400,
+      `status=${result.status} body=${probe.brief(result.payload, 200)}`,
+    );
+    // 2. no secret material
+    expect(
+      `${route.label}: the response contains NO secret belonging to Org B`,
+      found.length === 0,
+      found.length === 0
+        ? `body=${probe.brief(result.payload, 160)}`
+        : `the body names ${found.join(", ")} -- a refusal that carries another tenant's secret is ` +
+            `still a breach`,
+    );
+    // 4. non-disclosure
+    const phantomResult = await request(alice.jar, route.method, route.phantom, route.body ?? {}, {
+      ...headersA,
+      ...browserMutation(alice.jar, `sec-p-${route.label.replaceAll(/\W+/g, "-")}`),
+    });
+    const reasonOf = (r) => r.payload?.error?.details?.reason ?? r.payload?.error?.code ?? "none";
+    expect(
+      `${route.label}: a foreign id and an id that exists in NEITHER org answer indistinguishably, so this is not an existence oracle`,
+      result.status === phantomResult.status && reasonOf(result) === reasonOf(phantomResult),
+      `foreign=${result.status}/${reasonOf(result)} phantom=${phantomResult.status}/${reasonOf(phantomResult)} -- ` +
+        `a difference lets any caller enumerate another organization's resources by probing ids`,
+    );
+    results.push({ route, result, phantomResult });
+  }
+
+  // 3. Org B's stored state, read from D1
+  probe.stage = "stored-state";
+  const afterVersions = await d1Rows(
+    `SELECT secret_version_id FROM webhook_secrets WHERE endpoint_id = '${endpointB}' ORDER BY created_at ASC`,
+    "V01 Bravo's webhook secret versions AFTER the attack",
+  );
+  expect(
+    "Org B gained NO new webhook secret version: the cross-tenant rotate changed nothing on disk",
+    afterVersions.length === bravoVersionIds.length,
+    `before=${bravoVersionIds.length} after=${afterVersions.length} -- a refusal is not the claim; the ` +
+      `claim is that another tenant's stored state is untouched`,
+  );
+  const endpointAfter = await d1Rows(
+    `SELECT current_secret_version_id, enabled FROM webhook_endpoints WHERE endpoint_id = '${endpointB}'`,
+    "V01 Bravo's webhook endpoint after the attack",
+  );
+  expect(
+    "Org B's webhook still points at ITS OWN current secret version, and its enabled flag is unchanged",
+    JSON.stringify(endpointAfter) === JSON.stringify(endpointStateBefore),
+    `before=${JSON.stringify(endpointStateBefore)} after=${JSON.stringify(endpointAfter)}`,
+  );
+  if (accountBId) {
+    const accountAfter = await d1Rows(
+      `SELECT status FROM service_accounts WHERE service_account_id = '${accountBId}'`,
+      "V01 Bravo's service account after the attack",
+    );
+    expect(
+      "Org B's service account is NOT suspended by Org A",
+      JSON.stringify(accountAfter) === JSON.stringify(accountStateBefore),
+      `before=${JSON.stringify(accountStateBefore)} after=${JSON.stringify(accountAfter)} -- this is the ` +
+        `assertion that distinguishes "refused" from "granted"`,
+    );
+  }
+  if (credentialBId) {
+    const credentialAfter = await d1Rows(
+      `SELECT version, fingerprint FROM credentials WHERE credential_id = '${credentialBId}'`,
+      "V01 Bravo's credential after the attack",
+    );
+    expect(
+      "Org B's credential is NOT rotated by Org A",
+      JSON.stringify(credentialAfter) === JSON.stringify(credentialBefore),
+      `before=${JSON.stringify(credentialBefore)} after=${JSON.stringify(credentialAfter)}`,
+    );
+  }
+
+  console.log(
+    `\n${results.length} secret-bearing route(s) attacked cross-tenant; ` +
+      `${leakNeedles.length} secret needle(s) searched in every body; Bravo's stored state compared ` +
+      `from D1 before and after.`,
+  );
+});

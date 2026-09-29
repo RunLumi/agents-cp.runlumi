@@ -22,7 +22,8 @@
     "verify:privilege-escalation": "node scripts/v01-privilege-escalation-probe.mjs",
     "verify:budget-concurrency": "node scripts/v01-budget-concurrency-probe.mjs",
     "p08:invariants": "bash scripts/p08-invariants.sh",
-    "verify:collection-tenancy": "node scripts/v01-collection-tenancy-probe.mjs"
+    "verify:collection-tenancy": "node scripts/v01-collection-tenancy-probe.mjs",
+    "verify:secret-tenancy": "node scripts/v01-secret-tenancy-probe.mjs"
   },
   "dependencies": {
     "@sentry/cloudflare": "10.74.0"
