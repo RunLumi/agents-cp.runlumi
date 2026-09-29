@@ -39,6 +39,7 @@
 // here, credited to a named gate, or named `NOT_APPLICABLE` with a reason -- so a route added to the
 // router fails this run until it is covered or credited, rather than being quietly forgotten.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runProbe } from "./lib/smoke-harness.mjs";
@@ -383,6 +384,118 @@ await runProbe("V01 path-id tenancy", async (probe) => {
   // `/revoke` and `/rotate` children are -- and listing the bare parent made the coverage assertion
   // report a path this gate drives that the product does not have. The denominator is the router, so a
   // path here that is not in the router is a claim about a route that does not exist.
+  // --- the automations family ------------------------------------------------------------
+  //
+  // NAME MISMATCH, worth writing down because it cost a run: the RESOURCE is `automations` and the TABLE
+  // is `automation_definitions`. The id column is `automation_id` but the state column is `status`, not
+  // `state`. A probe that guesses the table name gets `no such table: automations` and stops -- correctly,
+  // because `d1Rows` raises a refused statement rather than returning an empty set.
+
+  //
+  // Five paths, and the fixture is the one `verify:lease-contention` already builds, so it is known-good
+  // rather than guessed. Three things it needs that the other families do not:
+  //
+  //   * an `automations.max_active` entitlement -- `entitlement_grants` is EMPTY in every seeded
+  //     database, so without the grant every create is refused for a reason that has nothing to do with
+  //     tenancy. `value_json` is a bare JSON integer, `source = 'plan'` needs no grantor, and `grant_id` is
+  //     CHECKed to be exactly 36 characters with an `egr_` prefix -- all three taken from that probe.
+  //   * a project and an agent, because an automation references both.
+  //   * the same fixture in BOTH organizations, since the attack substitutes org B's automation id.
+  const grantAutomationEntitlement = async (orgId) => {
+    const grantId = `egr_${createHash("sha256")
+      .update(`${nonce}-${orgId}-pathid`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    expect(
+      "the automations entitlement grant id is well formed, or the schema refuses the fixture before " +
+        "the route is ever reached",
+      /^egr_[0-9a-f]{32}$/.test(grantId) && grantId.length === 36,
+      `grantId=${grantId}`,
+    );
+    const stamp = "2026-09-29T00:00:00.000Z";
+    await d1Rows(
+      `INSERT INTO entitlement_grants
+         (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
+       VALUES ('${grantId}', '${orgId}', 'automations.max_active', 'organization', '5', 'plan',
+               '${stamp}', '${stamp}', '${stamp}')`,
+      "V01 granting automations.max_active",
+    );
+    const live = await d1Rows(
+      `SELECT COUNT(*) AS n FROM entitlement_grants
+        WHERE org_id = '${orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      "V01 the organization is entitled",
+    );
+    expect(
+      "the organization now holds the automations entitlement, read back rather than assumed",
+      Number(live[0]?.n ?? 0) >= 1,
+      `rows=${JSON.stringify(live)}`,
+    );
+  };
+
+  const makeAutomation = async (jar, orgId, name) => {
+    const project = await request(
+      jar,
+      "POST",
+      `/api/v1/orgs/${orgId}/projects`,
+      // `CreateProjectRequest { name, slug?, visibility }` -- `visibility` is REQUIRED, and
+      // `ProjectVisibility::parse` accepts exactly `org` or `restricted` ("visibility must be org or
+      // restricted."). Guessing `private` earns a 422, which satisfies "not 2xx" and would have read
+      // as a route refusing its own resource rather than as a fixture that never got created.
+      { name, slug: name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-"), visibility: "org" },
+      browserMutation(jar, `pathid-proj-${name}-${nonce}`),
+    );
+    const projectId =
+      project.payload?.project?.project_id ?? project.payload?.project_id ?? project.payload?.id;
+    const agent = await request(
+      jar,
+      "POST",
+      `/api/v1/orgs/${orgId}/agents`,
+      { name: `${name} agent` },
+      browserMutation(jar, `pathid-auto-agent-${name}-${nonce}`),
+    );
+    const agentId = agent.payload?.agent?.agent_id ?? agent.payload?.agent_id ?? agent.payload?.id;
+    const automation = await request(
+      jar,
+      "POST",
+      `/api/v1/orgs/${orgId}/automations`,
+      {
+        name,
+        project_id: projectId,
+        agent_definition_id: agentId,
+        execution_principal: { kind: "user" },
+        target: { kind: "eligible_device" },
+        schedule: { kind: "manual" },
+        execution_policy: {},
+      },
+      browserMutation(jar, `pathid-automation-${name}-${nonce}`),
+    );
+    return {
+      result: automation,
+      id: automation.payload?.automation?.automation_id ?? automation.payload?.automation_id,
+      detail: `project=${project.status}/${projectId} agent=${agent.status}/${agentId}`,
+    };
+  };
+
+  await grantAutomationEntitlement(orgA.orgId);
+  await grantAutomationEntitlement(orgB.orgId);
+  const automationA = await makeAutomation(alice.jar, orgA.orgId, "pathid alpha automation");
+  const automationB = await makeAutomation(bob.jar, orgB.orgId, "pathid bravo automation");
+  expect(
+    "the automation fixture produced one automation in each organization, with distinct ids",
+    Boolean(automationA.id && automationB.id && automationA.id !== automationB.id),
+    `A=${automationA.id} (${automationA.result.status} ${automationA.detail}) ` +
+      `B=${automationB.id} (${automationB.result.status} ${automationB.detail})`,
+  );
+  if (automationA.id && automationB.id) {
+    seeds.automations = {
+      a: automationA.id,
+      b: automationB.id,
+      versioned: true,
+      table: "automation_definitions",
+      key: "automation_id",
+    };
+  }
+
   // --- a FRESH row in org A per control -------------------------------------------------
   //
   // Each control gets its own row, because a control that MUTATES its fixture invalidates the next
@@ -463,6 +576,40 @@ await runProbe("V01 path-id tenancy", async (probe) => {
         )
       )[0];
       return row ? { id: row.credential_id, version: row.version } : null;
+    },
+    automations: async (prepare) => {
+      const name = `pathid refixture automation ${++refixtureCounter}`;
+      const made = await makeAutomation(alice.jar, orgA.orgId, name);
+      const read = async () =>
+        (
+          await d1Rows(
+            `SELECT automation_id, version FROM automation_definitions
+             WHERE org_id = '${orgA.orgId}' AND name = '${name}'`,
+            "V01 a fresh automation in org A",
+          )
+        )[0];
+      const row = await read();
+      if (!row) return null;
+      if (prepare === "paused") {
+        // The prior STATE a route requires, not merely a prior row. Read-modify-write against the
+        // version just read, so the pause itself is a compare-and-set the product would accept -- and
+        // read back afterwards, because a version guessed rather than read is how this probe reported
+        // three runs of "the route is broken" for a 409.
+        const paused = await request(
+          alice.jar,
+          "POST",
+          `/api/v1/orgs/${orgA.orgId}/automations/${row.automation_id}/pause`,
+          { version: row.version },
+          browserMutation(alice.jar, `pathid-refixture-pause-${row.automation_id}-${nonce}`),
+        );
+        expect(
+          "the prepared automation was paused, so a resume precondition is actually established",
+          paused.status === 200,
+          `pause=${paused.status} ${probe.brief(paused.payload, 140)}`,
+        );
+      }
+      const after = await read();
+      return after ? { id: after.automation_id, version: after.version } : null;
     },
     agents: async () => {
       const name = `Refixture agent ${++refixtureCounter}`;
@@ -576,6 +723,43 @@ await runProbe("V01 path-id tenancy", async (probe) => {
       ],
     },
     {
+      family: "automations",
+      path: "/api/v1/orgs/{org_id}/automations/{automation_id}",
+      methods: [
+        { method: "GET" },
+        { method: "PATCH", body: { name: "Renamed" }, versioned: true },
+        { method: "DELETE", versioned: true },
+      ],
+    },
+    {
+      family: "automations",
+      path: "/api/v1/orgs/{org_id}/automations/{automation_id}/occurrences",
+      methods: [{ method: "GET" }],
+    },
+    {
+      family: "automations",
+      path: "/api/v1/orgs/{org_id}/automations/{automation_id}/pause",
+      methods: [{ method: "POST", body: {}, versioned: true }],
+    },
+    {
+      family: "automations",
+      path: "/api/v1/orgs/{org_id}/automations/{automation_id}/resume",
+      // The handler calls `transition_status_with_access(..., "paused", "active", ...)`, so it refuses
+      // `409 conflict` for an automation that is not ALREADY paused. A freshly created automation is
+      // active, so the control needs a prior state and not just a prior row -- which is a different
+      // requirement, and is why `prepare` exists below.
+      methods: [{ method: "POST", body: {}, versioned: true, prepare: "paused" }],
+    },
+    {
+      family: "automations",
+      path: "/api/v1/orgs/{org_id}/automations/{automation_id}/run-now",
+      // `RunNowRequest { version }` and nothing else. The struct's own doc comment says run-now never
+      // accepts a client occurrence id -- the one that matters comes from the `Idempotency-Key` digest --
+      // so there is no time to send either. Guessing `scheduled_at` earns a 422, which satisfies "not
+      // 2xx" and would have read as a route refusing its own resource.
+      methods: [{ method: "POST", versioned: true }],
+    },
+    {
       family: "agents",
       path: "/api/v1/orgs/{org_id}/agents/{agent_id}",
       methods: [{ method: "GET" }, { method: "PATCH", body: { name: "Renamed" }, versioned: true }],
@@ -606,14 +790,6 @@ await runProbe("V01 path-id tenancy", async (probe) => {
       "needs an open remediation, which only a failed adoption produces",
     "/api/v1/orgs/{org_id}/approvals/{approval_id}": "needs a pending approval request",
     "/api/v1/orgs/{org_id}/approvals/{approval_id}/resolve": "needs a pending approval request",
-    "/api/v1/orgs/{org_id}/automations/{automation_id}":
-      "needs a real automation in both organizations",
-    "/api/v1/orgs/{org_id}/automations/{automation_id}/occurrences":
-      "needs a real automation with occurrences",
-    "/api/v1/orgs/{org_id}/automations/{automation_id}/pause": "needs a real automation",
-    "/api/v1/orgs/{org_id}/automations/{automation_id}/resume": "needs a paused automation",
-    "/api/v1/orgs/{org_id}/automations/{automation_id}/run-now":
-      "needs a real automation with a trigger",
     "/api/v1/orgs/{org_id}/budgets/{budget_id}": "needs a budget in both organizations",
     "/api/v1/orgs/{org_id}/catalog/models/{model_id}": "needs a catalog model the org can alias",
     "/api/v1/orgs/{org_id}/catalog/providers/{provider_id}":
@@ -775,7 +951,7 @@ await runProbe("V01 path-id tenancy", async (probe) => {
       //
       // The control gets its OWN row, freshly created for this route and method. Nothing above it may
       // hand the control a row an earlier control already consumed.
-      const fresh = await refixture[route.family]?.();
+      const fresh = await refixture[route.family]?.(entry.prepare);
       const controlId = fresh?.id ?? seed.a;
       const controlVersion = versioned
         ? (fresh?.version ?? (await currentVersion(controlId)))
