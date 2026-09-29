@@ -80,6 +80,10 @@ export class SmokeHarness {
     this.persistDir = "";
     this.worker = null;
     this.persistOwned = true;
+    // Every HTTP request this probe has made, counted here so the console capture can be graded
+    // against something. See `consoleCapture()`.
+    this.httpRequests = 0;
+    this.lastRequestLine = "";
     this.stage = "startup";
     this.passes = [];
     this.failures = [];
@@ -276,6 +280,8 @@ export class SmokeHarness {
     let response;
     try {
       response = await fetch(`${this.baseUrl}${routePath}`, init);
+      this.httpRequests += 1;
+      this.lastRequestLine = `${method} ${routePath}`;
     } catch (error) {
       throw new Error(
         `${this.stage}: ${method} ${routePath} transport failure: ${this.redact(error.message)}`,
@@ -843,6 +849,74 @@ export class SmokeHarness {
     } catch {
       return "";
     }
+  }
+
+  /**
+   * Is the console capture actually capturing?
+   *
+   * V01-029 cost four builds because this stream was read as an absence of evidence. The probe
+   * instrumented four error sites, and each run concluded "no log fired" -- so the failure was
+   * elsewhere. It was not: `worker-console.log` is appended to ASYNCHRONOUSLY by wrangler's proxy
+   * and is truncated, so across five runs it held sixteen request lines and ended at the last
+   * fixture. It contained no line for a request the probe had demonstrably made and which came back
+   * with a product-shaped body carrying a `request_id`.
+   *
+   * So a log's silence is not evidence until the log has been shown to record something, and the
+   * check for that is cheap and belongs HERE rather than in every probe that reads the console:
+   *
+   *   - count the request lines wrangler's proxy wrote, and
+   *   - compare them with the number of requests this harness actually made.
+   *
+   * A capture that has fallen behind is reported as `ok: false` with both counts, so a probe can
+   * refuse to conclude anything from a silent log and can fail as a HARNESS FAULT (exit 2) rather
+   * than reporting a product verdict. It is a floor, not a ceiling: a capture may be behind by a
+   * line or two through ordinary buffering, so `ok` requires a majority rather than an equality.
+   */
+  consoleCapture() {
+    const requested = this.httpRequests;
+    let seen = 0;
+    // `text` is hoisted OUT of the try on purpose. It is read again after the block, and the first
+    // version of this function declared it inside, so the tail check threw a ReferenceError on every
+    // call -- which `node --check` cannot see, because it is a runtime fault and not a syntax one. The
+    // symptom was a probe that died AFTER its last request with no error of its own, in a function
+    // whose entire job is to report on instrumentation.
+    let text = "";
+    try {
+      text = readFileSync(join(this.persistDir, "worker-console.log"), "utf8");
+      seen = (text.match(/\[wrangler-ProxyWorker:info\]\s+(GET|POST|PUT|PATCH|DELETE) \//g) ?? [])
+        .length;
+    } catch {
+      return { ok: false, requested, seen: 0, reason: "the console file is unreadable" };
+    }
+    // With no requests yet there is nothing to be behind on, and claiming otherwise would make a
+    // probe fail for reading the console before it has made a call.
+    if (requested === 0) {
+      return {
+        ok: true,
+        requested,
+        seen,
+        newest: "",
+        newestSeen: true,
+        reason: "no requests have been made yet",
+      };
+    }
+    // The criterion is the NEWEST request, not a majority. A majority check passes while the most
+    // recent requests -- the ones a diagnosis is about -- are exactly the ones missing, which is both
+    // the truncation shape and the flush shape. A count cannot tell them apart; a tail can.
+    const newestSeen = this.lastRequestLine !== "" && text.includes(this.lastRequestLine);
+    return {
+      ok: newestSeen,
+      requested,
+      seen,
+      newest: this.lastRequestLine,
+      newestSeen,
+      reason: newestSeen
+        ? ""
+        : `the most recent request (${this.lastRequestLine}) does not appear in a file holding ` +
+          `${seen} request line(s) for ${requested} request(s) this harness made, so its SILENCE IS ` +
+          `NOT EVIDENCE that a log was not written. Read it at the END of the run, and do not ` +
+          `conclude anything from it until this says it can be trusted.`,
+    };
   }
 
   rememberWorker() {

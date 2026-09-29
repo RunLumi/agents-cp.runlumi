@@ -25,6 +25,7 @@ mod policy;
 mod projects;
 mod runs;
 mod security;
+pub(crate) mod sql_bool;
 mod tools;
 mod usage;
 mod webhooks;

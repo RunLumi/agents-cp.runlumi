@@ -1,5 +1,14 @@
 # V01-029 — `rotate_webhook_secret` answers 503 to the owner, and seven candidate sites are indistinguishable
 
+> **CLOSED — by V01-030, not by anything in this file.** The 503 was a *symptom*: a
+> `WebhookEndpointRecord` row could not be decoded, because D1 delivers its `INTEGER` columns as
+> JavaScript numbers and the struct declared them `bool`. Every narrowing below is a true account of how
+> the search went, including the four conclusions drawn from a stream nobody had verified could carry
+> them. The root cause, the repair and the evidence are in
+> [`V01-030-d1-integer-columns-cannot-be-decoded-as-bool.md`](V01-030-d1-integer-columns-cannot-be-decoded-as-bool.md).
+> The `service_unavailable` that `webhooks.rs` shadowed — naming the *notification* store for endpoint
+> routes — was a real second defect, and is fixed independently.
+
 ## Status
 
 **OPEN.** Severity **high** (an organization cannot rotate its own webhook signing secret, so the

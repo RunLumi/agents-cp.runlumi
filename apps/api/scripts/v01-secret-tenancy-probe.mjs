@@ -243,24 +243,146 @@ await runProbe("V01 secret-tenancy", async (probe) => {
   );
   const ownSecret = ownRotate.payload?.secret;
 
-  // THE WORKER'S CONSOLE IS TRUNCATED, and reading it at the end of the run is how V01-029 spent
-  // four builds concluding "no log fired" when the log had simply been cut off. `workerConsole()`
-  // returns a TAIL of a file the proxy appends to, and this probe's later requests are missing from
-  // it entirely -- sixteen request lines, ending at the last fixture.
+  // THE BISECTION. No product change, no log, no build -- and it is the answer four builds of
+  // console-reading did not produce.
   //
-  // So the console is read HERE, immediately after the call it describes, while it is still in the
-  // file. The markers are permanent product-side logs (V01-029); this is the probe half of the
-  // contract, and without it a truncated log reads as an absence of evidence.
-  const stageLines = () =>
-    probe
-      .workerConsole(80_000)
-      .replace(/\[[0-9;]*m/g, "")
-      .split("\n")
-      .filter((line) =>
-        /rotate_webhook_secret|mint_secret|StoredSuccess|load_endpoint|prepare_mutation/.test(line),
-      )
-      .slice(-6);
-  for (const line of stageLines()) console.log(`  STAGE ${line.slice(0, 260)}`);
+  // `rotate_webhook_secret` runs a fixed prologue before it can do anything:
+  //
+  //   authorize_org -> require_csrf -> idempotency_key -> database -> load_endpoint -> ...
+  //
+  // Several of those steps have a refusal of their own with a DIFFERENT status: no session is 401, a
+  // bad CSRF token is 403 `csrf_failed`, a missing `Idempotency-Key` is 400, and an endpoint that
+  // does not exist is 404. So a request with one precondition deliberately broken answers with that
+  // step's status if the handler REACHED it, and still answers the baseline status if it never got
+  // that far. Reading the variants together bisects the prologue exactly -- which is the information
+  // the console could not supply, because the console is truncated precisely at the tail where these
+  // requests live.
+  //
+  // TWO GUARDS, both of which this block needed after getting them wrong once.
+  //
+  // The first is that a perturbation must be VERIFIED as applied before its answer means anything.
+  // The session variant originally set `Cookie: ""` in the header object, and the harness then does
+  // `if (cookie) headers.Cookie = cookie` from the jar -- so the empty string was silently
+  // overwritten by the real cookie, the variant sent a fully valid session, and its 503 read as
+  // "did not move", which would have pinned the failure two steps too early. That is a vacuous
+  // perturbation: it looks like a measurement and is not one, and it is the same shape as every other
+  // empty-set case this campaign has found, arriving now inside the tool written to fix one. Each
+  // variant therefore reports whether its precondition actually changed, and an unapplied variant
+  // contributes NOTHING rather than a reading.
+  //
+  // The second is that a bisection which distinguishes nothing must say so, instead of reporting the
+  // last bound it happened to compute.
+  const rotatePath = (endpoint) => `/api/v1/orgs/${orgA.orgId}/webhooks/${endpoint}/rotate-secret`;
+  const bisectBase = { ...headersA, ...browserMutation(alice.jar, "sec-own-rotate") };
+  // A well-formed id that cannot exist, and CHECKED to be one before it is used.
+  //
+  // The first attempt was `whe_` + 26 zeros and it came back 422, not 404: a resource id is
+  // `prefix_` + 32 lowercase hex (a UUID with its dashes removed), so 26 characters is rejected by
+  // validation before any lookup happens. Read as a status, that 422 says "did not move" -- which
+  // would have pinned the failure to the wrong side of `load_endpoint` on the strength of an id the
+  // product never treated as one. So the format is asserted here, and a phantom that is not
+  // well-formed, or that is somehow the real endpoint, is discarded instead of read.
+  const phantomEndpoint = `whe_${"0".repeat(32)}`;
+  const phantomIsWellFormed =
+    /^whe_[0-9a-f]{32}$/.test(phantomEndpoint) &&
+    phantomEndpoint.length === endpointA.length &&
+    phantomEndpoint !== endpointA;
+  const perturbations = [
+    {
+      label: "CSRF token removed",
+      refusal: 403,
+      then: "the failure is AFTER require_csrf",
+      otherwise: "the failure is AT OR BEFORE require_csrf",
+      build: () => {
+        const headers = { ...bisectBase };
+        delete headers["X-CSRF-Token"];
+        return { headers, applied: !("X-CSRF-Token" in headers) };
+      },
+    },
+    {
+      label: "Idempotency-Key removed",
+      refusal: 400,
+      then: "the failure is AFTER idempotency_key",
+      otherwise: "the failure is AT OR BEFORE idempotency_key",
+      build: () => {
+        const headers = { ...bisectBase };
+        delete headers["Idempotency-Key"];
+        return { headers, applied: !("Idempotency-Key" in headers) };
+      },
+    },
+    {
+      label: "session cookie removed",
+      refusal: 401,
+      then: "the failure is AFTER require_session",
+      otherwise: "the failure is AT OR BEFORE require_session",
+      // An EMPTY JAR, not an empty header. The harness overwrites `Cookie` from the jar whenever the
+      // jar has one, so a jar is the only way to actually withhold the session.
+      build: () => {
+        const jar = probe.client();
+        return { jar, headers: { ...bisectBase }, applied: !jar.header() };
+      },
+    },
+    {
+      label: "endpoint id substituted with a phantom",
+      refusal: 404,
+      then: "the failure is AFTER load_endpoint",
+      otherwise: "the failure is AT OR BEFORE load_endpoint",
+      build: () => ({
+        headers: { ...bisectBase },
+        path: rotatePath(phantomEndpoint),
+        applied: phantomIsWellFormed,
+      }),
+    },
+  ];
+  let informative = 0;
+  let unapplied = 0;
+  // A bisection exists to localise a FAILURE. With a healthy baseline there is nothing to localise,
+  // and printing "the failure is AFTER require_csrf" beside a 200 would be a diagnosis of a fault that
+  // does not exist -- which is the same mistake as reading a truncated log as an absence of a log, in
+  // the opposite direction. So it reports the baseline and stops.
+  if (ownRotate.status >= 200 && ownRotate.status < 300) {
+    console.log(
+      `  bisect: baseline is ${ownRotate.status}, so there is no failure to localise and no ` +
+        `perturbation was issued. This block is skipped rather than narrated.`,
+    );
+  } else {
+    console.log(`  bisect baseline: status=${ownRotate.status}`);
+    for (const variant of perturbations) {
+      const built = variant.build();
+      if (built.applied === false) {
+        unapplied += 1;
+        console.log(
+          `  bisect ${variant.label}: NO INFORMATION -- the precondition was not actually applied, ` +
+            `so this variant is discarded rather than read as "did not move"`,
+        );
+        continue;
+      }
+      const result = await request(
+        built.jar ?? alice.jar,
+        "POST",
+        built.path ?? rotatePath(endpointA),
+        {},
+        built.headers,
+      );
+      const reached = result.status === variant.refusal;
+      if (reached) informative += 1;
+      console.log(
+        `  bisect ${variant.label}: status=${result.status}` +
+          (reached
+            ? ` -> reached that step, so ${variant.then}`
+            : ` -> did not move, so ${variant.otherwise}`),
+      );
+    }
+    console.log(
+      informative === 0
+        ? "  bisect VERDICT: NO INFORMATION -- no variant changed the status, so no conclusion about " +
+            "where the failure is may be drawn from this block."
+        : `  bisect VERDICT: ${informative} of ${perturbations.length} variants moved the status` +
+            `${unapplied ? `, and ${unapplied} were discarded as unapplied` : ""}, so the prologue is ` +
+            `bisected to the window bounded by the readings above.`,
+    );
+  }
+
   const diag = probe
     .workerConsole(60_000)
     .replace(/\[[0-9;]*m/g, "")
@@ -377,6 +499,51 @@ await runProbe("V01 secret-tenancy", async (probe) => {
     );
   }
 
+  // NOW at the end of the run, which is the only moment the criterion can be met.
+  //
+  // MISTAKE ONE. I concluded, four times, that "no log fired" -- and therefore that the failure was
+  // somewhere else -- because the console looked truncated. It was never truncated. It holds every
+  // request including the rotate calls. What I had actually done was pipe it through `cut -c1-300` and
+  // search for a MARKER STRING, and the line that mattered was neither of the four sites I
+  // instrumented: it was V01-010's pre-existing log inside `load_endpoint`. It sat past the point the
+  // evidence had been cut to. The lesson is not "cut wider" -- it is that the instrument was declared
+  // untrustworthy on the strength of a check that was never run, and four conclusions were then drawn
+  // from a stream nobody had verified could carry them.
+  //
+  // MISTAKE TWO, the correction for the first. I "fixed" it by reading the console at the POINT OF USE,
+  // immediately after the call it describes. That is exactly wrong for a file another process appends to
+  // asynchronously: at that moment the writer has not flushed, so the read is MORE likely to be empty
+  // than the read at the end. The run that finally showed the line was a run that read the file after
+  // the run had finished.
+  //
+  // So: read at the END, and grade the read on whether it contains the most recent request this harness
+  // made. A count is not enough -- a majority check passes while the newest requests, the ones being
+  // diagnosed, are exactly the ones missing, which is the truncation shape and also the flush shape.
+  //
+  // A capture that fails this does not void the product verdicts: every case above is graded on a status
+  // code and on rows read out of D1, neither of which comes from here. It voids the DIAGNOSIS, so this
+  // block says so out loud instead of letting a missing line read as a missing log.
+  const capture = probe.consoleCapture();
+  console.log(
+    `  console capture: ${capture.ok ? "trustworthy" : "UNTRUSTWORTHY"} -- it ` +
+      `${capture.ok ? "records" : "does NOT record"} the most recent request ` +
+      `(${capture.requested} made, ${capture.seen} request line(s) in the file)`,
+  );
+  if (!capture.ok) {
+    console.log(
+      `  HARNESS DIAGNOSTIC ONLY -- the product verdicts above stand, but nothing may be concluded ` +
+        `from this file: ${capture.reason}`,
+    );
+  }
+  const stageLines = probe
+    .workerConsole(200_000)
+    .replace(/\[[0-9;]*m/g, "")
+    .split("\n")
+    .filter((line) => /ERROR|load_endpoint|prepare_mutation|mint_secret|StoredSuccess/.test(line));
+  if (stageLines.length === 0 && capture.ok) {
+    console.log("  the console is readable and holds no error line for this run");
+  }
+  for (const line of stageLines.slice(-6)) console.log(`  STAGE ${line.slice(0, 240)}`);
   console.log(
     `\n${results.length} secret-bearing route(s) attacked cross-tenant; ` +
       `${leakNeedles.length} secret needle(s) searched in every body; Bravo's stored state compared ` +
