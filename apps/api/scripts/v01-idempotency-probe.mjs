@@ -38,8 +38,60 @@
 import { runProbe } from "./lib/smoke-harness.mjs";
 
 await runProbe("V01 idempotency", async (probe) => {
-  const { request, expect, expectStatus, d1Rows } = probe;
+  const { request, expect, expectStatus, d1Rows, registerSecret } = probe;
   const { browserMutation, browserHeaders } = probe;
+  const { createHash, generateKeyPairSync, sign } = await import("node:crypto");
+
+  /**
+   * A real enrolled device, because `POST /api/v1/devices/bindings` authenticates with a DEVICE
+   * token and not with a session. The enrollment challenge is signed with the same key the device
+   * presents, which is the point of the device-proof check, so a stand-in signer would make the
+   * case untestable rather than easy.
+   */
+  const anonJar = () => ({ header: () => "" });
+  const enrollDevice = async (admin, orgSlug, label) => {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const device = {
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      keyFingerprint: createHash("sha256")
+        .update(publicKey.export({ type: "spki", format: "der" }))
+        .digest("hex"),
+      sign: (message) => sign(null, Buffer.from(message), privateKey).toString("hex"),
+    };
+    const created = await request(anonJar(), "POST", "/api/v1/devices/enrollments", {
+      org_slug: orgSlug,
+      public_key: device.publicKeyPem,
+      key_fingerprint: device.keyFingerprint,
+      device_name: label,
+      platform: "darwin-arm64",
+      app_version: "0.5.0",
+    });
+    const enrollmentId = created.payload?.enrollment_id;
+    if (typeof enrollmentId !== "string") return null;
+    await request(
+      admin.jar,
+      "POST",
+      `/api/v1/orgs/${org.orgId}/devices/enrollments/${enrollmentId}/approve`,
+      {},
+      browserMutation(admin.jar, `v01-idem-approve-${label}`),
+    );
+    const challenge = await request(
+      anonJar(),
+      "GET",
+      `/api/v1/devices/enrollments/${enrollmentId}`,
+    );
+    if (typeof challenge.payload?.challenge !== "string") return null;
+    const finished = await request(
+      anonJar(),
+      "POST",
+      `/api/v1/devices/enrollments/${enrollmentId}/complete`,
+      { signature: device.sign(challenge.payload.challenge) },
+    );
+    const token = finished.payload?.device_token;
+    if (typeof token !== "string") return null;
+    registerSecret(token);
+    return token;
+  };
 
   console.log("");
   await probe.setup({ persistEnvVar: "V01_IDEM_PERSIST_TO", portEnvVar: "V01_IDEM_PORT" });
@@ -66,6 +118,11 @@ await runProbe("V01 idempotency", async (probe) => {
     slug: slug.slice(0, 60),
     visibility: "org",
   });
+
+  const orgSlugOf = async (orgId) =>
+    (
+      await d1Rows(`SELECT slug FROM organizations WHERE org_id = '${orgId}'`, "V01 the org slug")
+    )[0]?.slug;
 
   // The counter that every case in this probe is really about.
   let totalBefore = (await allProjects()).length;
@@ -390,6 +447,123 @@ await runProbe("V01 idempotency", async (probe) => {
     duplicated.length === 0
       ? `${finalProjects.length} projects, all distinct`
       : `duplicated: ${JSON.stringify(duplicated)}`,
+  );
+
+  // =========================================================================
+  // delete_project_binding — the third and last route that discards its key
+  // (V01-018 site 3), which until now had NO gate at all.
+  // =========================================================================
+  //
+  // It is here rather than in `verify:device-idempotency` because it is not a device route, and
+  // it is here rather than in `verify:mutating-tenancy` because that probe is about cross-tenant
+  // refusals. This probe is about "a retried mutation is still ONE mutation", which is what it is.
+  //
+  // The fixture is unusual and worth stating: a project has NO create-binding route. Bindings are
+  // created by `POST /api/v1/devices/bindings` and merely *scoped* to a project on delete. I had
+  // assumed the delete was unreachable — no POST for it — and was wrong, which is why the fixture is
+  // written the way it is rather than the way I first expected it to be.
+  probe.stage = "binding-delete-replay";
+  const bindingProject = await request(
+    alice.jar,
+    "POST",
+    `/api/v1/orgs/${org.orgId}/projects`,
+    newProject("V01 binding project", `v01-binding-${probe.nonce}`),
+    browserMutation(alice.jar, "v01-idem-binding-project"),
+  );
+  const bindingProjectId = bindingProject.payload?.id;
+  expectStatus("CONTROL: a project to bind a workspace to", bindingProject, [201]);
+  if (typeof bindingProjectId !== "string") {
+    probe.finish(2, "no project, so no binding, so the delete case is untestable");
+    return;
+  }
+  const bindingDeviceToken = await enrollDevice(
+    alice,
+    org.orgSlug ?? (await orgSlugOf(org.orgId)),
+    "V01 binding device",
+  );
+  if (!bindingDeviceToken) {
+    probe.finish(
+      2,
+      "no device token, so no binding can be created. A harness outcome, not a verdict.",
+    );
+    return;
+  }
+  const binding = await request(
+    anonJar(),
+    "POST",
+    "/api/v1/devices/bindings",
+    {
+      project_id: bindingProjectId,
+      workspace_identity: `v01-workspace-${probe.nonce}`,
+      display_name: "V01 binding",
+      environment_type: "local",
+    },
+    { Authorization: `DeviceToken ${bindingDeviceToken}` },
+  );
+  // The binding projection names its own id `id`, read from the projection helper rather
+  // than guessed.
+  const bindingId = binding.payload?.id ?? binding.payload?.binding_id;
+  expect(
+    "CONTROL: a workspace binding exists, so the delete has something to delete",
+    binding.status === 201 && typeof bindingId === "string",
+    `status=${binding.status} body=${probe.brief(binding.payload, 240)}`,
+  );
+  if (typeof bindingId !== "string") {
+    probe.finish(2, "no binding, so the delete case is untestable");
+    return;
+  }
+
+  const bindingRow = async () =>
+    d1Rows(
+      `SELECT binding_id, project_id, workspace_identity FROM workspace_bindings
+        WHERE binding_id = '${bindingId}'`,
+      `V01 binding ${bindingId}`,
+    );
+  const deleteBinding = (keyLabel) =>
+    request(
+      alice.jar,
+      "DELETE",
+      `/api/v1/orgs/${org.orgId}/projects/${bindingProjectId}/bindings/${bindingId}`,
+      undefined,
+      browserMutation(alice.jar, keyLabel),
+    );
+
+  const bindingFirstDelete = await deleteBinding("v01-idem-binding-delete");
+  const bindingAfterFirst = await bindingRow();
+  const bindingReplayDelete = await deleteBinding("v01-idem-binding-delete");
+  const bindingAfterReplay = await bindingRow();
+  const bindingDifferentKeyDelete = await deleteBinding("v01-idem-binding-delete-2");
+  console.log(
+    `\n  delete binding: first=${bindingFirstDelete.status} replay=${bindingReplayDelete.status} ` +
+      `different-key=${bindingDifferentKeyDelete.status} rows ${bindingAfterFirst.length} -> ${bindingAfterReplay.length}`,
+  );
+  expect(
+    "CONTROL: the first delete succeeds and the binding is GONE from the database",
+    bindingFirstDelete.status >= 200 &&
+      bindingFirstDelete.status < 300 &&
+      bindingAfterFirst.length === 0,
+    `status=${bindingFirstDelete.status} rows=${JSON.stringify(bindingAfterFirst)}`,
+  );
+  expect(
+    "V01-018: replaying the delete on the SAME key returns the FIRST response, a 204, rather than re-running it and reporting 404 for a delete that already happened",
+    bindingReplayDelete.status === bindingFirstDelete.status,
+    `first ${bindingFirstDelete.status}, replay ${bindingReplayDelete.status} ` +
+      `body=${probe.brief(bindingReplayDelete.payload, 200)}; the route discards its Idempotency-Key, so a ` +
+      `retry is a genuinely new request that finds nothing and answers 404 -- which a client ` +
+      `cannot distinguish from "it was never there"`,
+  );
+  expect(
+    "the replayed delete did not re-create or otherwise disturb the row",
+    bindingAfterReplay.length === bindingAfterFirst.length,
+    `rows ${bindingAfterFirst.length} -> ${bindingAfterReplay.length}`,
+  );
+  expect(
+    "CONTROL: a DIFFERENT key on the already-deleted binding is answered differently from the replay, so the key is what distinguishes them",
+    bindingDifferentKeyDelete.status !== bindingReplayDelete.status ||
+      JSON.stringify(bindingDifferentKeyDelete.payload?.error?.code ?? null) !==
+        JSON.stringify(bindingReplayDelete.payload?.error?.code ?? null),
+    `replay ${bindingReplayDelete.status}/${bindingReplayDelete.payload?.error?.code ?? "none"} vs ` +
+      `different-key ${bindingDifferentKeyDelete.status}/${bindingDifferentKeyDelete.payload?.error?.code ?? "none"}`,
   );
 
   probe.finish(probe.failures.length > 0 ? 1 : 0);

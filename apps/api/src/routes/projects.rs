@@ -40,6 +40,11 @@ use crate::{
     },
 };
 
+/// A TEMPLATE, so the claim's scope is identical for every binding in an organization: a client
+/// retrying the same logical request gets the same answer whichever binding id it addressed.
+const DELETE_BINDING_PATH: &str =
+    "/api/v1/orgs/{org_id}/projects/{project_id}/bindings/{binding_id}";
+
 const PAGE_LIMIT_DEFAULT: i32 = 50;
 const PAGE_LIMIT_MAX: i32 = 100;
 
@@ -873,21 +878,51 @@ pub async fn delete_project_binding(
     )
     .await?;
     require_csrf(&headers, &access.session, &context).await?;
-    idempotency_key(&headers, &context)?;
+    let key = idempotency_key(&headers, &context)?;
     let database = database(&state, &context)?;
-    let binding = ProjectRepository::new(database)
+
+    // The claim is taken HERE -- after authorization, so an unauthorized caller cannot learn
+    // whether a key is live, and BEFORE the read, because that ordering is the repair.
+    //
+    // Measured before the repair: first `204`, replay `404`, different key `404`. The retry was
+    // answering "not found" for a delete that had already succeeded, which a client cannot
+    // distinguish from "it was never there".
+    //
+    // Taking the claim before the read means a request for a binding that is genuinely absent
+    // leaves a claim behind, so it is RELEASED on that path -- the same thing `create_project`
+    // does when its slug pre-condition fails. Without the release, a client that 404s and then
+    // retries on the same key would be told `idempotency_in_progress` for the length of the TTL,
+    // which is a worse answer than the 404 it already had.
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "DELETE",
+        DELETE_BINDING_PATH,
+        &json!({}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+
+    let Some(binding) = ProjectRepository::new(database)
         .find_binding(&binding_id)
         .await
         .map_err(|_| service_unavailable(&context))?
         .filter(|binding| binding.project_id == project_id && binding.org_id == org_id)
-        .ok_or_else(|| {
-            deny(
-                &context,
-                ApiErrorCode::NotFound,
-                "not_found",
-                "No such binding.",
-            )
-        })?;
+    else {
+        claim.release(database, &context).await;
+        return Err(deny(
+            &context,
+            ApiErrorCode::NotFound,
+            "not_found",
+            "No such binding.",
+        ));
+    };
     let deleted = ProjectRepository::new(database)
         .delete_binding(&binding.binding_id, &project_id)
         .await
@@ -908,11 +943,19 @@ pub async fn delete_project_binding(
         "project.binding_removed.v1",
         &json!({ "binding_id": binding.binding_id, "project_id": project_id }),
     )?;
-    database
-        .batch(vec![event])
-        .await
+    // A 204 has no body, so the stored success is constructible from inputs -- which is what every
+    // wired call site does, and the reason this route can be repaired at all (V01-020).
+    let statement = ProjectRepository::new(database)
+        .delete_binding_statement(&binding_id, &project_id)
         .map_err(|error| database_error(&context, error))?;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    let success = StoredSuccess::new(204, json!({})).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![statement], event).await?
+    {
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+        ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+    }
 }
 
 /// Read-only effective policy inspector (plan03 P03-FE-03 backend).

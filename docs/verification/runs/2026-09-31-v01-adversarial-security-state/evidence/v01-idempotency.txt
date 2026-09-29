@@ -1,0 +1,58 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01idem8
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:60290
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-KzIRI0/7abb24f6e66354a4069757a383efebc8b98a0bd9-index_bg.wasm is 105s newer than src/routes/projects.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_351e652ef96b413fa6a5dec7bf11a91b
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_a6307255444140dc9a933c4f11356740
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_643e187408f6631c852452fdf7896563
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_66a80f09ae5df11636d19e303bdae699
+  PASS  CONTROL: a project is created with a fresh key  — status=201
+  PASS  CONTROL: a distinct idempotency key produces a distinct project, so the route honours keys and a replay below means something  — projects 0 -> 1
+  PASS  the first request with a key succeeds  — status=201
+  PASS  a replayed request creates NO second project: one key with one payload is one side effect  — projects 1 -> 2; rows named 'V01 replayed': 1
+  PASS  the replay returns the FIRST request's response, byte for byte, which is what makes a client retry safe  — status 201 vs 201; reason=(no error); first_body={"archived":false,"created_at":"2026-09-29T00:15:34.333Z","created_by_user_id":"usr_351e652ef96b413fa6a5dec7bf11a91b","id":"prj_5dc0911bc5f4465e80c3de52a95829e8","name":"V01 replayed","org_id":"org_643e187408f6631c852452fdf7896563","slug":"; replay_body={"archived":false,"created_at":"2026-09-29T00:15:34.333Z","created_by_user_id":"usr_351e652ef96b413fa6a5dec7bf11a91b","id":"prj_5dc0911bc5f4465e80c3de52a95829e8","name":"V01 replayed","org_id":"org_643e187408f6631c852452fdf7896563","slug":"
+  PASS  the first request with the conflict key succeeds  — status=201
+  PASS  the same key with a DIFFERENT payload is refused: a key is a promise about one specific request, not a slot a second request may overwrite  — status=409 reason=idempotency_conflict
+  PASS  the refused conflicting payload created no project, and the first request's project is untouched  — projects 2 -> 3; first=1 second=0
+
+  8 CONCURRENT requests, one key, one payload -> statuses 201
+  PASS  a burst of 8 concurrent requests with the SAME key and the SAME payload creates exactly ONE project  — projects 3 -> 4; rows named 'V01 burst': 1 (statuses 201)
+  PASS  every response in the burst is either the first request's replay or an explicit 409, so a retrying client can interpret all of them  — all 8 were the replay (8) or a 409 (0)
+  6 CONCURRENT requests, ONE key, 6 DIFFERENT payloads -> statuses 201 409; 1 payload(s) landed
+  PASS  a burst of 6 concurrent requests with ONE key and DIFFERENT payloads creates exactly ONE project  — projects 4 -> 5
+  PASS  exactly one of the conflicting payloads is stored, and no payload is stored twice  — landed: [{"name":"V01 race 0","rows":1}]
+  PASS  signup Member  — status=201
+  PASS  verify Member  — status=200
+  PASS  login start Member  — status=202
+  PASS  login complete Member  — status=200
+  PASS  user Member has an opaque ID  — usr_a8e7e82999d546be91d7bdf59f505144
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  Alice writes with a key  — status=201
+  PASS  CONTROL: the invited member CAN create a project in this org, so the shared-key request below is refused by the key scope and not by membership  — status=201
+  PASS  another principal's use of the SAME key in the same org is not a replay of the first principal's write  — status=201 rows=1 alice_id=prj_0fa6e4345880463fac616b049fc91fce member_id=prj_d35d3021242e478f81881a04f76f6ed0
+  PASS  the same key in another org is refused by the organization boundary, which is a sufficient answer and is reported as such rather than as key-scope evidence  — status=404 rows=0 — the key scope was never consulted, so this case says nothing about it
+
+  projects in the database at the end: 8
+  PASS  no project name appears twice anywhere in the database after the whole campaign, which is the whole claim in one assertion  — 8 projects, all distinct
+  PASS  CONTROL: a project to bind a workspace to  — status=201
+  PASS  CONTROL: a workspace binding exists, so the delete has something to delete  — status=201 body={"created_at":"2026-09-29T00:15:53.948Z","device_id":"dvc_1a59ae04b3d744c593c83df39c9a50db","display_name":"V01 binding","environment_type":"local","id":"wsb_42fb31878977422ab9dcc973a9075bb0","last_seen_at":"2026-09-29T00:15:53.948Z","org_i
+
+  delete binding: first=204 replay=204 different-key=404 rows 0 -> 0
+  PASS  CONTROL: the first delete succeeds and the binding is GONE from the database  — status=204 rows=[]
+  PASS  V01-018: replaying the delete on the SAME key returns the FIRST response, a 204, rather than re-running it and reporting 404 for a delete that already happened  — first 204, replay 204 body=(no body); the route discards its Idempotency-Key, so a retry is a genuinely new request that finds nothing and answers 404 -- which a client cannot distinguish from "it was never there"
+  PASS  the replayed delete did not re-create or otherwise disturb the row  — rows 0 -> 0
+  PASS  CONTROL: a DIFFERENT key on the already-deleted binding is answered differently from the replay, so the key is what distinguishes them  — replay 204/none vs different-key 404/not_found
+
+47/47 V01 idempotency cases hold
