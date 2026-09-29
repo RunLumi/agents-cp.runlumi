@@ -1409,6 +1409,13 @@ pub async fn reconcile_reservation(
         // V01-033. Same ordering defect: `update` bumps the budget's version and `guard`
         // (`assert_budget_version_statement`) asserted the pre-write version afterwards. A
         // precondition is evaluated before the write it guards.
+        // NOT a V01-033 case, and the reason belongs here because the same shape IS one elsewhere in
+        // the tree. Reordering this batch to `vec![guard, update, audit]` was applied on the same
+        // reasoning as the machine_identity fix and regressed `verify:budget-concurrency` 28/28 ->
+        // 25/28, on the reservation RELEASE path. So the pattern "a guard follows a writer" is not
+        // the diagnosis: what matters is whether the guard asserts something the writer invalidates,
+        // and that has to be established per site by running the affected gate. See the V01-033
+        // record for the two-order experiment that established it for the sites this one resembles.
         vec![update, guard, audit],
         outbox,
     )

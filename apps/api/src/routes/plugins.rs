@@ -563,7 +563,9 @@ pub async fn patch_policy(
         &context,
         claim,
         success,
-        vec![statement, guard],
+        // V01-033, as above: the guard is handed `body.version`, the client's pre-write version.
+        // Measured on `plugin_policies`, same two-order experiment, same result.
+        vec![guard, statement],
         audit,
     )
     .await?
@@ -1496,7 +1498,9 @@ async fn write_policy(
         json!({ "policy": policy_json(policy, resulting_version, conflicts) }),
     )
     .map_err(|_| store_unavailable(context))?;
-    let mut writes = vec![statement, guard];
+    // V01-033, as above: the guard is handed `body.version`, the client's pre-write version, so it is a
+    // precondition and must precede the statement that replaces it.
+    let mut writes = vec![guard, statement];
     writes.extend(extra_write);
     match commit_scoped_mutation(database, context, claim, success, writes, audit).await? {
         ScopedMutationCommit::Committed => {}

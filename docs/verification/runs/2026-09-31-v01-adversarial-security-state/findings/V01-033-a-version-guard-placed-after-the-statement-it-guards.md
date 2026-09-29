@@ -133,9 +133,40 @@ The lesson is the one this record is really about, and it cost a gate:
 > decisive test is the one the campaign already insists on — **re-run the affected gate after the fix** —
 > and it is what stopped a wrong repair from being merged as a right one.
 
-The scan's 7 candidates are therefore **1 proven, 1 now cleared by measurement, and 5 not identified**. A
-pattern that matches a proven defect, a correct postcondition and an unidentified case is not a diagnosis;
-it is a place to start looking.
+The scan's 7 candidates are **1 proven defect (machine_identity ×2), 1 postcondition that is correct
+(budgets 1177), 1 cleared by measurement (budgets 1403), and 3 more defects, established the same way.**
+
+### The three remaining candidates, measured rather than reasoned about
+
+Each was classified the only way that survived the budgets lesson — by reading what its guard is handed,
+and then by running the same two-order experiment against a **copy of a real database with the row
+created for it**:
+
+| site | guard builder | handed | `feature_flags` / `plugin_policies` measurement |
+|---|---|---|---|
+| `internal.rs:418` | `assert_flag_version_statement` | `body.version` | writer→guard **ABORTS**; guard→writer **succeeds**, version 1 → 2 |
+| `plugins.rs:566` | `assert_policy_version_statement` | `body.version` | identical |
+| `plugins.rs:1499` | `assert_policy_version_statement` | `body.version` | identical |
+
+All three hand the guard the **client's pre-write version**, so all three are preconditions, and all three
+are placed after the statement that replaces that version. **Three more routes could never succeed**, and
+each reported `version_conflict`.
+
+The mechanism is therefore **table-independent** — it was measured on three separate tables
+(`service_accounts`, `feature_flags`, `plugin_policies`) with the same result — which is what makes it a
+class rather than an accident.
+
+**All three are fixed.** The remaining `vec![update, guard, audit]` in `budgets.rs:1412` is annotated in
+the source explaining that it was measured, that reordering it regressed budget-concurrency, and that the
+pattern is not the diagnosis — so the next reader does not "fix" it a second time.
+
+### Confirmed scope: 5 routes across 4 tables
+
+`machine_identity.rs` ×2, `internal.rs` ×1, `plugins.rs` ×2. Every one was a permanently dead route
+reporting a concurrency problem.
+
+**No gate covers the feature-flag or plugin-policy routes**, which is why the two-order experiment rather
+than a gate run is the evidence here — and it is also a coverage gap in its own right, recorded below.
 
 ## The two false readings this produced first, and why they are worth recording
 
@@ -159,6 +190,17 @@ two-order experiment is what settled it, and it took a copy of the real database
 Reorder the batch so the guard precedes the version-bumping statement. This is the order 26 of the 33
 sites already use, and it is the only order in which a compare-and-set means anything: assert the version
 you read, then write against it.
+
+## Coverage gap this exposed
+
+Three of the five routes fixed here — `internal.rs` and both `plugins.rs` sites — have **no gate at all**.
+`smoke:p08` counts org-scoped routes; these are not among them, and no probe drives them. A permanently
+dead route in a family nobody exercises is the most durable kind of defect, because nothing will ever
+notice it.
+
+They are now credited by name in `verify:path-id-tenancy`'s credit table as needing a fixture, which makes
+the gap visible. Growing that gate to cover them is the next piece of work, and it is the same work the
+remaining 41 credited routes need.
 
 ## Closure evidence
 

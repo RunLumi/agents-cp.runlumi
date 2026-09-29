@@ -415,7 +415,13 @@ pub async fn patch_flag(
         &context,
         claim,
         success,
-        vec![update, guard],
+        // V01-033. The guard is handed `body.version` -- the client's PRE-write version -- so it is a
+        // precondition, and a precondition is evaluated before the write it guards. With the writer
+        // first the batch bumps `version` and the guard then asserts the version it has already
+        // replaced, so it always aborts and the caller reports `version_conflict` for a route that can
+        // never succeed. Measured on `feature_flags` with the order as the only variable: writer-then-
+        // guard ABORTS, guard-then-writer succeeds and the version becomes 2.
+        vec![guard, update],
         audit,
     )
     .await?
