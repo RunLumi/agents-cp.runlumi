@@ -1,6 +1,6 @@
 # V01-048 — the unmanaged inference has a *different* budget control, and nobody had measured it
 
-**Severity: HIGH (money) · Status: CLOSED for the behaviour, UNPROVEN for the sensitivity · Verdict: PASS with a declared gap · Product: correct on every run measured**
+**Severity: HIGH (money) · Status: CLOSED · Verdict: PASS, sensitivity PROVEN · Product: correct on every run measured**
 
 ## The claim, and it is two of the objective's five named budget requirements
 
@@ -106,29 +106,52 @@ which `route_error_reason` masks under a catch-all `_ =>`, so the reason said no
 should use what the platform already ships**; a hand-built catalog entry is a second thing to get
 right for no benefit.
 
-## The sensitivity run, and the UNPROVEN in it
+## The sensitivity run: three guards, and the one I had not found
 
-**M1 DETECTED, 4 declared MISSED** (`evidence/v01-budget-hardceiling-sensitivity.sh`, restored tree
-25/25). M1 removes the probe's own fixture so there is no ceiling to detect.
+`evidence/v01-budget-hardceiling-sensitivity.sh` — **2 detected, 2 declared MISSED, restored tree
+25/25.**
 
-M2, M3 and M4 are all **MISSED, and that is the point rather than a shortfall**:
+| | guard | removed by | result |
+|---|---|---|---|
+| 1 | `hard_budget_remaining(&org_id, now) < reservation_minor` (`inference.rs:1663-1666`) | M1 | MISSED |
+| 2 | `WHERE NOT EXISTS (...)` ceiling in `INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL` | M2 | MISSED |
+| 3 | `changes(&initial_results[1]) != 1` -> `budget_exceeded` (`inference.rs:1834`, **ungated**) | M3 | **DETECTED** |
+| — | the probe's own fixture builds no ceiling | M4 | DETECTED |
 
-- M2 removes the application precheck (`hard_budget_remaining`) — still refused.
-- M3 removes the SQL ceiling — still refused.
-- M4 removes **both** — still refused.
+M3 removes **all three**, and its failures *are* the breach: **B4 — "and NO reservation is taken" —
+FAILED**, meaning a reservation *was* taken against an exhausted hard budget. That is the money defect
+the class exists to catch.
 
-One candidate for the third guard was checked and is **not** it: line 1876 compares
-`D1Adapter::changes(&initial_results[2]) != 1` and refuses with `budget_exceeded`, which is exactly
-the rows-affected shape the class asserts — but it is gated on `scope.managed_run`, so it does not
-execute for an unmanaged request.
+**Guard 3 is the V01-042 shape handled correctly.** `initial_results[1]` is the reservation statement
+(`initial_statements = vec![request_statement, reservation_statement]`), so the guard reads the
+INSERT's rows-affected and refuses when it did not match exactly one row. An INSERT matching zero rows
+neither aborts a D1 batch nor raises an error, so **the only way to notice is to read `changes()`**.
+That is why B4 asserts the stored count rather than the status.
 
-**So: the product is right, and the gate has not been shown to notice if the control were removed.**
-That is recorded as UNPROVEN, not as a pass, because manufacturing a mutation that happens to go red
-would produce the appearance of sensitivity without the substance.
+The two MISSEDs are a property of the **product**, not a weakness of the gate: each single guard is
+sufficient on its own, so removing any one leaves the other two standing. That is defence in depth,
+*measured* rather than assumed — and it is only visible because a mutation that removes one layer at
+a time is run before the one that removes them all.
 
-**What is established, and it is worth stating plainly:** every single control this script could
-remove, it removed, and the request was still refused with no reservation and no dispatch.
+## How I missed guard 3, which is the part worth keeping
 
+The first version of this record ruled guard 3 out. I had found the `changes()` pattern at
+`inference.rs:1876`, saw that it was gated on `scope.managed_run`, and concluded that rows-affected
+checks on this path were managed-only. **I then never checked whether the first instance was gated at
+all.**
+
+One gated example was enough to generalise about a pattern, and the generalisation was wrong by one
+line. Guard 3 sits **sixteen lines earlier** and is ungated.
+
+**A pattern inferred from a single instance is a hypothesis, and the cheapest thing to do with a
+hypothesis is to read the other instances.** That takes a minute. This campaign has been paid
+several times this session for not doing it — the plugin fixture took five attempts because I read
+the route's response shape by guessing instead of reading, and every one of those attempts was
+answered by a line of code that was already on screen.
+
+The mutation that found it was M3, written on the assumption that two guards existed. It came back
+MISSED, and the correct response to a MISSED that contradicts your model of the product is to **read
+the product**, not to write a fourth mutation.
 ## Two false verdicts the script produced first
 
 Both are worse than a weak gate, because both would have been reported as successful detections.
@@ -145,10 +168,14 @@ Both are worse than a weak gate, because both would have been reported as succes
   a rustc diagnostic in the Worker log and reports `INVALID`, and `settle_worker` polls until
   `workerd` is gone.
 
-## The follow-up this leaves, stated rather than implied
+## What remains
 
-There are at least three guards on this path and this campaign has isolated two. **The unmanaged
-budget path deserves a deliberate read** — not because anything is known to be wrong, but because
-"the guard we did not find" is the only remaining place a money defect could be hiding on the path
-most traffic takes. Until then the honest status of this class's *sensitivity* is UNPROVEN and of its
-*behaviour* is PASS.
+Nothing on this path is known to be wrong, and the sensitivity of the class that covers it is now
+proven rather than asserted: removing every control it can reach produces the breach it is built to
+catch. The three guards are mapped, each is individually sufficient, and the rows-affected check that
+makes the SQL ceiling's silence observable is present and ungated.
+
+The residual is the ordinary one: guard 3 is `changes(&initial_results[1]) != 1`, so a batch that
+matched **more** than one row would also be refused. That is not a defect — the reservation is keyed
+by `request_id` and cannot match twice — but it is the kind of fact worth knowing before someone
+relies on it.
