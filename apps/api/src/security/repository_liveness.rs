@@ -183,9 +183,15 @@ mod tests {
             "V01-043, now called by POST /api/v1/internal/plugin-quarantines. The write half of a quarantine that was enforced on four paths and operable on none.",
         ),
         ("insert_remediation_statement", "UNTRIAGED"),
-        ("insert_run_usage_statement", "UNTRIAGED"),
+        (
+            "insert_run_usage_statement",
+            "V01-047, OPEN by decision. P05-CR-002 §7 commits to a second usage source and §8 says it `must use` the same cost rules, but `UsageSource::Run` is constructed only in `modules/usage_tests.rs`, so this writer is unreachable and `list_usage`/`summarize_usage` UNION ALL an always-empty table. Left open: what counts as billable non-inference usage is a money decision needing the deliberate change process.",
+        ),
         ("list_active_plans", "UNTRIAGED"),
-        ("list_cost_records", "UNTRIAGED"),
+        (
+            "list_cost_records",
+            "V01-047, examined. A list over `cost_records` with no caller. The per-record reads (`find_cost_record`, `find_run_cost_record`) ARE called from `routes/usage.rs:1193-1204`, so this is a list variant nothing needs -- not a gap, and recorded so it is not re-derived.",
+        ),
         ("list_deletions_for_user", "UNTRIAGED"),
         ("list_entitlement_definitions", "UNTRIAGED"),
         (
@@ -203,7 +209,10 @@ mod tests {
         ("to_verification_key", "UNTRIAGED"),
         ("update_state", "UNTRIAGED"),
         ("upsert_provider_projection_statement", "UNTRIAGED"),
-        ("upsert_rollup_statement", "UNTRIAGED"),
+        (
+            "upsert_rollup_statement",
+            "V01-047, examined. `list_rollups` IS called (`routes/usage.rs:776`) but nothing WRITES a rollup, so every rollup read returns nothing. Same shape as the run-source writer: a read wired without its write. Open with V01-047.",
+        ),
         ("assert_single_queued_successor_statement", "UNTRIAGED"),
         // Found by this check and MISSED by the looser scan that motivated it, because the only
         // occurrences of these two names outside their declarations are inside a doc comment or a
