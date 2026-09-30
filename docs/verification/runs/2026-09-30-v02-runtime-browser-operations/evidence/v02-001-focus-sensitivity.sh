@@ -255,16 +255,21 @@ run_case() {
 # rather than assuming the operator remembered it.
 echo "=== stack ==="
 restart_dev || exit 2
+# Assigned FIRST, then checked, then echoed. The previous order read `api_code` on the line before
+# it was assigned, so `${api_code:-000}` was always 000 and the prerequisite check could only ever
+# fail -- while `restart_dev` had already returned 0, meaning it HAD seen both ports serving. The
+# default-value syntax concealed it: an unset variable produces exactly what `:-000` produces, and a
+# check that cannot tell "not set" from "not serving" reports the second one forever.
+#
+# Quoting `"%{http_code}"` inside `$( )` inside `" "` also nests three levels and made the script
+# unparseable, with bash reporting the error 80 lines away at a heredoc.
+vite_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)"
+api_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)"
+echo "  vite=${vite_code} api=${api_code}"
 if [ "${api_code:-000}" = "000" ]; then
   echo "FATAL: the API is not answering on :8787 after restart_dev" >&2
   exit 2
 fi
-# Assigned first, then echoed. Quoting `"%{http_code}"` inside `$( )` inside `" "` nests three levels
-# and made the script unparseable; bash reported the error 80 lines away at a heredoc, so the real
-# fault was nowhere near the reported line.
-vite_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)"
-api_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)"
-echo "  vite=${vite_code} api=${api_code}"
 
 echo "=== baseline ==="
 pkill -9 -f "Google Chrome for Testing" 2>/dev/null
