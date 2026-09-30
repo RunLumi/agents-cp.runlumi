@@ -169,7 +169,10 @@ mod tests {
             "EXAMINED, no gap. Superseded by the session/machine authentication paths, which resolve a credential together with the principal rather than alone. A credential lookup that returns a row without its owner is the same shape as V01-034's prefix resolver, so it has no caller.",
         ),
         ("find_active_route_version", "UNTRIAGED"),
-        ("find_budget_for_scope_period", "UNTRIAGED"),
+        (
+            "find_budget_for_scope_period",
+            "EXAMINED, no gap. A point lookup for deterministic create conflicts. The create path resolves the same scope/period through the budget read that `list_budgets` uses, and `verify:budget-concurrency` exercises create-on-an-existing-period through the live route. A duplicate create is refused on the UNIQUE constraint rather than by a pre-read, which is the stronger answer under concurrency anyway -- a pre-read races, a constraint does not.",
+        ),
         ("find_identity_by_user", "UNTRIAGED"),
         (
             "find_key_by_prefix",
@@ -188,7 +191,10 @@ mod tests {
             "EXAMINED, no gap. `WHERE org_id = ?1 AND policy_version = ?2` is correctly org-scoped, and nothing needs it: the compile path reads `latest_snapshot`, and the one write site (`routes/devices.rs:363`, the device policy cache) is a dedup against the latest, not a versioned fetch. A point lookup with no caller is cheaper to keep than to justify removing.",
         ),
         ("get_for_organization", "UNTRIAGED"),
-        ("insert_budget_reservation_statement", "UNTRIAGED"),
+        (
+            "insert_budget_reservation_statement",
+            "EXAMINED, no gap, and the survivor is the one that matters. `ai.rs` holds THREE reservation statements: the unconditional `INSERT_BUDGET_RESERVATION_SQL` (this one), the CONDITIONAL `insert_budget_reservation_if_available_statement`, and `update_budget_reservation_statement`. The conditional one is the live insert and it carries the hard ceiling: `WHERE NOT EXISTS (SELECT 1 FROM budgets b WHERE b.org_id = ?3 AND b.hard = 1 ... AND b.limit_minor - usage - reserved < ?4)`. That is the statement `verify:budget-concurrency` measures at 28/28, so the hard-budget refusal is enforced by the query that is actually called. The unconditional insert is the leftover shape for a reservation made without a ceiling check, and leaving it uncalled is correct -- wiring it would be a way to reserve without consulting the budget, which is the V01-006 class.",
+        ),
         ("insert_notification_delivery_statement", "UNTRIAGED"),
         ("insert_notification_statement", "UNTRIAGED"),
         ("insert_plan_entitlement_statement", "UNTRIAGED"),
@@ -219,7 +225,10 @@ mod tests {
             "list_quarantines",
             "V01-043, now called by GET /api/v1/internal/plugin-quarantines. Without it the other two are unauditable: an operator who cannot see the set cannot judge a lift.",
         ),
-        ("list_reservations_page", "UNTRIAGED"),
+        (
+            "list_reservations_page",
+            "EXAMINED, no gap. Keyset-paginated reservation history. The budget dashboard reads summaries through the list/summarize paths that ARE called; a per-reservation history page is not exposed, so nothing needs the rows. The doc comment says it is there for an authorized dashboard, and that view does not exist yet.",
+        ),
         ("list_signing_keys", "UNTRIAGED"),
         (
             "mark_artifact_deleted_statement",
