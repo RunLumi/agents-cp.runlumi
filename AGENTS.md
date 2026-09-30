@@ -439,8 +439,27 @@ throughout.
 | V01-041 | device-enrollment **denial** | — | added: a pending enrollment could be **approved but never denied**, so a human control had an affirmative branch and no negative one |
 | V01-042 | idempotency-record **purge** | — | added: a bounded, indexed, validated purge with **no caller**, in a sweep running every minute |
 | V01-043 | plugin **quarantine** | enforced on **four** paths | added: the platform could detect, report and refuse — and never *make* a quarantine |
+| V01-046 | webhook **fan-out** | not implemented | not implemented |
+| V01-047 | run-source **usage writer** | not implemented | read path wired anyway |
 
-The last is the worst shape: **neither direction existed.** A kill switch with no lever is not a control
+**V01-043 is no longer the worst shape**, because two worse ones were found after it.
+V01-046 is a **lever with no trigger** — operable, inert, and safe in the failure direction — and
+**V01-047 is worse than both: the READ path is wired and the WRITE path is not.**
+`list_usage` and `summarize_usage` `UNION ALL` a `run_usage_events` table that
+`P05-CR-002` §7 (accepted) commits to in the present tense, and `usage_events.source` carries
+`CHECK (source IN ('inference','run'))` — the constraint was **widened to admit the second source,
+the read path was built to consume it, and the writer was never written.** `is_run_source()` is
+called from six production sites and is **structurally incapable of being true**: `UsageSource` is
+`Deserialize`-derived, so a variant grep cannot prove it, and it took three checks — every non-test
+mention is a read or a branch, the only production `UsageEventRecord` construction with a `source`
+is inside `#[cfg(test)]`, and the schema permits what the application never writes. **A missing
+capability is visible; a missing half of a symmetric pair is invisible by construction**, because
+the populated half answers for the empty one. And a **liveness check can be satisfied by a call
+that can never execute** — `is_run_source` and both run-cost writers *are* called, and are
+unreachable behind a condition that cannot hold.
+
+V01-043 remains the shape to remember, though, because it is the one that is dangerous rather than
+merely absent: **neither direction existed.** A kill switch with no lever is not a control
 that is weak, it is a control that cannot be operated during the incident it exists for. ADR 0007 puts
 quarantine deliberately in staff hands, the role holds `PluginQuarantine`, and there was nothing to
 exercise it with.
