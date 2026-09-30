@@ -250,12 +250,16 @@ run_case() {
 # rather than assuming the operator remembered it.
 echo "=== stack ==="
 restart_dev || exit 2
-if [ "$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)" = "000" ]; then
+if [ "${api_code:-000}" = "000" ]; then
   echo "FATAL: the API is not answering on :8787 after restart_dev" >&2
   exit 2
 fi
-echo "  vite=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)" \
-     api=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)"
+# Assigned first, then echoed. Quoting `"%{http_code}"` inside `$( )` inside `" "` nests three levels
+# and made the script unparseable; bash reported the error 80 lines away at a heredoc, so the real
+# fault was nowhere near the reported line.
+vite_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)"
+api_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)"
+echo "  vite=${vite_code} api=${api_code}"
 
 echo "=== baseline ==="
 pkill -9 -f "Google Chrome for Testing" 2>/dev/null
