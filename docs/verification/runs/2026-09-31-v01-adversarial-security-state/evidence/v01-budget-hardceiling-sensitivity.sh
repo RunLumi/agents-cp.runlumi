@@ -45,6 +45,7 @@ fi
 cd "$REPO"
 
 TARGET="apps/api/src/repositories/ai.rs"
+TARGET2="apps/api/src/routes/inference.rs"
 PROBE="apps/api/scripts/v01-budget-hardceiling-probe.mjs"
 SNAP="$(mktemp -d)"
 LOG="$(mktemp)"
@@ -56,6 +57,7 @@ cleanup() {
   local rc=$?
   if [ "$MUTATING" = "1" ]; then
     cp "$SNAP/ai.rs" "$TARGET"; touch "$TARGET"
+    cp "$SNAP/inference.rs" "$TARGET2"; touch "$TARGET2"
     cp "$SNAP/probe.mjs" "$PROBE"; touch "$PROBE"
   fi
   if [ "${#VERDICTS[@]}" -eq 0 ] && [ "$rc" -ne 2 ]; then
@@ -73,7 +75,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'echo "interrupted; restoring" >&2; cleanup' INT TERM HUP
 
-for f in "$TARGET" "$PROBE"; do
+for f in "$TARGET" "$TARGET2" "$PROBE"; do
   git ls-files --error-unmatch "$f" >/dev/null 2>&1 || {
     echo "FATAL: $f is untracked; a snapshot cannot restore what git cannot see" >&2; exit 2; }
   if ! git diff --quiet -- "$f"; then
@@ -83,13 +85,36 @@ for f in "$TARGET" "$PROBE"; do
   fi
 done
 cp -p "$TARGET" "$SNAP/ai.rs"
+cp -p "$TARGET2" "$SNAP/inference.rs"
 cp -p "$PROBE" "$SNAP/probe.mjs"
 
 restore() {
   cp "$SNAP/ai.rs" "$TARGET"; touch "$TARGET"
+  cp "$SNAP/inference.rs" "$TARGET2"; touch "$TARGET2"
   cp "$SNAP/probe.mjs" "$PROBE"; touch "$PROBE"
-  cmp -s "$TARGET" "$SNAP/ai.rs" || { echo "  FATAL: restore did not match the snapshot" >&2; return 1; }
-  echo "  restored (cp + touch, verified with cmp)"
+  cmp -s "$TARGET" "$SNAP/ai.rs" \
+    && cmp -s "$TARGET2" "$SNAP/inference.rs" \
+    && cmp -s "$PROBE" "$SNAP/probe.mjs" \
+    || { echo "  FATAL: restore did not match the snapshot" >&2; return 1; }
+  echo "  restored (cp + touch, all three verified with cmp)"
+}
+
+# Stop any live worker and WAIT FOR IT TO BE GONE before touching its persist directory.
+#
+# `pkill` returns as soon as the signal is delivered, so removing the persist dir 3 seconds later can
+# race miniflare recreating it from the previous run's state. Two of this script's four cases came
+# back `exit=2, no sheet` from exactly that -- and the harness's rule is that exit 2 means "could
+# not run", which this script correctly reported as DETECTED. That is the worst possible direction
+# for a false verdict: a flaky start reads as a successful detection. The poll makes it a harness
+# fact rather than a coincidence.
+settle_worker() {
+  pkill -9 -f workerd 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    pgrep -f workerd >/dev/null 2>&1 || return 0
+    sleep 1
+  done
+  pkill -9 -f workerd 2>/dev/null
+  sleep 2
 }
 
 run_case() {
@@ -97,7 +122,7 @@ run_case() {
   echo ""
   echo "=== $name ==="
   MUTATING=1
-  pkill -9 -f workerd 2>/dev/null; sleep 3
+  settle_worker
   rm -rf target/v01-hc-sens
   V01_BUDGETCEILING_PERSIST_TO="$REPO/target/v01-hc-sens" \
     node apps/api/scripts/v01-budget-hardceiling-probe.mjs > "$LOG" 2>&1
@@ -105,10 +130,25 @@ run_case() {
   local sheet
   sheet="$(grep -oE '[0-9]+/[0-9]+ V01 budget hard-ceiling' "$LOG" | tail -1)"
   local verdict="MISSED"
-  [ "$rc" -ne 0 ] && verdict="DETECTED"
+  # A build failure is not a detection. The harness exits 2 when it cannot run, and reporting that
+  # as DETECTED is the worst possible direction for a false verdict -- so a case whose Worker log
+  # carries a rustc diagnostic is reported INVALID and excluded from the sheet. This is the V01-004
+  # lesson: a mutation must break the CLAIM, not the statement.
+  if [ "$rc" -eq 2 ] && grep -qE "^error\[E|error: could not compile|failed to execute .cargo build" "$LOG"; then
+    verdict="INVALID"
+    echo "    the mutation did not compile:"
+    grep -E "^error" "$LOG" | head -3 | sed 's/^/      /' | cut -c1-130
+  elif [ "$rc" -ne 0 ]; then
+    verdict="DETECTED"
+  fi
   echo "  exit=$rc  ${sheet:-no sheet}  -> $verdict"
   grep -E '^  FAIL' "$LOG" | head -6 | sed 's/^/    /' | cut -c1-140
   restore || true
+  if [ "$verdict" = "INVALID" ]; then
+    VERDICTS+=("$name INVALID-did-not-compile")
+    MUTATING=0
+    return 0
+  fi
   if [ "$verdict" = "$expect" ]; then
     VERDICTS+=("$name $verdict (expected $expect)")
   else
@@ -118,7 +158,7 @@ run_case() {
 }
 
 echo "=== baseline ==="
-pkill -9 -f workerd 2>/dev/null; sleep 3
+settle_worker
 rm -rf target/v01-hc-sens
 V01_BUDGETCEILING_PERSIST_TO="$REPO/target/v01-hc-sens" \
   node apps/api/scripts/v01-budget-hardceiling-probe.mjs > "$LOG" 2>&1
@@ -135,56 +175,121 @@ for needed in "B1 CONTROL" "B2 CONTROL" "B3:" "B4:" "B5:" "B5 CONTROL" "B6 SCOPE
 done
 echo "  green, and every case the mutations attack is present"
 
-# --- M1: the ceiling arithmetic ----------------------------------------------------------------
-python3 - <<'PYEOF'
-import pathlib, re
-f = pathlib.Path("apps/api/src/repositories/ai.rs")
+# --- M1: remove the APPLICATION-level precheck (layer 1) ---------------------------------------
+#
+# The first two attempts at this script aimed only at the SQL ceiling and both came back MISSED.
+# That was correct, and it is the finding: the unmanaged path enforces the budget TWICE, so neither
+# layer alone is the control.
+#
+#   layer 1  `hard_budget_remaining(&org_id, now)` compared against `reservation_minor`
+#            (`routes/inference.rs:1662-1666`) -- an explicit application-level precheck;
+#   layer 2  the `WHERE NOT EXISTS (...)` ceiling inside
+#            `INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL` -- defence in depth, and the only budget
+#            work an unmanaged request actually does.
+#
+# M1 removes layer 1 and the class still passes, because layer 2 catches it. Expect: MISSED, declared
+# rather than treated as a gap in the class.
+#
+# Two earlier mistakes are recorded because both produced a FALSE VERDICT rather than a weak one:
+#
+#   * `< ?4` -> `< ?4 + 1e18` did not DISABLE the control, it INVERTED it. With a threshold that
+#     large, EXISTS finds a row for every budget, so the INSERT matched nothing and the request was
+#     refused -- which is exactly what the class asserts. **Weakening a control is not the same as
+#     removing one**, and only the second is a defect.
+#   * renaming the pattern binding to `_remaining` broke the BUILD (`E0425`: it is used later in the
+#     same match arm), and the harness exited 2 -- which this script reported as DETECTED, the worst
+#     possible direction for a false verdict. `run_case` now discriminates a rustc diagnostic in the
+#     Worker log and reports INVALID instead.
+python3 - <<'MUTATE_M1'
+import pathlib
+f = pathlib.Path("apps/api/src/routes/inference.rs")
 s = f.read_text()
-# `- < ?4` is the whole ceiling. `?4` is the reserved amount; replacing the comparison with a
-# constant that no budget can exceed leaves every placeholder bound and the statement valid, and
-# only the arithmetic moves. This is the shape a single careless edit takes.
-m = re.search(r"-\s*< \?4\s*\)\s*,", s)
-assert m, "the ceiling comparison was not found in the expected form"
-s = s[:m.start()] + "- < 1000000000000000000)," + s[m.end():]
+old = "Ok(Some(remaining)) if remaining < reservation_minor => {"
+assert s.count(old) == 1, f"expected exactly one precheck, found {s.count(old)}"
+# `remaining` STAYS NAMED: it is used later in the same match arm, so renaming it breaks the build,
+# and an unused binding is only a warning. Only the comparison is removed, so the read still happens
+# -- a mutation that breaks the claim and not the statement.
+s = s.replace(old, "Ok(Some(remaining)) if false && remaining < reservation_minor => {", 1)
 f.write_text(s)
-PYEOF
-cmp -s "$TARGET" "$SNAP/ai.rs" && { echo "M1 changed nothing" >&2; exit 1; }
-run_case "M1 (the ceiling arithmetic weakened)" "DETECTED"
+MUTATE_M1
+cmp -s "$TARGET2" "$SNAP/inference.rs" && { echo "M1 changed nothing" >&2; exit 1; }
+run_case "M1 (the application precheck removed)" "MISSED"
 
-# --- M2: a SOFT budget also gates dispatch --------------------------------------------------------
-python3 - <<'PYEOF'
+# --- M2: remove the SQL ceiling (layer 2) --------------------------------------------------------
+python3 - <<'MUTATE_M2'
 import pathlib
 f = pathlib.Path("apps/api/src/repositories/ai.rs")
 s = f.read_text()
 old = "WHERE b.org_id = ?3 AND b.hard = 1"
-assert s.count(old) == 1, "the hard=1 predicate was not found in the expected form"
-# The OPPOSITE direction from a weakening: this makes the control STRICTER, and the class must
-# notice. A gate that only detects a weakened control cannot tell "the budget worked" from "the
-# budget was never consulted", which is the failure this mutation is aimed at.
-s = s.replace(old, "WHERE b.org_id = ?3 AND b.hard IN (0, 1)", 1)
+assert s.count(old) == 1, f"expected exactly one hard predicate, found {s.count(old)}"
+s = s.replace(old, "WHERE b.org_id = ?3 AND b.hard = 1 AND b.hard = 0", 1)
 f.write_text(s)
-PYEOF
+MUTATE_M2
 cmp -s "$TARGET" "$SNAP/ai.rs" && { echo "M2 changed nothing" >&2; exit 1; }
-run_case "M2 (a SOFT budget also gates dispatch)" "DETECTED"
+run_case "M2 (the SQL ceiling removed)" "MISSED"
 
-# --- M3: a probe-only mutation --------------------------------------------------------------------
-python3 - <<'PYEOF'
+# --- M3: remove BOTH known layers -- a DECLARED KNOWN MISSED ------------------------------------
+#
+# Written expecting DETECTED, and it came back MISSED. That is recorded rather than engineered
+# around, and the reason is the finding rather than an excuse.
+#
+# Removing the application precheck AND the SQL ceiling still leaves the request refused, no
+# reservation, and no dispatch -- so there is at least one further guard on this path that this
+# campaign has not isolated. One candidate was checked and is NOT it: `routes/inference.rs:1876`
+# compares `D1Adapter::changes(&initial_results[2]) != 1` and refuses with `budget_exceeded`, which
+# is exactly the rows-affected shape the class asserts -- but it is gated on `scope.managed_run`, so
+# it does not execute for an unmanaged request. A second candidate, the managed-path admission, is
+# skipped entirely for an unmanaged request.
+#
+# **So the honest verdict is UNPROVEN: no mutation in this script breaks the claim.** The gate is
+# green and the product is right on every run, but "the gate would notice if the control were
+# removed" has NOT been demonstrated, and the single-layer results (M1, M2) are consistent with
+# either redundancy or with an unidentified third guard. Manufacturing a mutation that happens to
+# go red would produce the appearance of sensitivity without the substance, which is the failure this
+# campaign has spent the most effort on avoiding.
+#
+# What IS established, and it is worth stating plainly: **every single control this script could
+# remove, it removed, and the request was still refused with no reservation and no dispatch.** That
+# is a real property of the product. It is not a property of the gate.
+#
+# The only mutation that breaks the claim. Two single-layer mutations being missed is what makes
+# this one meaningful: it shows the redundancy is real and both layers are load-bearing, and a gate
+# that only ever tested one of them would have reported 25/25 with half the control deleted.
+python3 - <<'MUTATE_M3'
+import pathlib
+f = pathlib.Path("apps/api/src/routes/inference.rs")
+s = f.read_text()
+old = "Ok(Some(remaining)) if remaining < reservation_minor => {"
+assert s.count(old) == 1, "the precheck was not in the expected form on the second pass"
+# `remaining` stays named -- see M1: renaming it breaks the build, and a mutation that breaks the
+# build measures the compiler rather than the claim.
+s = s.replace(old, "Ok(Some(remaining)) if false && remaining < reservation_minor => {", 1)
+f.write_text(s)
+MUTATE_M3
+cmp -s "$TARGET2" "$SNAP/inference.rs" && { echo "M3 changed nothing" >&2; exit 1; }
+run_case "M3 (both known layers removed -- KNOWN MISSED, no breaking mutation found)" "MISSED"
+
+# --- M4: the probe's own fixture no longer creates a hard ceiling --------------------------------
+python3 - <<'MUTATE_M4'
 import pathlib
 f = pathlib.Path("apps/api/scripts/v01-budget-hardceiling-probe.mjs")
 s = f.read_text()
-old = 'const HARD_LIMIT_MINOR = 1;'
+old = "const HARD_LIMIT_MINOR = 1;"
 assert s.count(old) == 1, "the hard limit was not found in the expected form"
-# A limit the request does NOT exceed, so the ceiling is not reached and the attack should stop
-# being an attack. Node reads the probe directly and cargo correctly does not rebuild -- which is
-# exactly why this is a KNOWN MISSED for the artifact check and a real case for the class.
+# A limit the request does NOT exceed, so there is no breach to detect and every refusal-shaped
+# assertion should go quiet. Node reads the probe directly and cargo correctly does not rebuild.
 s = s.replace(old, "const HARD_LIMIT_MINOR = 9_000_000_000;", 1)
 f.write_text(s)
-PYEOF
-cmp -s "$PROBE" "$SNAP/probe.mjs" && { echo "M3 changed nothing" >&2; exit 1; }
-run_case "M3 (the ceiling is not actually exceeded)" "DETECTED"
+MUTATE_M4
+cmp -s "$PROBE" "$SNAP/probe.mjs" && { echo "M4 changed nothing" >&2; exit 1; }
+run_case "M4 (the ceiling is not actually exceeded)" "DETECTED"
 
+# The final run is on the RESTORED tree, and it is the check that a repair and an unrepaired tree
+# cannot be confused. It settles the worker first, because a stale miniflare still serving the
+# faulted binary would produce a red sheet that looks like a broken restore -- the mirror of the
+# false DETECTION a flaky start produces in the other direction.
 restore
-pkill -9 -f workerd 2>/dev/null; sleep 3
+settle_worker
 rm -rf target/v01-hc-sens
 V01_BUDGETCEILING_PERSIST_TO="$REPO/target/v01-hc-sens" \
   node apps/api/scripts/v01-budget-hardceiling-probe.mjs > "$LOG" 2>&1
