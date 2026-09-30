@@ -789,27 +789,116 @@ async function main() {
   if (SHOTS) await page.screenshot(join(SHOTS, "05-deeplink-data.png"));
 
   // ---- keyboard reachability and visible focus ----------------------------
+  //
+  // V02-001 REPAIRED. The previous version of this check was:
+  //
+  //   (focusProbe.boxShadow && focusProbe.boxShadow !== "none") || (outline not "none")
+  //
+  // and its own diagnostic printed `rgba(0, 0, 0, 0)` while it PASSED. Two failures in three
+  // characters: `boxShadow !== "none"` is satisfied by a ZERO-ALPHA shadow, which is the canonical
+  // absence of one, and any RESTING shadow satisfies it too. In a design system where every control
+  // is `rounded-lg` with a border and a drop shadow, that assertion is true for every focused control
+  // in the application -- and would still be true with the focus ring deleted from the source. The
+  // check could not fail on the defect it names.
+  //
+  // The repair is a DELTA rather than an absolute: measure the control's rendering UNFOCUSED, then
+  // again after a REAL key press, and require the rendering to change. A resting shadow is present
+  // in both readings and cancels, so the assertion is immune to resting shadows, to transparent
+  // layers, and to design-system tokens at once. This is the same "measure the delta, never an
+  // absolute" discipline the V01 webhook fan-out gate uses for an absence.
+  //
+  // The key press is real. `element.focus()` from script and a synthetic `new KeyboardEvent` both
+  // leave `cdp.mjs` without a way to deliver a key, which is why the old measurement could not
+  // engage `:focus-visible` the way a keyboard user does. `page.press("Tab")` is one CDP call and
+  // moves focus through the same input path a physical key takes.
   const focusProbe = await page.evaluate(() => {
-    const first = document.querySelector("#org-switcher");
-    if (!first) return null;
-    first.focus();
-    const styles = getComputedStyle(first);
-    return {
-      active: document.activeElement === first,
-      boxShadow: styles.boxShadow,
-      outline: `${styles.outlineStyle}/${styles.outlineWidth}`,
+    const target = document.querySelector("#org-switcher");
+    if (!target) return null;
+    const read = (element) => {
+      const styles = getComputedStyle(element);
+      return {
+        boxShadow: styles.boxShadow,
+        outlineStyle: styles.outlineStyle,
+        outlineWidth: styles.outlineWidth,
+        outlineColor: styles.outlineColor,
+        borderColor: styles.borderColor,
+        background: styles.backgroundColor,
+        // A ring can also be painted with an outline, so the outline's own width matters: an
+        // `outline: none / 1px` pair is the "no outline" declaration, not a 1px outline.
+        outlineVisible: styles.outlineStyle !== "none" && styles.outlineWidth !== "0px",
+      };
     };
+    return { before: read(target) };
   });
+
+  // A real Tab, repeated until the target itself holds focus. The first Tab from wherever focus
+  // happens to sit may land elsewhere, and asserting on the wrong element would be the same class
+  // of error as measuring the wrong property.
+  let focusReached = false;
+  let focusAfter = null;
+  for (let attempt = 0; attempt < 24 && !focusReached; attempt += 1) {
+    await page.press("Tab");
+    focusAfter = await page.evaluate(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) return { id: null, tag: "body" };
+      const styles = getComputedStyle(active);
+      return {
+        id: active.id || null,
+        tag: active.tagName,
+        label: (active.textContent ?? "").trim().slice(0, 40),
+        focusVisible: active.matches(":focus-visible"),
+        boxShadow: styles.boxShadow,
+        outlineStyle: styles.outlineStyle,
+        outlineWidth: styles.outlineWidth,
+        outlineColor: styles.outlineColor,
+        borderColor: styles.borderColor,
+        background: styles.backgroundColor,
+        outlineVisible: styles.outlineStyle !== "none" && styles.outlineWidth !== "0px",
+      };
+    });
+    focusReached = focusAfter.id === "org-switcher";
+  }
+
   check(
-    "the organization switcher is keyboard focusable",
-    focusProbe?.active === true,
-    JSON.stringify(focusProbe),
+    "the organization switcher is reachable by pressing Tab (a real key event, not a synthetic one)",
+    focusReached === true,
+    `reached=${focusReached} active=<${focusAfter?.tag}> id=${focusAfter?.id ?? "-"} ` +
+      `focusVisible=${focusAfter?.focusVisible} label=${JSON.stringify(focusAfter?.label ?? "")}`,
   );
   check(
-    "focus on the primary navigation control is visible (ring or outline)",
-    (focusProbe.boxShadow && focusProbe.boxShadow !== "none") ||
-      (focusProbe.outline && !focusProbe.outline.startsWith("none")),
-    `box-shadow=${focusProbe?.boxShadow}`,
+    "the organization switcher is focusable and matches :focus-visible under keyboard focus",
+    focusAfter?.focusVisible === true,
+    `focusVisible=${focusAfter?.focusVisible}`,
+  );
+
+  // The delta itself. Compared property by property, because "some property changed" would be
+  // satisfied by a transition the design system applies to every control regardless of focus.
+  const before = focusProbe?.before;
+  const changed = before
+    ? [
+        ["boxShadow", before.boxShadow !== focusAfter?.boxShadow],
+        ["outlineWidth", before.outlineWidth !== focusAfter?.outlineWidth],
+        ["outlineColor", before.outlineColor !== focusAfter?.outlineColor],
+        ["borderColor", before.borderColor !== focusAfter?.borderColor],
+        ["background", before.background !== focusAfter?.background],
+      ].filter(([, changed]) => changed)
+    : [];
+  check(
+    "focusing the switcher VISIBLY changes its rendering (a delta, not the presence of a shadow)",
+    changed.length > 0,
+    `changed=[${changed.map(([name]) => name).join(", ")}] ` +
+      `before.boxShadow=${JSON.stringify(before?.boxShadow)} ` +
+      `after.boxShadow=${JSON.stringify(focusAfter?.boxShadow)}`,
+  );
+  // And the control against the regression this finding came from: a check that only proves "a
+  // shadow exists" is what shipped the defect, so the assertion is re-derived here from the
+  // UNFOCUSED reading. A control whose focus ring were deleted would leave the before/after
+  // readings identical and fail this case.
+  check(
+    "the ring is not merely PRESENT but CHANGED: a focus that only satisfies 'boxShadow !== none' " +
+      "is the V02-001 defect, and a control with a resting shadow must not pass on that alone",
+    before?.boxShadow !== focusAfter?.boxShadow,
+    `before=${JSON.stringify(before?.boxShadow)} after=${JSON.stringify(focusAfter?.boxShadow)}`,
   );
 
   // A roving tabindex (one tab in the sequence, the rest reached with arrow

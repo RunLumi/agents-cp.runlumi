@@ -140,6 +140,27 @@ function connect(url) {
   });
 }
 
+/**
+ * Virtual key codes for the keys this repository's browser journeys use.
+ *
+ * A closed table on purpose: `press` throws on an unregistered key rather than sending a guess, so
+ * "I pressed a key" always means a key was actually delivered. That matters because an assertion
+ * about keyboard behaviour is satisfied just as well by a key that never arrived as by a key the
+ * product mishandled — the V02-001 class of defect, where the instrument cannot register a signal.
+ */
+const KEY_CODES = {
+  Tab: { keyCode: 9, code: "Tab", text: "\t" },
+  Enter: { keyCode: 13, code: "Enter", text: "\r" },
+  Space: { keyCode: 32, code: "Space", text: " " },
+  Escape: { keyCode: 27, code: "Escape" },
+  ArrowLeft: { keyCode: 37, code: "ArrowLeft" },
+  ArrowUp: { keyCode: 38, code: "ArrowUp" },
+  ArrowRight: { keyCode: 39, code: "ArrowRight" },
+  ArrowDown: { keyCode: 40, code: "ArrowDown" },
+  Home: { keyCode: 36, code: "Home" },
+  End: { keyCode: 35, code: "End" },
+};
+
 export async function newPage(browser, url = "about:blank") {
   const { targetId } = await browser.send("Target.createTarget", { url });
   const { sessionId } = await browser.send("Target.attachToTarget", { targetId, flatten: true });
@@ -195,6 +216,51 @@ export async function newPage(browser, url = "about:blank") {
         deviceScaleFactor: 1,
         mobile,
       });
+    },
+
+    /**
+     * Send a REAL key press through CDP.
+     *
+     * WHY THIS EXISTS (V02-001)
+     *
+     * Until now the driver had no key capability at all, so both keyboard claims in
+     * `browser-probe.mjs` were synthetic: the focus check called `element.focus()` from script, and
+     * the roving-tablist check dispatched `new KeyboardEvent("keydown", ...)`. A synthetic event
+     * exercises a listener; it does not move focus, does not set `:focus-visible` the way a user
+     * does, and does not traverse the tab order. So "reachable with the keyboard" was supported only
+     * in the weak sense that a dispatched event invokes a handler.
+     *
+     * `Input.dispatchKeyEvent` is the real thing: Chrome processes it through the same input path a
+     * physical key takes, so focus MOVES and `:focus-visible` engages. That is what makes a
+     * visible-focus assertion meaningful rather than tautological.
+     *
+     * `key` is the physical key name ("Tab", "Enter", "ArrowRight"); the virtual key code is
+     * required by the protocol and is filled in for the keys this repository uses. An unknown key
+     * throws rather than silently doing nothing, because a key press that does not arrive would
+     * make a keyboard assertion vacuously true.
+     */
+    async press(key, { shift = false } = {}) {
+      const spec = KEY_CODES[key];
+      if (!spec) {
+        throw new Error(
+          `press("${key}"): no virtual key code registered. A key press that cannot be sent would ` +
+            `make a keyboard assertion vacuously true, so this throws instead.`,
+        );
+      }
+      const modifiers = shift ? 8 : 0;
+      const common = {
+        key,
+        code: spec.code,
+        windowsVirtualKeyCode: spec.keyCode,
+        nativeVirtualKeyCode: spec.keyCode,
+        modifiers,
+      };
+      await page.send("Input.dispatchKeyEvent", { ...common, type: "rawKeyDown" });
+      if (spec.text) {
+        await page.send("Input.dispatchKeyEvent", { type: "char", text: spec.text, modifiers });
+      }
+      await page.send("Input.dispatchKeyEvent", { ...common, type: "keyUp" });
+      return key;
     },
   };
   await page.send("Page.enable", {});
