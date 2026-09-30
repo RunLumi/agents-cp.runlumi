@@ -55,7 +55,8 @@
     "verify:webhook-fanout": "pnpm --filter @runlumi/agents-cp-api verify:webhook-fanout",
     "verify:budget-hardceiling": "pnpm --filter @runlumi/agents-cp-api verify:budget-hardceiling",
     "verify:secret-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:secret-tenancy",
-    "verify:path-id-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:path-id-tenancy"
+    "verify:path-id-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:path-id-tenancy",
+    "perf:budgets": "pnpm --filter @runlumi/agents-cp-web perf:budgets"
   },
   "devDependencies": {
     "oxfmt": "0.70.0",
