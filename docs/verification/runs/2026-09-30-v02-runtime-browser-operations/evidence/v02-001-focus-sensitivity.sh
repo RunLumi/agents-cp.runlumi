@@ -137,18 +137,23 @@ restart_dev() {
   pkill -9 -f workerd 2>/dev/null
   sleep 4
   ( cd "$REPO" && nohup pnpm dev > "$DEV_LOG" 2>&1 & ) 
-  local tries=0
-  while [ "$tries" -lt 60 ]; do
-    local vite_code
+  # Wait for BOTH. Vite answers in a couple of seconds; the Worker applies the whole migration
+  # ledger on first boot and takes noticeably longer. Waiting only for Vite meant the API
+  # prerequisite check ran against a Worker that had not finished starting -- the check meant to
+  # establish the prerequisite was itself racing it, and reported the prerequisite as absent.
+  local tries=0 vite_code api_code
+  while [ "$tries" -lt 90 ]; do
     vite_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)"
-    if [ "$vite_code" = "200" ]; then
+    api_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)"
+    # A 401 is the correct answer from an unauthenticated caller and means the Worker is serving.
+    if [ "$vite_code" = "200" ] && { [ "$api_code" = "401" ] || [ "$api_code" = "200" ]; }; then
       sleep 3
       return 0
     fi
     tries=$((tries + 1))
     sleep 2
   done
-  echo "    FATAL: the dev server did not come back up on :${WEB_PORT}" >&2
+  echo "    FATAL: the stack did not come back up (vite=${vite_code:-000} api=${api_code:-000})" >&2
   return 1
 }
 
