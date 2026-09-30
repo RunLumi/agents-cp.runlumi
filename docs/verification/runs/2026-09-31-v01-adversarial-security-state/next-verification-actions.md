@@ -318,3 +318,69 @@ The tally of *verdicts* is the real output, because the verdicts are not one sha
 **Only one of the nineteen is a defect waiting to happen.** A check that printed the call graph
 without this distinction would give all nineteen the same name, and a reviewer could not tell which
 one to act on — which is the difference between a review list and a to-do list.
+
+## V01-048 — the unmanaged inference has a different budget control, and the third guard is unidentified
+
+**Status: behaviour PASS, sensitivity UNPROVEN. Both recorded; neither overstated.**
+
+`run_inference` puts the budget admission, the rate admission and the whole P05 block inside
+`if let Some(project_id) = managed_project_id` (`routes/inference.rs:1555`). **An ordinary inference —
+no `run_id`, which is most traffic — takes the `else`**, whose only pre-write budget control is one
+comparison against `hard_budget_remaining`, and whose only budget work is an INSERT whose ceiling
+lives in the SQL. `verify:budget-concurrency` and every other money gate drive the **managed** path, so
+two of the objective's five named budget requirements had no runtime evidence at all.
+
+The product is **right**: `403 budget_exceeded`, reservation count unchanged, zero usage rows, and no
+inference row the attack *added* reached a dispatched state. `pnpm verify:budget-hardceiling`
+**25/25, exit 0**, stable over three runs.
+
+### What is left open, and it is the interesting part
+
+**Three guards exist on this path and the campaign has isolated two.**
+
+| | guard | status |
+|---|---|---|
+| 1 | `hard_budget_remaining(&org_id, now) < reservation_minor` (`inference.rs:1662-1666`) | isolated, M2 removes it |
+| 2 | `WHERE NOT EXISTS (...)` ceiling in `INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL` | isolated, M3 removes it |
+| 3 | **not identified** | M4 removes 1 **and** 2 and the request is *still* refused |
+
+One candidate was checked and is **not** guard 3: `inference.rs:1876` compares
+`D1Adapter::changes(&initial_results[2]) != 1` and refuses with `budget_exceeded`, which is exactly
+the rows-affected shape the class asserts — but it is **gated on `scope.managed_run`**, so it does
+not execute for an unmanaged request.
+
+So: **the product is right, and the gate has not been shown to notice if the control were removed.**
+That is UNPROVEN, not a pass, and it is the next thing to do on this path — a deliberate read of the
+`else` branch of `run_inference`, not another mutation, because manufacturing a mutation that happens
+to go red would produce the appearance of sensitivity without the substance.
+
+### The generalisable lesson, which is the reason it is written down at all
+
+**Four controls in this one probe were satisfied for the wrong reason**, and two are mistakes this
+campaign has now made repeatedly:
+
+- **A control must exclude the refusals that happen *before* the thing under test, by name.** B1
+  asserted only "not `budget_state_unavailable`", and a malformed content part answers
+  `422 content_unsupported` before the budget check — so control and attack were both satisfied by a
+  request that never reached a budget. This is the **second** time this probe made that mistake.
+- **A control must answer the same question the product answers.** The applicability control
+  paraphrased the product's snapshot predicate and dropped
+  `b.period_start <= ?2 AND b.period_end > ?2`, counting **129** rows while the product's query saw
+  **one**. A paraphrase of a predicate is not the predicate.
+- **`allowed_models: []` is an empty list that permits NOTHING, where an absent field permits
+  everything** (`modules/catalog.rs:183`). An empty array is the *opposite* of unrestricted, and every
+  field of that request was individually valid.
+- **Weakening a control is not removing one.** `< ?4` → `< ?4 + 1e18` makes EXISTS match every
+  budget, so the INSERT matches nothing, so the request is **refused** — exactly what the class
+  asserts. The mutation inverted the control. Only the second kind is a defect.
+
+And the two harness faults, both of which produced a *false* verdict rather than a weak one:
+
+- renaming a pattern binding to `_remaining` broke the **build** (`E0425`) and the harness exited 2,
+  which the script reported as **DETECTED**;
+- `pkill` returns as soon as the signal is delivered, so removing the persist directory three seconds
+  later raced a live miniflare recreating it: two `exit 2, no sheet` flakes, also read as detections.
+
+**A flaky start and a broken mutation both read as a detection**, which is the worst possible
+direction for a false verdict. `run_case` now discriminates a rustc diagnostic in the Worker log and
+reports `INVALID`; `settle_worker` polls until `workerd` is gone.
