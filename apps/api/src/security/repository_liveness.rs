@@ -170,8 +170,14 @@ mod tests {
         ("find_identity_by_user", "UNTRIAGED"),
         ("find_key_by_prefix", "UNTRIAGED"),
         ("find_live_device_token", "UNTRIAGED"),
-        ("find_snapshot", "UNTRIAGED"),
-        ("find_snapshot_by_version", "UNTRIAGED"),
+        (
+            "find_snapshot",
+            "EXAMINED, and the one entry triaged as a LATENT cross-tenant read rather than a gap. `SNAPSHOT_BY_ID_SQL` is `WHERE policy_id = ?1` with NO `org_id` predicate, so it would return another organization's compiled policy payload. It is unreachable: no route takes a `policy_id` in its path (`/policy`, `/policy/tools`, `/plugins/policy` are all org-scoped with no id), and the only caller that needs a snapshot uses the org-scoped `latest_snapshot`. Recorded because the defect is latent and one route away -- if a future route ever accepts a policy id, this is the statement that would leak.",
+        ),
+        (
+            "find_snapshot_by_version",
+            "EXAMINED, no gap. `WHERE org_id = ?1 AND policy_version = ?2` is correctly org-scoped, and nothing needs it: the compile path reads `latest_snapshot`, and the one write site (`routes/devices.rs:363`, the device policy cache) is a dedup against the latest, not a versioned fetch. A point lookup with no caller is cheaper to keep than to justify removing.",
+        ),
         ("get_for_organization", "UNTRIAGED"),
         ("insert_budget_reservation_statement", "UNTRIAGED"),
         ("insert_notification_delivery_statement", "UNTRIAGED"),
@@ -195,7 +201,10 @@ mod tests {
             "list_cost_records",
             "V01-047, examined. A list over `cost_records` with no caller. The per-record reads (`find_cost_record`, `find_run_cost_record`) ARE called from `routes/usage.rs:1193-1204`, so this is a list variant nothing needs -- not a gap, and recorded so it is not re-derived.",
         ),
-        ("list_deletions_for_user", "UNTRIAGED"),
+        (
+            "list_deletions_for_user",
+            "EXAMINED, no gap. A per-user listing; the routes read deletions by scope (`find_deletion_for_scope`, `find_deletion_for_target`) and by id (`find_deletion_for_scope` at `routes/data_governance.rs`), which is what the tenant-scoped API needs. Nothing asks for one user's deletions across scopes.",
+        ),
         ("list_entitlement_definitions", "UNTRIAGED"),
         (
             "list_quarantines",
@@ -203,14 +212,20 @@ mod tests {
         ),
         ("list_reservations_page", "UNTRIAGED"),
         ("list_signing_keys", "UNTRIAGED"),
-        ("mark_artifact_deleted_statement", "UNTRIAGED"),
+        (
+            "mark_artifact_deleted_statement",
+            "EXAMINED, no gap in the deletion LIFECYCLE, and a leaf that is unused rather than missing. The lifecycle is live: `insert_deletion_statement`, `update_deletion_state_statement` (two sites in `consumers/data_jobs.rs`) and the queue envelope all have callers, and the consumer plans through `deletion_inventory`. This one would flip `export_artifacts.deleted_at` and has no caller -- a leaf the expiry path covers by TTL, so nothing is left un-deleted; recorded so it is not re-derived.",
+        ),
         ("record_provider_failure_statement", "UNTRIAGED"),
         (
             "revoke_grants_statement",
             "EXAMINED, and the sixth instance of the read-without-write / write-without-read shape. `export_download_grants` is LIVE: `insert_download_grant_statement`, `find_download_grant` and `touch_download_grant_statement` all have callers in `routes/data_governance.rs`. Only the REVOKE is unreachable. Redemption checks `revoked_at IS NULL` AND `expires_at`, and the TTL is `DOWNLOAD_GRANT_TTL_SECONDS = 900` (15 min, frozen by the AccessGrant baseline), so the working control is expiry and the missing one is EARLY revocation: a leaked grant cannot be killed before it expires. No spec requires revocation, and the failure direction is fail-closed, so this is a capability gap rather than a contract violation -- recorded so it is not re-derived, not repaired here because adding a revoke route is a feature with its own spec.",
         ),
         ("seat_policy_for_plan", "UNTRIAGED"),
-        ("set_deletion_cutoff_statement", "UNTRIAGED"),
+        (
+            "set_deletion_cutoff_statement",
+            "EXAMINED, same family as `mark_artifact_deleted_statement`: a leaf with no caller. It would stamp `deletion_jobs` with the cutoff the job actually applied. The job still transitions through `update_deletion_state_statement`, so the lifecycle completes; what is absent is the record of WHERE the deletion stopped. Left untriaged in the sense that whether the retention certificate needs it is a P06 question, not a code one.",
+        ),
         ("switches_for", "UNTRIAGED"),
         (
             "to_verification_key",
