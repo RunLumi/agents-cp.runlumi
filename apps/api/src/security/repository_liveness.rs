@@ -156,8 +156,32 @@ mod tests {
         // unexamined scan output that nobody read, and two of the three findings in this class were
         // sitting in it. A list that says "53, of which 53 are untriaged" is a to-do list; a list that
         // is absent is a false assurance.
-        ("create_organization", "UNTRIAGED"),
-        ("create_user", "UNTRIAGED"),
+        (
+            "create_organization",
+            concat!(
+                "EXAMINED, a convenience wrapper, and the divergence surface is worth naming. It ",
+                "batches `insert_organization_statement` + `insert_owner_membership_statement`, and ",
+                "the ROUTED `POST /api/v1/orgs` handler builds the SAME two-statement batch itself ",
+                "(routes/organizations.rs:217 and :226) rather than calling this. So both statements ",
+                "are live and this wrapper is not. The duplication is small today and specific: a ",
+                "two-statement batch exists in two places and only the route's copy is exercised, so ",
+                "a third statement added to the wrapper would silently not reach the route. The same ",
+                "shape as the three audit bodies in V01-049 -- one capability, several bodies, one ",
+                "live"
+            ),
+        ),
+        (
+            "create_user",
+            concat!(
+                "EXAMINED, a convenience wrapper over a LIVE write. It delegates to ",
+                "`insert_user_statement` at line 386, and that statement has THREE production call ",
+                "sites: password signup (`routes/auth.rs:142`), passkey signup and device-code ",
+                "(`routes/authenticators.rs:372` and `:704`). User creation is well covered; this ",
+                "wrapper simply has no caller. Recorded because it is a WRITE wrapper, so a reader ",
+                "who found it first would reasonably take it for the creation path and conclude the ",
+                "table was unwritten"
+            ),
+        ),
         ("decode_json_document", "UNTRIAGED"),
         ("decode_stored_bytes", "UNTRIAGED"),
         (
@@ -261,7 +285,22 @@ mod tests {
             "list_reservations_page",
             "EXAMINED, no gap. Keyset-paginated reservation history. The budget dashboard reads summaries through the list/summarize paths that ARE called; a per-reservation history page is not exposed, so nothing needs the rows. The doc comment says it is there for an authorized dashboard, and that view does not exist yet.",
         ),
-        ("list_signing_keys", "UNTRIAGED"),
+        (
+            "list_signing_keys",
+            concat!(
+                "EXAMINED, correctly absent FROM THIS REPOSITORY, with a limit worth stating. It is ",
+                "the only reader of the active license signing key set (ACTIVE_SIGNING_KEYS_SQL is ",
+                "inside it), and it has no production caller; `trusted_verification_key_ids`, which ",
+                "decides which keys may verify, is exercised only by a unit test. So nothing here ",
+                "reads the trusted key set. That is not a requirement violation: FR-F18-003 says the ",
+                "Desktop/CLI receives a short-lived SIGNED snapshot, which puts verification on the ",
+                "client, and the client is a different repository. The signing side IS live -- ",
+                "`compile_device_license_block` is called by routes/devices.rs:1022. ",
+                "The honest limit: whether the issued snapshot is actually verifiable is UNPROVEN ",
+                "from here, because the verifying consumer is out of scope. Recorded so the ",
+                "distinction is on the record rather than inferred from a green sheet"
+            ),
+        ),
         (
             "mark_artifact_deleted_statement",
             "EXAMINED, no gap in the deletion LIFECYCLE, and a leaf that is unused rather than missing. The lifecycle is live: `insert_deletion_statement`, `update_deletion_state_statement` (two sites in `consumers/data_jobs.rs`) and the queue envelope all have callers, and the consumer plans through `deletion_inventory`. This one would flip `export_artifacts.deleted_at` and has no caller -- a leaf the expiry path covers by TTL, so nothing is left un-deleted; recorded so it is not re-derived.",
