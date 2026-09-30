@@ -92,10 +92,21 @@ fallback chain for this; it is now explicit.
 ## What is deliberately NOT claimed
 
 - **A genuine first-visit p75** for LCP, and **INP**, are V02-003's open items, not this probe's.
-- **The `http_request` log leg depends on a harness-supplied log location** (`apps/api/.wrangler/logs`
-  or a scratch log). If the id is not found there, that leg reports **UNMEASURED** rather than
-  assumed present — which is why this run is 0 unmeasured *because the log was found*, and a machine
-  without that log would report 27 pass, 1 unmeasured.
+- **The `http_request` log leg depends on where the dev stack's stdout went.** The middleware writes
+  `http_request` to stdout, so this is a property of how the stack was started, not of the repository.
+  Set `OBS_LOG=/path/to/dev.log` to include it; without it, **both** log assertions report
+  **UNMEASURED** and the sheet reads **26 pass / 0 fail / 2 unmeasured** rather than 28/0/0. The
+  denominator is fixed at 28 in both cases — it used to read 27/27 without the log and 28/28 with it,
+  and a reader comparing two runs sees the total move and reasonably suspects the product changed.
+
+  Two things were wrong with the original version of this and both were found by noticing that the
+  first version of this record **claimed a number it could not reproduce**:
+
+  - it hardcoded an absolute path from the machine it was written on (a session scratchpad) as a log
+    search candidate, so the probe was non-portable and the recorded "28 pass, 0 unmeasured" was
+    partly a property of that machine;
+  - and the total moved with the environment, so a reader had no way to tell a changed product from a
+    moved log file.
 - **Only one operation's chain is correlated.** Other routes write their events through the same two
   helpers, which is a structural argument, not runtime evidence for each.
 - **No provider leg.** V01-026 / GAP-007 remains BLOCKED with a measured cause: the Worker cannot

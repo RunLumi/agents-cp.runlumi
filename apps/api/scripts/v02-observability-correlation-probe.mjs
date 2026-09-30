@@ -322,18 +322,39 @@ try {
   );
 
   // ---- LEG 5: the request/response log line ------------------------------------------------
+  // `OBS_LOG` may name a FILE or a DIRECTORY, and takes priority. It exists because the middleware
+  // writes `http_request` to STDOUT, so where that log lives is a property of how the dev stack was
+  // started, not of the repository. Without it the leg is UNMEASURED, which is correct and is what
+  // this probe reports by default.
+  //
+  // It also exists because the first version hardcoded an absolute path from the machine it was
+  // written on -- a session scratchpad -- as a search candidate. That made the shipped probe
+  // non-portable, and worse, it made the recorded "28 pass, 0 unmeasured" partly a property of that
+  // machine: elsewhere the same gate reports 26/0/1. A finding whose number depends on the author's
+  // filesystem is not a finding about the product.
   const logCandidates = [
+    ...(process.env.OBS_LOG ? [process.env.OBS_LOG] : []),
     join(REPO, "apps/api/.wrangler/logs"),
-    "/private/tmp/claude-501/-Users-wwzz-Downloads-proxyclawd/88833871-9d1c-410a-8425-a5a54e5377ef/scratchpad",
+    join(REPO, "apps/api/dev.log"),
   ];
   let logText = null;
+  let logSource = null;
   for (const dir of logCandidates) {
     if (!existsSync(dir)) continue;
-    for (const name of readdirSync(dir).sort().reverse()) {
-      if (!name.endsWith(".log")) continue;
-      const text = readFileSync(join(dir, name), "utf8");
+    // A candidate may be a single FILE (`OBS_LOG=/path/to/dev.log`), in which case there is
+    // nothing to enumerate -- read it directly.
+    const files = /\.log$|\.txt$/.test(dir)
+      ? [dir]
+      : readdirSync(dir)
+          .filter((name) => name.endsWith(".log"))
+          .sort()
+          .reverse()
+          .map((name) => join(dir, name));
+    for (const file of files) {
+      const text = readFileSync(file, "utf8");
       if (text.includes(requestId)) {
         logText = text;
+        logSource = file;
         break;
       }
     }
@@ -345,8 +366,15 @@ try {
     ok(
       "C1 LEG 'request'/'response': the middleware logged an http_request line carrying this id",
       Boolean(line),
-      line ? line.slice(0, 180) : `the id appears in the log but not on an http_request line`,
+      line
+        ? `${line.slice(0, 150)} (from ${logSource?.split("/").pop()})`
+        : `the id appears in ${logSource ?? "the log"} but not on an http_request line`,
     );
+    // Emitted in BOTH cases. It used to live only inside `if (logText)`, so the sheet read 27/27 when
+    // the log was missing and 28/28 when it was found -- a denominator that MOVED with the
+    // environment. A reader comparing two runs sees the total change and reasonably suspects the
+    // product changed; in fact a log file moved. The denominator is now fixed at 28 and the two log
+    // legs are UNMEASURED together when the log cannot be read.
     ok(
       "C1: and the log line records the STATUS, so the log is evidence about the response rather " +
         "than only about the request",
@@ -354,11 +382,16 @@ try {
       line ? line.slice(0, 180) : "(no line)",
     );
   } else {
+    const why =
+      `the id ${requestId} was not found in ${logCandidates.length} worker log candidate(s) ` +
+      `(first: ${logCandidates[0]}) -- the middleware writes to STDOUT and the log location depends ` +
+      `on how the dev stack was started, so set OBS_LOG=/path/to/dev.log to include this leg. ` +
+      `Reported UNMEASURED rather than assumed present.`;
+    unmeasured("C1 LEG 'request'/'response': the http_request log line", why);
     unmeasured(
-      "C1 LEG 'request'/'response': the http_request log line",
-      `the id ${requestId} was not found in any worker log under ${logCandidates[0]} -- the middleware ` +
-        `writes to stdout and the log location is harness-dependent, so this leg is UNMEASURED rather ` +
-        `than assumed present`,
+      "C1: and the log line records the STATUS, so the log is evidence about the response rather " +
+        "than only about the request",
+      why,
     );
   }
 
