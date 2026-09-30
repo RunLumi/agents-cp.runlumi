@@ -164,12 +164,21 @@ mod tests {
             "deny_enrollment_statement",
             "V01-041, now called by the `deny_enrollment` handler: POST .../enrollments/{id}/deny. A pending enrollment could be approved and never denied, so a human control had an affirmative branch and no negative one.",
         ),
-        ("find_active_credential", "UNTRIAGED"),
+        (
+            "find_active_credential",
+            "EXAMINED, no gap. Superseded by the session/machine authentication paths, which resolve a credential together with the principal rather than alone. A credential lookup that returns a row without its owner is the same shape as V01-034's prefix resolver, so it has no caller.",
+        ),
         ("find_active_route_version", "UNTRIAGED"),
         ("find_budget_for_scope_period", "UNTRIAGED"),
         ("find_identity_by_user", "UNTRIAGED"),
-        ("find_key_by_prefix", "UNTRIAGED"),
-        ("find_live_device_token", "UNTRIAGED"),
+        (
+            "find_key_by_prefix",
+            "EXAMINED, deliberately uncalled, and the reason is V01-034. It resolves a credential by its lookup prefix alone. The V01-034 fix made the staff path compare the presented secret in constant time against the stored hash, and the machine path eleven lines above already did. A prefix-only resolver is the exact shape of the authentication bypass that was CRITICAL, so no caller is the safe state. Recorded because the method still exists and the temptation is symmetric.",
+        ),
+        (
+            "find_live_device_token",
+            "EXAMINED, superseded rather than missing, and the reason is a security improvement rather than a redundancy. The live path is `require_device` (`routes/devices.rs:191`, 7 call sites), which INLINES its own query joining `devices` and filtering `d.status = 'active'`. This function reads `device_tokens` alone (`WHERE token_hash = ?1 AND device_id = ?2 AND expires_at > ?3`), so it cannot see a device's status -- which is exactly the coupling V01-016 recorded: revocation works today only because `revoke_device` deletes the token rows in the same batch. Wiring the WEAKER query would be a regression, so leaving it uncalled is correct.",
+        ),
         (
             "find_snapshot",
             "EXAMINED, and the one entry triaged as a LATENT cross-tenant read rather than a gap. `SNAPSHOT_BY_ID_SQL` is `WHERE policy_id = ?1` with NO `org_id` predicate, so it would return another organization's compiled policy payload. It is unreachable: no route takes a `policy_id` in its path (`/policy`, `/policy/tools`, `/plugins/policy` are all org-scoped with no id), and the only caller that needs a snapshot uses the org-scoped `latest_snapshot`. Recorded because the defect is latent and one route away -- if a future route ever accepts a policy id, this is the statement that would leak.",
