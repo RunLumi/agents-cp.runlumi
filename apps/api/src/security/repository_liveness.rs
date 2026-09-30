@@ -182,7 +182,10 @@ mod tests {
             "insert_quarantine_statement",
             "V01-043, now called by POST /api/v1/internal/plugin-quarantines. The write half of a quarantine that was enforced on four paths and operable on none.",
         ),
-        ("insert_remediation_statement", "UNTRIAGED"),
+        (
+            "insert_remediation_statement",
+            "EXAMINED, no gap. Migration bookkeeping: it writes the migration ledger's own remediation row as part of applying a migration, so it is reached through the migration runner rather than by a route. Out of band by design.",
+        ),
         (
             "insert_run_usage_statement",
             "V01-047, OPEN by decision. P05-CR-002 §7 commits to a second usage source and §8 says it `must use` the same cost rules, but `UsageSource::Run` is constructed only in `modules/usage_tests.rs`, so this writer is unreachable and `list_usage`/`summarize_usage` UNION ALL an always-empty table. Left open: what counts as billable non-inference usage is a money decision needing the deliberate change process.",
@@ -202,11 +205,17 @@ mod tests {
         ("list_signing_keys", "UNTRIAGED"),
         ("mark_artifact_deleted_statement", "UNTRIAGED"),
         ("record_provider_failure_statement", "UNTRIAGED"),
-        ("revoke_grants_statement", "UNTRIAGED"),
+        (
+            "revoke_grants_statement",
+            "EXAMINED, and the sixth instance of the read-without-write / write-without-read shape. `export_download_grants` is LIVE: `insert_download_grant_statement`, `find_download_grant` and `touch_download_grant_statement` all have callers in `routes/data_governance.rs`. Only the REVOKE is unreachable. Redemption checks `revoked_at IS NULL` AND `expires_at`, and the TTL is `DOWNLOAD_GRANT_TTL_SECONDS = 900` (15 min, frozen by the AccessGrant baseline), so the working control is expiry and the missing one is EARLY revocation: a leaked grant cannot be killed before it expires. No spec requires revocation, and the failure direction is fail-closed, so this is a capability gap rather than a contract violation -- recorded so it is not re-derived, not repaired here because adding a revoke route is a feature with its own spec.",
+        ),
         ("seat_policy_for_plan", "UNTRIAGED"),
         ("set_deletion_cutoff_statement", "UNTRIAGED"),
         ("switches_for", "UNTRIAGED"),
-        ("to_verification_key", "UNTRIAGED"),
+        (
+            "to_verification_key",
+            "EXAMINED, no gap. A pure projection from a stored signing-key row into the adapter's key type. The billing path uses the row directly; this is a convenience projection, and leaving it unused is cheaper than deleting a documented conversion.",
+        ),
         ("update_state", "UNTRIAGED"),
         ("upsert_provider_projection_statement", "UNTRIAGED"),
         (
