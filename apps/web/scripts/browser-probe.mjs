@@ -2212,7 +2212,24 @@ async function main() {
   // The Role is present in one of two forms at 390px: a visible column, or folded
   // into the member cell as secondary text. Either satisfies the requirement; what
   // does not satisfy it is the role being neither.
-  const roleVisible = membersNarrow.headers.some((h) => /role/i.test(h));
+  // DEFENSIVE, and the reason is a measured one.
+  //
+  // This reads `membersNarrow.headers`, which is undefined when the Members panel is not rendered.
+  // The V02-006 sensitivity run found that: M1 inverts `unauthorizedPath`, so navigating to the
+  // session's OWN organization raises the denial, the Members panel never mounts, and this line
+  // threw `TypeError: Cannot read properties of undefined (reading 'some')`. The probe exited 2 and
+  // the run was scored INVALID -- the harness correctly refusing to call a crash a detection, and
+  // therefore not learning anything about the gate either.
+  //
+  // The mutation HAD reached the product and the gate's own narrow-layout case would have reported
+  // it. What happened instead is the defect this campaign has now hit in nine harnesses in one
+  // shape: a violation of an EARLIER section's expectation surfaced as a crash in a LATER,
+  // unrelated section, so the verdict came back as INVALID and the real signal was thrown away.
+  //
+  // A check must FAIL when its precondition is absent, not throw. One absent array is the whole
+  // difference between a sheet that says what is wrong and a sheet that says the harness could not
+  // run.
+  const roleVisible = (membersNarrow.headers ?? []).some((h) => /role/i.test(h));
   const roleFolded = await page.evaluate(() =>
     [...document.querySelectorAll("tbody td:first-child p")].some((p) =>
       /member|admin|owner|viewer/i.test(p.textContent),
@@ -2220,8 +2237,10 @@ async function main() {
   );
   check(
     "the Members table shows each member's role on a 390px screen",
-    membersNarrow.table && (roleVisible || roleFolded),
-    `headers=${JSON.stringify(membersNarrow.headers)} column=${roleVisible} folded=${roleFolded}`,
+    membersNarrow.table === true && (roleVisible || roleFolded),
+    `table=${membersNarrow.table} headers=${JSON.stringify(membersNarrow.headers)} ` +
+      `column=${roleVisible} folded=${roleFolded} -- an absent Members panel means the section above ` +
+      `did not reach a page it was allowed to see`,
   );
   check(
     "the role control is fully inside the viewport at 390px, with no scrolling to reach it",
