@@ -1403,6 +1403,266 @@ async function main() {
     `stillInStrip=${afterArrow.stillInStrip} role=${afterArrow.role}`,
   );
 
+  // ==========================================================================================
+  // V02-006 -- DESTRUCTIVE CONFIRMATION, the last ABSENT browser state.
+  //
+  // Credential revoke is the reachable destructive action. (Automations delete would be the richer
+  // surface, but `entitlement_grants` is EMPTY in this database -- 0 rows, measured -- so creating an
+  // automation is refused and the surface cannot be reached without provisioning an entitlement
+  // first. Webhooks have no delete affordance in the UI at all. Revoke is what exists.)
+  //
+  // The app confirms with a NATIVE dialog:
+  //
+  //     const confirmed = window.confirm(`Revoke "${credential.label}"? New requests will fail
+  //     immediately; existing usage and audit history ...`);
+  //     if (!confirmed) return;
+  //
+  // and the test is built around what a user relies on, which is NOT "a dialog appeared":
+  //
+  //   1. clicking Revoke opens a confirmation whose copy states the CONSEQUENCE;
+  //   2. DISMISSING it leaves the credential alive and usable -- the action is not one click away;
+  //   3. ACCEPTING it actually revokes.
+  //
+  // Step 2 is the load-bearing one and the one a weaker test omits. A confirmation that opens but
+  // does not prevent anything is decoration, and "a dialog appeared" cannot tell the two apart.
+  //
+  // The credential is created over the API because the UI form depends on a provider catalogue; this
+  // is a FIXTURE, not a stub -- the credential is real, stored, listed by the app, and revoked
+  // through the app's own button.
+  // ==========================================================================================
+  const revokeLabel = `VFY Revoke ${stamp}`;
+  //
+  // It runs INSIDE THE PAGE, not from Node. The first version used a fresh `ApiJar`, which has no
+  // cookies, so `/api/v1/me` answered with no organizations and the fixture reported "the session
+  // reports no organization" -- a sentence that reads as a product problem and was entirely a
+  // harness one. A fixture that authenticates as nobody proves nothing about the signed-in user.
+  // Running it in the page means the request carries the REAL session cookie, the real CSRF token
+  // and the real origin, which is also what makes it the same call the UI would make.
+  const credentialFixture = await page
+    .evaluate(async (label) => {
+      const csrf = document.cookie
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("lumi_csrf="))
+        ?.slice("lumi_csrf=".length);
+      const call = async (method, path, body) => {
+        const response = await fetch(path, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": crypto.randomUUID(),
+            ...(method === "GET" ? {} : { "X-CSRF-Token": decodeURIComponent(csrf ?? "") }),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        const text = await response.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = { raw: text.slice(0, 140) };
+        }
+        return { status: response.status, body: parsed };
+      };
+
+      const me = await call("GET", "/api/v1/me");
+      const orgId = me.body?.organizations?.[0]?.organization?.org_id ?? null;
+      if (!orgId)
+        return { ok: false, why: `the session reports no organization (me=${me.status})` };
+
+      // The catalog read that LISTS providers is `/orgs/{id}/catalog`. Two paths before it, both
+      // plausible and both wrong: `/api/v1/inference/providers` answers 404 (it is in neither the
+      // router nor the client), and `/orgs/{id}/catalog/providers` exists but is a POST -- a create --
+      // so a GET answers 405 method_not_allowed. Neither said "no providers exist"; both said "you
+      // asked the wrong way", and the first version of the fixture reported both as a product-level
+      // absence of providers.
+      const catalog = await call("GET", `/api/v1/orgs/${orgId}/catalog`);
+      const providers = catalog.body?.items ?? catalog.body?.providers ?? [];
+      const providerId = providers[0]?.provider_id ?? null;
+      if (!providerId) {
+        return {
+          ok: false,
+          why: `no provider in the catalog (${catalog.status}), so a BYOK credential cannot be created: ${JSON.stringify(catalog.body).slice(0, 140)}`,
+        };
+      }
+      const created = await call("POST", `/api/v1/orgs/${orgId}/credentials`, {
+        provider_id: providerId,
+        owner_type: "organization",
+        label,
+        secret: "vfy-revoke-canary-secret-0123456789",
+      });
+      if (created.status >= 400) {
+        return {
+          ok: false,
+          why: `credential create answered ${created.status}: ${JSON.stringify(created.body).slice(0, 140)}`,
+        };
+      }
+      return {
+        ok: true,
+        orgId,
+        credentialId: created.body?.credential?.credential_id ?? null,
+        providerId,
+        why: "created",
+      };
+    }, revokeLabel)
+    .catch((error) => ({
+      ok: false,
+      why: `the in-page fixture threw: ${String(error?.message ?? error)}`,
+    }));
+
+  check(
+    "DESTRUCTIVE precondition: a real credential exists to revoke, so the confirmation below is " +
+      "exercised against stored state rather than an empty list",
+    credentialFixture.ok === true,
+    `ok=${credentialFixture.ok} why=${credentialFixture.why}`,
+  );
+
+  if (credentialFixture.ok) {
+    await page.goto(`${WEB}org/${ownSlug}/models`, { waitUntil: "load" });
+    const credentialListed = await waitFor(
+      page,
+      () => {
+        const body = document.body.innerText.replace(/\s+/g, " ");
+        return body.includes("VFY Revoke ") ? { listed: true } : undefined;
+      },
+      { timeout: STEP_TIMEOUT, label: "the credential in the models panel" },
+    ).catch(() => null);
+    check(
+      "DESTRUCTIVE precondition: the app LISTS the credential, so the revoke button under test is the " +
+        "app's own and not something the probe conjured",
+      credentialListed?.listed === true,
+      `listed=${credentialListed?.listed}`,
+    );
+
+    // Click the Revoke button by its OWN text.
+    //
+    // The first version searched for the nearest container holding the credential's label and took
+    // that container's FIRST button -- which is Rotate, not Revoke. It reported `clicked=true` and
+    // no dialog, which reads as "the app does not confirm destructive actions" when the truth is
+    // "the probe clicked the wrong control". Targeting the button by its own text removes the
+    // inference entirely, and the not-found branch NAMES THE BUTTONS it can see so the next attempt
+    // is correct rather than another guess.
+    const clickRevoke = () =>
+      page
+        .evaluate(() => {
+          const buttons = [...document.querySelectorAll("button")].filter((b) =>
+            (b.textContent ?? "").trim(),
+          );
+          const button = buttons.find((b) => (b.textContent ?? "").trim() === "Revoke");
+          if (!button) {
+            return {
+              clicked: false,
+              buttonsSeen: buttons.map((b) => (b.textContent ?? "").trim()).slice(0, 25),
+            };
+          }
+          button.click();
+          return { clicked: true, buttonText: (button.textContent ?? "").trim() };
+        })
+        // A MODAL DIALOG SUSPENDS the JavaScript that opened it, so this `evaluate` cannot return
+        // until the dialog is handled. Awaiting it before waiting on the dialog would therefore
+        // deadlock on any implementation that works correctly -- the click cannot finish while the
+        // confirmation is open. So the click is fired and NOT awaited, and the two are settled
+        // independently below.
+        .catch((error) => ({ clicked: false, error: String(error?.message ?? error) }));
+
+    /** Settle the armed dialog against a timeout, so a missing dialog cannot hang the journey. */
+    const settleDialog = async (promise, ms) =>
+      Promise.race([
+        promise,
+        sleep(ms).then(() => ({ opened: false, reason: `no dialog within ${ms}ms` })),
+      ]);
+
+    // ---- 1 + 2: the confirmation appears, states a consequence, and PREVENTS the action ----------
+    const dismissedDialog = page.armDialog({ accept: false, timeout: 10_000 });
+    const revokeClickPromise = clickRevoke();
+    const dismissDialog = await settleDialog(dismissedDialog, 10_000);
+    const revokeClick = await revokeClickPromise;
+    await sleep(400);
+
+    check(
+      "DESTRUCTIVE CONFIRMATION: clicking Revoke opens a confirmation -- a destructive action is " +
+        "never one click away",
+      dismissDialog.opened === true,
+      `opened=${dismissDialog.opened} ${dismissDialog.reason ?? ""} ` +
+        `click=${JSON.stringify(revokeClick).slice(0, 220)}`,
+    );
+    check(
+      "and the confirmation STATES ITS CONSEQUENCE -- 'Revoke?' alone tells a user nothing about " +
+        "whether in-flight requests break, which is what AGENTS.md:181 asks for",
+      /will fail immediately|usage|audit|no longer|revok/i.test(
+        String(dismissDialog.message ?? ""),
+      ),
+      `message=${JSON.stringify(String(dismissDialog.message ?? "").slice(0, 190))}`,
+    );
+    check(
+      "and DISMISSING it leaves the credential ALIVE -- this is the load-bearing assertion, because a " +
+        "confirmation that opens but does not prevent anything is decoration, and 'a dialog appeared' " +
+        "cannot tell the two apart",
+      (await page.evaluate(() => document.body.innerText.includes("VFY Revoke "))) === true,
+      "the credential row is still present after the confirmation was dismissed",
+    );
+
+    // ---- 3: accepting it really does revoke ------------------------------------------------------
+    const acceptedDialog = page.armDialog({ accept: true, timeout: 10_000 });
+    const acceptClickPromise = clickRevoke();
+    const acceptDialog = await settleDialog(acceptedDialog, 10_000);
+    await acceptClickPromise;
+    await sleep(2500);
+    // Assert the REVOCATION STATE, not the row's disappearance.
+    //
+    // The first version asserted the credential row was gone. It is not gone, and it should not be:
+    // `models-routing-panel.tsx:421` drops the Rotate/Revoke buttons once
+    // `credential.status === "revoked"` and renders a `StatusPill` instead, so a revoked credential
+    // STAYS in the list as an audit surface. That is better behaviour than the assertion wanted --
+    // deleting the row would hide that the credential ever existed.
+    //
+    // So the claim is a DELTA on the revocation affordance: a Revoke control present before, absent
+    // after, alongside a revoked status that was not there before. Both halves are tokens that exist
+    // on exactly one side, which is what stops this reading as a constant.
+    const afterAccept = await page.evaluate(() => {
+      const body = document.body.innerText.replace(/\s+/g, " ");
+      const buttons = [...document.querySelectorAll("button")].map((b) =>
+        (b.textContent ?? "").trim(),
+      );
+      return {
+        revokeButtons: buttons.filter((t) => /revoke/i.test(t)).length,
+        showsRevokedStatus: /revoked/i.test(body),
+        rowStillPresent: body.includes("VFY Revoke "),
+        snippet: body.slice(0, 160),
+      };
+    });
+    check(
+      "DESTRUCTIVE CONFIRMATION: ACCEPTING the confirmation performs the revocation -- the Revoke " +
+        "control disappears and the credential shows a revoked status, so the dialog gates a real " +
+        "action rather than sitting beside a no-op button",
+      acceptDialog.opened === true &&
+        afterAccept.revokeButtons === 0 &&
+        afterAccept.showsRevokedStatus === true,
+      `opened=${acceptDialog.opened} revokeButtons=${afterAccept.revokeButtons} ` +
+        `showsRevokedStatus=${afterAccept.showsRevokedStatus} rowStillPresent=${afterAccept.rowStillPresent}`,
+    );
+    check(
+      "DESTRUCTIVE CONFIRMATION: and the revoked credential STAYS in the list as an audit surface -- " +
+        "removing the row would hide that it ever existed, so the control disappearing (not the row) " +
+        "is what proves the revocation",
+      afterAccept.rowStillPresent === true,
+      `rowStillPresent=${afterAccept.rowStillPresent}`,
+    );
+  } else {
+    for (const label of [
+      "DESTRUCTIVE CONFIRMATION: clicking Revoke opens a confirmation",
+      "and the confirmation STATES ITS CONSEQUENCE",
+      "and DISMISSING it leaves the credential ALIVE",
+      "DESTRUCTIVE CONFIRMATION: ACCEPTING the confirmation performs the revocation",
+    ]) {
+      check(label, false, `the fixture could not be built: ${credentialFixture.why}`);
+    }
+  }
+
+  // Put the journey back on the data panel, which is what the narrow-layout checks measure.
+  await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
+  await sleep(600);
+
   // ---- narrow layout -------------------------------------------------------
   //
   // TWO MEASUREMENTS, and the difference between them is finding VFY-007.

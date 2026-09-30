@@ -364,6 +364,56 @@ export async function newPage(browser, url = "about:blank") {
       await page.send("Input.dispatchKeyEvent", { ...common, type: "keyUp" });
       return key;
     },
+
+    /**
+     * Arm a ONE-SHOT handler for a native JavaScript dialog (`window.confirm`, `window.alert`,
+     * `window.prompt`), and resolve with what the dialog said.
+     *
+     * WHY THIS EXISTS (V02-006)
+     *
+     * The objective names `destructive confirmation` as a state to verify in a real browser, and
+     * the app's credential-revoke path is the reachable destructive action:
+     *
+     *     const confirmed = window.confirm(`Revoke "${credential.label}"? New requests will fail
+     *     immediately; existing usage and audit history ...`);
+     *     if (!confirmed) return;
+     *
+     * A native dialog is rendered by the BROWSER, not by the document, so `document.body.innerText`
+     * cannot see it and `page.evaluate` cannot dismiss it. Without this method a probe has two bad
+     * options: assert nothing, or hang until the dialog times out. Either way the journey reports
+     * green over an unverified state -- which is the failure this campaign has now found in seven
+     * harnesses.
+     *
+     * ONE-SHOT ON PURPOSE. A handler left armed would silently accept the NEXT dialog in the
+     * journey, which is how a later assertion comes to pass for the wrong reason. Each armed handler
+     * resolves once and unsubscribes.
+     *
+     * `accept: false` is the interesting case: it is how a test proves the confirmation actually
+     * PREVENTS the action. "A dialog appeared" is a weak claim; "the dialog appeared, and the
+     * credential is still there afterwards" is the one a user actually relies on.
+     */
+    armDialog({ accept = true, timeout = 8_000 } = {}) {
+      let settle;
+      const result = new Promise((resolve) => {
+        settle = resolve;
+      });
+      const timer = setTimeout(() => {
+        unsubscribe();
+        settle({ opened: false, reason: `no dialog within ${timeout}ms` });
+      }, timeout);
+      const unsubscribe = browser.on(async (data) => {
+        if (data.sessionId !== page.sessionId) return;
+        if (data.method !== "Page.javascriptDialogOpening") return;
+        unsubscribe();
+        clearTimeout(timer);
+        const { type, message, defaultPrompt } = data.params;
+        await page
+          .send("Page.handleJavaScriptDialog", { accept, promptText: defaultPrompt ?? undefined })
+          .catch(() => {});
+        settle({ opened: true, type, message: message ?? "", accepted: accept });
+      });
+      return result;
+    },
   };
   await page.send("Page.enable", {});
   await page.send("Runtime.enable", {});

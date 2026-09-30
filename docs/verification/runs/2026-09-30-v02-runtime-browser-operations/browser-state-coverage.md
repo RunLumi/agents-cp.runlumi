@@ -12,8 +12,7 @@ sensitivity is the evidence.**
 **Of the twelve required states, one has a *product-side* sensitivity proof — and that one is the
 state that was previously over-claimed.**
 
-**Six are absent, three are partial, and the absent set is now only states where the UI must tell the
-user something.**
+**All twelve are now exercised in a real browser. One (12) is partial. None is absent.**
 
 | | state | status | basis |
 |---|---|---|---|
@@ -24,14 +23,15 @@ user something.**
 | 1 | loading | **PROVEN, after V02-002** | a **delayed** request — a rejected one never renders a loading state, so a failure would have satisfied the case for the wrong reason |
 | 5 | server error | **PROVEN, after V02-002** | `Fetch.requestPaused` fails only `/api/v1/me`, so the document still loads and the app mounts and takes its real error path |
 | 6 | retry/recovery | **PROVEN, after V02-002** | clicking the app's own retry against a restored network returns to the shell **and names the organization** — so recovery restored the session, not merely the page. **This is the control for the two rows above.** |
-| 7 | keyboard navigation | PARTIAL | `Tab` reachability is real (V02-001 added it); the roving-tablist arrow test is still a **synthetic** `KeyboardEvent` |
+| 2 | empty | **PROVEN, after V02-006** | a zero-organization account is offered the create panel; the form is labelled; it does not reuse the error surface — **with a control** re-read once populated |
+| 4 | permission denied | **PROVEN, after V02-006** | a URL naming an org the session cannot see renders `role="alert"`; the content region carries the refusal and not the previous org's data; and a recovery leg proves it is not a dead end |
+| 10 | destructive confirmation | **PROVEN, after V02-006** | Revoke opens a confirmation whose copy states the consequence; **dismissing it leaves the credential alive**; accepting it removes the control and shows a revoked status — while the row stays as an audit surface |
+| 7 | keyboard navigation | **PROVEN, after V02-006** | `Tab` reachability (V02-001) plus a **real** `ArrowRight` through CDP — the synthetic `KeyboardEvent` is gone |
 | 12 | one-time secret lifecycle | PARTIAL | the email code is covered end to end, including a refused short code; a real secret (download grant, webhook secret) is not |
-| 2 | empty | **ABSENT** | no empty organization, no empty collection |
-| 4 | permission denied | **ABSENT** | no forbidden view is ever attempted |
-| 10 | destructive confirmation | **ABSENT** | no destructive action is ever performed |
 
-**The three remaining absent states are all states where the UI must tell the user something.** The
-gate proves the happy path thoroughly and the *communication* paths barely at all.
+**The gate now exercises all twelve states in a real browser.** What separates them is not coverage
+but *evidence*: state 8 has a product-side sensitivity proof, and the rest have been watched to go
+red only on harness faults.
 
 ### An honest distinction about states 1, 5 and 6
 
@@ -169,21 +169,26 @@ assertion grades on rendered consequence copy rather than on a native dialog the
 browser drives them. But they turn the next three attacks from "build a feature and find out" into
 "drive what is there and see whether it holds".
 
-## The next three attacks, in order
+## What remains
 
-1. **Permission denied and empty, in one journey** — navigate to a slug the session cannot see and
-   assert the `role="alert"` surface, then assert a *foreign real* slug and a *phantom* slug produce
-   **the same answer** (non-disclosure, browser half). Then use a session with zero organizations and
-   assert the create panel. The previous organization's data must be gone from the DOM.
-2. **Destructive confirmation** — drive the automations delete surface and assert consequence copy is
-   present and the action is not one click away.
-3. **A sensitivity proof for the V02-002 class**, matching `v02-001-focus-sensitivity.sh`. Until it
-   exists, three rows of this table are PROVEN and un-refuted, which is precisely the position state
-   8 occupied when V02-001 found it.
+1. **One-time secret lifecycle (12) is the only non-PROVEN state.** The email verification code is
+   covered end to end, including a refused short code. A *real* secret — a download grant, a webhook
+   secret — is not: nothing observes a value that is shown once and then cannot be retrieved again.
+2. **Product-side sensitivity proofs for the V02-002 and V02-006 classes.** Both have been watched to
+   report FAIL, but only on harness faults. `v02-004-observability-sensitivity.sh` is the model, and
+   it exists because a gate nobody has watched fail is an assumption — the V02-004 sheet was made of
+   absences and could have passed on a product that recorded nothing at all.
+3. **A design question worth deciding, not just testing.** `AGENTS.md:181` asks for "an appropriate
+   confirmation pattern", and credential revoke uses a native `window.confirm`. It does satisfy the
+   requirement as written — the copy states the consequence, and the test above proves the dialog
+   actually *prevents* the action rather than merely appearing. But a native modal is not styleable
+   and is not consistent with the rest of the design system, which uses in-DOM surfaces (the
+   automations delete flow is one). Whether that is acceptable is a product decision, and this
+   campaign records it rather than resolving it.
 
 ## A caution this map exists to prevent
 
-The temptation with a 52/52 sheet is to record the browser pass as done. Twelve named states, three
-absent, two partial, one exercised by a check that **could not fail** until this session repaired it,
-and three newly exercised by a check whose own sensitivity is still unproven. **The count is
-telemetry; the map is the evidence.**
+The temptation with a 73/73 sheet is to record the browser pass as done. Twelve named states, one
+partial, one exercised by a check that **could not fail** until this session repaired it, and ten
+newly exercised by checks whose own sensitivity is still unproven. **The count is telemetry; the map
+is the evidence.**
