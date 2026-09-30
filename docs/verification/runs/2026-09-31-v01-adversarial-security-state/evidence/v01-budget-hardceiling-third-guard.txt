@@ -1,0 +1,40 @@
+V01 budget hard-ceiling -- sensitivity, THIRD GUARD IDENTIFIED
+captured: 2026-09-30T05:33:47Z
+
+The UNPROVEN is closed. M3 was written expecting DETECTED and came back MISSED with
+only the application precheck and the SQL ceiling removed. That MISSED was correct and it
+was the finding: a THIRD guard exists. It was found by a deliberate READ of the unmanaged
+path, not by another guess -- and found immediately.
+
+GUARD 3: routes/inference.rs:1834
+  if D1Adapter::changes(&initial_results[1]).unwrap_or_default() != 1 { ... }
+
+initial_results[1] is the RESERVATION statement (initial_statements =
+vec![request_statement, reservation_statement]), so this reads the reservation INSERT's
+rows-affected and refuses with budget_exceeded when it did not match exactly one row.
+And it is NOT gated on scope.managed_run -- unlike the rows-affected check at line
+1875, which is.
+
+That is the V01-042 shape handled correctly: an INSERT matching zero rows neither
+aborts a D1 batch nor raises an error, so the only way to notice is to read changes().
+The class's B4 assertion -- the reservation count is unchanged -- is exactly what this
+guard produces, which is why B4 and not the status is the assertion that matters.
+
+THE THREE GUARDS ON THE UNMANAGED PATH:
+  1  hard_budget_remaining(&org_id, now) < reservation_minor      inference.rs:1663-1667
+  2  WHERE NOT EXISTS (...) ceiling in the reservation INSERT    ai.rs INSERT_BUDGET_RESERVATION_IF_AVAILABLE_SQL
+  3  changes(&initial_results[1]) != 1 -> budget_exceeded         inference.rs:1834 (UNGATED)
+
+RESULTS -- 2 detected, 2 declared MISSED, restored tree 25/25:
+  M1  the application precheck removed                      MISSED (declared)
+  M2  the SQL ceiling removed                                MISSED (declared)
+  M3  ALL THREE guards removed                              DETECTED
+  M4  the ceiling is not actually exceeded                  DETECTED
+
+M3's failures ARE the breach: B4 -- "NO reservation is taken" -- FAILED, meaning a
+reservation WAS taken against an exhausted hard budget. That is the money defect the
+class exists to catch, and the class caught it.
+
+And the two MISSEDs are a property of the PRODUCT, not a weakness of the gate: each
+single guard is sufficient on its own, so removing any one leaves the others. That is
+defence in depth, measured.

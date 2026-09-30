@@ -228,46 +228,67 @@ MUTATE_M2
 cmp -s "$TARGET" "$SNAP/ai.rs" && { echo "M2 changed nothing" >&2; exit 1; }
 run_case "M2 (the SQL ceiling removed)" "MISSED"
 
-# --- M3: remove BOTH known layers -- a DECLARED KNOWN MISSED ------------------------------------
+# --- M3: remove ALL THREE guards ------------------------------------------------------------------
 #
-# Written expecting DETECTED, and it came back MISSED. That is recorded rather than engineered
-# around, and the reason is the finding rather than an excuse.
+# The first version of this mutation removed only the two guards I had identified, and the class
+# still reported 25/25. That MISSED was correct and it was the interesting result: the third guard
+# exists and I had not found it. The follow-up is a deliberate READ of the unmanaged path rather than
+# another guess, and it found the missing layer immediately:
 #
-# Removing the application precheck AND the SQL ceiling still leaves the request refused, no
-# reservation, and no dispatch -- so there is at least one further guard on this path that this
-# campaign has not isolated. One candidate was checked and is NOT it: `routes/inference.rs:1876`
-# compares `D1Adapter::changes(&initial_results[2]) != 1` and refuses with `budget_exceeded`, which
-# is exactly the rows-affected shape the class asserts -- but it is gated on `scope.managed_run`, so
-# it does not execute for an unmanaged request. A second candidate, the managed-path admission, is
-# skipped entirely for an unmanaged request.
+#   guard 3  `routes/inference.rs:1834` --
+#               if D1Adapter::changes(&initial_results[1]).unwrap_or_default() != 1 { ... }
 #
-# **So the honest verdict is UNPROVEN: no mutation in this script breaks the claim.** The gate is
-# green and the product is right on every run, but "the gate would notice if the control were
-# removed" has NOT been demonstrated, and the single-layer results (M1, M2) are consistent with
-# either redundancy or with an unidentified third guard. Manufacturing a mutation that happens to
-# go red would produce the appearance of sensitivity without the substance, which is the failure this
-# campaign has spent the most effort on avoiding.
+# `initial_results[1]` is the RESERVATION statement (`initial_statements =
+# vec![request_statement, reservation_statement]`), so this reads the reservation INSERT's
+# rows-affected and refuses with `budget_exceeded` when it did not match exactly one row. And it is
+# **not gated on `scope.managed_run`**, unlike the rows-affected check at line 1875 which is.
 #
-# What IS established, and it is worth stating plainly: **every single control this script could
-# remove, it removed, and the request was still refused with no reservation and no dispatch.** That
-# is a real property of the product. It is not a property of the gate.
+# That is the V01-042 shape handled correctly: an INSERT matching zero rows neither aborts a D1
+# batch nor raises an error, so the only way to notice is to read `changes()`. The class's B4
+# assertion -- the reservation count is unchanged -- is exactly what this guard produces, which is
+# why B4 and not the status is the assertion that matters.
 #
-# The only mutation that breaks the claim. Two single-layer mutations being missed is what makes
-# this one meaningful: it shows the redundancy is real and both layers are load-bearing, and a gate
-# that only ever tested one of them would have reported 25/25 with half the control deleted.
-python3 - <<'MUTATE_M3'
+# With all three removed, nothing on the unmanaged path consults a budget before dispatch. Expect:
+# DETECTED.
+python3 - <<'MUTATE_M3A'
 import pathlib
 f = pathlib.Path("apps/api/src/routes/inference.rs")
 s = f.read_text()
-old = "Ok(Some(remaining)) if remaining < reservation_minor => {"
-assert s.count(old) == 1, "the precheck was not in the expected form on the second pass"
-# `remaining` stays named -- see M1: renaming it breaks the build, and a mutation that breaks the
-# build measures the compiler rather than the claim.
-s = s.replace(old, "Ok(Some(remaining)) if false && remaining < reservation_minor => {", 1)
+# Guard 1: the application precheck. `remaining` STAYS NAMED -- it is used later in the same match
+# arm, so renaming it to `_remaining` breaks the build (E0425), and a mutation that breaks the build
+# measures the compiler rather than the claim.
+old1 = "Ok(Some(remaining)) if remaining < reservation_minor => {"
+assert s.count(old1) == 1, f"expected one precheck, found {s.count(old1)}"
+s = s.replace(old1, "Ok(Some(remaining)) if false && remaining < reservation_minor => {", 1)
+
+# Guard 3: the rows-affected check. `!= 2` is never true for a single INSERT that matched one row,
+# so the refusal is gone while `initial_results` stays referenced and the statement stays valid.
+old3 = "if crate::adapters::d1::D1Adapter::changes(&initial_results[1]).unwrap_or_default() != 1 {"
+assert s.count(old3) == 1, f"expected one rows-affected check, found {s.count(old3)}"
+s = s.replace(
+    old3,
+    "if crate::adapters::d1::D1Adapter::changes(&initial_results[1]).unwrap_or_default() != 2 {",
+    1,
+)
 f.write_text(s)
-MUTATE_M3
-cmp -s "$TARGET2" "$SNAP/inference.rs" && { echo "M3 changed nothing" >&2; exit 1; }
-run_case "M3 (both known layers removed -- KNOWN MISSED, no breaking mutation found)" "MISSED"
+MUTATE_M3A
+
+python3 - <<'MUTATE_M3B'
+import pathlib
+f = pathlib.Path("apps/api/src/repositories/ai.rs")
+s = f.read_text()
+# Guard 2: the SQL ceiling. An impossible predicate, so the subquery can never match a budget and the
+# reservation INSERT always succeeds. Every placeholder stays bound and the bind count is unchanged,
+# so `schema:bind-count` stays green throughout.
+old2 = "WHERE b.org_id = ?3 AND b.hard = 1"
+assert s.count(old2) == 1, f"expected one hard predicate, found {s.count(old2)}"
+s = s.replace(old2, "WHERE b.org_id = ?3 AND b.hard = 1 AND b.hard = 0", 1)
+f.write_text(s)
+MUTATE_M3B
+
+cmp -s "$TARGET" "$SNAP/ai.rs" && { echo "M3 changed no SQL" >&2; exit 1; }
+cmp -s "$TARGET2" "$SNAP/inference.rs" && { echo "M3 changed no handler" >&2; exit 1; }
+run_case "M3 (ALL THREE guards removed)" "DETECTED"
 
 # --- M4: the probe's own fixture no longer creates a hard ceiling --------------------------------
 python3 - <<'MUTATE_M4'
