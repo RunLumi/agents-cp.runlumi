@@ -195,8 +195,28 @@ mod tests {
             "insert_budget_reservation_statement",
             "EXAMINED, no gap, and the survivor is the one that matters. `ai.rs` holds THREE reservation statements: the unconditional `INSERT_BUDGET_RESERVATION_SQL` (this one), the CONDITIONAL `insert_budget_reservation_if_available_statement`, and `update_budget_reservation_statement`. The conditional one is the live insert and it carries the hard ceiling: `WHERE NOT EXISTS (SELECT 1 FROM budgets b WHERE b.org_id = ?3 AND b.hard = 1 ... AND b.limit_minor - usage - reserved < ?4)`. That is the statement `verify:budget-concurrency` measures at 28/28, so the hard-budget refusal is enforced by the query that is actually called. The unconditional insert is the leftover shape for a reservation made without a ceiling check, and leaving it uncalled is correct -- wiring it would be a way to reserve without consulting the budget, which is the V01-006 class.",
         ),
-        ("insert_notification_delivery_statement", "UNTRIAGED"),
-        ("insert_notification_statement", "UNTRIAGED"),
+        (
+            "insert_notification_delivery_statement",
+            concat!(
+                "V01-046, same cluster, and the sibling of the two entry above rather than a webhook ",
+                "write. There are TWO delivery concepts: `webhook_deliveries`, which is fully live and ",
+                "exercised by verify:webhook-fanout's W2 control, and `notification_deliveries`, which ",
+                "nothing writes. So a customer is never notified in-app, while outbound HTTP delivery ",
+                "works end to end. Same fail-closed state, and the same deliberate non-repair: the ",
+                "in-app notification surface has no producer to wire a delivery to"
+            ),
+        ),
+        (
+            "insert_notification_statement",
+            concat!(
+                "V01-046, same cluster. Writes a `notifications` row, and nothing writes one: the ",
+                "whole in-app notification surface is unwired at the row that would start it. Together ",
+                "with `insert_notification_delivery_statement` this bounds the cluster precisely -- ",
+                "the two notification tables are both empty forever, while `webhook_deliveries` is ",
+                "live. The distinction matters to a reader who sees a fully wired webhook path and ",
+                "assumes the notification path shares its machinery; it does not"
+            ),
+        ),
         (
             "insert_plan_entitlement_statement",
             "EXAMINED, no gap. `plans` and `plan_entitlements` are a PLATFORM PRICING CATALOG, provisioned by migration 0015_p06_baseline_seed.sql, and there is no plan-management route because a customer does not define pricing tiers. The customer-facing money surface is `subscriptions`, which has live writes (apply_subscription_statement, insert_subscription_event_statement). Same shape as the provider and model registries, which DO have routes because an operator configures them per organization and a plan is not per-organization",
@@ -292,7 +312,21 @@ mod tests {
             "upsert_rollup_statement",
             "V01-047, examined. `list_rollups` IS called (`routes/usage.rs:776`) but nothing WRITES a rollup, so every rollup read returns nothing. Same shape as the run-source writer: a read wired without its write. Open with V01-047.",
         ),
-        ("assert_single_queued_successor_statement", "UNTRIAGED"),
+        (
+            "assert_single_queued_successor_statement",
+            concat!(
+                "EXAMINED, a second line for a rule the first line already enforces -- the same ",
+                "shape as v01-006-sensitivity B3. Its doc says `queue_one` permits at most ONE open ",
+                "successor, and there is no function by that name, which looked like a test for a ",
+                "missing capability. It is not: the invariant is the `QueueOne` overlap policy, ",
+                "implemented by `plan_overlap` (jobs/automations.rs:429), which HAS a production call ",
+                "site at line 1005 and is unit-tested on exactly this case at line 1934. The database ",
+                "statement is the backup layer. Verified rather than assumed: the unique indexes on ",
+                "`automation_occurrences` cover a DIFFERENT invariant (no duplicate for the same ",
+                "revision or trigger key), so the application layer is the only live enforcement of ",
+                "the one-open-successor rule -- and it is live"
+            ),
+        ),
         // Found by this check and MISSED by the looser scan that motivated it, because the only
         // occurrences of these two names outside their declarations are inside a doc comment or a
         // string literal. That is the third parser fault in this file's header, and it runs the
@@ -307,8 +341,30 @@ mod tests {
             "list_attempts",
             "UNTRIAGED -- as `budget`: named in prose, never called",
         ),
-        ("fan_out_count", "UNTRIAGED"),
-        ("fan_out_event_statement", "UNTRIAGED"),
+        (
+            "fan_out_count",
+            concat!(
+                "V01-046, same cluster: the read half of the pair with `fan_out_event_statement`, ",
+                "reporting how many delivery rows one fan-out statement created. Both halves are ",
+                "uncalled because the fan-out has no trigger, and the state is fail-closed. Worth ",
+                "noting against the budget path, where the same rows-affected shape IS load-bearing: ",
+                "`fan_out_count` calls `D1Adapter::changes(&result)` and would be the only way to ",
+                "notice a fan-out that matched nothing, exactly as `inference.rs:1834` is for a ",
+                "reservation. So the pattern is handled correctly wherever it decides something"
+            ),
+        ),
+        (
+            "fan_out_event_statement",
+            concat!(
+                "V01-046, still open BY DECISION, and the name of the cluster's load-bearing member. ",
+                "`fan_out_count` and this one are the read and write halves of a fan-out that has no ",
+                "trigger: a committed business event is never fanned out to a subscribed endpoint. ",
+                "Not repaired, because wiring it means adding the call to roughly 22 route files' ",
+                "transactions and deciding which events are eligible -- a feature decision needing ",
+                "its own spec, not a fix. The state is fail-closed: no event is ever delivered to a ",
+                "subscriber, and the delivery path that IS live is operator-initiated"
+            ),
+        ),
         ("policy_conflict_ids", "UNTRIAGED"),
         (
             "lift_quarantine_statement",
