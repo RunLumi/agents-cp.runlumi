@@ -204,10 +204,27 @@ run_case() {
   pnpm smoke:browser > "$LOG" 2>&1
   local rc=$?
   local verdict="MISSED"
-  [ "$rc" -ne 0 ] && verdict="DETECTED"
-  echo "  exit=$rc  $(grep -cE '^PASS' "$LOG" | tr -d ' ') PASS"
+  # exit 1 is "a check did not hold" -- a statement about the product or the verifier.
+  # exit 2 is "the harness could not run" -- a statement about the harness.
+  # Scoring 2 as DETECTED is a FALSE VERDICT, and the worst direction for one: a broken mutation
+  # or a crashed probe reads as a successful detection of a defect that may not exist. The first run
+  # of this script did exactly that, reporting M1 DETECTED on `exit=2, 1 PASS` with no FAIL line --
+  # the probe had died before it reached anything.
+  if [ "$rc" -eq 2 ]; then
+    verdict="INVALID"
+  elif [ "$rc" -ne 0 ]; then
+    verdict="DETECTED"
+  fi
+  echo "  exit=$rc  $(grep -cE '^PASS' "$LOG" | tr -d ' ') PASS  verdict=$verdict"
   grep -E "^FAIL" "$LOG" | head -5 | sed 's/^/    /' | cut -c1-150
-  if [ "$verdict" = "$expect" ]; then
+  if [ "$verdict" = "INVALID" ]; then
+    echo "    the probe could not run, so this measures nothing. Reporting it as a detection would" >&2
+    echo "    be a false verdict in the worst direction -- see the comment in run_case." >&2
+    grep -E "probe failed|Error:" "$LOG" | head -3 | sed 's/^/      /' | cut -c1-130 >&2
+  fi
+  if [ "$verdict" = "INVALID" ]; then
+    VERDICTS+=("$name INVALID-the-probe-could-not-run")
+  elif [ "$verdict" = "$expect" ]; then
     VERDICTS+=("$name $verdict (expected $expect)")
   else
     VERDICTS+=("$name $verdict (EXPECTED $expect) -- DISAGREEMENT")
