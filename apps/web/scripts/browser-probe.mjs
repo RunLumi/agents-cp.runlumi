@@ -814,6 +814,18 @@ async function main() {
   const focusProbe = await page.evaluate(() => {
     const target = document.querySelector("#org-switcher");
     if (!target) return null;
+    // The delta below is only meaningful if the control did NOT already hold focus when `before` is
+    // read. If it did, both readings are identical and the assertion reports "focusing changed
+    // nothing" -- which is TRUE, because nothing changed.
+    //
+    // That is not hypothetical: the first run of this repair failed its OWN baseline with
+    // `before="none" after="none"`, because the journey leaves focus on the switcher by the time it
+    // gets here. The dependency was real and unstated, so the fix is to make the precondition
+    // explicit and to report whether it had to be established. A check whose correctness depends on
+    // incidental state elsewhere in the journey will fail for an unrelated reason, and "unrelated
+    // reason" is how a green sheet becomes a coincidence.
+    const alreadyFocused = document.activeElement === target;
+    if (alreadyFocused) target.blur();
     const read = (element) => {
       const styles = getComputedStyle(element);
       return {
@@ -828,7 +840,7 @@ async function main() {
         outlineVisible: styles.outlineStyle !== "none" && styles.outlineWidth !== "0px",
       };
     };
-    return { before: read(target) };
+    return { before: read(target), alreadyFocused };
   });
 
   // A real Tab, repeated until the target itself holds focus. The first Tab from wherever focus
@@ -860,6 +872,13 @@ async function main() {
   }
 
   check(
+    "the focus delta's PRECONDITION holds: the switcher was not focused when its unfocused reading " +
+      "was taken (the journey had left focus on it, which made the first run of this repair fail " +
+      "its own baseline with before=after)",
+    focusProbe !== null,
+    `alreadyFocused=${focusProbe?.alreadyFocused} before.boxShadow=${JSON.stringify(focusProbe?.before?.boxShadow)}`,
+  );
+  check(
     "the organization switcher is reachable by pressing Tab (a real key event, not a synthetic one)",
     focusReached === true,
     `reached=${focusReached} active=<${focusAfter?.tag}> id=${focusAfter?.id ?? "-"} ` +
@@ -890,15 +909,33 @@ async function main() {
       `before.boxShadow=${JSON.stringify(before?.boxShadow)} ` +
       `after.boxShadow=${JSON.stringify(focusAfter?.boxShadow)}`,
   );
-  // And the control against the regression this finding came from: a check that only proves "a
-  // shadow exists" is what shipped the defect, so the assertion is re-derived here from the
-  // UNFOCUSED reading. A control whose focus ring were deleted would leave the before/after
-  // readings identical and fail this case.
+  // And the assertion that actually closes V02-001, stated so it does not depend on WHICH property
+  // carries the indicator.
+  //
+  // The version here first required `boxShadow` specifically, and it failed on a correct
+  // implementation: the measured delta was `[outlineWidth, outlineColor]` because this control paints
+  // its focus ring with an outline rather than a shadow. Demanding one property is the exact
+  // brittleness the delta was introduced to remove -- a focus indicator may be a ring, an outline, or
+  // a border-colour change, and a verifier that names one of them is a verifier that will report a
+  // working control as broken.
+  //
+  // What V02-001 actually needs is narrower and is stated here: the change must include at least one
+  // property that RENDERS A FOCUS INDICATOR. `background` is excluded on purpose -- a hover tint
+  // would otherwise satisfy a delta that has nothing to do with focus. A control whose ring were
+  // deleted changes NOTHING, so it fails both this and the case above.
+  const INDICATOR_PROPERTIES = ["boxShadow", "outlineWidth", "outlineColor", "borderColor"];
+  const indicatorChanged = changed.filter(([name]) => INDICATOR_PROPERTIES.includes(name));
   check(
-    "the ring is not merely PRESENT but CHANGED: a focus that only satisfies 'boxShadow !== none' " +
-      "is the V02-001 defect, and a control with a resting shadow must not pass on that alone",
-    before?.boxShadow !== focusAfter?.boxShadow,
-    `before=${JSON.stringify(before?.boxShadow)} after=${JSON.stringify(focusAfter?.boxShadow)}`,
+    "focusing the switcher changes a property that RENDERS A FOCUS INDICATOR (ring, outline or " +
+      "border colour) -- which is what the pre-V02-001 assertion could not distinguish from a " +
+      "control's resting shadow, and a background-only change from a hover tint does not count",
+    indicatorChanged.length > 0,
+    `all changed=[${changed.map(([name]) => name).join(", ")}] ` +
+      `indicator=[${indicatorChanged.map(([name]) => name).join(", ")}] ` +
+      `before.boxShadow=${JSON.stringify(before?.boxShadow)} ` +
+      `after.boxShadow=${JSON.stringify(focusAfter?.boxShadow)} ` +
+      `before.outline=${JSON.stringify(before?.outlineStyle)}/${JSON.stringify(before?.outlineWidth)} ` +
+      `after.outline=${JSON.stringify(focusAfter?.outlineStyle)}/${JSON.stringify(focusAfter?.outlineWidth)}`,
   );
 
   // A roving tabindex (one tab in the sequence, the rest reached with arrow
