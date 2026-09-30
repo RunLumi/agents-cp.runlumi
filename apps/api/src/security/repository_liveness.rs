@@ -214,7 +214,16 @@ mod tests {
             "find_snapshot_by_version",
             "EXAMINED, no gap. `WHERE org_id = ?1 AND policy_version = ?2` is correctly org-scoped, and nothing needs it: the compile path reads `latest_snapshot`, and the one write site (`routes/devices.rs:363`, the device policy cache) is a dedup against the latest, not a versioned fetch. A point lookup with no caller is cheaper to keep than to justify removing.",
         ),
-        ("get_for_organization", "UNTRIAGED"),
+        (
+            "get_for_organization",
+            concat!(
+                "EXAMINED, a leaf covered by a sibling. It reads a single `AuditRecord` for one ",
+                "organization, and the live audit surface is the paged `query` -- which is what ",
+                "`audit::list` and therefore the routed `GET /api/v1/orgs/{org_id}/audit` uses. A ",
+                "single-record convenience read has no caller because the audited surface paginates ",
+                "and filters (verify:filter-tenancy attacks exactly those filters)"
+            ),
+        ),
         (
             "insert_budget_reservation_statement",
             "EXAMINED, no gap, and the survivor is the one that matters. `ai.rs` holds THREE reservation statements: the unconditional `INSERT_BUDGET_RESERVATION_SQL` (this one), the CONDITIONAL `insert_budget_reservation_if_available_statement`, and `update_budget_reservation_statement`. The conditional one is the live insert and it carries the hard ceiling: `WHERE NOT EXISTS (SELECT 1 FROM budgets b WHERE b.org_id = ?3 AND b.hard = 1 ... AND b.limit_minor - usage - reserved < ?4)`. That is the statement `verify:budget-concurrency` measures at 28/28, so the hard-budget refusal is enforced by the query that is actually called. The unconditional insert is the leftover shape for a reservation made without a ceiling check, and leaving it uncalled is correct -- wiring it would be a way to reserve without consulting the budget, which is the V01-006 class.",
@@ -340,12 +349,41 @@ mod tests {
             "set_deletion_cutoff_statement",
             "EXAMINED, same family as `mark_artifact_deleted_statement`: a leaf with no caller. It would stamp `deletion_jobs` with the cutoff the job actually applied. The job still transitions through `update_deletion_state_statement`, so the lifecycle completes; what is absent is the record of WHERE the deletion stopped. Left untriaged in the sense that whether the retention certificate needs it is a P06 question, not a code one.",
         ),
-        ("switches_for", "UNTRIAGED"),
+        (
+            "switches_for",
+            concat!(
+                "EXAMINED, a leaf, and worth reading against the rest of the module because kill ",
+                "switches ARE an operated feature: `find_kill_switch` has 2 call sites, and ",
+                "`insert_kill_switch_statement`, `lift_kill_switch_statement` and ",
+                "`assert_kill_switch_version_statement` have 1 each. `list_kill_switches` has 2. So ",
+                "the emergency stop is wired in both directions and this is a filtered variant of a ",
+                "read that is already served. The related staff reads that are uncalled -- ",
+                "`find_staff`, `list_staff`, `insert_staff_statement` -- are the V01-040 family's ",
+                "consequence: there is no staff-provisioning surface, which is why ",
+                "verify:staff-credential provisions its principal by inserting a row directly"
+            ),
+        ),
         (
             "to_verification_key",
             "EXAMINED, no gap. A pure projection from a stored signing-key row into the adapter's key type. The billing path uses the row directly; this is a convenience projection, and leaving it unused is cheaper than deleting a documented conversion.",
         ),
-        ("update_state", "UNTRIAGED"),
+        (
+            "update_state",
+            concat!(
+                "EXAMINED, and its OWN DOC COMMENT records the relationship, which is the fourth ",
+                "kind of uncalled there is: a deliberately RETAINED primitive with a stated ",
+                "condition for use. `update_state_statement` above it says that callers which can ",
+                "pair a state change with the fact it must be atomic use that one -- P06-CR-003 ",
+                "requires the move to `pending_deletion` and the `DeletionJob` to be ONE fact -- and ",
+                "that `update_state` 'remains for the paths that have nothing to pair it with'. ",
+                "Suspend pairs an audit event and deletion pairs a job, so no path currently needs ",
+                "the unpaired form. Checked rather than assumed: `POST /api/v1/orgs/{org_id}/",
+                "suspend` -> `transition_lifecycle` -> `transition_lifecycle_with_access` -> ",
+                "`update_state_statement` IS routed and live, and `automations.rs:200` requires ",
+                "`o.state = 'active'`, so f15's 'a suspended org stops new dispatch' is enforced in ",
+                "SQL. The lifecycle is operable, not a kill switch with no lever"
+            ),
+        ),
         ("upsert_provider_projection_statement", "UNTRIAGED"),
         (
             "upsert_rollup_statement",
@@ -404,7 +442,16 @@ mod tests {
                 "subscriber, and the delivery path that IS live is operator-initiated"
             ),
         ),
-        ("policy_conflict_ids", "UNTRIAGED"),
+        (
+            "policy_conflict_ids",
+            concat!(
+                "EXAMINED, a convenience projection over a LIVE function. It maps `policy_conflicts` ",
+                "to just the package ids, and `policy_conflicts` is called in production at ",
+                "`modules/plugins.rs:1131`, where a plugin policy's conflicts are computed for the ",
+                "decision. A projection that names a live capability and adds only an ergonomic ",
+                "return type; no route needs the ids without the conflicts"
+            ),
+        ),
         (
             "lift_quarantine_statement",
             "V01-043, now called by .../plugin-quarantines/{id}/lift. Kept as a pair with its sibling: a lever that can be pulled but not released is its own outage.",
