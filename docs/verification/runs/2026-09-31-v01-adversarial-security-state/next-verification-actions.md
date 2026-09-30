@@ -276,10 +276,45 @@ the same shape — which is the reason the work is worth doing rather than the c
 one is a defect waiting to happen. A check reporting the call graph without this distinction would
 print sixteen identical names, and the fourth is the only one a reviewer could act on.
 
-**26 remain `UNTRIAGED`, and that number is the honest one.** The untriaged remainder is money
-(`find_budget_for_scope_period`, `insert_budget_reservation_statement`, `list_reservations_page`,
-`insert_plan_statement`, `list_active_plans`, `seat_policy_for_plan`,
-`insert_plan_entitlement_statement`, `list_entitlement_definitions`), plus identity, provisioning
-and the notification cluster covered by V01-046. **The budget-reservation cluster is the next place
-to look**: it is money, and V01-047 showed that a money statement with no caller can sit beside a
-*working* money path and be invisible to every gate.
+### The budget cluster, examined: the hard ceiling is live
+
+The cluster I named as the next place to look came back **clean**, and that is worth establishing
+rather than assuming — V01-047 sat directly beside it.
+
+`ai.rs` holds **three** reservation statements and only two have callers. The survivor that carries
+the money is the **conditional** insert, and its ceiling is in the SQL:
+
+```sql
+WHERE NOT EXISTS (SELECT 1 FROM budgets b WHERE b.org_id = ?3 AND b.hard = 1
+  AND b.period_start <= ?6 AND b.period_end > ?6
+  AND b.limit_minor - usage - reserved < ?4)
+```
+
+That is the statement `verify:budget-concurrency` measures at **28/28**, so the hard-budget refusal
+is enforced by the query that is actually *called*. The uncalled one is the **unconditional** insert
+— the leftover shape for a reservation made without a ceiling check — and leaving it uncalled is
+correct, because wiring it would be a way to reserve without consulting the budget. That is the
+V01-006 class, and the dead method is the safer state.
+
+`find_budget_for_scope_period` is a pre-read for deterministic create conflicts, unused because a
+duplicate create is refused on the `UNIQUE` constraint instead. **The constraint is the stronger
+answer under concurrency**: a pre-read races, a constraint does not.
+
+### Where this leaves the list
+
+**19 of 61 entries examined; 23 `UNTRIAGED` remain**, and the remaining clusters are entitlement
+provisioning (`insert_plan_statement`, `list_active_plans`, `seat_policy_for_plan`,
+`insert_plan_entitlement_statement`, `list_entitlement_definitions`), identity, provisioning and the
+notification cluster already covered by V01-046.
+
+The tally of *verdicts* is the real output, because the verdicts are not one shape:
+
+| verdict | count | what it means |
+|---|---|---|
+| a real gap | 1 | V01-047's run-source writer, committed and unwired |
+| a latent cross-tenant read | 1 | `find_snapshot` — `WHERE policy_id = ?1`, no `org_id` |
+| correctly absent, and absent *for a reason* | 17 | superseded, security-motivated, or a leaf of an intact lifecycle |
+
+**Only one of the nineteen is a defect waiting to happen.** A check that printed the call graph
+without this distinction would give all nineteen the same name, and a reviewer could not tell which
+one to act on — which is the difference between a review list and a to-do list.
