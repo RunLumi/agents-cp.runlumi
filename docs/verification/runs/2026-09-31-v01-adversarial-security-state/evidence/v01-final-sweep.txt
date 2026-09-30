@@ -1,0 +1,36 @@
+V01 final verification sweep
+captured: 2026-09-30T00:58:33Z
+
+STATIC
+  pnpm check          exit 0   1030 tests, clippy -D warnings clean
+  pnpm schema:bind-count       463 prepare() calls, every bind count correct
+
+RUNTIME (run one at a time -- a held port produces a false exit 2)
+  verify:webhook-fanout       21/21   V01-046 confirmed absence, V01-029 closed
+  verify:staff-credential    57/57   V01-043 enforcement bracketed
+  verify:path-id-tenancy    211/211   plugins leak class, six NOT_APPLICABLE
+  verify:device-idempotency  23/23   V01-015 both halves
+  verify:revoked-device      36/36   V01-041 denial class
+  verify:budget-concurrency  28/28   the hard ceiling is the LIVE statement
+  verify:usage-attribution   43/43   the inference money path
+  verify:idempotency         47/47
+  verify:privilege-escalation 96/96
+  verify:lease-contention    62/62
+  verify:collection-tenancy  54/54
+  verify:secret-tenancy      32/32
+  verify:filter-tenancy      65/65
+  verify:mutating-tenancy    43/43
+
+SENSITIVITY
+  v01-plugin-leak-sensitivity.sh          3/3 DETECTED, restored tree 211/211
+  v01-liveness-reverse-rule-sensitivity.sh  M4 DETECTED, M5 declared KNOWN MISSED
+
+FINDINGS: 51 records.
+  CLOSED this session: V01-043 enforcement, V01-044, V01-045, V01-046,
+                           V01-029, V01-015
+  OPEN, deliberately: V01-001 and V01-005 (need the deliberate change process),
+                         V01-026/GAP-007 (a MEASURED environment blocker),
+                         V01-040 and V01-047 (spec-level, need their own spec/ADR).
+
+LIVENESS: 61 entries, 19 examined this session, 23 UNTRIAGED remain --
+  1 real gap, 1 latent cross-tenant read, 17 correctly absent.
