@@ -1,6 +1,6 @@
 # V02-001 — the browser gate's visible-focus assertion is satisfied by a control's resting shadow
 
-**Severity: HIGH (verifier blind spot on an explicit objective requirement) · Status: OPEN, repair in progress · Verdict: the PRODUCT is correct; the GATE cannot fail**
+**Severity: HIGH (verifier blind spot on an explicit objective requirement) · Status: CLOSED on the behaviour; the sensitivity is PROVEN WITH TWO DECLARED LIMITS · Verdict: the PRODUCT is correct; the original GATE could not fail and now cannot be satisfied by a resting shadow**
 
 ## The claim
 
@@ -111,3 +111,87 @@ The objective names **keyboard navigation** and **visible focus** as required br
 
 Neither is a product defect. Both are gaps in the instrument, and a green sheet currently conceals
 one of them.
+
+## Repair and sensitivity, as measured
+
+The gate is now **42/42** and the assertion is a **delta driven by a real key press**, with the
+driver gaining `press(key)` — it previously had **no key-event capability at all**, which is why both
+keyboard claims were synthetic.
+
+`evidence/v02-001-focus-sensitivity.sh` — **0 detected, 2 declared KNOWN MISSED, restored tree 42/42**,
+with the tree verified clean by `cmp` against the snapshot *and* `git diff` against the committed
+source after every case.
+
+### M1 — the app's focus ring deleted: **MISSED, and the cause is not a defect**
+
+Measured on the same control in the same run:
+
+```
+before.boxShadow = "none"   after.boxShadow = "none"      <-- the app's ring IS gone
+changed          = [outlineWidth, outlineColor]          <-- focus is STILL visible
+```
+
+`boxShadow` being `none` on both sides proves the mutation landed. The outline properties still
+changing means **the browser supplies its own focus indicator on this control**, so removing the
+app's ring removed a *redundant layer*: the user-visible requirement is still satisfied, and an
+assertion that measures the requirement rather than the implementation detail is **correct to pass**.
+
+That is the difference between a missed detection and a correct verdict, and the run tells them
+apart by measurement rather than by assertion — had the outline not changed either, the delta would
+have been empty and the gate would have gone red. It did not.
+
+**Detecting the removal would require a different claim** — "the focus indicator uses the
+design-system ring token" — which is styling conformance, not accessibility. That is a real claim
+worth making, and it is not this gate's claim.
+
+### M2 — `outline-none` removed, ring intact: **MISSED by construction**
+
+Declared, and it establishes the boundary of what the repair can detect: the assertion proves focus
+is *visibly different*, not that it is *correct*.
+
+### The limit I did not engineer around
+
+The delta detects a **change**, not a **visible** change. A ring declared in transparent — present in
+`box-shadow` as `rgba(0, 0, 0, 0) 0 0 0 2px`, invisible on screen — would satisfy the delta exactly
+as a visible ring does, because the computed value changes from `none` to that string.
+
+**So the repaired assertion closes the resting-shadow defect and does not close the
+transparent-ring defect.** Both are real, and the second is the honest limit of a delta-based check
+rather than something a further mutation would have revealed. It is recorded here as a known gap
+with the mechanism, because manufacturing a mutation that goes red would produce the appearance of
+sensitivity without the substance.
+
+### What the sensitivity run cost, and what it found in me
+
+Six harness defects, each found by running the harness rather than reading it:
+
+1. `curl | grep -q` under `set -o pipefail` — `grep -q` exits on first match, curl takes **SIGPIPE**,
+   pipefail reports it as the pipeline's status, and the check failed on a module that contained the
+   marker on all 40 attempts.
+2. A marker asserting **presence** of a token present in both states, then a marker asserting
+   **absence** of a token legitimately served twelve times, then a third "unique" marker served
+   **twice** on a clean tree. Assuming uniqueness and then testing it is how all three reported a
+   false FATAL for a fault that had landed. Replaced with a **hash of the served artefact**, which
+   assumes nothing.
+3. A silent restore. A failing `cp` left a deliberate fault in the tree while the run printed
+   verdicts. Git was the independent reference that caught it.
+4. `run_case` scoring **exit 2 as DETECTED**. Exit 2 is "the harness could not run"; a crashed probe
+   reads as a successful detection, which is the worst direction for a false verdict.
+5. `run_case` not restoring between cases, so M2 measured M1's fault.
+6. A **prerequisite check written so it could only fail** — it read `api_code` on the line before
+   assigning it, and `${api_code:-000}` cannot distinguish "unset" from "not serving".
+
+**And one that reached `main`.** Commit `ddead30` was made with `pnpm format && git add -A` while a
+mutation run was in flight whose M1 had left the ring removed. The fault was staged and committed, so
+`git show HEAD` reported a product with **no focus ring on its primary organization switcher** for
+six commits, and `git checkout --` would have restored the fault. This is the V01-046 disaster,
+repeated in this session, by the same command, after I had read the paragraph warning against it.
+
+The ring is restored and verified against the gate rather than by inspection: with it absent the
+delta reads empty, with it present the delta reads non-empty and the case passes.
+
+**The general rule, which I broke twice in one session:** never `git add -A` while a mutation run is
+in flight or after one has failed; `git status` before every commit in a mutation campaign; and a
+snapshotting harness is not a safety net for this — its trap restores the file, so it will
+overwrite a legitimate edit made while it ran, which is how `pnpm format`'s reformat was reverted
+earlier in this same session.
