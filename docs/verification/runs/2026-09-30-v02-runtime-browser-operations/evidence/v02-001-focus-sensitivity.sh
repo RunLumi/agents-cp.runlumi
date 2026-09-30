@@ -117,10 +117,17 @@ restore() {
 # fixed interval and hope, this polls the served source and requires it to change.
 # Wait for the dev server to STOP serving the token, which is the property the mutation changes.
 #
-# The first version asserted the PRESENCE of `org-switcher`, which is in the module in BOTH states --
-# so it could only ever prove that the module was served, never that the fault had reached the
-# browser. Combined with the pipefail/SIGPIPE bug it reported a false FATAL on a fault that had
-# landed correctly, and the restore that followed did not take, leaving the tree mutated.
+# TWO versions of this marker were wrong, and both failed for the same reason -- it could not
+# distinguish the mutated element from the eleven other controls that legitimately keep a focus ring.
+#
+#   1. `org-switcher` is present in the module in BOTH states, so it could only ever prove the
+#      module was served, never that the fault had reached the browser.
+#   2. `focus-visible:ring-2` is served TWELVE times -- the other controls keep their rings, so an
+#      ABSENCE check on it can never succeed, and the helper ran to exhaustion again.
+#
+# The marker must be unique to the MUTATED ELEMENT. The switcher is the only control that pairs
+# `outline-none` with `focus-visible:ring-2` adjacently, so that adjacency is present before the
+# mutation and absent after it, and no other control can satisfy or defeat the check.
 await_served_change_absent() {
   local marker="$1" tries=0
   while [ "$tries" -lt 40 ]; do
@@ -203,7 +210,7 @@ p.write_text(s[:start] + mutated + s[start + 1200:])
 print("    the switcher's focus ring is removed")
 MUTATE_M1
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M1 changed nothing" >&2; exit 1; }
-await_served_change_absent "focus-visible:ring-2" || exit 1
+await_served_change_absent "outline-none focus-visible:ring-2" || exit 1
 run_case "M1 (the focus ring deleted from the switcher)" "DETECTED"
 
 # --- M2: the control direction -- ring present, outline-neutered only ----------------------------
@@ -264,7 +271,7 @@ s = s[:s.index(anchor)] + old_assertion + s[s.index(anchor):]
 p.write_text(s)
 print("    the pre-V02-001 assertion is reinstated beside the repaired one")
 MUTATE_M3B
-await_served_change_absent "focus-visible:ring-2" || exit 1
+await_served_change_absent "outline-none focus-visible:ring-2" || exit 1
 pkill -9 -f "Google Chrome for Testing" 2>/dev/null
 sleep 4
 pnpm smoke:browser > "$LOG" 2>&1
