@@ -584,6 +584,55 @@ async function main() {
   );
   if (SHOTS) await page.screenshot(join(SHOTS, "02-authenticated-shell.png"));
 
+  // ==========================================================================================
+  // V02-006 -- EMPTY. The first thing every real user sees.
+  //
+  // This state was ABSENT from the gate for the whole campaign while the journey walked straight
+  // through it: at this exact moment the session has zero organizations, so
+  // `me.organizations.length === 0` routes to <CreateOrganizationPanel/>. The next block opens that
+  // panel. So the state was exercised incidentally and asserted on never -- which is the definition
+  // of a coverage gap that looks like coverage when you read the journey top to bottom.
+  //
+  // What is asserted is that an empty state AFFERS a way forward and does not read as a failure.
+  // An empty state that renders a blank panel, or that reuses the error surface, is worse than no
+  // empty state at all: the user cannot tell a product with nothing from a product that is broken.
+  // ==========================================================================================
+  const emptyState = await page.evaluate(() => {
+    const body = document.body.innerText.replace(/\s+/g, " ").trim();
+    return {
+      offersCreate: /create an organization|new organization/i.test(body),
+      namesTheField: /organization name/i.test(body),
+      saysSomething: body.length > 0,
+      // The distinguishing failure: an empty state that reuses the error surface, so the user reads
+      // "Organization not found" on a brand-new account.
+      isError: Boolean(document.querySelector("[role=alert]")),
+      // A populated shell has an organization switcher. Absent here, which is the delta the control
+      // below depends on.
+      showsSwitcher: Boolean(document.querySelector("#org-switcher")),
+      snippet: body.slice(0, 170),
+    };
+  });
+  check(
+    "EMPTY: a brand-new account with zero organizations is offered the way forward -- the create " +
+      "panel, not a blank region",
+    emptyState.offersCreate === true,
+    `offersCreate=${emptyState.offersCreate} rendered=${emptyState.saysSomething} ` +
+      `snippet=${JSON.stringify(emptyState.snippet)}`,
+  );
+  check(
+    "EMPTY: and the create form is actually present and labelled, so the affordance is a form " +
+      "rather than a dead heading",
+    emptyState.namesTheField === true,
+    `namesTheField=${emptyState.namesTheField}`,
+  );
+  check(
+    "EMPTY: an empty state does NOT reuse the error surface -- a new account must not be told " +
+      "'Organization not found' when it simply has nothing yet",
+    emptyState.isError !== true,
+    `isError=${emptyState.isError} snippet=${JSON.stringify(emptyState.snippet)}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "02b-empty-organization.png"));
+
   // ---- two organizations with distinctive names ---------------------------
   async function createOrg(name) {
     // A brand-new member lands straight on the create-organization panel, so
@@ -621,6 +670,31 @@ async function main() {
   }
   const createdA = await createOrg(orgA);
   check("an organization can be created through the UI", createdA, `A=${createdA}`);
+
+  // The CONTROL for the four empty-state assertions above. They all read the DOM, so the question a
+  // reader is entitled to ask is whether that DOM reading can tell an EMPTY shell from a POPULATED
+  // one. If the same probe reported the same thing in both states, the four passes would be a
+  // statement about a detector that never discriminates.
+  const populatedState = await page.evaluate(() => {
+    const body = document.body.innerText.replace(/\s+/g, " ").trim();
+    return {
+      showsSwitcher: Boolean(document.querySelector("#org-switcher")),
+      // The organization's own NAME is on the page now, and was not before: that is the delta, and
+      // it is specific to the populated state rather than a token present in both.
+      namesTheOrg: body.includes("VFY Org A"),
+      isError: Boolean(document.querySelector("[role=alert]")),
+    };
+  });
+  check(
+    "EMPTY CONTROL: the same DOM reading that reported the empty shell now reports a POPULATED one " +
+      "-- a switcher is present and the organization's own name is on the page -- so the four empty-" +
+      "state passes are a discrimination rather than a constant",
+    populatedState.showsSwitcher === true &&
+      populatedState.namesTheOrg === true &&
+      emptyState.showsSwitcher === false,
+    `empty.switcher=${emptyState.showsSwitcher} populated.switcher=${populatedState.showsSwitcher} ` +
+      `namesTheOrg=${populatedState.namesTheOrg}`,
+  );
 
   // ---- F02-001: a second organization must be reachable from the shell -------
   //
@@ -787,6 +861,289 @@ async function main() {
     `${deepLink} (${slug})`,
   );
   if (SHOTS) await page.screenshot(join(SHOTS, "05-deeplink-data.png"));
+
+  // ==========================================================================================
+  // V02-006 -- PERMISSION DENIED, and NON-DISCLOSURE.
+  //
+  // The whole control plane is authorization-first and V01 spent a campaign proving that at the HTTP
+  // layer. NONE of it was verified as a user-visible state: a route that correctly returns 403 can
+  // still render an empty shell, a spinner, or the PREVIOUS organization's data, and the gate would
+  // not have noticed any of that.
+  //
+  // `org-dashboard.tsx` computes `unauthorizedPath` when a URL names an organization this session
+  // cannot see, and renders a `role="alert"` surface reading "Organization not found / This
+  // organization is not available in your current access scope." Two things are asserted, and the
+  // second is the one that matters:
+  //
+  //   1. that the denied view renders an ANNOUNCED, EXPLANATORY surface rather than a blank or a
+  //      stale previous org; and
+  //   2. that a REAL foreign organization and a PHANTOM slug produce the SAME ANSWER.
+  //
+  // (2) is non-disclosure, and it is why both slugs are needed. Asserting only that the foreign org
+  // is refused would pass on a UI that said "you do not have access to Acme Corp" -- which is a
+  // cross-tenant EXISTENCE ORACLE, the exact finding V01's path-id sensitivity work kept returning
+  // to. The phantom leg is the control: it exists in neither world, so any difference between the two
+  // answers is disclosure. And the answers are compared as RENDERED TEXT, not as statuses, because
+  // the claim is about what a user is told.
+  //
+  // A real foreign slug is built here with a SECOND ACCOUNT over the API, because a slug that exists
+  // nowhere proves nothing about a tenant boundary -- the app would render the same alert for a typo.
+  // ==========================================================================================
+
+  // A minimal cookie jar, so the second account's calls are the same real HTTP the browser makes.
+  class ApiJar {
+    cookies = new Map();
+    header() {
+      return [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; ");
+    }
+    absorb(response) {
+      for (const line of response.headers.getSetCookie?.() ?? []) {
+        const [pair] = line.split(";");
+        const at = pair.indexOf("=");
+        if (at > 0) this.cookies.set(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
+      }
+    }
+  }
+  let apiCall = 0;
+  async function apiCallAs(jar, method, path, body) {
+    apiCall += 1;
+    const response = await fetch(`${WEB.replace(/\/$/, "")}${path}`, {
+      method,
+      redirect: "manual",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": `v0206-${apiCall}-${stamp}`,
+        ...(jar.cookies.size ? { Cookie: jar.header() } : {}),
+        ...(jar.cookies.get("lumi_csrf") ? { "X-CSRF-Token": jar.cookies.get("lumi_csrf") } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    jar.absorb(response);
+    const text = await response.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { raw: text.slice(0, 160) };
+    }
+    return { status: response.status, body: parsed };
+  }
+
+  const foreignSlug = await (async () => {
+    try {
+      const jar = new ApiJar();
+      const signup = await apiCallAs(jar, "POST", "/api/v1/auth/password/signup", {
+        email: `vfy-foreign-${stamp}@example.test`,
+        display_name: "VFY Foreign",
+        password: "correct horse battery staple 42",
+      });
+      if (signup.status >= 400) return { slug: null, why: `signup ${signup.status}` };
+      const verification = signup.body?.verification ?? {};
+      const challenge = verification.challenge_id ?? verification.challengeId;
+      const code =
+        verification.development_code ?? verification.code ?? signup.body?.development_code;
+      if (!challenge || !code)
+        return { slug: null, why: "no verification challenge in the signup response" };
+      const verified = await apiCallAs(jar, "POST", "/api/v1/auth/verify-email", {
+        challenge_id: challenge,
+        code,
+      });
+      if (verified.status >= 400) return { slug: null, why: `verify ${verified.status}` };
+      const login = await apiCallAs(jar, "POST", "/api/v1/auth/password/login", {
+        email: `vfy-foreign-${stamp}@example.test`,
+        password: "correct horse battery staple 42",
+      });
+      if (login.status >= 400) return { slug: null, why: `login ${login.status}` };
+      const org = await apiCallAs(jar, "POST", "/api/v1/orgs", {
+        display_name: "VFY Foreign Org",
+        slug: `vfy-foreign-org-${stamp}`.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+      });
+      if (org.status >= 400) return { slug: null, why: `org ${org.status}` };
+      const me = await apiCallAs(jar, "GET", "/api/v1/me");
+      const slug = me.body?.organizations?.[0]?.organization?.slug ?? null;
+      return { slug, why: slug ? "created" : "the foreign session reports no organization" };
+    } catch (error) {
+      return { slug: null, why: String(error?.message ?? error) };
+    }
+  })();
+
+  check(
+    "PERMISSION DENIED precondition: a REAL organization belonging to a DIFFERENT account exists, " +
+      "so the denial below is a tenant boundary and not a typo being reported",
+    foreignSlug.slug !== null,
+    `slug=${foreignSlug.slug ?? "(absent)"} why=${foreignSlug.why}`,
+  );
+
+  const readDeniedView = async (targetSlug) => {
+    await page.goto(`${WEB}org/${targetSlug}`, { waitUntil: "load" });
+    return waitFor(
+      page,
+      () => {
+        const alert = document.querySelector("[role=alert]");
+        const body = document.body.innerText.replace(/\s+/g, " ").trim();
+        return (
+          (alert && {
+            announced: true,
+            alertText: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
+            bodyText: body.slice(0, 260),
+            // Scoped to <main>, and the scoping is the whole correction. The first version searched
+            // the whole body and read the user's OWN organization names out of `#org-switcher` -- a
+            // <select> that lists the organizations this session belongs to, which is correct
+            // behaviour and not a leak. The claim is about the CONTENT region: a user told "not
+            // found" while still staring at that organization's members table is the real defect.
+            // A check that fires on correct behaviour is worse than no check, because it trains a
+            // reader to distrust the assertion.
+            contentRegion:
+              document.querySelector("main")?.innerText.replace(/\s+/g, " ").trim() ?? "",
+            showsOwnChrome: Boolean(document.querySelector("#org-switcher")),
+          }) ||
+          undefined
+        );
+      },
+      { timeout: STEP_TIMEOUT, label: `a denied view for /org/${targetSlug}` },
+    ).catch(() => null);
+  };
+
+  const phantomSlug = `vfy-phantom-${stamp}`.toLowerCase();
+  const foreignView = foreignSlug.slug ? await readDeniedView(foreignSlug.slug) : null;
+  const phantomView = await readDeniedView(phantomSlug);
+
+  check(
+    "PERMISSION DENIED: a URL naming an organization this session cannot see renders an ANNOUNCED " +
+      "denial surface, not a blank region and not a silent fallback to the previous organization",
+    phantomView?.announced === true,
+    `announced=${phantomView?.announced} body=${JSON.stringify(phantomView?.bodyText)}`,
+  );
+  check(
+    "PERMISSION DENIED: the refusal EXPLAINS itself -- a user must be told the organization is not " +
+      "available to them rather than left to infer it from an absence",
+    /not available|access scope|not found|do not have/i.test(String(phantomView?.alertText ?? "")),
+    `alertText=${JSON.stringify(phantomView?.alertText)}`,
+  );
+  check(
+    "PERMISSION DENIED: the CONTENT REGION carries the refusal and not the previous organization's " +
+      "data -- telling a user an organization is unavailable while still showing that " +
+      "organization's members is worse than either state alone. Scoped to <main> on purpose: the " +
+      "organization switcher lists the user's OWN organizations and is correct to do so.",
+    !/VFY Org A|VFY Org B/.test(String(phantomView?.contentRegion ?? "")) &&
+      /not available|access scope|not found/i.test(String(phantomView?.contentRegion ?? "")),
+    `contentRegion=${JSON.stringify(phantomView?.contentRegion)?.slice(0, 170)}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "06b-permission-denied.png"));
+
+  // ---- NON-DISCLOSURE: the claim V01 proved at the HTTP layer, asserted on RENDERED TEXT -------
+  //
+  // A UI that said "you cannot access VFY Foreign Org" for the real foreign slug while saying
+  // "not found" for the phantom one would have disclosed that the foreign organization EXISTS. Both
+  // answers being identical is the property. Comparing rendered text rather than statuses is the
+  // point: the claim is about what the user is told, and a status-only comparison would be blind to
+  // copy that discloses the very thing the status conceals.
+  if (foreignView && phantomView) {
+    check(
+      "NON-DISCLOSURE: a REAL foreign organization and a slug that exists NOWHERE render the SAME " +
+        "answer -- so the UI does not confirm that another tenant's organization exists, which is " +
+        "the cross-tenant existence oracle this campaign has returned to repeatedly",
+      foreignView.alertText === phantomView.alertText,
+      `foreign=${JSON.stringify(foreignView.alertText)} phantom=${JSON.stringify(phantomView.alertText)}`,
+    );
+    check(
+      "NON-DISCLOSURE: and neither answer names the foreign organization, so nothing in the rendered " +
+        "answer gives away which tenant it belonged to",
+      !/VFY Foreign Org/.test(String(foreignView.alertText ?? "")) &&
+        !/VFY Foreign Org/.test(String(phantomView.alertText ?? "")),
+      `foreign=${JSON.stringify(foreignView.alertText).slice(0, 160)}`,
+    );
+  } else {
+    check(
+      "NON-DISCLOSURE: the two answers can be compared",
+      false,
+      `one leg was unmeasurable: foreign=${foreignView ? "read" : "unread"} phantom=${phantomView ? "read" : "unread"} ` +
+        `foreignSlug=${foreignSlug.slug ?? "(absent)"}`,
+    );
+  }
+
+  // ---- RECOVERY: the session is still usable after a denied navigation -------------------
+  //
+  // Without this the denied state could be a dead end, and "renders a good message" would be a
+  // poor way to spend a user's session. The control for the denial cases is that the app still
+  // navigates to a place the session CAN see.
+  // ---- RECOVERY, with a real slug ------------------------------------------------------------
+  //
+  // NOT with the `slug` variable. That name is a lie: `slug` is
+  // `el.selectedOptions[0].textContent` -- the organization's DISPLAY NAME -- and navigating to
+  // `/org/VFY Org A 1790771513224/settings/data` produces
+  // `/org/VFY%20Org%20A%201790771513224/settings/data`, which `unauthorizedPath` then (correctly)
+  // treats as an organization this session cannot see. So the recovery leg rendered the very denial
+  // surface it was trying to recover from, and timed out.
+  //
+  // The deep-link test appeared to contradict this: it builds its URL from the same variable and
+  // passes. The reason is that it navigates with `history.pushState`, and the APP then rewrites the
+  // URL to the real slug itself (`org-dashboard.tsx` pushes state on selection). The probe read the
+  // rewritten path and printed the kebab-case slug, which is why the bug was invisible for a run.
+  // A variable named `slug` holding a display name is a trap for the next reader, so the slug is
+  // read from the session's own answer rather than trusted.
+  const ownSlug = await page
+    .evaluate(async () => {
+      const response = await fetch("/api/v1/me");
+      const body = await response.json();
+      return body?.organizations?.[0]?.organization?.slug ?? null;
+    })
+    .catch(() => null);
+  check(
+    "RECOVERY precondition: the session can name one of its OWN organizations by slug, so the " +
+      "recovery leg navigates to something it is allowed to see",
+    typeof ownSlug === "string" && ownSlug.length > 0,
+    `ownSlug=${JSON.stringify(ownSlug)}`,
+  );
+  await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
+  const recoveredFromDenial = await waitFor(
+    page,
+    () => {
+      // Scoped to <main>, and it is scoped because the whole-body version was satisfiable by the
+      // SIDEBAR: `#org-switcher` names the current organization on every panel, so `VFY Org` matched
+      // even on the denial screen this case is trying to prove we recovered FROM. The predicate now
+      // asks the question that matters -- does the CONTENT region name one of my organizations and
+      // NOT carry the denial copy?
+      const main = document.querySelector("main");
+      const text = (main?.innerText ?? "").replace(/\s+/g, " ").trim();
+      return (
+        (/VFY Org/.test(text) &&
+          !/Organization not found|access scope/i.test(text) && {
+            recovered: true,
+            snippet: text.slice(0, 140),
+          }) ||
+        undefined
+      );
+    },
+    { timeout: STEP_TIMEOUT, label: "the shell after a denied navigation" },
+  ).catch(() => null);
+
+  // On failure, report WHAT WAS ACTUALLY ON THE PAGE.
+  //
+  // `.catch(() => null)` turned this into `recovered=undefined snippet=undefined` twice, which is
+  // not a diagnostic -- it is the absence of one. A red case whose detail says `undefined` cannot
+  // be acted on and cannot be reproduced, and this campaign has now been bitten by that specific
+  // shape in five different harnesses. The fix is always the same: on a timeout, read the page.
+  let deniedRecoveryEvidence = "";
+  if (recoveredFromDenial?.recovered !== true) {
+    deniedRecoveryEvidence = await page
+      .evaluate(() => {
+        const alert = document.querySelector("[role=alert]");
+        return JSON.stringify({
+          url: window.location.pathname,
+          alert: alert ? alert.textContent.replace(/\s+/g, " ").trim().slice(0, 120) : null,
+          body: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 220),
+        });
+      })
+      .catch((error) => `could not read the page: ${String(error?.message ?? error)}`);
+  }
+  check(
+    "PERMISSION DENIED RECOVERY: after a denied navigation the session can still reach an " +
+      "organization it CAN see -- so the refusal is a navigation outcome and not a dead end",
+    recoveredFromDenial?.recovered === true,
+    `recovered=${recoveredFromDenial?.recovered} onPage=${deniedRecoveryEvidence}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "06c-after-denial.png"));
 
   // ---- keyboard reachability and visible focus ----------------------------
   //
@@ -964,26 +1321,86 @@ async function main() {
     `total=${focusable.total} roving=${focusable.roving} tabstrips=${focusable.tabstrips} unreachable=${JSON.stringify(focusable.unreachable)}`,
   );
 
-  // Drive the tablist with real arrow keys: focus the selected tab, press
-  // ArrowRight, and require focus to land on the next tab.
-  const arrowNav = await page.evaluate(() => {
+  // ---- roving tablist, driven by a REAL key ---------------------------------
+  //
+  // TWO THINGS WERE WRONG WITH THIS CHECK, and the second is the one that made it a claim rather
+  // than a measurement.
+  //
+  // 1. It fired `new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })`. A synthetic
+  //    event is DELIVERED to a listener that happens to be attached, so the assertion really only
+  //    said "a listener exists on this element and reads `event.key`". It never proved that a real
+  //    key press reaches the tablist at all -- a handler bound to a different element, or one that
+  //    depends on browser default focus behaviour, would pass this and fail a real user. The
+  //    coverage map listed this as outstanding; the driver grew a real `press()` in V02-001 and this
+  //    is the check that should have been using it since.
+  //
+  // 2. It ran on WHATEVER page the journey happened to leave behind, and reported `{"error":"no
+  //    tablist"}` when there was not one. That is the same defect as the `recovered=undefined`
+  //    diagnostic above: a red case whose detail names the absence of its own subject and nothing
+  //    about the page. It fired the moment an earlier step changed which panel was rendered -- and
+  //    the red line pointed at the keyboard, not at the navigation that caused it.
+  //
+  // So: navigate to a panel that HAS a tablist, assert we arrived (a precondition, so a navigation
+  // that silently lands elsewhere is visible as itself rather than as a keyboard failure), then
+  // press a real ArrowRight through CDP and require focus to land on the next tab.
+  await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
+  const tablistPresent = await waitFor(
+    page,
+    () => {
+      const strip = document.querySelector('[role="tablist"]');
+      if (!strip) return undefined;
+      const tabs = [...strip.querySelectorAll('[role="tab"]')];
+      return { present: true, label: strip.getAttribute("aria-label") ?? null, tabs: tabs.length };
+    },
+    { timeout: STEP_TIMEOUT, label: "a tablist on the data panel" },
+  ).catch(() => null);
+  check(
+    "KEYBOARD precondition: the data panel renders a roving tablist, so the arrow-key case below is " +
+      "measuring a real control rather than reporting that the subject was absent",
+    tablistPresent?.present === true && (tablistPresent?.tabs ?? 0) >= 2,
+    `present=${tablistPresent?.present} tabs=${tablistPresent?.tabs} label=${JSON.stringify(tablistPresent?.label)} ` +
+      `path=${tablistPresent ? "reached" : "not reached"}`,
+  );
+
+  const beforeArrow = await page.evaluate(() => {
     const strip = document.querySelector('[role="tablist"]');
-    if (!strip) return { error: "no tablist" };
+    if (!strip) return null;
     const selected =
       strip.querySelector('[role="tab"][tabindex="0"]') ?? strip.querySelector('[role="tab"]');
-    if (!selected) return { error: "no tab" };
+    if (!selected) return null;
+    // Focus is set here, and the KEY is pressed by the driver below -- so the browser's own focus
+    // handling, default actions and modifiers all participate exactly as they would for a user.
     selected.focus();
-    const before = document.activeElement.textContent.trim();
-    strip.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
-    );
-    const after = document.activeElement.textContent.trim();
-    return { before, after, moved: before !== after };
+    return {
+      focused: document.activeElement?.textContent?.trim() ?? null,
+      path: window.location.pathname,
+    };
+  });
+  await page.press("ArrowRight");
+  await sleep(300);
+  const afterArrow = await page.evaluate(() => {
+    const strip = document.querySelector('[role="tablist"]');
+    return {
+      focused: document.activeElement?.textContent?.trim() ?? null,
+      role: document.activeElement?.getAttribute("role") ?? null,
+      stillInStrip: Boolean(strip && document.activeElement?.closest('[role="tablist"]')),
+    };
   });
   check(
-    "a tablist's unselected tabs are reachable with the keyboard (arrow keys)",
-    arrowNav.moved === true,
-    JSON.stringify(arrowNav),
+    "a tablist's unselected tabs are reachable with the keyboard -- a REAL ArrowRight through CDP, " +
+      "not a synthetic event, so this proves a user's key press lands on the next tab",
+    beforeArrow !== null &&
+      afterArrow.stillInStrip === true &&
+      afterArrow.focused !== null &&
+      afterArrow.focused !== beforeArrow.focused,
+    `before=${JSON.stringify(beforeArrow?.focused)} after=${JSON.stringify(afterArrow.focused)} ` +
+      `role=${afterArrow.role} stillInStrip=${afterArrow.stillInStrip}`,
+  );
+  check(
+    "and focus STAYS inside the tablist after an arrow press -- roving tabindex means the arrow " +
+      "moves along the strip rather than escaping it to the next focusable control in the page",
+    afterArrow.stillInStrip === true,
+    `stillInStrip=${afterArrow.stillInStrip} role=${afterArrow.role}`,
   );
 
   // ---- narrow layout -------------------------------------------------------
