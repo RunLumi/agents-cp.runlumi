@@ -253,6 +253,29 @@ run_case() {
 # A baseline that is red for that reason is worse than no baseline: the script would refuse to run,
 # correctly, and the refusal would look like a product failure. So the script owns the prerequisite
 # rather than assuming the operator remembered it.
+# The className of the element carrying `id="<selector>"`, located by scanning to the end of that
+# element's opening tag rather than a fixed character window.
+#
+# A 1200-character window worked until `pnpm format` reflowed the JSX and moved the className 3020
+# characters from the id. The window then silently found nothing, so the mutation meant to remove the
+# focus ring removed nothing -- which the assert caught, but only because the assert existed. A fixed
+# window over formatted source is a guess about layout that a formatter can invalidate at any time.
+#
+# The window is now derived: from the id to the `>` that closes the opening tag. That is a property of
+# the element, not of how a formatter happened to lay it out today.
+element_classname() {
+  local selector="$1" file="$2"
+  python3 - "$selector" "$file" <<'PY'
+import pathlib, re, sys
+selector, path = sys.argv[1], sys.argv[2]
+s = pathlib.Path(path).read_text()
+i = s.index(f'id="{selector}"')
+end = s.index(">", i)
+m = re.search(r'className="([^"]*)"', s[i:end])
+sys.stdout.write(m.group(1) if m else "")
+PY
+}
+
 echo "=== stack ==="
 restart_dev || exit 2
 # Assigned FIRST, then checked, then echoed. The previous order read `api_code` on the line before
@@ -306,15 +329,22 @@ python3 - <<'MUTATE_M1'
 import pathlib, re
 p = pathlib.Path("apps/web/src/features/organizations/org-dashboard.tsx")
 s = p.read_text()
-# The switcher's own className carries the ring utilities. Remove them from THAT element only --
-# every other control keeps its ring, so a red sheet cannot be explained by the app losing focus
-# styling everywhere.
-start = s.index('id="org-switcher"')
-tail = s[start:start + 1200]
-mutated = re.sub(r"focus-visible:ring[^\s\"]*", "", tail)
-mutated = re.sub(r"focus-visible:ring-offset[^\s\"]*", "", mutated)
-assert mutated != tail, "no focus-visible:ring utility was found on the switcher"
-p.write_text(s[:start] + mutated + s[start + 1200:])
+# Locate the element's OPENING TAG rather than a fixed character window. A 1200-character window
+# worked until `pnpm format` reflowed the JSX and moved the className 3020 characters from the id; the
+# mutation then silently changed nothing, and only the assert below caught it. A fixed window over
+# formatted source is a guess about layout that a formatter can invalidate at any time.
+#
+# The ring utilities are removed from THIS element only -- every other control keeps its ring, so a
+# red sheet cannot be explained by the app losing focus styling everywhere.
+i = s.index('id="org-switcher"')
+end = s.index(">", i)
+assert re.search(r'className="[^"]*"', s[i:end]), "the switcher's opening tag has no className"
+mutated = re.sub(r"focus-visible:ring[^\s\"]*", "", s[i:end])
+assert mutated != s[i:end], (
+    "no focus-visible:ring utility was found in the switcher's opening tag -- the mutation would "
+    "change nothing, and a run that measures nothing must never be reported as MISSED"
+)
+p.write_text(s[:i] + mutated + s[end:])
 print("    the switcher's focus ring is removed")
 MUTATE_M1
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M1 changed nothing" >&2; exit 1; }
@@ -326,10 +356,10 @@ python3 - <<'MUTATE_M2'
 import pathlib
 p = pathlib.Path("apps/web/src/features/organizations/org-dashboard.tsx")
 s = p.read_text()
-start = s.index('id="org-switcher"')
-tail = s[start:start + 1200]
-assert "outline-none" in tail, "the switcher no longer declares outline-none"
-p.write_text(s[:start] + tail.replace("outline-none", "", 1) + s[start + 1200:])
+i = s.index('id="org-switcher"')
+end = s.index(">", i)
+assert "outline-none" in s[i:end], "the switcher no longer declares outline-none"
+p.write_text(s[:i] + s[i:end].replace("outline-none", "", 1) + s[end:])
 print("    outline-none is removed; the ring stays")
 MUTATE_M2
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M2 changed nothing" >&2; exit 1; }
@@ -344,18 +374,18 @@ python3 - <<'MUTATE_M3A'
 import pathlib, re
 p = pathlib.Path("apps/web/src/features/organizations/org-dashboard.tsx")
 s = p.read_text()
-start = s.index('id="org-switcher"')
-tail = s[start:start + 1200]
-# The SAME mutation as M1, by construction rather than by a hand-listed token set. The first
-# version of this block named `focus-visible:ring-[var(--focus)]` and `ring-offset-white`, neither of
-# which the switcher carries -- its real className is
-# `outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]` -- so it removed the ring
-# WIDTH and left the ring colour, meaning M3 would have measured a still-visible ring and reported
-# the finding as unreproduced. A hand-listed token set is a guess about the source; a regex over
-# the element's own className is not.
-mutated = re.sub(r"focus-visible:ring[^\s\"]*", "", tail)
-assert mutated != tail, "no focus-visible:ring utility was found on the switcher"
-p.write_text(s[:start] + mutated + s[start + 1200:])
+# Locate the element's OPENING TAG, not a fixed character window -- see element_classname above.
+i = s.index('id="org-switcher"')
+end = s.index(">", i)
+# The SAME mutation as M1, by construction rather than by a hand-listed token set. The first version
+# named `focus-visible:ring-[var(--focus)]` and `ring-offset-white`, NEITHER of which the switcher
+# carries -- its real className pairs `outline-none` with `focus-visible:ring-2` -- so it removed the
+# ring WIDTH and left the ring colour, and M3 would have measured a still-visible ring and reported
+# the finding as unreproduced. A hand-listed token set is a guess about the source; a regex over the
+# element's own className is not.
+mutated = re.sub(r"focus-visible:ring[^\s\"]*", "", s[i:end])
+assert mutated != s[i:end], "no focus-visible:ring utility was found in the switcher's opening tag"
+p.write_text(s[:i] + mutated + s[end:])
 print("    the ring is removed again, by the same mutation as M1")
 MUTATE_M3A
 python3 - <<'MUTATE_M3B'
