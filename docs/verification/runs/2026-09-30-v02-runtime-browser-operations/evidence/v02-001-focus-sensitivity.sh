@@ -97,9 +97,17 @@ cp -p "$PROBE" "$SNAP/browser-probe.mjs"
 restore() {
   cp "$SNAP/org-dashboard.tsx" "$TARGET"; touch "$TARGET"
   cp "$SNAP/browser-probe.mjs" "$PROBE"; touch "$PROBE"
-  cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" || { echo "  FATAL: restore mismatch (tsx)" >&2; return 1; }
-  cmp -s "$PROBE" "$SNAP/browser-probe.mjs" || { echo "  FATAL: restore mismatch (probe)" >&2; return 1; }
-  echo "  restored (cp + touch, both verified with cmp)"
+  # Two independent references, because one is not enough. `cmp` against the snapshot proves the copy
+  # happened; `git diff --quiet` proves the result is the COMMITTED source, which is the only
+  # reference that cannot itself have been laundered. The first version of this script checked
+  # neither and left the tree with a deliberate fault applied, while still printing verdicts.
+  cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" \
+    || { echo "  FATAL: restore did not match the snapshot (tsx)" >&2; return 1; }
+  cmp -s "$PROBE" "$SNAP/browser-probe.mjs" \
+    || { echo "  FATAL: restore did not match the snapshot (probe)" >&2; return 1; }
+  git diff --quiet -- "$TARGET" "$PROBE" \
+    || { echo "  FATAL: the tree is not clean after restore -- a deliberate fault is still applied" >&2; return 1; }
+  echo "  restored (cp + touch; cmp against the snapshot AND git diff both clean)"
 }
 
 # Confirm the dev server is SERVING the mutated module before running the browser against it.
@@ -107,19 +115,31 @@ restore() {
 # This is the hazard V01-044 taught, one layer up: a mutation that never reaches the browser is
 # indistinguishable from a mutation the browser ignored, and both read MISSED. Rather than sleep a
 # fixed interval and hope, this polls the served source and requires it to change.
-await_served_change() {
+# Wait for the dev server to STOP serving the token, which is the property the mutation changes.
+#
+# The first version asserted the PRESENCE of `org-switcher`, which is in the module in BOTH states --
+# so it could only ever prove that the module was served, never that the fault had reached the
+# browser. Combined with the pipefail/SIGPIPE bug it reported a false FATAL on a fault that had
+# landed correctly, and the restore that followed did not take, leaving the tree mutated.
+await_served_change_absent() {
   local marker="$1" tries=0
   while [ "$tries" -lt 40 ]; do
-    if curl -s "http://localhost:${WEB_PORT}/src/features/organizations/org-dashboard.tsx" 2>/dev/null \
-        | grep -q "$marker"; then
-      echo "    the dev server is serving the mutation (marker '$marker' present)"
+    # NOT `| grep -q`. Under `set -o pipefail`, `grep -q` exits on its first match, curl then takes
+    # SIGPIPE and exits 141, and pipefail reports that as the PIPELINE's status -- so the test failed
+    # on a module that contained the marker on every one of 40 attempts. `grep -c` reads the whole
+    # stream, curl finishes normally, and the comparison happens in the shell.
+    local served_count
+    served_count="$(curl -s "http://localhost:${WEB_PORT}/src/features/organizations/org-dashboard.tsx" 2>/dev/null \
+      | grep -c "$marker" || true)"
+    if [ "${served_count:-0}" -eq 0 ]; then
+      echo "    the dev server has stopped serving '$marker' -- the fault reached the browser"
       return 0
     fi
     tries=$((tries + 1))
     sleep 1
   done
-  echo "    FATAL: the dev server never served the mutation; the run would read MISSED for a" >&2
-  echo "           fault that never reached the browser" >&2
+  echo "    FATAL: the dev server never dropped '$marker'; the run would read MISSED for a fault" >&2
+  echo "           that never reached the browser" >&2
   return 1
 }
 
@@ -183,7 +203,7 @@ p.write_text(s[:start] + mutated + s[start + 1200:])
 print("    the switcher's focus ring is removed")
 MUTATE_M1
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M1 changed nothing" >&2; exit 1; }
-await_served_change "org-switcher" || exit 1
+await_served_change_absent "focus-visible:ring-2" || exit 1
 run_case "M1 (the focus ring deleted from the switcher)" "DETECTED"
 
 # --- M2: the control direction -- ring present, outline-neutered only ----------------------------
@@ -244,7 +264,7 @@ s = s[:s.index(anchor)] + old_assertion + s[s.index(anchor):]
 p.write_text(s)
 print("    the pre-V02-001 assertion is reinstated beside the repaired one")
 MUTATE_M3B
-await_served_change "org-switcher" || exit 1
+await_served_change_absent "focus-visible:ring-2" || exit 1
 pkill -9 -f "Google Chrome for Testing" 2>/dev/null
 sleep 4
 pnpm smoke:browser > "$LOG" 2>&1
