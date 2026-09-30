@@ -55,6 +55,7 @@ PROBE="apps/web/scripts/browser-probe.mjs"
 WEB_PORT=5173
 SNAP="$(mktemp -d)"
 LOG="$(mktemp)"
+DEV_LOG="$(mktemp)"
 VERDICTS=()
 HEAD_AT_START="$(git rev-parse HEAD)"
 MUTATING=0
@@ -74,7 +75,8 @@ cleanup() {
     rc=1
   fi
   pkill -9 -f "Google Chrome for Testing" 2>/dev/null
-  rm -rf "$SNAP" "$LOG"
+  pkill -f "pnpm dev" 2>/dev/null; pkill -f "vite" 2>/dev/null
+  rm -rf "$SNAP" "$LOG" "$DEV_LOG"
   exit $rc
 }
 trap cleanup EXIT
@@ -115,6 +117,41 @@ restore() {
 # This is the hazard V01-044 taught, one layer up: a mutation that never reaches the browser is
 # indistinguishable from a mutation the browser ignored, and both read MISSED. Rather than sleep a
 # fixed interval and hope, this polls the served source and requires it to change.
+# Restart the dev server and wait for it to serve the CURRENT source.
+#
+# THIRD failed mechanism, and the one that actually mattered. Vite's own log shows
+# `hmr update /src/features/organizations/org-dashboard.tsx` firing on every mutation -- so the server
+# KNOWS the source changed -- yet a fresh request for the module URL kept returning the previous
+# transform, and a cache-busting query string did not change that either. So for 12 seconds of polling
+# the served bytes said "unmutated" while the file on disk said "mutated", and the harness reported a
+# false FATAL for a fault that had landed.
+#
+# A mutation campaign against the web app therefore has to RESTART the dev server after each
+# mutation. This is not a shortcut and not a mock: the browser still runs against a real Vite server
+# serving real source. It is the only way to make "the fault reached the browser" true rather than
+# assumed -- which is the same discipline as the `cp` + `touch` rule on the Rust side, where an
+# mtime-preserving restore made cargo ship the faulted binary.
+restart_dev() {
+  pkill -f "pnpm dev" 2>/dev/null
+  pkill -f "vite" 2>/dev/null
+  pkill -9 -f workerd 2>/dev/null
+  sleep 4
+  ( cd "$REPO" && nohup pnpm dev > "$DEV_LOG" 2>&1 & ) 
+  local tries=0
+  while [ "$tries" -lt 60 ]; do
+    local vite_code
+    vite_code="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)"
+    if [ "$vite_code" = "200" ]; then
+      sleep 3
+      return 0
+    fi
+    tries=$((tries + 1))
+    sleep 2
+  done
+  echo "    FATAL: the dev server did not come back up on :${WEB_PORT}" >&2
+  return 1
+}
+
 # Wait for the dev server to STOP serving the token, which is the property the mutation changes.
 #
 # TWO versions of this marker were wrong, and both failed for the same reason -- it could not
@@ -130,7 +167,8 @@ restore() {
 # mutation and absent after it, and no other control can satisfy or defeat the check.
 await_served_change_absent() {
   local marker="$1" tries=0
-  while [ "$tries" -lt 40 ]; do
+  restart_dev || return 1
+  while [ "$tries" -lt 20 ]; do
     # NOT `| grep -q`. Under `set -o pipefail`, `grep -q` exits on its first match, curl then takes
     # SIGPIPE and exits 141, and pipefail reports that as the PIPELINE's status -- so the test failed
     # on a module that contained the marker on every one of 40 attempts. `grep -c` reads the whole
