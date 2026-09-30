@@ -223,17 +223,34 @@ settle_worker() {
 # DIAGNOSTIC and not for the exit code: cargo exits 101 for a failing assertion as well as for a
 # compile error, and `^error:` also matches cargo's own "error: test failed" line.
 # ------------------------------------------------------------------------------------------
+# The artefact is `apps/api/build/index_bg.wasm`, and the FIRST version looked under
+# `apps/api/.wrangler/tmp` instead. That directory is a leftover cache, not the build output: it held
+# several hundred `dev-*` directories whose newest entry was NINE HOURS older than the run, while
+# `apps/api/build/index_bg.wasm` carried the current minute. The dev log says plainly
+# `Running: worker-build --release`, and that is what writes `build/`.
+#
+# Worth recording HOW this failed: the check did not report MISSED, it reported INVALID, because it
+# is written to refuse when it cannot prove the fault arrived. A guard that had been written as
+# "assume the restart rebuilt it" would have reported MISSED for a fault that never reached the
+# Worker, and a MISSED is indistinguishable from "this gate cannot detect the class". So the guard
+# caught its own wrong assumption, which is the only reason the run cost minutes rather than being
+# filed as evidence.
 served_wasm_newer_than_fault() {
   local since="$1"
-  local newest
-  newest="$(find "$REPO/apps/api/.wrangler/tmp" -name '*-index_bg.wasm' -newer "@$since" 2>/dev/null | head -1)"
-  if [ -z "$newest" ]; then
-    log "    INVALID: no wasm artefact under apps/api/.wrangler/tmp is newer than the fault, so the"
-    log "             Worker is still serving a binary built from the PRE-mutation source. A probe run"
-    log "             now would read MISSED for a fault that never arrived."
+  local artefact="$REPO/apps/api/build/index_bg.wasm"
+  if [ ! -f "$artefact" ]; then
+    log "    INVALID: $artefact does not exist, so the served artefact cannot be checked at all."
+    log "             The Worker may well have been rebuilt from the fault, but this run cannot"
+    log "             prove it, and an unprovable arrival is not an arrival."
     return 1
   fi
-  log "    the served wasm was rebuilt after the fault: ${newest#"$REPO"/}"
+  if [ ! "$artefact" -nt "$since" ]; then
+    log "    INVALID: $artefact is NOT newer than the fault ($(ls -la "$artefact" | awk '{print $6, $7, $8}')"
+    log "             vs the fault), so the Worker is serving a binary built from the PRE-mutation"
+    log "             source. A probe run now would read MISSED for a fault that never arrived."
+    return 1
+  fi
+  log "    the served wasm was rebuilt after the fault: apps/api/build/index_bg.wasm"
   return 0
 }
 
@@ -383,6 +400,27 @@ log "  If M1 reads MISSED, this gate cannot detect a security event whose reques
 log "  one that caused it -- and the correlation claim would be an assertion about the absence of"
 log "  evidence rather than about correlation."
 
+# The exit code is a VERDICT, and it must distinguish three outcomes rather than two.
+#
+# The first version ended in `grep MISSED -> exit 1; else exit 0`, so a sheet on which EVERY case was
+# INVALID exited **0** -- a clean success for a run in which nothing was measured. That is the exact
+# failure this campaign has now hit in six harnesses, and this one produced it while I was writing
+# the guard meant to prevent it: the guard correctly reported INVALID, and the script around it
+# reported success. **A guard is only as good as the exit status of the thing that reads it.**
+#
+#   0  every case DETECTED -- the gate detects this class of fault
+#   1  a case MISSED      -- the gate does NOT detect it, which is a finding about the gate
+#   2  a case INVALID     -- the harness could not measure it, which is a finding about the harness
+#
+# INVALID dominates MISSED: if any case is unmeasurable, no sheet including it is conclusive, and
+# reporting the run as "the gate does not detect this" would be a claim about a run that never
+# happened.
+if grep -q "INVALID" <<<"${VERDICTS[*]}"; then
+  log ""
+  log "  exit 2: at least one case was INVALID, so this run is a statement about the HARNESS and"
+  log "  not about the gate. A sensitivity proof that could not measure anything is not a pass."
+  exit 2
+fi
 if grep -q "MISSED" <<<"${VERDICTS[*]}"; then
   exit 1
 fi

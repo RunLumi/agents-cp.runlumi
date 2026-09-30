@@ -1,6 +1,7 @@
 # V02 browser-state coverage — what the gate claims, what it proves, and what is absent
 
-**Campaign: V02 Runtime, Browser, and Operations · Recorded: 2026-09-30 · Baseline: `smoke:browser` 41/41, exit 0**
+**Campaign: V02 Runtime, Browser and Operations · Recorded: 2026-09-30 · Updated after V02-002 ·
+Baseline: `smoke:browser` 52/52, exit 0, stable over three consecutive runs**
 
 The objective names twelve browser states to verify. This is an honest map of the current gate
 against that list, because **"the gate has a check" is a claim about the check, and the check's own
@@ -8,7 +9,11 @@ sensitivity is the evidence.**
 
 ## The headline
 
-**Of the twelve required states, exactly one has been watched to fail.**
+**Of the twelve required states, one has a *product-side* sensitivity proof — and that one is the
+state that was previously over-claimed.**
+
+**Six are absent, three are partial, and the absent set is now only states where the UI must tell the
+user something.**
 
 | | state | status | basis |
 |---|---|---|---|
@@ -16,17 +21,50 @@ sensitivity is the evidence.**
 | 11 | stale data after org switch | **PROVEN** | 24 DOM samples per direction, 0 leaks, both directions asserted |
 | 3 | success | **PROVEN** | org created, second org created, switcher populated, session live |
 | 8 | visible focus | **PROVEN, after V02-001** | repaired to a delta; sensitivity proof in `evidence/v02-001-focus-sensitivity.sh` |
-| 6 | retry/recovery | PARTIAL | the create-organization panel re-opens; `SessionError`'s retry does not |
+| 1 | loading | **PROVEN, after V02-002** | a **delayed** request — a rejected one never renders a loading state, so a failure would have satisfied the case for the wrong reason |
+| 5 | server error | **PROVEN, after V02-002** | `Fetch.requestPaused` fails only `/api/v1/me`, so the document still loads and the app mounts and takes its real error path |
+| 6 | retry/recovery | **PROVEN, after V02-002** | clicking the app's own retry against a restored network returns to the shell **and names the organization** — so recovery restored the session, not merely the page. **This is the control for the two rows above.** |
 | 7 | keyboard navigation | PARTIAL | `Tab` reachability is real (V02-001 added it); the roving-tablist arrow test is still a **synthetic** `KeyboardEvent` |
 | 12 | one-time secret lifecycle | PARTIAL | the email code is covered end to end, including a refused short code; a real secret (download grant, webhook secret) is not |
-| 1 | loading | **ABSENT** | `<LoadingScreen />` is never observed |
 | 2 | empty | **ABSENT** | no empty organization, no empty collection |
 | 4 | permission denied | **ABSENT** | no forbidden view is ever attempted |
-| 5 | server error | **ABSENT** | `session.kind === "error"` is never reached |
 | 10 | destructive confirmation | **ABSENT** | no destructive action is ever performed |
 
-**Five absent states are all states where the UI must tell the user something.** The gate proves the
-happy path thoroughly and the *communication* paths not at all.
+**The three remaining absent states are all states where the UI must tell the user something.** The
+gate proves the happy path thoroughly and the *communication* paths barely at all.
+
+### An honest distinction about states 1, 5 and 6
+
+These three are **PROVEN** in the sense that a real fault now drives them and the rendered outcome is
+asserted — not merely that a branch exists in the source. Two distinctions are still owed and are not
+claimed:
+
+1. **The probe has been observed reporting FAIL on them**, but on *harness* faults rather than on
+   product faults — three red cases during development, all three of which turned out to be my own
+   bugs (a request-id expectation the product was right to omit, a `waitFor` predicate returning an
+   always-truthy object, and an assertion reading a field I had just renamed). That is weaker than a
+   product-side mutation: it proves the instrument can go red, not that it would go red on this
+   class of product defect.
+2. **No sensitivity proof exists yet** for this class. `evidence/v02-001-focus-sensitivity.sh` covers
+   the focus class; an equivalent for the loading/error/retry class is outstanding, and until it is
+   written these three rows are PROVEN-but-not-yet-proven-to-fail — which is the same category state
+   8 sat in before V02-001.
+
+## What V02-002's own failures say about the three states
+
+Worth recording, because the three red cases were **all mine and none were the product's**:
+
+- I asserted the error state *always* names a request id. It does not, and it should not: a
+  network-level failure has no HTTP response and therefore no id, and `app.tsx:90` renders the line
+  only when the id is truthy. Rendering a dangling `Request ` would have been the defect. The
+  assertion is now the **inverse** and worth more — the copy must contain no dangling request label.
+- My recovery predicate returned an object, which is always truthy, so `waitFor` returned on its first
+  poll and sampled while the app was still in `loading`. Its diagnostic read `stillError=false`,
+  which is true of every state *except* `error` and therefore says nothing about recovery.
+
+And the first instrument was wrong in a way that would have read as a missing feature: taking the
+whole page **offline** fails the *document navigation* too, so the app never mounts and the probe
+timed out waiting for an error screen that had no opportunity to exist.
 
 ## Why V02-001 is the important entry in this table
 
@@ -50,24 +88,14 @@ The generalisable rule this campaign has now enforced repeatedly, in a fourth di
 > **A check that cannot be watched to fail is not evidence that the thing works. It is evidence that
 > nobody has looked.**
 
-## What the absent states cost, concretely
+## What the remaining absent states cost, concretely
 
-**Permission denied (4)** — the highest-value absence. The whole control plane is authorization-first,
-and V01 spent a campaign on server-side authority: 96/96 privilege-escalation cases, cross-tenant
-substitution, stored-state grading. **None of that is verified as a user-visible state.** A route that
-correctly returns `403` can still render an empty shell, a spinner, a crash, or a stale previous
-organization's data — and the current gate would not notice any of it.
-
-**Server error (5)** — `app.tsx` has a `SessionError` branch with a retry control, reached when
-`getMe()` fails with anything other than `401`. It is the branch a real outage lands in, and it has
-never been rendered by a test. It is also the branch this session hit by accident: the first
-`smoke:browser` run of the day timed out waiting for the auth screen *because* the API was not running,
-and the probe reported a bare "timed out waiting for auth screen" — a symptom of the server-error
-state, with no indication that the UI was showing a failure screen rather than the sign-in form.
-
-**Loading (1)** — the smallest and cheapest of the five. `getMe()` is fast locally, so the loading
-screen needs a deliberate hold to observe. A loading state that never renders is a layout shift; one
-that never *disappears* is a blank page. Neither is measured, and CLS (< 0.1) is a stated budget.
+**Permission denied (4)** — the highest-value absence, and unchanged. The whole control plane is
+authorization-first, and V01 spent a campaign on server-side authority: 96/96 privilege-escalation
+cases, cross-tenant substitution, stored-state grading. **None of that is verified as a user-visible
+state.** A route that correctly returns `403` can still render an empty shell, a spinner, a crash, or
+stale previous organization's data — and the current gate would not notice any of it. It also needs a
+second identity, which is why it was not folded into the cheaper instrumented-failure work.
 
 **Empty (2)** — a new organization with nothing in it is the **first thing every real user sees**,
 and it is unverified. Empty-state copy, an empty collection's affordances, and a destructive
@@ -78,20 +106,84 @@ known. `AGENTS.md` requires *"destructive actions require clear consequence copy
 confirmation pattern"*, and there is no browser evidence that any destructive action has a
 confirmation at all.
 
+**Server error (5) is now closed**, and its history is the argument for the map existing at all. It
+had a `SessionError` branch with a retry control, reached when `getMe()` fails with anything other
+than `401` — never rendered by a test. **This session hit that state by accident first**: the first
+`smoke:browser` run of the day timed out waiting for the auth screen *because* the API was not
+running, and the probe reported a bare "timed out waiting for auth screen" — a symptom of the
+server-error state with no indication that the UI was showing a failure screen rather than the
+sign-in form. A state that had been in the product the whole time, and that the gate could not tell
+you about, because it had never been driven.
+
+**Loading (1) is now closed**, and it needed a *different* fault than server error rather than the
+same one: a rejected request never renders a loading screen, so the failed-request case would have
+been the only measurement and it would have passed for the wrong reason.
+
+## The three remaining absences are absent from the GATE, not from the product
+
+Worth recording, because it changes the cost of each one by an order of magnitude — and because
+"absent" is a statement about *coverage*, not about the code.
+
+**Permission denied (4) already exists and is well designed.** `org-dashboard.tsx` computes
+
+```ts
+const unauthorizedPath = Boolean(
+  pathSlug && !me.organizations.some((item) => item.organization.slug === pathSlug),
+);
+```
+
+and renders, when a URL names an organization the session cannot see:
+
+```
+role="alert"
+  <h1>Organization not found</h1>
+  This organization is not available in your current access scope.
+```
+
+Two things make this better than the obvious alternative. It is **in the DOM**, so a browser assertion
+grades on what a user actually sees. And it deliberately answers a foreign organization and a
+nonexistent one **identically** — "not found", not "forbidden" — which is the non-disclosure property
+V01 proved at the HTTP layer, now visible at the UI layer. A test can assert both legs of that with
+one navigation each, and a mismatch would be a real finding.
+
+**Empty (2) also exists**, and it is the first thing a new user sees: `me.organizations.length === 0`
+routes to `<CreateOrganizationPanel />`. Note also that the zero-organization path builds its state
+from a **fabricated** `emptyOrganization()` — every field a blank string. That is defensible for a
+placeholder and worth watching: the *same* helper would be indistinguishable from real data if a
+fetch ever failed into it, and it is currently reachable only from `!selectedId`, not from an error.
+
+**Destructive confirmation (10) exists in two distinct patterns**, which is more than the single
+`window.confirm` a first search suggested:
+
+- **Automations** route delete through `openAction("delete", …)` → `setPendingAction(…)`, an in-DOM
+  confirmation surface. 23 delete references across that feature.
+- **Credential revoke** uses `window.confirm` **with consequence copy** — *"New requests will fail
+  immediately; existing usage and audit history …"* — which satisfies the letter of `AGENTS.md:181`
+  ("clear consequence copy and an appropriate confirmation pattern"), though a native modal is not
+  styleable and is awkward to assert on.
+
+The browser case should therefore target the **automations** surface: it is in the DOM, so the
+assertion grades on rendered consequence copy rather than on a native dialog the probe cannot read.
+
+**None of this is evidence.** Three surfaces found by reading source are three *claims* until a
+browser drives them. But they turn the next three attacks from "build a feature and find out" into
+"drive what is there and see whether it holds".
+
 ## The next three attacks, in order
 
-1. **Permission denied** — a second user in the same organization, and a user with no access to a
-   resource they can name. Assert the *rendered* outcome, not the status, and assert the previous
-   organization's data is gone from the DOM. This is the browser half of the claim V01 proved at the
-   HTTP layer.
-2. **Server error and loading** — one instrumented failure covers both: hold or fail `getMe()` and
-   observe what the user sees. The positive control is the ordinary path returning to normal, so a
-   retry that does nothing is visible.
-3. **Empty and destructive confirmation** — a fresh organization, then a destructive action on real
-   data, asserting the consequence copy and that the action is not one click away.
+1. **Permission denied and empty, in one journey** — navigate to a slug the session cannot see and
+   assert the `role="alert"` surface, then assert a *foreign real* slug and a *phantom* slug produce
+   **the same answer** (non-disclosure, browser half). Then use a session with zero organizations and
+   assert the create panel. The previous organization's data must be gone from the DOM.
+2. **Destructive confirmation** — drive the automations delete surface and assert consequence copy is
+   present and the action is not one click away.
+3. **A sensitivity proof for the V02-002 class**, matching `v02-001-focus-sensitivity.sh`. Until it
+   exists, three rows of this table are PROVEN and un-refuted, which is precisely the position state
+   8 occupied when V02-001 found it.
 
 ## A caution this map exists to prevent
 
-The temptation with a 41/41 sheet is to record the browser pass as done. Twelve named states, five
-unexercised, one exercised by a check that could not fail. **The count is telemetry; the map is the
-evidence.**
+The temptation with a 52/52 sheet is to record the browser pass as done. Twelve named states, three
+absent, two partial, one exercised by a check that **could not fail** until this session repaired it,
+and three newly exercised by a check whose own sensitivity is still unproven. **The count is
+telemetry; the map is the evidence.**
