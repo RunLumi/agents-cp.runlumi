@@ -270,7 +270,8 @@ import pathlib, re, sys
 selector, path = sys.argv[1], sys.argv[2]
 s = pathlib.Path(path).read_text()
 i = s.index(f'id="{selector}"')
-end = s.index(">", i)
+end = s.find('id="', i + 10)  # the next element's id bounds this one
+assert end != -1, "no following id= to bound the switcher's opening tag"
 m = re.search(r'className="([^"]*)"', s[i:end])
 sys.stdout.write(m.group(1) if m else "")
 PY
@@ -337,7 +338,8 @@ s = p.read_text()
 # The ring utilities are removed from THIS element only -- every other control keeps its ring, so a
 # red sheet cannot be explained by the app losing focus styling everywhere.
 i = s.index('id="org-switcher"')
-end = s.index(">", i)
+end = s.find('id="', i + 10)  # the next element's id bounds this one
+assert end != -1, "no following id= to bound the switcher's opening tag"
 assert re.search(r'className="[^"]*"', s[i:end]), "the switcher's opening tag has no className"
 mutated = re.sub(r"focus-visible:ring[^\s\"]*", "", s[i:end])
 assert mutated != s[i:end], (
@@ -357,7 +359,8 @@ import pathlib
 p = pathlib.Path("apps/web/src/features/organizations/org-dashboard.tsx")
 s = p.read_text()
 i = s.index('id="org-switcher"')
-end = s.index(">", i)
+end = s.find('id="', i + 10)  # the next element's id bounds this one
+assert end != -1, "no following id= to bound the switcher's opening tag"
 assert "outline-none" in s[i:end], "the switcher no longer declares outline-none"
 p.write_text(s[:i] + s[i:end].replace("outline-none", "", 1) + s[end:])
 print("    outline-none is removed; the ring stays")
@@ -376,7 +379,8 @@ p = pathlib.Path("apps/web/src/features/organizations/org-dashboard.tsx")
 s = p.read_text()
 # Locate the element's OPENING TAG, not a fixed character window -- see element_classname above.
 i = s.index('id="org-switcher"')
-end = s.index(">", i)
+end = s.find('id="', i + 10)  # the next element's id bounds this one
+assert end != -1, "no following id= to bound the switcher's opening tag"
 # The SAME mutation as M1, by construction rather than by a hand-listed token set. The first version
 # named `focus-visible:ring-[var(--focus)]` and `ring-offset-white`, NEITHER of which the switcher
 # carries -- its real className pairs `outline-none` with `focus-visible:ring-2` -- so it removed the

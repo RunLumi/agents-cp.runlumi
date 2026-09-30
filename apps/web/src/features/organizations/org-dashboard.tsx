@@ -407,7 +407,7 @@ export function OrgDashboard({ me, onSignOut, onOrganizationsChanged }: OrgDashb
                   );
                   if (next) selectOrganization(next);
                 }}
-                className="min-h-10 min-w-0 max-w-[220px] shrink rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 text-sm font-medium outline-none  "
+                className="min-h-10 min-w-0 max-w-[220px] shrink rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
               >
                 {me.organizations.map((organization) => (
                   <option
