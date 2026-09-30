@@ -276,11 +276,68 @@ export async function newPage(browser, url = "about:blank") {
      * a later case cannot inherit an interception -- the same "leave the world as you found it"
      * discipline the persist-directory rule exists for.
      */
-    async intercept(urlPattern, { action = "fail", delayMs = 0 } = {}) {
+    async intercept(
+      urlPattern,
+      { action = "fail", delayMs = 0, status = 200, body = "", contentType = "text/html" } = {},
+    ) {
       await page.send("Fetch.enable", { patterns: [{ urlPattern, requestStage: "Request" }] });
+      // TWO DEFECTS, both found by the `fulfill` action failing with `Invalid InterceptionId`.
+      //
+      // 1. NO SESSION FILTER. `browser.on` receives events from EVERY attached target, and this
+      //    handler acted on any `Fetch.requestPaused` regardless of which session raised it. An
+      //    interception id belongs to the session that paused the request, so handling another
+      //    session's event is always an invalid id. The dialog handler filters by session; this one
+      //    did not, and `fail`/`delay` masked it because they were tolerated where `fulfill` was not.
+      //
+      // 2. AN UNHANDLED REJECTION CRASHED THE PROCESS. `browser.on` invokes this async function
+      //    without awaiting it, so a throw inside it becomes an unhandled rejection and Node exits
+      //    -- taking the whole probe down at that point rather than recording one failed interception.
+      //    A harness fault in ONE interception must not end the run; it must appear as a failed case.
       const handler = async (data) => {
         if (data.method !== "Fetch.requestPaused") return;
-        const sessionId = data.sessionId;
+        if (data.sessionId !== page.sessionId) return;
+        try {
+          await handlePause(data, data.sessionId);
+        } catch (error) {
+          interceptionErrors.push(String(error?.message ?? error));
+        }
+      };
+      const interceptionErrors = [];
+      const handlePause = async (data, sessionId) => {
+        // WHY `fulfill` EXISTS (V02-010)
+        //
+        // The objective names `malformed response` among the adapter injections, and it is the most
+        // deceptive of the seven: the browser receives **HTTP 200** and a body that is not JSON. Any
+        // check that grades on the status code reads that as success, which is precisely the failure
+        // mode the objective warns about. A real user behind a misconfigured proxy or CDN sees
+        // exactly this.
+        //
+        // `Fetch.fulfillRequest` is how the browser itself produces that: a genuine response,
+        // synthesised at the network layer, with nothing in `apps/web` stubbed. The app's real parse
+        // path runs on a real body.
+        if (action === "fulfill") {
+          await browser.send(
+            "Fetch.fulfillRequest",
+            {
+              requestId: data.params.requestId,
+              responseCode: status,
+              responseHeaders: [
+                { name: "Content-Type", value: contentType },
+                // A request id, so the app has a trace to show even on this fault -- which is the
+                // point: a malformed response from a real intermediary WOULD carry one, and a
+                // verifier that supplies it is testing the app's behaviour rather than the
+                // harness's ability to synthesise headers.
+                {
+                  name: "X-Request-ID",
+                  value: `req_v02_malformed_${data.params.requestId.slice(0, 12)}`,
+                },
+              ],
+              body: Buffer.from(body, "utf8").toString("base64"),
+            },
+            sessionId,
+          );
+          return;
+        }
         if (action === "delay") {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
           await browser.send(
@@ -305,6 +362,10 @@ export async function newPage(browser, url = "about:blank") {
       return async () => {
         unsubscribe();
         await page.send("Fetch.disable", {}).catch(() => {});
+        // Interceptions that failed are returned rather than swallowed, so a case that expected an
+        // interception can say the interception did not happen instead of reading an absence as a
+        // product result.
+        return { errors: interceptionErrors.slice() };
       };
     },
 

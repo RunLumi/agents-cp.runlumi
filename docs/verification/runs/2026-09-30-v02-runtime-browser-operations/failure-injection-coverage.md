@@ -7,9 +7,9 @@ started and the honest position is easier to read as a table than to reconstruct
 
 ## The headline
 
-**One of the seven named injections is proven, one is proven in a narrower sense, and five are not
-covered — two of them because the environment cannot reach them, and three because nothing has
-driven them yet.**
+**Two of the seven named injections are proven, one is proven in a narrower sense, and four are not
+covered — two because the environment cannot reach them, and two because nothing has driven them
+yet.**
 
 Two of the three reachable ones are reachable **without any outbound socket**, which is the
 non-obvious part: the blocker that has stopped this section twice (V01-026 / GAP-007) applies to
@@ -21,7 +21,7 @@ non-obvious part: the blocker that has stopped this section twice (V01-026 / GAP
 | 2 | **timeout** | **PROVEN, narrow** | The same mechanism with `delay` rather than `fail`: a *pending* request renders a loading state and does **not** render the error state. Narrow because a pending `/me` is a session read, not an upstream provider call. |
 | 3 | 429 | **NOT COVERED — BLOCKED** | Needs an upstream that answers 429. The Worker cannot open an outbound socket on this host (V01-026, measured across three address classes). |
 | 4 | 5xx | **NOT COVERED — BLOCKED** | Same cause. |
-| 5 | **malformed response** | **NOT COVERED — REACHABLE** | `Fetch.fulfillRequest` can answer `/api/v1/me` with **HTTP 200 and a body that is not JSON**, from the browser, with no upstream. The client already handles it: `requestJson` sets `validJson = false` and throws `makeInvalidResponseError`. **What is unproven is the browser-visible outcome** — whether that becomes the error state or a blank shell. |
+| 5 | **malformed response** | **PROVEN (V02-010)** | `Fetch.fulfillRequest` answers `/api/v1/me` with **HTTP 200 and a body that is not JSON**, from the browser, with no upstream. The app renders an announced, explained, retryable error state and does **not** echo the proxy's HTML back as its own copy; a control proves the session recovers through the app's own retry. This is the row where a status-code assertion would have read the fault as success and an error interceptor could not see it at all. |
 | 6 | queue / webhook retry | **PARTIAL, then BLOCKED** | `verify:webhook-fanout` W6 shows **replay** works over real HTTP (W0–W4 are controls, W6 the replay). Delivery **failure** injection is BLOCKED: the local queue does not deliver a published body, and driving a real non-2xx from a receiving endpoint needs an outbound socket. |
 | 7 | downstream disconnect | **NOT COVERED — REACHABLE in part** | #1 is a failure *before* the response. A disconnect **after headers, mid-body** is a different fault and is not driven. Reachable via the same boundary. |
 
@@ -52,13 +52,11 @@ through the documented allowlist, as `v01-provider-fault-probe.mjs` does.
 
 ## The three reachable rows, in order of value
 
-1. **Malformed response (5).** The strongest candidate: the client-side handling is already written
-   and tested, the *user-visible* consequence is not, and the injection needs one new CDP call.
-   A user who receives an HTML error page from an intermediary instead of JSON should see an error
-   state and a way forward — not a blank shell and not a crash.
+1. ~~**Malformed response (5).**~~ **CLOSED in V02-010.** Client handling was already written and
+   tested; the user-visible consequence is now measured, with a recovery control.
 2. **Downstream disconnect (7).** Same boundary, different fault: the response begins and then fails.
    This is the one the objective lists that most resembles a real flaky network, and the loading/error
-   distinction depends on it.
+   distinction depends on it. Now the strongest remaining candidate.
 3. **Bounded retry + reconciliation.** These two are properties of a *loop*, so they need a fault
    that repeats. That is the part of this section that will need a provider-shaped adapter, and it is
    the part most likely to remain blocked.

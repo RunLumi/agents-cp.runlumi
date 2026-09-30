@@ -2424,6 +2424,120 @@ async function main() {
     `sawOrg=${recovered?.sawOrg}`,
   );
 
+  // ==========================================================================================
+  // V02-010 -- MALFORMED RESPONSE. The most deceptive of the objective's seven injections.
+  //
+  // `/api/v1/me` answers **HTTP 200** with a body that is not JSON: an HTML error page from a
+  // misconfigured proxy or CDN, which is exactly what a real user sees. The response is synthesised
+  // at the network layer with `Fetch.fulfillRequest`, so nothing in `apps/web` is stubbed and the
+  // app's real parse path runs on a real body.
+  //
+  // Why this one matters more than its size: **a verifier that grades on the status code reads 200
+  // as success.** The objective says to grade on observable state and stored records rather than on
+  // status codes alone, and this fault is the case where that instruction is load-bearing rather than
+  // stylistic. An error interceptor cannot catch it -- there is no network error -- and a status
+  // assertion cannot either.
+  //
+  // `requestJson` already handles it correctly at the client: `validJson = false` and
+  // `makeInvalidResponseError`. So the open question is what the USER sees, and the answer has to be
+  // an explained, recoverable error state rather than a blank shell or a crash.
+  // ==========================================================================================
+  const MALFORMED_BODY =
+    "<html><head><title>502 Bad Gateway</title></head><body><h1>502</h1></body></html>";
+  const releaseMalformed = await page.intercept("*/api/v1/me", {
+    action: "fulfill",
+    status: 200,
+    body: MALFORMED_BODY,
+    contentType: "text/html",
+  });
+  await page.goto(WEB, { waitUntil: "domcontentloaded" });
+  const malformedScreen = await waitFor(
+    page,
+    () => {
+      const alert = document.querySelector("[role=alert]");
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      return (
+        (alert && {
+          announced: true,
+          text: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
+          bodyText: body.slice(0, 240),
+          hasRetry: [...alert.querySelectorAll("button")].some((b) =>
+            /retry|try again/i.test(b.textContent ?? ""),
+          ),
+          // The malformed payload must NOT be rendered. An app that echoed a 502 HTML page back to
+          // the user as the error copy would be showing them the proxy's words as its own.
+          echoesGarbage: /502 Bad Gateway|<h1>502/.test(body),
+        }) ||
+        undefined
+      );
+    },
+    { label: "an error state for a malformed 200 response", timeout: STEP_TIMEOUT },
+  ).catch(() => null);
+
+  await releaseMalformed();
+
+  check(
+    "MALFORMED RESPONSE: an HTTP 200 whose body is not JSON renders an ERROR state -- a status-code " +
+      "check would have read this as success, and an error interceptor cannot see it because there " +
+      "is no network error",
+    malformedScreen?.announced === true,
+    `announced=${malformedScreen?.announced} body=${JSON.stringify(malformedScreen?.bodyText)}`,
+  );
+  check(
+    "and it EXPLAINS itself rather than rendering a blank region the user has to interpret",
+    (String(malformedScreen?.text ?? "").trim().length ?? 0) > 8,
+    `text=${JSON.stringify(malformedScreen?.text)?.slice(0, 160)}`,
+  );
+  check(
+    "and it does NOT echo the malformed payload back at the user -- an app that showed a proxy's " +
+      "502 HTML page as its own error copy would be showing the intermediary's words as the product's",
+    malformedScreen?.echoesGarbage === false,
+    `echoesGarbage=${malformedScreen?.echoesGarbage}`,
+  );
+  check(
+    "and it offers a RETRY, because a response that cannot be parsed is the case where a user most " +
+      "needs a way forward and least needs to be told what went wrong internally",
+    malformedScreen?.hasRetry === true,
+    `hasRetry=${malformedScreen?.hasRetry} text=${JSON.stringify(malformedScreen?.text)?.slice(0, 120)}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "08b-malformed-response.png"));
+
+  // ---- CONTROL: the same session recovers once the response is well-formed again ----------------
+  // Click the app's own retry FIRST, then wait for the shell.
+  //
+  // The first version waited for the shell and only clicked retry inside a `.then()`, which meant the
+  // wait had to succeed before the click that would make it succeed. It could never succeed, so the
+  // chain rejected and the control read `recovered=undefined`. The interception is already released,
+  // so the request the app makes on retry is a real one against the real Worker.
+  const retryClicked = await page.evaluate(() => {
+    const alert = document.querySelector("[role=alert]");
+    const button = [...(alert?.querySelectorAll("button") ?? [])].find((b) =>
+      /retry|try again/i.test(b.textContent ?? ""),
+    );
+    button?.click();
+    return { clicked: Boolean(button), label: button?.textContent?.trim() ?? null };
+  });
+  const afterMalformed = await waitFor(
+    page,
+    () => {
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      return (
+        (!document.querySelector("[role=alert]") &&
+          /VFY Org/.test(body) && { recovered: true, snippet: body.slice(0, 100) }) ||
+        undefined
+      );
+    },
+    { timeout: STEP_TIMEOUT, label: "the shell after retrying a malformed response" },
+  ).catch(() => null);
+  check(
+    "MALFORMED RESPONSE CONTROL: once the response is well-formed again the session RECOVERS through " +
+      "the app's own retry -- so the malformed-body path leaves the user somewhere they can leave " +
+      "from, and the four cases above are measuring a screen the app can actually exit",
+    afterMalformed?.recovered === true,
+    `clicked=${retryClicked.clicked} (${retryClicked.label}) recovered=${afterMalformed?.recovered} ` +
+      `snippet=${JSON.stringify(afterMalformed?.snippet)}`,
+  );
+
   // ---- LOADING: a PENDING request, which is the only thing that shows this branch ---------------
   // The document loads normally and ONLY the API request is delayed. A rejected request never
   // renders a loading state, so this has to be a delayed request rather than a failed one -- otherwise
