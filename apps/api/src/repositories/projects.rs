@@ -539,12 +539,25 @@ LIMIT ?2"#,
         statement.all().await?.results::<WorkspaceBindingRecord>()
     }
 
-    pub async fn delete_binding(&self, binding_id: &str, project_id: &str) -> worker::Result<bool> {
-        let statement = self.database.prepare(
+    /// The delete as a PREPARED statement, so a route can compose it into a larger transaction
+    /// instead of running its own. The route needs that because the idempotency commit carries the
+    /// claim, the guard and the audit event in one batch (V01-018).
+    pub fn delete_binding_statement(
+        &self,
+        binding_id: &str,
+        project_id: &str,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
             DELETE_BINDING_SQL,
             &[BindValue::Text(binding_id), BindValue::Text(project_id)],
-        )?;
-        let result = statement.run().await?;
+        )
+    }
+
+    pub async fn delete_binding(&self, binding_id: &str, project_id: &str) -> worker::Result<bool> {
+        let result = self
+            .delete_binding_statement(binding_id, project_id)?
+            .run()
+            .await?;
         Ok(D1Adapter::changes(&result)? > 0)
     }
 }

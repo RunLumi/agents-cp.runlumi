@@ -24,7 +24,21 @@ Nothing is carried as "probably fine".
 | **V01-011** `POST /orgs/{org}/automations` can never succeed — the 201 body was built by reading back a row the un-run batch would have written | **high** | product defect | **404 closed**; a SECOND 503 keeps the route non-functional. Localised: not the schedule (every kind that validates hits it), and all seven batch statements are provably valid — the reason is unrecoverable because the failure silences the Worker's log |
 | **V01-012** no probe can read a log line written by the Worker, so every `report_error` is unprovable | high (verifier) | verifier defect | **closed** — `--log-level debug` plus a teed console file and `workerConsole()` |
 | **V01-011** `POST /orgs/{org}/automations` could not succeed — twice over | **high** | product defect | **closed**. The 201 body read back a row the un-run batch would have written (404, nothing written); then the insert itself named 34 columns and 33 values and bound a **user id** to `created_at` (503, nothing written). Now `201`. `schema:bind-count` was green throughout — the first concrete instance of GAP-004 |
-| **V01-013** the attempt counter that bounds automation retries is written by nothing | **high** | product defect | **open** — `TRANSITION_OCCURRENCE_SQL` has no `attempt` in its SET list, so `max_start_attempts` is unenforceable; the two assertions fail on purpose until it is fixed |
+| **V01-013** the attempt counter that bounds automation retries is written by nothing | **high** | product defect | **CLOSED.** `TRANSITION_OCCURRENCE_SQL` gained `attempt = COALESCE(?14, attempt)`, with `Some(attempt)` from the claim and `None` from the other five transition routes. **Two enforcement points came alive, not one**: the claim's guard *and* the expiry sweep's exhaustion test, which had never executed in the product's life. 1010 → 1013 tests, three regression tests, `pnpm check` green |
+| **V01-014** the attack on V01-013: is the retry bound *enforced*, or only *unreachable*? | **high** | product defect | **CLOSED with V01-013 — 34/34, exit 0.** The sweep now resolves an expired slot to `failed` / `lease_expired_retry_exhausted` (was: back to `pending`), and the third claim answers **`409 automation_invalid_state`** instead of a detail-less **`503`**. A device that lost its lease is told the slot is spent rather than that the store is down. **Two of my own assertions were wrong and the product was right**, in opposite directions |
+
+| **V01-014** the attack on V01-013: is the retry bound *enforced*, or only *unreachable*? | **high** | product defect | **FAIL, 27/31.** The arc ran to completion and every control held -- the sweep expired the lease, the occurrence stayed `pending` and claimable, the first claim took exactly one lease, a second claim while leased was `409`. But the **third** claim answered **`503 service_unavailable` with empty `details`**, not an exhausted-attempt refusal. Because `attempt` never advances, the re-claim recomputes `attempt = 1` and its attempt row collides on `ux_automation_occurrence_attempts(occurrence_id, attempt, outcome)`, aborting the batch. A device that lost its lease and retried is told the whole store is down. **Same root cause as V01-013, so the same fix removes it** |
+| **V01-015** do `approve_enrollment` and `revoke_device` honour an `Idempotency-Key`? | **medium** | product defect, **HALF CLOSED — 21/23** | **`revoke_device` is closed**: the claim is taken after authorization and before the state decision, the `409 "already revoked"` refusal is preserved verbatim but now decided from the record already read, and a same-key replay returns the stored `204` while a different key still gets `409` — so a retry and a new request are finally distinguishable. **`approve_enrollment` is blocked on V01-020**: its body is a read-back projection and the helper requires the success before the write. Repairing it also found and closed a latent defect in the campaign's own pattern — `replay_response` could not replay a `204`, across 182 call sites |
+
+| **V01-016** must a **revoked device** be refused, and can it mint a new token? | **critical** if it reproduced | claim **PASS**, adjacent defect **FAIL** | the credential claim **holds, with runtime evidence for the first time**: after a real revocation (`status` → `revoked`, token rows **2 → 0**, read from D1) both tokens answer `401` and a full refresh answers `403, minted=false`. What the run found instead is **V01-019** |
+| **V01-019** `GET /api/v1/devices/token/nonce` is **unauthenticated** | **medium** | product defect | **CLOSED — 29/29, exit 0.** The route now takes `HeaderMap` and calls `authorize_device`, and `authorize_device` itself refuses a non-active device — because `DEVICE_TOKEN_BY_HASH_SQL` never joins `devices`, so revocation was a **single** mechanism with no second check. Both an anonymous caller and a revoked device now get `401`. The regression test walks **`app.rs`** rather than pinning the route, and was **shown to fail** by re-introducing the defect |
+
+| **V01-017** can one address be invited twice, and what happens under concurrency? | none | **hypothesis falsified** | **NOT_APPLICABLE — the defect does not exist.** A sequential duplicate answers `200` with `duplicate: true` and the same id; six concurrent racers on one key give **1 creation + 5 replays**; four on four keys give **1 + 3**; one row per email; no 5xx; audit events = 3 for 3 invitations. The read-then-write is correct because the derived id is stable per *(org, email, role)*, so the read **hits** — the constraints are the backstop, not the mechanism. My `503` prediction was wrong, and so were two of my assertions |
+| **V01-021** usage attributed to correct org/project/principal/run? | none — it holds | **PASS, 31/31** | the objective's item 4, which had **no evidence at all**. Every `usage_events` row is INTERNALLY CONSISTENT — the project, principal, credential and run it names all belong to the org it names — and no row written by Alpha names **any** of Bravo's org, project, credential, alias, run or user. The code reading that predicted this is recorded as the *hypothesis* it was, since V01-008, V01-011 and V01-013 all read as fine. The attack did find a defect: naming a foreign alias answered **`503`**, repaired to `403 model_not_allowed` |
+| **V01-022** a gate whose result was a function of the calendar | **high** (verifier) | verifier defect, repaired | `verify:budget-concurrency` reported 23/25 because its reservation expiry was the literal `2026-09-29T00:00:00Z` and the run was at **00:36 on 2026-09-29**. Every reservation was refused, nothing was held, and the ceiling assertion passed **vacuously** — the gate proving reservations cannot overspend was green because nothing happened. It read 27/27 at 23:59 the day before, with no code change. Worse: the total moved 25 → 28 with one new control and no skip, so assertions were silently not running |
+| **V01-020** the idempotency helper cannot express a response built from the row it writes | architectural | product constraint, not repaired | **all 27** `commit_scoped_mutation` sites build their stored success from inputs and **none** reads the row back, so the limit is uniform and documented — and it is why `approve_enrollment` is unwired. Repair needs either a synthetic projection duplicating the DDL's defaults or a contract change across 27 call sites. It also exposed a **silent** limit, now closed: `replay_response` answered `500` for any `204` |
+| **V01-018** the discarded-`Idempotency-Key` class, enumerated exactly | **medium** | product defect | **2 of 3 sites CLOSED.** The count is **3, not 76** — a substring pattern counting `idempotency_key(...)?;` matched both the discarded statement and the tail of `let key = idempotency_key(...)?;`. `revoke_device` and `delete_project_binding` now replay their first response (a `204`) while a different key still gets the preserved `404`/`409`, so a retry and a new request are distinguishable; `approve_enrollment` is **open on V01-020**. The repair of the second site also found that `replay_response` could not replay a `204` at all |
+
 | **V01-002** a verifier measured code that was not on disk | high | verifier defect | **closed** — `buildFreshness()` added so it cannot recur silently |
 | **V01-001** the adoption privacy property is under-specified, and the probe that "proved" it was searching nothing | high (verifier) / gap (spec) | verifier defect + spec gap | **closed** — probe retargeted to the three rules that exist; GAP-001 recorded |
 | **V01-004** three authentication attacks the family names and nothing had ever run | none found | absent evidence | **closed** — 55/55 → 76/76, and one of the three turned out to be testing the wrong condition |
@@ -35,11 +49,21 @@ Three new runtime gates:
 |---|---|---|
 | `pnpm verify:adoption-privacy` | 20/20 | 2 of 2 detected |
 | `pnpm verify:privilege-escalation` | 46/46 | 4 of 4 detected |
-| `pnpm verify:budget-concurrency` | 27/27 | B1, B2 detected; B3 an expected MISSED |
-| `pnpm verify:idempotency` | 41/41 | 4 of 4 detected, 1 KNOWN MISSED with its reason recorded |
+| `pnpm verify:budget-concurrency` | **28/28, exit 0** after V01-022. It had been reading 23/25 because its reservation expiry was a hard-coded date that had passed — every reservation refused, nothing held, and the ceiling assertion passing **vacuously**. Now: 8 requests of 30 against a limit of 100 grant **3** and deny 5, with no 5xx |
+
+| `pnpm verify:idempotency` | **47/47** (was 41/41) — replay, incompatible payload, 6 and 8 concurrent on one key, cross-principal key reuse, **and the `delete_project_binding` case that had no gate at all**, graded on row counts read from D1 and on the response a retry receives |
+
+| `pnpm verify:secret-tenancy` | **32/32, exit 0, 1 named SKIP** (was 30/32 exit 1). The red was the point, and what it exposed is V01-030: D1 delivers an `INTEGER` column to the Worker as a JavaScript number, so a struct field typed `bool` could never be decoded — and the failure fired **only when the row existed**. A foreign endpoint produced no row, so every cross-tenant attack passed *for the same reason the owner was refused*: six rows reporting `PASS` while measuring the absence of a row rather than a refusal of a resource. Repaired with a shared `sql_bool` deserializer on the three affected fields of the two affected row structs; `pnpm check` exit 0 with 1026 tests. **Sensitivity 2/2, exit 0** (`evidence/v01-secret-sensitivity.sh`): M1 reverts the repair and the positive control goes red; M2 drops `AND org_id = ?1` while keeping `?1` bound, and the attack answers `200` with **Bravo's stored version advancing 1 → 2**. M2 could not be written before the repair — with the control red, the gate could not show it detects a tenancy fault at all |
 | `pnpm verify:filter-tenancy` | 65/65, 9 skipped | 4 of 4 detected, each printing the identifiers it leaked |
 | `pnpm verify:inference-failure` | 65/65, 0 skipped | 3 of 3 detected, incl. the success case stranding money |
-| `pnpm verify:lease-contention` | 32/34 — **2 FAILs are the open V01-013 defect, asserted on purpose** |
+| `pnpm verify:invitation-race` | **23/23, exit 0 — GAP-006 is falsified, not fixed.** 11 requests over a control, a sequential duplicate, six concurrent on one key and four concurrent on four keys. One row per email throughout, no 5xx anywhere, and the audit count matches the row count |
+| `pnpm verify:usage-attribution` | **43/43, exit 0, 0 skipped** — the objective's "usage attributed to correct org/project/principal/run", which had no evidence at all. Two organizations, a real inference in each **and a real MANAGED run each** (device → binding → agent session → `execution_mode: "managed"`), and the load-bearing assertion is a **database invariant** rather than a status: every usage row must be internally consistent, and no row written by one org may name **any** identifier of the other. **2 of 4 usage rows now carry a `run_id`**, and a control asserts that count is non-zero so the run clause cannot pass on an empty set. Every escalation has a **positive control** (the same request without the foreign identifier must return 2xx) — added after discovering the previous `422`s were my own malformed body, so two of the three cases had been grading a refusal that never happened. Sensitivity: `evidence/v01-usage-sensitivity.sh`, exit 0, both mutations detected |
+| `pnpm verify:revoked-device` | **29/29, exit 0.** Every leg is controlled by a success **before** the revocation, including a real pre-revocation token mint, so a post-revocation refusal is attributable to the revocation rather than to a route that never worked. The **anonymous** leg is asserted before *and* after, because a revoked device still once had a credential and so cannot stand in for a caller with none. Two `STRUCTURAL:` assertions establish that the device-token lookup does **not** join `devices` |
+
+| `pnpm verify:device-idempotency` | **23/23, exit 0 — V01-015 is CLOSED and the discarded-key class is structurally impossible.** Each case ends with a **different-key** call as a positive control, comparing answers while ignoring `request_id`, so "the route refuses repeats for a reason unrelated to the key" cannot pass as "the key was honoured". Graded on stored state: device rows, audit rows, token counts and `revoked_at`. `approve_enrollment` **replayed `409` because it discarded the key** — `idempotency_key(..)?;` with the value bound to nothing, then a pending-status check where the replay belonged — and its different-key control answered the *identical* 409, which is what proved the key was irrelevant. Now: first `201`, replay on the same key `201` with the same device id and `created_at`, different key still `409`; one device and one audit row throughout. A new unit test fails the build if any line in `src/routes` *begins* with `idempotency_key(`, reads the directory so new modules are covered, and asserts its own vacuity before reporting a verdict |
+| `pnpm verify:attempt-exhaustion` | **49/49, exit 0, 0 skipped.** Found and closed **V01-023** (high: `start_occurrence` could NEVER succeed — one of its four batch guards asserted a run link *exists* and `guard!`'s `NOT EXISTS` inverted it, so it aborted precisely when there was no link) and **V01-025** (medium: `claim_occurrence` consumed an attempt and a lease for an occurrence the product would then refuse to start, permanently exhausting a `max_start_attempts: 1` budget). Both are now measured against a single organization whose entitlement is **revoked for the attack and restored for the control**, so the two rows differ in exactly one thing: attack claim `403`, `attempt` 0, no lease, occurrence still claimable; control claim `201`, start `201`, a real `run_id` and one `automation_run_links` row. The probe's long-standing named SKIP is closed, and with it the recorded GAP-008 — which was never environmental | a Worker on :8787 |
+
+| `pnpm verify:lease-contention` | **62/62, exit 0** (was 60/60; two precondition controls added). V01-025's repair initially turned every claim here into a `403`, because this probe's organization was also unentitled — so the fixture now seeds `automations.max_active` and **asserts** it, since a gate that measures a route refusing everyone reports contention of zero and calls it exclusivity | nothing; it starts its own D1 and Worker |
 | pending: the exclusivity claim needs a sensitivity proof |
 | `pnpm verify:migration-prior-state` | 19/19 | 2 of 2 detected, first attempt |
 | `pnpm verify:mutating-tenancy` | 43/43 | 3 of 3 detected, incl. the V01-008 defect verbatim |
@@ -72,7 +96,7 @@ Fixed by making the requested role an argument and renaming the parameter
 
 ## The pattern that produced the findings
 
-**Four of eight findings were found by an assertion that disagreed with itself or with its own
+**Six of the ten findings were found by an assertion that disagreed with itself or with its own
 context, not by a code review.** In every case the same discipline found it:
 
 1. **Read the state, not the response.** A 2xx that ignored the field is correct; a 2xx that
@@ -91,6 +115,61 @@ context, not by a code review.** In every case the same discipline found it:
    in this repository of the shape *"a route that answers a plausible response and has never
    succeeded"*, after `teams` and the 15 `evt_` audit writes. None is a logic error, and none is
    visible to a gate that only reads responses.
+6. **When a batch fails and every statement in it is provably valid, submit LESS of it.**
+   V01-011's second fault — `INSERT_AUTOMATION_SQL` naming 34 columns against 33 values — was
+   read past, executed by hand against the real database individually and inside one transaction
+   with foreign keys on, and executed again through D1's own layer. All five attempts said the
+   statement was fine. The thing that found it was removing that one statement from the
+   product's own batch: the route answered `201`. The reasoning is that a defect which survives
+   "run it by hand" is usually not in what the statement *says* but in what the *batch* is, and
+   subtracting from a batch is cheap where more reading is not.
+   V01-011's first fault is the same shape one layer out: a route that built its 201 body by
+   reading back a row the un-run batch was about to write. A response assembled from the database
+   is a response that can be assembled from the wrong moment.
+
+## A gate that dies is not a gate that passed, and this harness made that invisible
+
+The most consequential defect of the round was not in the product at all.
+`verify:lease-contention` had been reporting **32/34** since the moment it was written, and the
+campaign record had closed the automation-lease family on that basis. In fact the probe **died
+inside its first case**, on `no such table: automation_attempts` — the table is
+`automation_occurrence_attempts` — and three of its four cases had never executed.
+
+What made it invisible was the harness, in exactly the way this campaign's own rules forbid:
+
+```rust
+if (this.failures.length === 0) process.exit(2);
+process.exit(1);
+```
+
+A probe that died **after** recording a failure exited **1**, the code that means "the product is
+broken". So a run that stopped in its first case was indistinguishable from a run that graded
+every case and found two defects, and the numbers a reader could see were a fraction whose
+denominator silently excluded everything that never ran.
+
+Three things had to be true for that to pass unnoticed, and each is now a check:
+
+1. **the failure was real but boring** — a SQL typo, the kind that reads as a product bug for
+   exactly as long as you do not check the table name;
+2. **the fraction still looked like a fraction** — 32/34 is a plausible number, and nothing in
+   it says "three cases did not run";
+3. **the harness reported the run as finished** — no summary line, no exit-2, nothing.
+
+The fixes are general rather than specific: `bail()` now **always** exits 2 and states how many
+cases were reached and that everything after the failure was never run; and every caller that
+drives a probe requires the probe's own summary line before it will accept the log, so a partial
+run cannot be a verdict whatever the exit code claims.
+
+The generalisation is the part worth keeping: **a gate's denominator is a claim about what ran.**
+A verifier that reports a ratio must make the denominator checkable, or the ratio can be made to
+look like evidence by the simple expedient of not running the hard part.
+
+**Two counts agreeing is not a correspondence.** `INSERT_AUTOMATION_SQL` bound 30 values and
+named 30 distinct placeholders, so `pnpm schema:bind-count` was green while the statement could
+not be prepared at all. That is GAP-004 — recorded before the defect was found — with a
+concrete instance, and it is the sharpest available statement of why a structural check and a
+behavioural one are both necessary: the count proves arithmetic, and only a probe that requires
+the write to succeed proves correspondence.
 
 ## Gates on the merged tree
 
@@ -107,7 +186,7 @@ context, not by a code review.** In every case the same discipline found it:
 | `pnpm verify:filter-tenancy` | **65/65**, 9 skipped, exit 0 — no leak on any surface |
 | `pnpm verify:inference-failure` | **65/65**, 0 skipped, exit 0 |
 | `pnpm verify:provider-faults` | **exit 2 — BLOCKED**, see GAP-007 |
-| `pnpm smoke:p04` / `pnpm smoke:p05` | exit 0 |
+| `pnpm smoke:p04` / `pnpm smoke:p05` | exit 0 — **`smoke:p05` was RED at HEAD (180/1) and what it asserted was a vulnerability**: it fetched `/api/v1/devices/token/nonce` with an empty `CookieJar` and expected `200`, which was only ever true while V01-019's unauthenticated endpoint was open. Repaired to **187/0**, asserting three things where it asserted one: an active device gets a nonce (the positive control), an anonymous caller is refused (V01-019's claim), and a device whose enrolling member was removed is refused. The refresh is now signed over the **pre-removal** nonce, so a credential cannot be laundered from before the removal. Found while re-running broader gates, and confirmed pre-existing by checking HEAD's product files out and reproducing it |
 | `v01-001-sensitivity.sh` | 2 of 2 detected |
 | `v01-003-sensitivity.sh` | 4 of 4 detected, source verified back to its snapshot |
 | `v01-004-sensitivity.sh` | 1 of 3 detected; **A1 and A3 are honest MISSEDs** — see below |
@@ -135,16 +214,17 @@ Nothing below is claimed as a pass. Each names the specific evidence that is mis
 | ~~cross-tenant substitution through FILTERS, PAGINATION and NESTED routes~~ | **CLOSED in `verify:filter-tenancy`** | 65/65, 9 skipped, **no leak found** on any surface, including through the audit route's `metadata_json`. Four mutations detected |
 | ~~same key + incompatible payload, concurrent same-key, cross-principal key reuse~~ | **CLOSED in V01-009, after a critical defect** | 6 racers on one key made 6 projects; now 1. 41/41 |
 | a failed provider dispatch's cause | **CLOSED in V01-010** | it was discarded entirely; `provider_unavailable` was the whole answer for a refused socket, a DNS failure and a bad endpoint alike |
-| `devices.rs` and `foundation_checks.rs` also require a key and ignore it | **UNPROVEN — GAP-005** | the same defect as V01-009 on two further modules, found by reading for the pattern rather than by an attack |
-| `organizations.rs` invitations read-then-write a deterministic id | **UNPROVEN — GAP-006** | a race rather than an absence, and unattacked concurrently |
+| ~~`devices.rs` and `foundation_checks.rs` also require a key and ignore it~~ | **CLOSED — GAP-005 was half wrong** | **`foundation_checks.rs` never had the defect**: it builds a full `IdempotencyScope`, digests the key, fingerprints the body and does `lookup` + a commit-time `lookup` with `replay_response`. It entered the gap because the gap was written by reading *for the pattern* — `read_idempotency_key` on one line looks like V01-009's shape at a glance — rather than reading the member. **`devices.rs` did have it, and is now repaired**: `revoke_device` and `approve_enrollment` were measured at `409 conflict` on a replay; `revoke_device` now returns its stored `204` while a different key still gets the preserved `409`. `approve_enrollment` remains open on V01-020 |
+| ~~`organizations.rs` invitations read-then-write a deterministic id~~ | **CLOSED BY FALSIFICATION in V01-017** | `verify:invitation-race` is **23/23, exit 0**. A sequential duplicate with a *different* key answers **`200` with `duplicate: true`** and the same invitation id; six concurrent racers on one key give **1 creation + 5 replays**; four on four keys give **1 + 3**; one row per email in all four cases; **no 5xx anywhere**; and `membership.invited.v1` audit events = 3 for the 3 invitations that exist. The read-then-write is correct because the derived id is stable per *(org, email, role)*, so the read **hits** — the PRIMARY KEY and `ux_invitations_pending_target` are the backstop, not the mechanism. The `503` this gap predicted does not occur |
 | ~~migrations on **representative prior state**~~ | **CLOSED in V01-007** | two cut points only, no assertion about the *content* of a backfill, and foreign keys are not exercised. Those limits are listed in the finding |
 | ~~mutating cross-tenant calls~~ | **CLOSED in V01-008's probe** | 11 mutations from another tenant's owner and from a plain member of the same tenant, across role, capability, project, budget and org. 0 of 11 changed state; refusals are 404 for both an existing and an absent id, so there is no existence oracle. **Still open**: list/**filter**, **pagination** and **nested** substitution, and 28 more mutating routes |
 | 82 of 104 org-scoped routes | **partly closed** | 20 read routes in `smoke:p08` plus 11 mutating routes in `verify:mutating-tenancy`. No filter, pagination or nested substitution anywhere |
 | 14 of the 15 repaired audit call sites | **UNPROVEN** | repaired in #39; only some have individual runtime evidence |
-| a **revoked device** driven to a refusal | **UNPROVEN** | `p03` and `p05` mention device revocation; neither attacks it |
+| ~~`delete_project_binding` discards its `Idempotency-Key`~~ | **CLOSED — V01-018 site 3** | measured before the repair as `first=204 replay=404 different-key=404`, so a retry and a genuinely new request were indistinguishable; now `first=204 replay=204 different-key=404`. Its fixture is unusual and worth knowing: a project has no create-binding route, bindings are created by `POST /api/v1/devices/bindings` with a **device** token, and I had assumed the delete was unreachable and was wrong | a retried delete answers **`404`** because the binding is gone, so the pre-read 404s before the audit write. No duplicated state, and **that is the problem**: the operation is naturally idempotent, so a state-graded gate passes it and only a **response-replay** check can see the defect. `verify:idempotency` grades on row counts and is structurally unable to. It is named here because the *corrected* inventory found it — the uncorrected one reported 76 sites and would have sent a sweep after the 71 that are already right |
+| ~~a **revoked device** driven to a refusal~~ | **CLOSED in V01-016** | 25/26, and the credential claim **passes**: after a real revocation, `status = 'revoked'` and token rows **2 → 0** in D1, both tokens answer `401`, and a full refresh signed over a real server-issued nonce answers `403` with `minted=false`. What the run found instead is **V01-019**, the unauthenticated nonce endpoint |
 | a revoked session's **refresh** token | **UNPROVEN** | the recovery section proves the session dies; not that its refresh token does |
 | the reauth grant's own ceremony kind | **UNPROVEN** | a reauth grant is a ceremony; the kind attack does not cover it |
-| the last-owner rules at the HTTP layer | **UNPROVEN** | `f02` requires that removing or demoting the last owner fails transactionally. `can_leave` is unit-tested; the routes are not attacked. GAP-002 |
+| the last-owner rules at the HTTP layer | **PASS — GAP-002 closed, and attacking it found V01-031.** `f02` FR-F02-005 is now attacked over real HTTP: the sole owner of a sole-owner organization tries to demote, remove and leave themselves, and each refusal is graded on the memberships table read from D1, because "fail transactionally" is the part a status cannot express. Three controls make it non-vacuous — the solo org really has one active owner, the duo org really has two, and **with a second owner the same demotion SUCCEEDS** and the count moves 2 → 1. All three attacks return 409. That third control is what found V01-031: a stale `version` and the last-owner rule were one `false` and one wrong message, and a client that lost a race was told the ownership rule stopped it. **Sensitivity 2/2, exit 0** — both mutations are `1 = 1` in place of the guard's first predicate, so `schema:bind-count` stays green throughout; M1 leaves the organization with **zero** active owners, read from D1. `verify:privilege-escalation` 68/68 |
 
 ## The correction this campaign had to make to itself
 

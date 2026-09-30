@@ -1,0 +1,260 @@
+
+> lumi-agents-control-plane@0.0.0 smoke:p05 /Volumes/SSD/agents-cp.runlumi
+> pnpm --filter @runlumi/agents-cp-api smoke:p05
+
+
+> @runlumi/agents-cp-api@0.0.0 smoke:p05 /Volumes/SSD/agents-cp.runlumi/apps/api
+> node scripts/p05-smoke.mjs
+
+PASS  fresh D1 applies migrations through 0010 — 21 migration rows
+PASS  development Worker is healthy — http://127.0.0.1:59610
+LIMIT public CUA: this Worker exposes policy decisions and result metadata only; no public computer/browser execution endpoint or UI execution evidence is claimed
+
+== two-tenant identity and project provisioning ==
+PASS  signup P05 Alice — HTTP 201
+PASS  verify P05 Alice — HTTP 200
+PASS  login start P05 Alice — HTTP 202
+PASS  login complete P05 Alice — HTTP 200
+PASS  user P05 Alice has an opaque ID — expected usr opaque ID
+PASS  signup P05 Bob — HTTP 201
+PASS  verify P05 Bob — HTTP 200
+PASS  login start P05 Bob — HTTP 202
+PASS  login complete P05 Bob — HTTP 200
+PASS  user P05 Bob has an opaque ID — expected usr opaque ID
+PASS  create P05 managed tenant A eba513b36606 — HTTP 201
+PASS  P05 managed tenant A eba513b36606 organization ID — expected org opaque ID
+PASS  create P05 isolated tenant B eba513b36606 — HTTP 201
+PASS  P05 isolated tenant B eba513b36606 organization ID — expected org opaque ID
+PASS  invite second user — HTTP 201
+PASS  accept second-user invitation — HTTP 200
+PASS  create project P05 managed project — HTTP 201
+PASS  P05 managed project project ID — expected prj opaque ID
+PASS  create project P05 isolated project — HTTP 201
+PASS  P05 isolated project project ID — expected prj opaque ID
+PASS  tenant IDs are distinct
+PASS  two-tenant identity and project provisioning completed
+
+== two-device enrollment, binding, and capability reporting ==
+PASS  begin enrollment P05 Alice laptop — HTTP 201
+PASS  P05 Alice laptop enrollment ID — expected enr opaque ID
+PASS  approve enrollment P05 Alice laptop — HTTP 201
+PASS  poll enrollment P05 Alice laptop — HTTP 200
+PASS  invalid device proof P05 Alice laptop is rejected — HTTP 403 device_proof_invalid
+PASS  complete enrollment P05 Alice laptop — HTTP 201
+PASS  P05 Alice laptop device ID — expected dvc opaque ID
+PASS  heartbeat P05 Alice laptop — HTTP 200
+PASS  begin enrollment P05 Bob laptop — HTTP 201
+PASS  P05 Bob laptop enrollment ID — expected enr opaque ID
+PASS  approve enrollment P05 Bob laptop — HTTP 201
+PASS  poll enrollment P05 Bob laptop — HTTP 200
+PASS  invalid device proof P05 Bob laptop is rejected — HTTP 403 device_proof_invalid
+PASS  complete enrollment P05 Bob laptop — HTTP 201
+PASS  P05 Bob laptop device ID — expected dvc opaque ID
+PASS  heartbeat P05 Bob laptop — HTTP 200
+PASS  bind workspace for alice — HTTP 201
+PASS  alice workspace binding ID — expected wsb opaque ID
+PASS  bind workspace for bob — HTTP 201
+PASS  bob workspace binding ID — expected wsb opaque ID
+PASS  device and workspace IDs remain distinct across tenants
+PASS  two-device enrollment, binding, and capability reporting completed
+
+== P04 catalog, route, credential, and model policy setup ==
+PASS  read P04 catalog — HTTP 200
+PASS  create mock-success credential — HTTP 201
+PASS  mock-success credential ID — expected cred opaque ID
+PASS  create managed success route — HTTP 201
+PASS  managed success route ID — expected rte opaque ID
+PASS  publish managed success route — HTTP 200
+PASS  managed success route version ID — expected rtv opaque ID
+PASS  create mock-timeout credential — HTTP 201
+PASS  mock-timeout credential ID — expected cred opaque ID
+PASS  create timeout probe route — HTTP 201
+PASS  timeout probe route ID — expected rte opaque ID
+PASS  publish timeout probe route — HTTP 200
+PASS  timeout probe route version ID — expected rtv opaque ID
+PASS  read model policy — HTTP 200
+PASS  publish model policy — HTTP 200
+PASS  managed success route is published
+PASS  P04 catalog, route, credential, and model policy setup completed
+
+== P05 tool, MCP, policy, and agent setup ==
+PASS  create tool P05 readonly eba513b36606 — HTTP 201
+PASS  P05 readonly eba513b36606 tool ID — expected tool opaque ID
+PASS  create tool P05 privileged eba513b36606 — HTTP 201
+PASS  P05 privileged eba513b36606 tool ID — expected tool opaque ID
+PASS  create tool P05 browser submit eba513b36606 — HTTP 201
+PASS  P05 browser submit eba513b36606 tool ID — expected tool opaque ID
+PASS  create tool P05 MCP fixture eba513b36606 — HTTP 201
+PASS  P05 MCP fixture eba513b36606 tool ID — expected tool opaque ID
+PASS  create tool P05 MCP expansion eba513b36606 — HTTP 201
+PASS  P05 MCP expansion eba513b36606 tool ID — expected tool opaque ID
+PASS  create tool P05 stale policy eba513b36606 — HTTP 201
+PASS  P05 stale policy eba513b36606 tool ID — expected tool opaque ID
+PASS  create MCP registration — HTTP 201
+PASS  MCP registration ID — expected mcp opaque ID
+PASS  update MCP mcp_9844e09b721cb858c22afe5db8fde868 — HTTP 200
+PASS  publish managed tool policy — HTTP 200
+LIMIT public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke
+PASS  create managed agent — HTTP 201
+PASS  agent definition ID — expected agd opaque ID
+PASS  create hard budget — HTTP 201
+PASS  budget ID — expected bud opaque ID
+PASS  read effective P03 policy — HTTP 200
+PASS  effective policy is persisted for the bound project
+PASS  P05 tool, MCP, policy, and agent setup completed
+
+== managed run start and correlated inference ==
+PASS  create device session managed — HTTP 201
+PASS  managed agent session ID — expected rse opaque ID
+PASS  create device-managed run managed — HTTP 201
+PASS  managed run ID — expected run opaque ID
+PASS  managed run is server-owned
+PASS  managed run carries device and agent-session correlation
+PASS  start run run_26a5437775894fd383e29eb7673a2464 — HTTP 200
+PASS  managed mock inference — HTTP 200
+PASS  managed inference request ID — expected req opaque ID
+PASS  managed inference propagates server-owned org/project/device/session/run identity
+PASS  managed inference uses the managed alias and published route
+PASS  managed inference creates a correlated budget reservation
+PASS  managed usage event retains run/device/source correlation
+PASS  internal reservation endpoint replays the managed hold — status=409 reason=reservation_already_reconciled
+PASS  managed reservation reconciliation is monotonic — status=409 reason=reservation_already_reconciled
+PASS  managed usage reconciliation — HTTP 200
+PASS  usage reconciliation retains pricing and appends an actual cost
+PASS  usage reconciliation idempotent replay — HTTP 200
+PASS  read correlated usage — HTTP 200
+PASS  usage read exposes the managed run
+PASS  read usage summary — HTTP 200
+PASS  usage summary is correlated to the run
+PASS  managed run start and correlated inference completed
+
+== privileged browser decision and approval boundary ==
+LIMIT privileged browser decision and approval boundary: browser tool did not return an approval-required decision (decision=deny reason=none) {"method":"POST","path":"/api/v1/runs/run_26a5437775894fd383e29eb7673a2464/tool-decisions","status":200,"request_id":"req_ee43e434bb974977bb9e977f83a07aa2","error_code":null,"reason":null,"body":{"approval_expires_at":null,"approval_id":null,"approval_mode":null,"decision":"deny","policy_state":"ok","policy_version":3,"reason":"capability_not_defined","risk_class":"browser","run_id":"run_26a5437775894fd383e29eb7673a2464","tool_call_id":"tcl_df361cb8bc0f88639f251e03a61db782","tool_fingerprint":"p05-browser-eba513b36606","tool_id":"tool_8101c186a68e7c8d6cf587d4537e3f4e"}}
+
+== generic privileged tool approval, result, and replay ==
+PASS  privileged approval ID — expected apr opaque ID
+PASS  privileged result is blocked before approval — HTTP 422 approval_required
+PASS  privileged approval resolution — HTTP 200
+PASS  privileged tool result — HTTP 200
+PASS  tool result idempotent replay — HTTP 200
+PASS  per-use approval cannot be consumed twice — [object Object]
+PASS  generic privileged tool approval, result, and replay probe completed
+
+== MCP approval and fingerprint-expansion denial ==
+PASS  MCP approval ID — expected apr opaque ID
+PASS  MCP approval resolution — HTTP 200
+PASS  MCP tool result — HTTP 200
+PASS  read MCP registration before expansion — HTTP 200
+PASS  update MCP mcp_9844e09b721cb858c22afe5db8fde868 — HTTP 200
+PASS  MCP expansion denial carries a stable review/fingerprint reason — reason=mcp_tool_requires_review
+PASS  MCP approval and fingerprint-expansion denial probe completed
+
+== stale current-policy re-evaluation ==
+PASS  read current tool policy for stale check — HTTP 200
+PASS  publish stale-policy denial — HTTP 200
+PASS  stale policy denial is fail-closed — reason=org_tool_denied
+PASS  stale current-policy re-evaluation probe completed
+
+== rate/concurrency and passive downstream-disconnect probe ==
+PASS  set project concurrency limit — HTTP 200
+PASS  create device session timeout — HTTP 201
+PASS  timeout agent session ID — expected rse opaque ID
+PASS  create device-managed run timeout — HTTP 201
+PASS  timeout run ID — expected run opaque ID
+PASS  timeout run is server-owned
+PASS  timeout run carries device and agent-session correlation
+PASS  start run run_8c7302f1f9914e1ebffbe7412223ddf8 — HTTP 200
+PASS  concurrent managed inference is denied — HTTP 429 concurrency_limit_exceeded
+LIMIT passive downstream disconnect: no request_cancelled D1 row was observed; no cancellation success is claimed
+PASS  set project concurrency limit — HTTP 200
+PASS  rate/concurrency and passive downstream-disconnect probe probe completed
+
+== hard-budget denial after a successful managed request ==
+PASS  set hard budget limit 3 — HTTP 200
+PASS  create device session budget-denial — HTTP 201
+PASS  budget-denial agent session ID — expected rse opaque ID
+PASS  create device-managed run budget-denial — HTTP 201
+PASS  budget-denial run ID — expected run opaque ID
+PASS  budget-denial run is server-owned
+PASS  budget-denial run carries device and agent-session correlation
+PASS  start run run_73b76f033ee34f8bbe74733b291ad971 — HTTP 200
+PASS  budget-denial run is running
+PASS  next eligible managed request is denied by the hard budget — HTTP 403 budget_exceeded
+PASS  read budget/rate denial projections — HTTP 200
+PASS  budget denial is visible in the denial projection
+PASS  hard-budget denial after a successful managed request completed
+
+== retry and idempotent cancel lifecycle ==
+PASS  create device session retry-parent — HTTP 201
+PASS  retry-parent agent session ID — expected rse opaque ID
+PASS  create device-managed run retry-parent — HTTP 201
+PASS  retry-parent run ID — expected run opaque ID
+PASS  retry-parent run is server-owned
+PASS  retry-parent run carries device and agent-session correlation
+PASS  fail retry parent run — HTTP 200
+PASS  create retry run — HTTP 201
+PASS  retry run ID — expected run opaque ID
+PASS  retry creates a new immutable attempt
+PASS  cancel retry run — HTTP 200
+PASS  cancel idempotent replay — HTTP 200
+PASS  second cancel is idempotent after terminal state — HTTP 200
+PASS  retry and idempotent cancel lifecycle probe completed
+
+== cross-tenant, stale-membership, and revoked-device negatives ==
+PASS  second user cannot read tenant A run — HTTP 404 resource_not_found
+PASS  tenant B cannot read tenant A run by ID — HTTP 404 run_not_found
+PASS  device B cannot read tenant A run — HTTP 403 run_not_found
+PASS  list tenant B members for stale-membership check — HTTP 200
+PASS  an active device obtains a refresh nonce while its member is still in the org — HTTP 200
+PASS  remove second user from tenant B — HTTP 204
+PASS  V01-019: an anonymous caller cannot obtain a device refresh nonce — HTTP 401 device_token_expired
+PASS  a device whose enrolling member was removed cannot obtain a refresh nonce — HTTP 403 device_not_approved
+PASS  stale membership blocks device token refresh — HTTP 403 membership_required
+PASS  revoke tenant B device — HTTP 204
+PASS  revoked device loses managed access — HTTP 401 device_token_expired
+PASS  cross-tenant, stale-membership, and revoked-device negatives completed
+
+== timeline, audit, and D1 correlation evidence ==
+PASS  read managed run timeline — HTTP 200
+PASS  timeline contains run creation metadata
+PASS  timeline contains tool decision and approval lifecycle metadata
+PASS  D1 timeline rows carry the managed correlation envelope
+PASS  D1 timeline includes tool decision and approval event types
+PASS  read run-correlated audit projection — HTTP 200
+PASS  audit projection is queryable by run ID
+PASS  D1 audit rows are correlated to the managed run
+PASS  request ID is queryable in run correlation evidence
+PASS  timeline, audit, and D1 correlation evidence completed
+
+P05 smoke: 187 checks passed; 0 failures; 4 limitations
+{
+  "status": "PENDING",
+  "checks_passed": 187,
+  "failures": [],
+  "limitations": [
+    "public CUA: this Worker exposes policy decisions and result metadata only; no public computer/browser execution endpoint or UI execution evidence is claimed",
+    "public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke",
+    "privileged browser decision and approval boundary: browser tool did not return an approval-required decision (decision=deny reason=none) {\"method\":\"POST\",\"path\":\"/api/v1/runs/run_26a5437775894fd383e29eb7673a2464/tool-decisions\",\"status\":200,\"request_id\":\"req_ee43e434bb974977bb9e977f83a07aa2\",\"error_code\":null,\"reason\":null,\"body\":{\"approval_expires_at\":null,\"approval_id\":null,\"approval_mode\":null,\"decision\":\"deny\",\"policy_state\":\"ok\",\"policy_version\":3,\"reason\":\"capability_not_defined\",\"risk_class\":\"browser\",\"run_id\":\"run_26a5437775894fd383e29eb7673a2464\",\"tool_call_id\":\"tcl_df361cb8bc0f88639f251e03a61db782\",\"tool_fingerprint\":\"p05-browser-eba513b36606\",\"tool_id\":\"tool_8101c186a68e7c8d6cf587d4537e3f4e\"}}",
+    "passive downstream disconnect: no request_cancelled D1 row was observed; no cancellation success is claimed"
+  ],
+  "skipped": [
+    "public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke"
+  ],
+  "fresh_d1": true,
+  "worker": "http://127.0.0.1:59610",
+  "tool_evidence": {
+    "privileged": true,
+    "mcp": true,
+    "stalePolicy": true
+  },
+  "references": {
+    "org_a": "org_090365cb95cebf87d479017e3bae73be",
+    "org_b": "org_e906712cf1093cb03537d4370699e602",
+    "project_a": "prj_4de76f711dd14501ba296dda049986b5",
+    "project_b": "prj_e00493d98fac484f85a8eee75f7e8c6e",
+    "device_a": "dvc_ae4e85588d1347f79d237a7fcc5c73b7",
+    "device_b": "dvc_891d6118d79f423593a5e4b7f71f8d86",
+    "main_run": "run_26a5437775894fd383e29eb7673a2464",
+    "retry_run": "run_eb74e0582c6e4090a31694494143a0c3"
+  }
+}

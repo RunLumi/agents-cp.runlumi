@@ -1385,7 +1385,7 @@ pub async fn create_automation(
                 created_by_user_id: access.principal.user_id.as_str(),
                 queued_successor_max_age_seconds: DEFAULT_QUEUED_SUCCESSOR_MAX_AGE_SECONDS,
             },
-            &now,
+            now,
         )
         .map_err(|error| database_error(&context, error))?;
     let audit = security_statement(
@@ -2495,6 +2495,39 @@ pub async fn claim_occurrence(
     let retry = automation
         .execution_retry()
         .map_err(|error| domain_failure(&context, error))?;
+    // V01-025. The claim and the start must agree on what "dispatchable" means, and the claim is the
+    // only place this can be enforced for free.
+    //
+    // The ATTEMPT is allocated here, not at the start, so a claim on an automation that cannot
+    // dispatch spends the occurrence's entire retry budget on work the product will refuse: the
+    // start answers `403 entitlement_not_granted`, the counter has already moved, and with the
+    // tightest legal bound (`max_start_attempts: 1`) that single claim leaves the occurrence
+    // permanently unstartable. A check at start time cannot undo a counter the claim already moved.
+    //
+    // `start_occurrence` keeps its own re-read and that one is load-bearing -- eligibility can lapse
+    // between a claim and a start, and the comment above its check says exactly that. This is the
+    // same function called one step earlier in the same lifecycle, not a second definition of the
+    // rule, so the two routes cannot drift apart.
+    let eligibility = crate::jobs::automations::read_dispatch_eligibility(
+        database,
+        &automation,
+        &context.received_at,
+    )
+    .await
+    .map_err(|error| store_failure(&context, error))?;
+    if let Some(block) = crate::jobs::automations::dispatch_block(&automation, &eligibility) {
+        return Err(match block {
+            crate::jobs::automations::DispatchBlock::Authorization(error) => {
+                domain_failure(&context, error)
+            }
+            crate::jobs::automations::DispatchBlock::Reason(code) => domain_error(
+                &context,
+                ApiErrorCode::Conflict,
+                code,
+                "The automation is not currently dispatchable.",
+            ),
+        });
+    }
     let current_state = occurrence
         .state()
         .map_err(|error| domain_failure(&context, error))?;
@@ -2536,6 +2569,11 @@ pub async fn claim_occurrence(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // The ONE route that starts an attempt, so the ONE route that advances the
+            // counter. See TRANSITION_OCCURRENCE_SQL on why that is the caller's decision
+            // and not the statement's: a shared SET list cannot tell a start from a
+            // transition of an attempt that already exists.
+            start_attempt: Some(attempt),
         })
         .map_err(|error| database_error(&context, error))?;
     let lease = repository
@@ -2753,6 +2791,11 @@ pub async fn renew_lease(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let audit = device_audit(
@@ -2990,6 +3033,11 @@ pub async fn start_occurrence(
             now: &context.received_at,
             expected_state: OccurrenceState::Leased.as_str(),
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let record = repository
@@ -3073,7 +3121,18 @@ pub async fn start_occurrence(
                     )
                         .into_response())
                 }
-                None => Err(domain_failure(&context, DomainError::LeaseFenceInvalid)),
+                None => {
+                    // V01-010's shape, and the reason this arm can be trusted at all: a batch failure
+                    // that is NOT a guard violation is mapped to `lease_fence_invalid` here, and the
+                    // error's own text was discarded. `worker::Error` carries SQLite's message and the
+                    // failing statement, never the bound values -- so this is safe to log, and without
+                    // it a genuine constraint failure is indistinguishable from a lost race.
+                    worker::console_error!(
+                        "automation start: the batch failed but no run link exists, so this was not a concurrent start; the underlying error was {}",
+                        format!("{error:?}")
+                    );
+                    Err(domain_failure(&context, DomainError::LeaseFenceInvalid))
+                }
             };
         }
         Err(_) => return Err(service_unavailable(&context)),
@@ -3222,6 +3281,11 @@ pub async fn settle_occurrence(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let mut writes = vec![lease_guard, occurrence_guard, settle, cas];
@@ -3409,6 +3473,11 @@ pub async fn release_occurrence(
             now: &context.received_at,
             expected_state: &occurrence.state,
             expected_state_version: occurrence.state_version,
+            // Transitions an attempt that already exists, so the counter must not move.
+            // `start_occurrence` in particular READS `lease.attempt`; assigning
+            // unconditionally here would burn two of a `max_start_attempts: 2`
+            // budget on one start.
+            start_attempt: None,
         })
         .map_err(|error| database_error(&context, error))?;
     let record = repository
@@ -3610,6 +3679,7 @@ fn security_statement(
         database,
         context,
         Some(principal),
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         action,
@@ -3632,6 +3702,7 @@ fn device_audit(
     crate::routes::support::security_event_statement_with_context(
         database,
         context,
+        None,
         None,
         Some(&access.device.org_id),
         SecurityEventId::generate(),

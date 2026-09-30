@@ -822,6 +822,587 @@ await runProbe("V01 privilege-escalation", async (probe) => {
       .join("  ")}`,
   );
 
+  // ===================================================================
+  // GAP-002 -- the last-owner rules, at the HTTP layer.
+  //
+  // `f02` FR-F02-005: "An organization MUST have at least one active owner. Removing/demoting the last
+  // owner MUST fail transactionally." `can_leave` and `can_remove_member` are unit-tested, and V01-003
+  // proved that a correct-looking unit test had been sitting on top of a real defect. Nothing attacked
+  // the ROUTES: could the last owner demote themselves, remove themselves, or leave?
+  //
+  // Graded on STORED STATE in D1, not on the status: a 2xx is the claim, and a membership row that still
+  // says `owner` afterwards is the evidence. "Fail transactionally" is the part a status cannot express
+  // at all -- it means the refusal left nothing behind -- so every attack is followed by a re-read of the
+  // owner's own row and of the organization's active-owner count.
+  //
+  // THREE controls, because without them this block is the V01-030 shape exactly: a sheet of `PASS` rows
+  // measuring a route that refuses everyone, over a fixture that never had an owner to lose.
+  //
+  //   C1 the SOLO organization really has exactly ONE active owner before the first attack. If the
+  //      fixture were wrong, all three attacks would be refused for an unrelated reason and every one
+  //      would pass while proving nothing -- "the last owner" has to BE the last owner.
+  //   C2 the DUO organization really has TWO, so the control below removes a real second owner.
+  //   C3 in the DUO organization the SAME demotion SUCCEEDS. Without it, "every attack was refused" is
+  //      indistinguishable from "the route refuses everything" -- the failure mode that let V01-030
+  //      report six passing cross-tenant rows for a route its own owner could not use.
+  // ===================================================================
+  probe.stage = "last-owner";
+  const ownersIn = async (orgId) =>
+    d1Rows(
+      `SELECT u.email, m.role, m.status FROM memberships m
+       JOIN users u ON u.user_id = m.user_id
+       WHERE m.org_id = '${orgId}' AND m.role = 'owner' AND m.status = 'active'`,
+      `V01 the active owners of ${orgId.slice(0, 12)}`,
+    );
+
+  const solo = await probe.createOrganization(alice.jar, "Solo Org", `solo-org-${probe.nonce}`);
+  const duo = await probe.createOrganization(alice.jar, "Duo Org", `duo-org-${probe.nonce}`);
+  await probe.inviteAndAccept(alice, bob, duo.orgId, "member");
+  // The REAL version, not a guess. Sending `version: 0` is what made this fixture look like a
+  // last-owner refusal for four runs, and the answer it got was the misleading one V01-031 is about --
+  // so a fixture that guesses a version is a fixture that cannot tell a domain rule from a lost race.
+  const bobInDuo = await d1Rows(
+    `SELECT m.membership_id, m.version FROM memberships m JOIN users u ON u.user_id = m.user_id
+     WHERE m.org_id = '${duo.orgId}' AND u.email = '${bob.email}'`,
+    "V01 Bob's membership id in the duo organization",
+  );
+  expect(
+    "the duo fixture has exactly one Bob membership to promote",
+    bobInDuo.length === 1,
+    JSON.stringify(bobInDuo),
+  );
+  if (bobInDuo.length === 1) {
+    const promote = await request(
+      alice.jar,
+      "PATCH",
+      `/api/v1/orgs/${duo.orgId}/members/${bobInDuo[0].membership_id}`,
+      { role: "owner", version: bobInDuo[0].version },
+      { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-promote-${probe.nonce}`) },
+    );
+    expect(
+      "the fixture can promote a member to owner at all, so C3's later success is a fact about the " +
+        "last-owner rule and not about a route that refuses every role change",
+      promote.status >= 200 && promote.status < 300,
+      `status=${promote.status} body=${JSON.stringify(promote.payload ?? {}).slice(0, 200)}`,
+    );
+  }
+
+  const soloOwners = await ownersIn(solo.orgId);
+  expect(
+    "C1 the solo organization has EXACTLY ONE active owner before any attack, so 'the last owner' is " +
+      "the last owner -- otherwise all three attacks are refused for an unrelated reason and pass " +
+      "while proving nothing",
+    soloOwners.length === 1 && soloOwners[0].email === alice.email,
+    `owners=${JSON.stringify(soloOwners)}`,
+  );
+  const duoOwners = await ownersIn(duo.orgId);
+  expect(
+    "C2 the duo organization has EXACTLY TWO active owners, so the control below removes a real second " +
+      "owner",
+    duoOwners.length === 2,
+    `owners=${JSON.stringify(duoOwners)}`,
+  );
+
+  const aliceInSolo = await d1Rows(
+    `SELECT m.membership_id, m.role, m.status FROM memberships m JOIN users u ON u.user_id = m.user_id
+     WHERE m.org_id = '${solo.orgId}' AND u.email = '${alice.email}'`,
+    "V01 Alice's membership id in the solo organization",
+  );
+  expect(
+    "Alice's own membership row in the solo organization is readable and active, so there is a row " +
+      "for the attacks to try to end",
+    aliceInSolo.length === 1 && aliceInSolo[0].status === "active",
+    JSON.stringify(aliceInSolo),
+  );
+
+  if (aliceInSolo.length === 1) {
+    const membershipId = aliceInSolo[0].membership_id;
+    const ownRole = aliceInSolo[0].role;
+    const versionRow = await d1Rows(
+      `SELECT version FROM memberships WHERE membership_id = '${membershipId}'`,
+      "V01 Alice's membership version in the solo organization",
+    );
+    const version = versionRow[0]?.version ?? 0;
+
+    /** One attack, and the stored-state assertions that give it meaning. */
+    const lastOwnerAttack = async (label, method, path, body) => {
+      const result = await request(alice.jar, method, path, body, {
+        ...browserHeaders(alice.jar),
+        ...browserMutation(alice.jar, `esc-${label}-${probe.nonce}`),
+      });
+      // `grade` is not optional here: the verbose attack table reads `a.grade.padEnd(17)`, and
+      // omitting it crashed the probe AFTER every assertion had run -- 64 passed, 4 failed, and a
+      // harness failure that hid the whole sheet behind a `Cannot read properties of undefined`.
+      attacks.push({
+        class_: "last-owner",
+        label,
+        status: result.status,
+        grade: result.status >= 200 && result.status < 300 ? "granted" : "refused",
+        reason: result.payload?.error?.details?.reason,
+        message: result.payload?.error?.message,
+      });
+      expect(
+        `the last owner cannot ${label} their own organization (FR-F02-005)`,
+        !(result.status >= 200 && result.status < 300),
+        `status=${result.status} body=${JSON.stringify(result.payload ?? {}).slice(0, 200)}`,
+      );
+      const after = await ownersIn(solo.orgId);
+      expect(
+        `the organization still has at least one active owner after the last owner tried to ${label}`,
+        after.length >= 1,
+        `owners after=${JSON.stringify(after)}`,
+      );
+      const row = await d1Rows(
+        `SELECT role, status FROM memberships WHERE membership_id = '${membershipId}'`,
+        `V01 Alice's membership after she tried to ${label}`,
+      );
+      expect(
+        `Alice's own membership is UNCHANGED after she tried to ${label} -- the refusal was ` +
+          `transactional, not a status with a half-applied write behind it`,
+        row.length === 1 && row[0].role === ownRole && row[0].status === "active",
+        `before role=${ownRole}/active  after=${JSON.stringify(row)}`,
+      );
+      return result;
+    };
+
+    await lastOwnerAttack("demote", "PATCH", `/api/v1/orgs/${solo.orgId}/members/${membershipId}`, {
+      role: "member",
+      version,
+    });
+    await lastOwnerAttack("remove", "DELETE", `/api/v1/orgs/${solo.orgId}/members/${membershipId}`);
+    await lastOwnerAttack("leave", "POST", `/api/v1/orgs/${solo.orgId}/leave`, {});
+
+    const aliceInDuo = await d1Rows(
+      `SELECT m.membership_id, m.version FROM memberships m JOIN users u ON u.user_id = m.user_id
+       WHERE m.org_id = '${duo.orgId}' AND u.email = '${alice.email}'`,
+      "V01 Alice's membership id in the duo organization",
+    );
+    if (aliceInDuo.length === 1) {
+      const control = await request(
+        alice.jar,
+        "PATCH",
+        `/api/v1/orgs/${duo.orgId}/members/${aliceInDuo[0].membership_id}`,
+        { role: "member", version: aliceInDuo[0].version },
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-c3-${probe.nonce}`) },
+      );
+      expect(
+        "C3 with a second active owner present, the SAME demotion SUCCEEDS -- so the three refusals " +
+          "above are about the last-owner rule and not about a route that refuses every role change",
+        control.status >= 200 && control.status < 300,
+        `status=${control.status} body=${JSON.stringify(control.payload ?? {}).slice(0, 200)}`,
+      );
+      const duoAfter = await ownersIn(duo.orgId);
+      expect(
+        "C3 the duo organization is left with exactly one active owner, so the demotion really did " +
+          "remove an owner and the count moved",
+        duoAfter.length === 1 && duoAfter[0].email === bob.email,
+        `owners after=${JSON.stringify(duoAfter)}`,
+      );
+    }
+  }
+
+  // ===================================================================
+  // FR-F02-006 -- ownership transfer, at the HTTP layer.
+  //
+  // `f02` requires four things, and they are four DIFFERENT checks in four different places:
+  //
+  //   1. current owner authorization   -> `authorize_org(.. Permission::OrgOwnershipTransfer ..)`
+  //   2. target is an ACTIVE member    -> `find_membership_by_id` + a `status == 'active'` check
+  //   3. recent re-authentication      -> `consume_reauth(.. "ownership_transfer" ..)`
+  //   4. a security/audit event        -> `security_statement(.. "organization.ownership_transferred.v1" ..)`
+  //
+  // `can_transfer_ownership` may well be a pure function of (actor_role, target_status) and be
+  // perfectly correct, and V01-003 already showed that tells us nothing about the wiring.
+  //
+  // TWO FIXTURE FACTS THAT DECIDE WHETHER THIS BLOCK MEASURES ANYTHING.
+  //
+  // First, the re-auth grant is CONSUMED before the target is even looked up: `transfer_ownership`
+  // calls `consume_reauth` and only then reads the target membership. So a grant is single-use, and a
+  // block that reuses one grant would have every later attack fail at `reauthentication_required` --
+  // reporting a domain refusal for what is really a spent token. `freshReauth()` per attempt is not
+  // tidiness, it is the difference between measuring the rule and measuring my own fixture. This is
+  // V01-031's lesson again, from the other side: a fixture that reuses a consumed credential cannot
+  // tell a domain rule from its own exhaustion.
+  //
+  // Second, the target lookup is `find_membership_by_id(&org_id, ..)`, so a membership that exists in
+  // ANOTHER organization and one that exists NOWHERE are both absent from this org and must answer
+  // identically. That is the non-disclosure requirement, and it is asserted by comparing the two
+  // answers rather than by asserting that one of them looks like a refusal.
+  // ===================================================================
+  probe.stage = "ownership-transfer";
+  const freshReauth = async (jar, label) => {
+    const result = await request(
+      jar,
+      "POST",
+      "/api/v1/account/reauth",
+      {},
+      { ...browserHeaders(jar), ...browserMutation(jar, `esc-reauth-${label}-${probe.nonce}`) },
+    );
+    if (!(result.status >= 200 && result.status < 300)) {
+      console.log(
+        `  NOTE  the re-auth endpoint answered ${result.status} for ${label}: ` +
+          `${JSON.stringify(result.payload ?? {}).slice(0, 160)}`,
+      );
+      return null;
+    }
+    // RENAMED ON THE WAY OUT, and this bit immediately. `POST /account/reauth` returns
+    // `{ grant_id, token }` while `TransferOwnershipRequest` declares `reauth_grant_id` and
+    // `reauth_token`, so spreading the response produced a body missing two required fields and
+    // **every** transfer in this block answered 422 -- including the control. The four refusals above
+    // it were passing for the wrong reason, which is the failure this campaign has now hit twice: a
+    // malformed request looks exactly like a domain rule refusing you.
+    return {
+      reauth_grant_id: result.payload?.grant_id,
+      reauth_token: result.payload?.token,
+    };
+  };
+  const membershipIdOf = async (orgId, email, label) => {
+    const rows = await d1Rows(
+      `SELECT m.membership_id, m.role, m.status FROM memberships m
+       JOIN users u ON u.user_id = m.user_id
+       WHERE m.org_id = '${orgId}' AND u.email = '${email}'`,
+      label,
+    );
+    return rows[0] ?? null;
+  };
+  const orgOwners = async (orgId) =>
+    d1Rows(
+      `SELECT u.email, m.role FROM memberships m JOIN users u ON u.user_id = m.user_id
+       WHERE m.org_id = '${orgId}' AND m.status = 'active' AND m.role IN ('owner','admin')`,
+      `V01 the owners and admins of ${orgId.slice(0, 12)}`,
+    );
+
+  const abelInA = await membershipIdOf(orgA.orgId, abel.email, "V01 Abel's membership in org A");
+  const malloryInA = await membershipIdOf(
+    orgA.orgId,
+    mallory.email,
+    "V01 Mallory's membership in org A",
+  );
+  const bobInB = await membershipIdOf(orgB.orgId, bob.email, "V01 Bob's membership in org B");
+  expect(
+    "the transfer fixtures exist: an admin and a plain member in org A, and an owner in org B whose " +
+      "membership id is the cross-tenant target",
+    abelInA !== null && malloryInA !== null && bobInB !== null,
+    `abelA=${JSON.stringify(abelInA)} malloryA=${JSON.stringify(malloryInA)} bobB=${JSON.stringify(bobInB)}`,
+  );
+
+  const ownersBeforeA = await orgOwners(orgA.orgId);
+  const ownersBeforeB = await orgOwners(orgB.orgId);
+  const answerOf = (result) =>
+    `${result.status}/${result.payload?.error?.details?.reason ?? "none"}`;
+
+  if (abelInA && malloryInA && bobInB) {
+    // --- T1: requirement 1, current owner authorization -------------------------
+    const malloryGrant = await freshReauth(mallory.jar, "mallory");
+    const t1 = await request(
+      mallory.jar,
+      "POST",
+      `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+      { target_membership_id: abelInA.membership_id, ...(malloryGrant ?? {}) },
+      { ...browserHeaders(mallory.jar), ...browserMutation(mallory.jar, `esc-t1-${probe.nonce}`) },
+    );
+    attacks.push({
+      class_: "ownership-transfer",
+      label: "T1 a plain member transfers ownership",
+      status: t1.status,
+      grade: t1.status >= 200 && t1.status < 300 ? "granted" : "refused",
+      reason: t1.payload?.error?.details?.reason,
+    });
+    expect(
+      "T1 a plain MEMBER cannot transfer ownership (FR-F02-006 requires current owner authorization)",
+      !(t1.status >= 200 && t1.status < 300) && t1.status !== 422,
+      `status=${t1.status} reason=${t1.payload?.error?.details?.reason} -- a 422 is a rejected body, ` +
+        `which is not a refusal of the actor`,
+    );
+    expect(
+      "T1 Mallory is still a plain member afterwards, so the refusal was not a 403 with a half-applied " +
+        "role change behind it",
+      (await membershipIdOf(orgA.orgId, mallory.email, "V01 Mallory after T1"))?.role === "member",
+      `after=${JSON.stringify(await membershipIdOf(orgA.orgId, mallory.email, "V01 Mallory after T1"))}`,
+    );
+
+    // --- T2: requirement 2, and existence non-disclosure ------------------------
+    // A membership that exists in org B, against one that exists in NEITHER org. Both must answer the
+    // same way, or the route is an existence oracle across tenants.
+    const aliceGrant1 = await freshReauth(alice.jar, "alice-t2");
+    const t2Foreign = await request(
+      alice.jar,
+      "POST",
+      `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+      { target_membership_id: bobInB.membership_id, ...(aliceGrant1 ?? {}) },
+      { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t2a-${probe.nonce}`) },
+    );
+    const phantomTarget = `mem_${"0".repeat(32)}`;
+    const aliceGrant2 = await freshReauth(alice.jar, "alice-t2b");
+    const t2Phantom = await request(
+      alice.jar,
+      "POST",
+      `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+      { target_membership_id: phantomTarget, ...(aliceGrant2 ?? {}) },
+      { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t2b-${probe.nonce}`) },
+    );
+    for (const [label, result] of [
+      ["T2a a membership belonging to org B", t2Foreign],
+      ["T2b a membership that exists in neither org", t2Phantom],
+    ]) {
+      attacks.push({
+        class_: "ownership-transfer",
+        label,
+        status: result.status,
+        grade: result.status >= 200 && result.status < 300 ? "granted" : "refused",
+        reason: result.payload?.error?.details?.reason,
+      });
+      expect(
+        `${label} cannot receive ownership (FR-F02-006 requires an active member OF THIS ORG)`,
+        !(result.status >= 200 && result.status < 300),
+        `status=${result.status} reason=${result.payload?.error?.details?.reason}`,
+      );
+      // A 422 means the BODY was refused, not the target. Asserting the absence of a 2xx is not
+      // enough on its own: a missing field produces a 422 that satisfies it while measuring nothing
+      // about tenancy. This is the only thing that would have caught the bug above.
+      expect(
+        `${label} was refused by a RULE and not by a malformed body -- a 422 is a rejected request, ` +
+          `and accepting one here would let this case pass without exercising anything`,
+        result.status !== 422,
+        `status=${result.status} -- if this is 422 the request body is wrong, not the target`,
+      );
+    }
+    expect(
+      "T2a and T2b answer IDENTICALLY, so the route is not an existence oracle: a membership that " +
+        "exists in another organization is indistinguishable from one that exists nowhere",
+      answerOf(t2Foreign) === answerOf(t2Phantom),
+      `foreign(exists in org B)=${answerOf(t2Foreign)}  phantom(exists nowhere)=${answerOf(t2Phantom)}`,
+    );
+    const ownersAfterAttempts = await orgOwners(orgA.orgId);
+    expect(
+      "T2 org A's owners and admins are UNCHANGED, and org B's owner still owns org B",
+      JSON.stringify(ownersAfterAttempts) === JSON.stringify(ownersBeforeA) &&
+        JSON.stringify(await orgOwners(orgB.orgId)) === JSON.stringify(ownersBeforeB),
+      `beforeA=${JSON.stringify(ownersBeforeA)} afterA=${JSON.stringify(ownersAfterAttempts)} ` +
+        `beforeB=${JSON.stringify(ownersBeforeB)} afterB=${JSON.stringify(await orgOwners(orgB.orgId))}`,
+    );
+
+    // --- T3: requirement 3, recent re-authentication ----------------------------
+    const t3 = await request(
+      alice.jar,
+      "POST",
+      `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+      {
+        target_membership_id: malloryInA.membership_id,
+        reauth_grant_id: `rag_${"0".repeat(32)}`,
+        reauth_token: "not-a-real-token",
+      },
+      { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t3-${probe.nonce}`) },
+    );
+    attacks.push({
+      class_: "ownership-transfer",
+      label: "T3 a valid transfer with no re-auth grant",
+      status: t3.status,
+      grade: t3.status >= 200 && t3.status < 300 ? "granted" : "refused",
+      reason: t3.payload?.error?.details?.reason,
+    });
+    expect(
+      "T3 an owner cannot transfer ownership without recent re-authentication (FR-F02-006), and the " +
+        "refusal says so rather than blaming the target",
+      !(t3.status >= 200 && t3.status < 300) &&
+        t3.payload?.error?.details?.reason === "reauthentication_required",
+      `status=${t3.status} reason=${t3.payload?.error?.details?.reason}`,
+    );
+
+    // --- T4: requirement 2's OTHER half -- a target that EXISTS but is not active ------
+    //
+    // T2 proves the route refuses a target that does not exist in this org. That leaves the other half
+    // of "an ACTIVE member" with no handler-level evidence: a membership that is present, belongs to
+    // this org, and has been REMOVED. So Carol is invited, accepted, removed, and then targeted.
+    const carol = await probe.authenticatedUser("Carol");
+    await probe.inviteAndAccept(alice, carol, orgA.orgId, "member");
+    const carolInA = await membershipIdOf(
+      orgA.orgId,
+      carol.email,
+      "V01 Carol's membership in org A",
+    );
+    expect(
+      "Carol is an active member of org A before she is removed",
+      carolInA?.status === "active",
+      JSON.stringify(carolInA),
+    );
+    if (carolInA) {
+      const removal = await request(
+        alice.jar,
+        "DELETE",
+        `/api/v1/orgs/${orgA.orgId}/members/${carolInA.membership_id}`,
+        undefined,
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-carol-${probe.nonce}`) },
+      );
+      expect(
+        "the fixture can remove a member, so T4's refusal is about the removal and not a route that " +
+          "refuses every removal",
+        removal.status >= 200 && removal.status < 300,
+        `status=${removal.status} body=${JSON.stringify(removal.payload ?? {}).slice(0, 160)}`,
+      );
+      const carolAfter = await membershipIdOf(orgA.orgId, carol.email, "V01 Carol after removal");
+      expect(
+        "Carol's membership is stored as REMOVED, which is the precondition T4 depends on",
+        carolAfter?.status === "removed",
+        `after=${JSON.stringify(carolAfter)}`,
+      );
+      const aliceGrantT4 = await freshReauth(alice.jar, "alice-t4");
+      const t4 = await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+        { target_membership_id: carolInA.membership_id, ...(aliceGrantT4 ?? {}) },
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t4-${probe.nonce}`) },
+      );
+      attacks.push({
+        class_: "ownership-transfer",
+        label: "T4 a REMOVED member of this org",
+        status: t4.status,
+        grade: t4.status >= 200 && t4.status < 300 ? "granted" : "refused",
+        reason: t4.payload?.error?.details?.reason,
+      });
+      expect(
+        "T4 ownership cannot be transferred to a member who has been REMOVED (FR-F02-006 requires an " +
+          "ACTIVE target), and the refusal names that rather than blaming the target's existence",
+        !(t4.status >= 200 && t4.status < 300) &&
+          t4.status !== 422 &&
+          t4.payload?.error?.details?.reason === "membership_required",
+        `status=${t4.status} reason=${t4.payload?.error?.details?.reason}`,
+      );
+      // A SEPARATE assertion, and it is the one that carries the invariant. A refusal is a statement
+      // about the request; this is a statement about the organization afterwards. Before V01-032 the
+      // two were the same, because the SQL demoted the owner even when the target was ineligible --
+      // and the refusal still looked correct.
+      expect(
+        "T4 org A still has an active owner after the attempt: the refusal left the ownership of the " +
+          "organization untouched, which a status cannot show",
+        (await orgOwners(orgA.orgId)).some((owner) => owner.role === "owner"),
+        `owners after=${JSON.stringify(await orgOwners(orgA.orgId))}`,
+      );
+    }
+
+    // --- T5: requirement 3's OTHER half -- a grant that is STALE, not absent ----------
+    //
+    // T3 uses a grant that never existed, which is a weaker condition than a stale one. The product
+    // enforces `expires_at > now` in CONSUME_REAUTH_SQL, and that TTL is a real requirement, so it gets
+    // its own case.
+    //
+    // The staleness is produced by SETTING UP A FIXTURE: the grant is issued by the real endpoint and
+    // then its expiry is moved into the past in D1. That is arranging the situation, not weakening the
+    // product -- the TTL check under test is untouched, and it is the check being exercised. The write
+    // is asserted to have touched exactly one row and the row is read BACK, because a fixture that
+    // silently did nothing would leave this case testing a fresh grant and passing for the wrong reason.
+    //
+    // The write is asserted by READING THE ROW BACK rather than by a change count, and that is not a
+    // shortcut. `wrangler d1 execute --json` does not emit `meta.changes` for an UPDATE -- the whole
+    // payload is `{"results": [], "success": true, "meta": {"duration": 0}}` -- so a helper reporting
+    // `changes` would return 0 for a write that succeeded, and this case would have failed while the
+    // fixture was in exactly the state it claims. Asserting the EFFECT is the stronger assertion
+    // anyway: it is what the product will read.
+    const staleGrant = await freshReauth(alice.jar, "alice-stale");
+    if (staleGrant) {
+      await d1Rows(
+        `UPDATE reauthentication_grants SET expires_at = '2020-01-01T00:00:00.000Z' ` +
+          `WHERE grant_id = '${staleGrant.reauth_grant_id}'`,
+        "V01 age one re-auth grant into the past",
+      );
+      const grantRow = await d1Rows(
+        `SELECT expires_at, consumed_at FROM reauthentication_grants ` +
+          `WHERE grant_id = '${staleGrant.reauth_grant_id}'`,
+        "V01 the aged grant read back",
+      );
+      expect(
+        "the grant really is unconsumed and already expired, read back from D1 rather than assumed -- " +
+          "this is the assertion that says T5 attacked what it claims to have attacked",
+        grantRow.length === 1 &&
+          grantRow[0].consumed_at === null &&
+          String(grantRow[0].expires_at) < "2026-01-01",
+        `row=${JSON.stringify(grantRow)}`,
+      );
+      const t5 = await request(
+        alice.jar,
+        "POST",
+        `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+        { target_membership_id: malloryInA.membership_id, ...staleGrant },
+        { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-t5-${probe.nonce}`) },
+      );
+      attacks.push({
+        class_: "ownership-transfer",
+        label: "T5 a valid transfer with an EXPIRED re-auth grant",
+        status: t5.status,
+        grade: t5.status >= 200 && t5.status < 300 ? "granted" : "refused",
+        reason: t5.payload?.error?.details?.reason,
+      });
+      expect(
+        "T5 a REAL grant that has EXPIRED is refused (FR-F02-006 requires RECENT re-authentication, and " +
+          "recency is the part T3 could not test)",
+        !(t5.status >= 200 && t5.status < 300) &&
+          t5.status !== 422 &&
+          t5.payload?.error?.details?.reason === "reauthentication_required",
+        `status=${t5.status} reason=${t5.payload?.error?.details?.reason}`,
+      );
+    }
+
+    // --- control: all four requirements met, so the route WORKS --------------------
+    const aliceGrant = await freshReauth(alice.jar, "alice-control");
+    const control = aliceGrant
+      ? await request(
+          alice.jar,
+          "POST",
+          `/api/v1/orgs/${orgA.orgId}/ownership-transfer`,
+          { target_membership_id: malloryInA.membership_id, ...aliceGrant },
+          { ...browserHeaders(alice.jar), ...browserMutation(alice.jar, `esc-ctl-${probe.nonce}`) },
+        )
+      : null;
+    expect(
+      "the re-auth endpoint issues a grant at all, without which the control below cannot distinguish " +
+        "'the rule is enforced' from 'the route never works'",
+      aliceGrant !== null,
+      aliceGrant === null ? "the re-auth endpoint did not return a grant" : "",
+    );
+    if (control) {
+      attacks.push({
+        class_: "ownership-transfer",
+        label: "C an owner transfers to an active member of their own org",
+        status: control.status,
+        grade: control.status >= 200 && control.status < 300 ? "granted" : "refused",
+        reason: control.payload?.error?.details?.reason,
+      });
+      expect(
+        "C an OWNER transferring to an ACTIVE member of their own org, with a fresh grant, SUCCEEDS -- " +
+          "so the three refusals above are the rules and not a route that refuses everything",
+        control.status >= 200 && control.status < 300,
+        `status=${control.status} body=${JSON.stringify(control.payload ?? {}).slice(0, 200)}`,
+      );
+      const malloryAfter = await membershipIdOf(
+        orgA.orgId,
+        mallory.email,
+        "V01 Mallory after the transfer",
+      );
+      const aliceAfter = await membershipIdOf(
+        orgA.orgId,
+        alice.email,
+        "V01 Alice after the transfer",
+      );
+      expect(
+        "C the STORED roles moved: the target is now the owner and the previous owner is now an admin",
+        malloryAfter?.role === "owner" && aliceAfter?.role === "admin",
+        `mallory=${JSON.stringify(malloryAfter)} alice=${JSON.stringify(aliceAfter)}`,
+      );
+      const audit = await d1Rows(
+        `SELECT action, resource_type, outcome FROM security_events
+         WHERE org_id = '${orgA.orgId}' AND action = 'organization.ownership_transferred.v1'`,
+        "V01 the ownership-transfer audit row",
+      );
+      expect(
+        "C a security event was written for the transfer (FR-F02-006's fourth requirement), so the " +
+          "privileged operation left the audit trail the spec requires",
+        audit.length >= 1,
+        `rows=${JSON.stringify(audit)}`,
+      );
+    }
+  }
+
   // Every attack, with its status and grade.
   //
   // The aggregate distribution is not enough to grade a sensitivity case, and finding

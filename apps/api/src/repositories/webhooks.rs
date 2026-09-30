@@ -271,11 +271,19 @@ pub struct WebhookEndpointRecord {
     pub url: String,
     pub subscribed_event_types_json: String,
     pub current_secret_version_id: Option<String>,
+    /// `webhook_endpoints.enabled` is `INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))`, and D1
+    /// delivers every column as a JavaScript value, so an INTEGER arrives as the float `1.0` and a
+    /// plain `bool` could never be decoded. V01-030: with this field typed `bool`, every request that
+    /// FOUND the row failed with a 503 while every request that did not find it succeeded -- so the
+    /// cross-tenant probes over these routes were measuring the absence of a row rather than a
+    /// refusal of a resource, and reported a clean sheet.
+    #[serde(deserialize_with = "crate::repositories::sql_bool::deserialize")]
     pub enabled: bool,
     pub max_attempts: i64,
     pub base_delay_seconds: i64,
     pub max_delay_seconds: i64,
     pub replay_window_seconds: i64,
+    #[serde(deserialize_with = "crate::repositories::sql_bool::deserialize")]
     pub auto_disable_enabled: bool,
     pub auto_disable_threshold: i64,
     pub consecutive_terminal_failures: i64,
@@ -418,6 +426,10 @@ pub struct NotificationRecord {
     pub event_id: String,
     pub event_type: String,
     pub category: String,
+    /// `notifications.mandatory` is an INTEGER 0/1 column; see `sql_bool` and V01-030. This is the
+    /// second of the two decode targets the audit found, repaired here so the fix is the defect and
+    /// not the instance the campaign happened to trip over.
+    #[serde(deserialize_with = "crate::repositories::sql_bool::deserialize")]
     pub mandatory: bool,
     pub body_json: String,
     pub dedupe_key: String,
@@ -1085,8 +1097,19 @@ impl<'a> WebhookRepository<'a> {
     ) -> worker::Result<Option<WebhookEndpointRecord>> {
         self.database
             .prepare(
+                // V01-028. These two binds were in the OPPOSITE order to the placeholders:
+                // `ENDPOINT_BY_ID_SQL` is `WHERE org_id = ?1 AND endpoint_id = ?2`, and ?1 was
+                // bound to `endpoint_id`. The statement is unsatisfiable, so `find_endpoint`
+                // ALWAYS returned `None` -- which made `load_endpoint` answer `404` to the owner in
+                // her own organization, and made the delivery consumer in `consumers/webhooks.rs`
+                // unable to resolve the endpoint it was about to sign and send.
+                //
+                // `pnpm schema:bind-count` cannot see this and never could: two binds, two
+                // placeholders. It proves arithmetic, and this was a correspondence error -- the
+                // first proven instance of GAP-004, and the third bind defect in this campaign that
+                // a count check is blind to (after V01-008 and V01-011).
                 ENDPOINT_BY_ID_SQL,
-                &[BindValue::Text(endpoint_id), BindValue::Text(org_id)],
+                &[BindValue::Text(org_id), BindValue::Text(endpoint_id)],
             )?
             .first::<WebhookEndpointRecord>(None)
             .await

@@ -1540,6 +1540,7 @@ fn support_security_statement(
         database,
         context,
         Some(principal),
+        None,
         Some(org_id),
         // The `evt_` id this used to build cannot go in a `sec_` column. The
         // binding is gone with it -- the id existed only to be passed here.

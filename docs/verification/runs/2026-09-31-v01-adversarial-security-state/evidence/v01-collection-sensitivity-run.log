@@ -1,0 +1,31 @@
+
+=== baseline: 30 collection routes, no leak, and the positive control finds Alpha's own project
+  HEAD at snapshot: a5308dac3a24c040c2841dca41e8c7cca67cf510
+  git agrees the tree is clean (before snapshot)
+  probe exit=0, failing assertions=0
+  30 collection route(s) MEASURED against 4 Org B identifier(s) plus Bravo's email; 0 leak(s). Excluded: 7 not-GET, 2 without a fixture.
+  neither detection needle appears on a FAIL line in the baseline, so a detection must be earned
+  restored apps/api/src/repositories/runs.rs
+  git agrees the tree is clean (after restore)
+
+=== M1: AGENTS_PAGE_SQL binds org_id but stops filtering on it
+  AGENTS_PAGE_SQL no longer filters on org_id
+  mutation applied to apps/api/src/repositories/runs.rs
+  probe exit=1, FAIL lines=1
+    LEAK  /api/v1/orgs/{org_id}/agents -> 200 leaked org=org_8f1dcf6369f726569687cffa35724793, project=prj_03ac6b8d0cdd403dbe605be34aefd4ce, agent=agd_32b6c824db8e4e6bba69d29cb257472a
+  DETECTED  m1
+  restored apps/api/src/repositories/runs.rs
+  git agrees the tree is clean (after restore)
+
+=== M2: the positive-match control's own search is broken, with every needle intact
+  the positive-match control's search can no longer match
+  mutation applied to apps/api/scripts/v01-collection-tenancy-probe.mjs
+  probe exit=1, FAIL lines=1
+  DETECTED  m2
+  the probe is restored from the snapshot and fingerprinted
+
+=== verdicts
+  OK    m1 -> DETECTED
+  OK    m2 -> DETECTED
+
+SENSITIVITY OK — every mutation was detected. The gate can fail.

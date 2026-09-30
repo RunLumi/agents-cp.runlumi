@@ -2143,6 +2143,27 @@ async function main() {
       (member) => member.user_id === state.bob.user.id,
     );
     if (!bobMembership) fail("second-user membership is absent before stale check", members);
+    // The nonce is fetched HERE, while Bob is still a member, and it is the positive control for the
+    // whole case: it shows the route serves an ACTIVE device, so the two refusals below are about
+    // credentials and membership rather than about a route that answers 401 to everything.
+    //
+    // V01-019 REPAIRED THIS CASE'S PREMISE. It used to fetch the nonce with a fresh CookieJar -- no
+    // credential of any kind -- and expect `200`, which was only ever true because
+    // `GET /api/v1/devices/token/nonce` took no `HeaderMap` and authenticated nobody. The repair
+    // made it require a device token, so this gate has been RED at HEAD since, asserting in writing
+    // that an anonymous caller may mint a device refresh nonce.
+    const liveNonce = await request(
+      new CookieJar(),
+      "GET",
+      "/api/v1/devices/token/nonce",
+      undefined,
+      deviceHeaders(state.deviceB),
+    );
+    expectStatus(
+      "an active device obtains a refresh nonce while its member is still in the org",
+      liveNonce,
+      200,
+    );
     const removed = await request(
       state.alice.jar,
       "DELETE",
@@ -2151,12 +2172,42 @@ async function main() {
       { ...browserHeaders(state.alice.jar), "If-Match": `"${bobMembership.version}"` },
     );
     expectStatus("remove second user from tenant B", removed, 204);
-    const nonce = await request(new CookieJar(), "GET", "/api/v1/devices/token/nonce");
-    expectStatus("get device refresh nonce after membership removal", nonce, 200);
+    const anonymousNonce = await request(new CookieJar(), "GET", "/api/v1/devices/token/nonce");
+    assertDenied(
+      anonymousNonce,
+      "V01-019: an anonymous caller cannot obtain a device refresh nonce",
+      [401],
+      ["device_token_expired", "authentication_required"],
+    );
+    // STRONGER than the case used to claim. The original asked whether a stale member's device could
+    // REFRESH; this asks whether it can reach the device flow at all, and the answer is no. Both are
+    // true, and this one is checked first in the product, so asserting only the refresh would leave
+    // the earlier gate unpinned.
+    const staleNonce = await request(
+      new CookieJar(),
+      "GET",
+      "/api/v1/devices/token/nonce",
+      undefined,
+      deviceHeaders(state.deviceB),
+    );
+    // The reason is the PRODUCT's to choose, and it chose `device_not_approved` rather than
+    // `membership_required` -- which is a more accurate description of what the nonce route can see,
+    // since it holds a device and not a membership. An earlier version of this assertion listed only
+    // `membership_required` and would have failed a correct repair, which is the other half of the
+    // rule this campaign keeps relearning: a control that asserts one particular wrong answer is as
+    // unreliable as one that asserts nothing.
+    assertDenied(
+      staleNonce,
+      "a device whose enrolling member was removed cannot obtain a refresh nonce",
+      [401, 403],
+      ["membership_required", "device_not_approved", "device_token_expired"],
+    );
     const refresh = await request(new CookieJar(), "POST", "/api/v1/devices/token", {
       device_id: state.deviceB.id,
-      signature: state.deviceB.sign(nonce.payload.nonce),
-      nonce: nonce.payload.nonce,
+      // The nonce is the one fetched BEFORE the membership was removed, which is the point: a
+      // device must not be able to launder a credential minted while it was still entitled.
+      signature: state.deviceB.sign(liveNonce.payload.nonce),
+      nonce: liveNonce.payload.nonce,
       app_version: "0.5.0",
     });
     assertDenied(refresh, "stale membership blocks device token refresh", 403, [

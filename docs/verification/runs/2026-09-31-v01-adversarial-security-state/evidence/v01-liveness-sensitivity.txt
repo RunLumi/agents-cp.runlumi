@@ -1,0 +1,50 @@
+snapshot taken at HEAD 6db5100; both mutated files are clean and tracked
+
+[1mBaseline: the check passes on the current tree[0m
+  cargo test -> clean
+
+[1mM1: a NEW capability is added and never wired[0m
+  applied: added an uncalled `pub fn sensitivity_unwired_capability()` to apps/api/src/repositories/automations.rs
+  the file changed, as asserted
+  M1: DETECTED -- the check named sensitivity_unwired_capability, so a newly unwired capability cannot be added
+      quietly. That is the shape all three findings in this class actually had.
+    | 1 repository function(s) have no non-test caller and are not on REVIEWED_UNCALLED. Each one is a capability that exists and cannot be reached -- which is how V01-041 shipped a device enrollment that could be approved but never denied, and how V01-042 shipped a purge that nothing called. Add each to the list WITH A REASON, or wire it up.
+    |   - sensitivity_unwired_capability  (automations.rs)
+    | Declared functions scanned: 571.
+    | note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    | 
+  apps/api/src/repositories/automations.rs is back to its snapshot
+
+[1mM2: a genuinely dead function is REMOVED from the reviewed list[0m
+  applied: removed the review-list entry for find_grants_for_staff_and_org, which is genuinely uncalled
+  the file changed, as asserted
+  M2: DETECTED -- with find_grants_for_staff_and_org unlisted, the check reports it. So the reviewed list is
+      what makes a function legal, not a formality the scan ignores.
+    | 1 repository function(s) have no non-test caller and are not on REVIEWED_UNCALLED. Each one is a capability that exists and cannot be reached -- which is how V01-041 shipped a device enrollment that could be approved but never denied, and how V01-042 shipped a purge that nothing called. Add each to the list WITH A REASON, or wire it up.
+    |   - find_grants_for_staff_and_org  (platform_ops.rs)
+    | Declared functions scanned: 570.
+    | note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    | 
+  apps/api/src/security/repository_liveness.rs is back to its snapshot
+
+[1mM3: a STALE entry is added to the reviewed list[0m
+  applied: added one entry naming a function that does not exist
+  the file changed, as asserted
+  M3: DETECTED -- a stale entry is refused, so the list cannot rot into a permission slip.
+    | REVIEWED_UNCALLED names 1 function(s) that no longer exist: a_function_that_does_not_exist. A stale entry is a
+    |  decision recorded against a function that is gone, so the list stops describing the present and starts accumu
+    | lating history -- and a list that only grows is how a review list rots into a permission slip. Remove the entr
+    | y, or restore the declaration if the function is genuinely still needed.
+  apps/api/src/security/repository_liveness.rs is back to its snapshot
+
+[1mRestored: the check passes again[0m
+  cargo test -> clean
+
+[1mVerdicts[0m
+  baseline: clean
+  M1: DETECTED
+  M2: DETECTED
+  M3: DETECTED
+  restored: clean
+
+every mutation detected, and the restored tree is clean.

@@ -9,6 +9,8 @@ mod audit;
 mod authenticators;
 mod automations;
 pub mod billing;
+#[cfg(test)]
+mod bind_correspondence;
 mod budgets;
 pub mod data_governance;
 mod device;
@@ -25,6 +27,7 @@ mod policy;
 mod projects;
 mod runs;
 mod security;
+pub(crate) mod sql_bool;
 mod tools;
 mod usage;
 mod webhooks;

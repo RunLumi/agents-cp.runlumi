@@ -1,0 +1,116 @@
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:57020
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-gdEnpR/420885a97bd5d1016e15ee6fc4fdb4190f41d37e-index_bg.wasm is 83s newer than src/repositories/runs.rs
+  PASS  every collection route this probe claims to cover is still in the router  — 43 covered, all present
+  PASS  every org-scoped GET collection route is either covered here or credited to another gate  — 32 GET collection route(s): 43 covered, 4 credited elsewhere, none missing
+  PASS  signup Collection Alice  — status=201
+  PASS  verify Collection Alice  — status=200
+  PASS  login start Collection Alice  — status=202
+  PASS  login complete Collection Alice  — status=200
+  PASS  user Collection Alice has an opaque ID  — usr_19480028f77e428eab6695c87eabc7b2
+  PASS  signup Collection Bob  — status=201
+  PASS  verify Collection Bob  — status=200
+  PASS  login start Collection Bob  — status=202
+  PASS  login complete Collection Bob  — status=200
+  PASS  user Collection Bob has an opaque ID  — usr_1155854c016243b683af05bd8d48a08b
+  PASS  create Collection A  — status=201
+  PASS  Collection A organization ID  — org_a7d99f279686c4a22bf13ba8c06b495e
+  PASS  create Collection B  — status=201
+  PASS  Collection B organization ID  — org_8f1dcf6369f726569687cffa35724793
+  PASS  CONTROL: Bravo's project was created, or the project needle would be missing  — status=201 id=prj_03ac6b8d0cdd403dbe605be34aefd4ce body={"archived":false,"created_at":"2026-09-29T03:33:58.148Z","created_by_user_id":"usr_1155854c016243b683af05bd8d48a08b","id":"prj_03ac6b8d0cdd
+  PASS  CONTROL: Bravo's agent was created, or the agent needle would be missing  — status=201 id=agd_32b6c824db8e4e6bba69d29cb257472a body={"allowed_tool_ids":[],"created_at":"2026-09-29T03:33:58.166Z","default_model_alias":null,"description":null,"id":"agd_32b6c824db8e4e6bba69d
+  PASS  CONTROL: every needle was found in D1, so the leak search below is searching for something  — found org, project, user, agent -- a leak search over an empty needle set finds nothing and reports PASS, which is the most useless outcome this probe could produce
+
+  needles (Bravo): org=org_8f1dcf63…  project=prj_03ac6b8d…  user=usr_1155854c…  agent=agd_32b6c824…
+  needle (email fragment): collection-bob-mum4gfhh1ibw
+  ok    /api/v1/orgs/{org_id} -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}  — status=200 body={"org_id":"org_a7d99f279686c4a22bf13ba8c06b495e","display_name":"Collection A","slug":"coll-a-mum4gfhh1ibw","state":"act
+  LEAK  /api/v1/orgs/{org_id}/agents -> 200 leaked org=org_8f1dcf6369f726569687cffa35724793, project=prj_03ac6b8d0cdd403dbe605be34aefd4ce, agent=agd_32b6c824db8e4e6bba69d29cb257472a
+  FAIL  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/agents  — status=200 the response names org=org_8f1dcf6369f726569687cffa35724793, project=prj_03ac6b8d0cdd403dbe605be34aefd4ce, agent=agd_32b6c824db8e4e6bba69d29cb257472a, which belong to another organization
+  ok    /api/v1/orgs/{org_id}/approvals -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/approvals  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  ok    /api/v1/orgs/{org_id}/automations -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/automations  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  n/a   /api/v1/orgs/{org_id}/catalog/models -> 405, not a GET route (the static parse guessed wrong)
+  ok    /api/v1/orgs/{org_id}/devices -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/devices  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  ok    /api/v1/orgs/{org_id}/invitations -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/invitations  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/mcp -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/mcp  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  n/a   /api/v1/orgs/{org_id}/plugin-reports -> 405, not a GET route (the static parse guessed wrong)
+  ok    /api/v1/orgs/{org_id}/rate-limits -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/rate-limits  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/runs -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/runs  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  ok    /api/v1/orgs/{org_id}/sessions -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/sessions  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/teams -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/teams  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/tools -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/tools  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  ok    /api/v1/orgs/{org_id}/usage/denials -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/usage/denials  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/usage/rollups -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/usage/rollups  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  n/a   /api/v1/orgs/{org_id}/leave -> 405, not a GET route (the static parse guessed wrong)
+  ok    /api/v1/orgs/{org_id}/adoption/bindings -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/adoption/bindings  — status=200 body={"count":0,"items":[]}
+  ok    /api/v1/orgs/{org_id}/adoption/remediations -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/adoption/remediations  — status=200 body={"count":0,"items":[],"open":0}
+  n/a   /api/v1/orgs/{org_id}/adoption/telemetry -> 405, not a GET route (the static parse guessed wrong)
+  n/a   /api/v1/orgs/{org_id}/adoption/automation-imports/preview -> 405, not a GET route (the static parse guessed wrong)
+  ok    /api/v1/orgs/{org_id}/api-keys -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/api-keys  — status=200 body={"items":[],"page":{"limit":50,"next_cursor":null}}
+  ok    /api/v1/orgs/{org_id}/audit -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/audit  — status=200 body={"items":[{"event_id":"sec_b733ec1167ec4c168ed6c2346ec5902f","org_id":"org_a7d99f279686c4a22bf13ba8c06b495e","actor_type
+  n/a   /api/v1/orgs/{org_id}/billing/subscription -> 404 {"error":{"code":"not_found","message":"The requested resource was not found.","request_id -- no fixture for this resource here, so "no leak" is not claimed
+  ok    /api/v1/orgs/{org_id}/catalog -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/catalog  — status=200 body={"aliases":[{"alias":"coding-default","alias_id":"mal_00000000000000000000000000000001","created_at":"2026-09-24T00:00:0
+  ok    /api/v1/orgs/{org_id}/credentials -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/credentials  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/data-policy -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/data-policy  — status=200 body={"backup_lifecycle":"platform_35_day_expiry","class_retention_overrides":{},"created_at":"2026-09-29T03:33:59.754Z","def
+  ok    /api/v1/orgs/{org_id}/deletions -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/deletions  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  n/a   /api/v1/orgs/{org_id}/entitlements -> 422 {"error":{"code":"validation_failed","message":"The billing request is not valid for the c -- no fixture for this resource here, so "no leak" is not claimed
+  ok    /api/v1/orgs/{org_id}/entitlements/provider -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/entitlements/provider  — status=200 body={"capability_class":"provider_managed_inference","items":[{"observed_at":0,"provider":"local","reason_code":null,"status
+  ok    /api/v1/orgs/{org_id}/exports -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/exports  — status=200 body={"has_more":false,"items":[],"next_cursor":null}
+  ok    /api/v1/orgs/{org_id}/notification-preferences -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/notification-preferences  — status=200 body={"preferences":[{"channel":"in_app","disabled_event_types":[],"updated_at":null,"version":0},{"channel":"email","disable
+  n/a   /api/v1/orgs/{org_id}/ownership-transfer -> 405, not a GET route (the static parse guessed wrong)
+  ok    /api/v1/orgs/{org_id}/plugins -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/plugins  — status=200 body={"items":[],"policy":{"allowed_packages":[],"approved_publishers":[],"auto_update":false,"blocked_packages":[],"conflict
+  ok    /api/v1/orgs/{org_id}/policy/tools -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/policy/tools  — status=200 body={"document":{"browser":{"allow_authenticated":false,"allow_clipboard":false,"allow_download":false,"allow_upload":false,
+  ok    /api/v1/orgs/{org_id}/routes -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/routes  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  ok    /api/v1/orgs/{org_id}/service-accounts -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/service-accounts  — status=200 body={"items":[],"page":{"limit":50,"next_cursor":null}}
+  ok    /api/v1/orgs/{org_id}/webhooks -> 200 
+  PASS  no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/webhooks  — status=200 body={"items":[],"next_cursor":null,"has_more":false}
+  n/a   /api/v1/orgs/{org_id}/billing/portal-session -> 405, not a GET route (the static parse guessed wrong)
+  PASS  at least one collection route was actually measured, so the leak verdicts are about a working route  — 30 route(s) answered 2xx and were searched; 7 were not GET routes and 2 had no fixture here
+
+not GET routes (405, excluded -- the static parse called these collections):
+  - /api/v1/orgs/{org_id}/catalog/models
+  - /api/v1/orgs/{org_id}/plugin-reports
+  - /api/v1/orgs/{org_id}/leave
+  - /api/v1/orgs/{org_id}/adoption/telemetry
+  - /api/v1/orgs/{org_id}/adoption/automation-imports/preview
+  - /api/v1/orgs/{org_id}/ownership-transfer
+  - /api/v1/orgs/{org_id}/billing/portal-session
+
+NOT_APPLICABLE (no fixture for the resource in this probe):
+  - /api/v1/orgs/{org_id}/billing/subscription -> 404
+  - /api/v1/orgs/{org_id}/entitlements -> 422
+  PASS  CONTROL: the same search FINDS Org A's own project id in Org A's own collection, so 'found nothing' means absent and not incapable  — status=200 needles=1 looking for prj_0f0dc35e95e44d4ab6666eef37df8b17 in {"has_more":false,"items":[{"archived":false,"created_at":"2026-09-29T03:33:58.158Z","created_by_user_id":"usr_19480028f77e428eab6695c87eabc7b2","id":"prj_0f0dc -- if this fails, every leak verdict above is measuring a search that finds nothing regardless of what the response contains
+
+30 collection route(s) MEASURED against 4 Org B identifier(s) plus Bravo's email; 1 leak(s). Excluded: 7 not-GET, 2 without a fixture.
+
+53/54 V01 collection-tenancy cases hold
+
+1 case(s) failed:
+  - no Org B identifier appears anywhere in the body of GET /api/v1/orgs/{org_id}/agents

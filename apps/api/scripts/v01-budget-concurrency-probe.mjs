@@ -197,7 +197,9 @@ await runProbe("V01 budget-concurrency", async (probe) => {
   // the instrument for requirement 1: a reservation exists precisely so a request that has
   // NOT been dispatched can hold budget before it is.
   probe.stage = "inference-fixture";
-  const now = "2026-09-28T00:00:00.000Z";
+  // Relative for the same reason as the reservation expiry below: a literal here is a row
+  // timestamp today and a fixture bug the day anything compares it to the clock.
+  const now = new Date(Date.now() - 60_000).toISOString();
   const routeId = opaqueId("rte_", "route", probe.nonce);
   const routeVersionId = opaqueId("rtv_", "route-version", probe.nonce);
 
@@ -289,7 +291,21 @@ await runProbe("V01 budget-concurrency", async (probe) => {
   probe.stage = "concurrent-burst";
   const AMOUNT = 30;
   const CONCURRENCY = 8;
-  const expiry = "2026-09-29T00:00:00.000Z";
+  // RELATIVE, and this is a repair rather than a tidy-up.
+  //
+  // This used to be the literal `"2026-09-29T00:00:00.000Z"`, and the gate's result therefore
+  // depended on the WALL CLOCK: it reported 27/27 at 23:59 UTC on 2026-09-28 and 23/25 at 00:36
+  // UTC on 2026-09-29, with no change to any code. Every reservation was refused with
+  // `expires_at_invalid` because its expiry was in the past, so the burst granted nothing, and
+  // the ceiling assertion below was grading an absence -- which is exactly the
+  // `verify:adoption-privacy` "0 hits" failure wearing a date.
+  const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  expect(
+    "CONTROL: the reservation expiry is in the FUTURE, or every reservation is refused and the ceiling below grades an absence",
+    Date.parse(expiry) > Date.now() + 60_000,
+    `expiry=${expiry}, now=${new Date().toISOString()} -- a literal timestamp here makes this gate's \
+     result a function of the calendar rather than of the product`,
+  );
 
   const burst = await Promise.all(
     requestIds.map((rid, i) =>

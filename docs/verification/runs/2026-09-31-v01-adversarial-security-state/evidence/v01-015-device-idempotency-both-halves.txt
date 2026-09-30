@@ -1,0 +1,37 @@
+V01-015 -- device-route idempotency, BOTH halves, post-V01-041
+captured: 2026-09-29T17:09:35Z
+
+pnpm verify:device-idempotency: 23/23, exit 0. The record said HALF repaired --
+'revoke_device is closed; approve_enrollment is blocked on V01-020 (the helper cannot
+express a response built from the row it writes)'. 21/23.
+
+approve_enrollment NOW PASSES:
+  CONTROL  the first approval succeeds                      -- status=201
+  CONTROL  the first approval wrote ONE device and ONE audit event
+  V01-015  replaying on the SAME key writes nothing new
+  V01-015  replaying on the SAME key REPLAYS the FIRST response, status and body
+  CONTROL  a DIFFERENT key on the already-approved enrollment is not a second success
+  CONTROL  the two outcomes are distinguishable -- the replay and the different-key
+           call do not both answer the same way
+
+The block is lifted because the route's response is now built from the committed row
+(devices.rs:73 names V01-020 in the doc comment on device_json), and the V01-041
+denial work touched this same file. pnpm verify:revoked-device 36/36, exit 0.
+
+The last distinguishing assertion is what makes the 23/23 meaningful: a route that
+refuses repeats for an UNRELATED reason would answer the different-key control the same
+way, and comparing the two answers -- ignoring request_id -- is the only way to tell.
+
+--------------------------------------------------------------------------------
+  PASS  CONTROL: the organization's slug is known, so devices can be enrolled against it  — slug=v01-dev-mumxjpvziibz
+  PASS  CONTROL: the first approval succeeds  — status=201
+  PASS  CONTROL: the first approval wrote exactly ONE device and ONE audit event, so a replay that changes either is measurable  — devices=[{"device_id":"dvc_7c4c1d9241484532a5d1c3f69f9d262c","key_fingerprint":"50d33219ac7fb922ba38b995a7f1a667a8cdfb6d9cba36c16994b04eca4b348e","status":"active"}] events=[{"event_id":"sec_6aac1f261fe34dca9cfcf222749b5ed1","action":"device.enrolled.v1","resource_id":"dvc_7c4c1d9241484532a5d1c3f69f9d262c","created_at":"2026-09-29T17:08:18.788Z"}]
+  PASS  V01-015: replaying the approval on the SAME key writes nothing new -- one device, one audit event (the route discards the key at devices.rs)  — after the replay: devices=[{"device_id":"dvc_7c4c1d9241484532a5d1c3f69f9d262c","key_fingerprint":"50d33219ac7fb922ba38b995a7f1a667a8cdfb6d9cba36c16994b04eca4b348e","status":"active"}] events=[{"event_id":"sec_6aac1f261fe34dca9cfcf222749b5ed1","action":"device.enrolled.v1","resource_id":"dvc_7c4c1d9241484532a5d1c3f69f9d262c","created_at":"2026-09-29T17:08:18.788Z"}]
+  PASS  V01-015: replaying the approval on the SAME key replays the FIRST response, status and body alike  — first status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-09-29T17:08:18.788Z","enrolled_by_user_id":"usr_2107758ab7464fab91c9bb1d372465eb","id":"dvc_7c4c1d9241484532a5d1c3f69f9d262c","l vs replay status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-09-29T17:08:18.788Z","enrolled_by_user_id":"usr_2107758ab7464fab91c9bb1d372465eb","id":"dvc_7c4c1d9241484532a5d1c3f69f9d262c","l
+  PASS  CONTROL: a DIFFERENT key on the already-approved enrollment is not a second success  — status=409 devices=1 -- this is the reference the replay's outcome has to be read against
+  PASS  CONTROL: the second device was really approved, so there is something to revoke  — status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-09-29T17:08:27.681Z","enrolled_by_user_id":"usr_2107758ab7464fab91c9bb1d372465eb","id":"dvc_a45a3e84d8ee40db9c6e864b42fcac5c","l
+  PASS  CONTROL: the first revoke took effect and dropped the device's tokens  — status=204 device={"device_id":"dvc_a45a3e84d8ee40db9c6e864b42fcac5c","status":"revoked","revoked_at":"2026-09-29T17:08:29.828Z"} tokens 1 -> 0
+  PASS  V01-015: replaying the revoke on the SAME key replays the FIRST response rather than re-running it (the route discards the key at devices.rs)  — first status=204 body=(no body) vs replay status=204 body=(no body)
+  PASS  V01-015: the replayed revoke left the revocation timestamp alone, so it did not re-run the write  — revoked_at 2026-09-29T17:08:29.828Z -> 2026-09-29T17:08:29.828Z
+  PASS  CONTROL: a DIFFERENT key on the already-revoked device is answered DIFFERENTLY from the replay, so the key is what distinguishes them  — replay status=204 body=(no body) vs different-key status=409 body={"error":{"code":"conflict","message":"The device was already revoked.","request_id":"req_7715afd4559b412884d63ea978bcbfb9","details":{"reason":"device_revoked"}}}; identical answers mean the route is refusing repeats from a state guard rather than honouring the key
+  PASS  V01-015: a replayed revoke records no additional audit event for the device  — audit events 2 -> 2

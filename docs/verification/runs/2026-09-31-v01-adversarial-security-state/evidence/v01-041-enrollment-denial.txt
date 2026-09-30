@@ -1,0 +1,51 @@
+V01 revoked-device -- V01-041 denial class, POST-FIX
+captured: 2026-09-29T11:45:57Z
+
+36/36, exit 0. The load-bearing claim, not the route's existence:
+a DENIED enrollment cannot obtain a device credential.
+
+  D0  a second, independent enrollment begins on its own ed25519 key
+  D1  it can be denied, and the STORED status is 'denied' (read from D1)
+  D2  completing it is refused 403, and NO device_tokens row exists for that
+      fingerprint -- so a 2xx that IGNORED the denial cannot pass this
+  D3  a different-key denial of the same row is refused, which proves the state
+      check rather than the Idempotency-Key being irrelevant (V01-009's lesson)
+  D4  the denial wrote a customer-visible audit event with actor_type 'user'
+
+--------------------------------------------------------------------------------
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:51877
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-NT5cji/546a43e440a8dee5fb635938b01975429f091c0a-index_bg.wasm is 156s newer than src/app.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_b5fdf813182c4593b442f4bd2bdbafd3
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_90a57692921829ee69f6e8100ad62ca2
+  PASS  CONTROL: the organization's slug is known, so a device can be enrolled against it  — slug=v01-rev-mumlo3il88yv
+  PASS  CONTROL: an enrollment begins  — status=201 body={"enrollment_id":"enr_2025264013684f9181b9452e058ca147","user_code":"d148a0ac0d4d97b2b6ddd522eb1adecbceeb4018356c0d108165c73a58ea86ca","verification_uri":"/devices","expires_at":"2026-09-29T11:50:47.8
+  PASS  CONTROL: the enrollment is approved  — status=201
+  PASS  CONTROL: the enrollment completes and yields a real device token  — status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-09-29T11:35:47.825Z","enrolled_by_user_id":"usr_b5fdf813182c4593b442f4bd2bdbafd3","id":"dvc_26bf9a2e6edb4ca8a3564f14316435f7","l
+  PASS  V01-019: a caller with NO credential at all is refused a nonce, before and after any revocation  — an anonymous GET /devices/token/nonce answered 401 body={"error":{"code":"authentication_required","message":"A device token is required.","request_id":"req_80c768d93993407aa4c6762492494629","details":{"reason":"device_token_expired"}}}; before the fix this route took no HeaderMap and minted server-issued secret material for anyone who asked
+  PASS  the anonymous refusal carries a stable code, and never a nonce  — status=401 code=authentication_required nonce=absent
+  PASS  CONTROL: a device-authenticated READ works before revocation  — status=200 body={"expires_at":"2026-09-30T11:35:47.845Z","issued_at":"2026-09-29T11:35:47.845Z","license":{"available":false,"reason":"license_key_unknown","signature_algorithm":"ed25519"},"org_id":"org_90a5769292182
+  PASS  CONTROL: the device can fetch a nonce and exchange it for a REAL second token before revocation, so a refusal after it is attributable to the revocation  — nonce status=200, refresh status=200, minted=true body={"device_token":"f6d2ad0b1844e1271ab35237431970bca03cff664fcd9b9db74176f20ea414f7","token_expires_at":"2026-09-29T11:50:47.875Z","policy_version":1}
+  PASS  CONTROL: the revocation took effect in the DATABASE -- status is revoked and every token row for the device is gone  — status=revoked revoked_at=2026-09-29T11:35:50.442Z token rows 2 -> 0
+  PASS  V01-019: the anonymous caller is still refused after the revocation, so the refusal is the route's own gate and not a side effect of the device being revoked  — an anonymous GET /devices/token/nonce answered 401 body={"error":{"code":"authentication_required","message":"A device token is required.","request_id":"req_ab43e761d24745e19fa9e54cfa86b2e2","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/policy  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_275d7d8b3c2c45119ec54077dbcd3c81","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/token/nonce  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_70f6df66937946759a485c1febdeac01","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/token/nonce  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_70f6df66937946759a485c1febdeac01","details":{"reason":"device_token_expired"}}}
+  PASS  the revoked device is refused: GET /api/v1/devices/policy  — status=401 body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_1a7b2e90c719424eaf93421629862fb7","details":{"reason":"device_token_expired"}}}
+  PASS  a revoked device cannot MINT a new token: the refresh did not return a device_token even with a real nonce and a real signature  — refresh status=401 minted=false body={"error":{"code":"authentication_required","message":"The device token is expired or revoked.","request_id":"req_70f6df66937946759a485c1febdeac01","details":{"reason":"device_token_expired"}}} -- if this minted, the revocation rotated the credential instead of ending it
+  PASS  a refusal after revocation is an explicit 4xx with a stable error code, never a 2xx and never a bare 500  — policy=401/authentication_required refresh=401/authentication_required
+  PASS  the refusals do not leak the device's stored detail  — the device id dvc_26bf9a2e6edb4ca8a3564f14316435f7 appears in a refused body, so the refusal discloses which device was presented
+  PASS  STRUCTURAL: the device-token lookup does not join devices, so the refusal above is attributable to the token rows being deleted and there is no second status check  — DEVICE_TOKEN_BY_HASH_SQL = "SELECT token_hash, device_id, expires_at, created_at FROM device_tokens WHERE token_hash = ?1 AND device_id = ?2 AND expires_at > ?3 LIMIT 1"
+  PASS  STRUCTURAL: revocation and token deletion are coupled -- one statement writes status = 'revoked' and one deletes the tokens, in the same batch  — 1 DELETE FROM device_tokens and 1 status='revoked' writers; any count other than 1 and 1 means the coupling this claim rests on is not what it was read to be
+  PASS  D0: a SECOND enrollment begins on its own key, so the denial case is independent of the one above  — status=201 id=enr_eda55f03609748899cd1caf88e522f1a body={"enrollment_id":"enr_eda55f03609748899cd1caf88e522f1a","user_code":"36952a376c77575eebf7838210e3bc06b2a8c3c4bc7f22adf6fe5c38b3602a4f","verification_uri":"/devi
+  PASS  D1: a pending enrollment can be DENIED -- the negative branch exists  — status=200
+  PASS  D1: and the STORED status is 'denied' -- graded on the row, not on the status code  — row={"status":"denied"} body={"enrollment_id":"enr_eda55f03609748899cd1caf88e522f1a","status":"denied"}
+  PASS  D2: a DENIED enrollment cannot be completed, so the refusal is not decorative  — status=403 body={"error":{"code":"permission_denied","message":"The enrollment is not awaiting completion.","request_id":"req_2923a49165ff401183f2617e5ab6bbca","details":{"reas
+  PASS  D2: and NO device token exists for the denied device -- read out of D1, because a 2xx that ignored the denial would satisfy a status-only assertion  — tokenRows=0 completeStatus=403
+  PASS  D3: a DIFFERENT-key denial of the same (now denied) enrollment is refused, which is what proves the route is doing the state check rather than the key being irrelevant -- the lesson V01-009's approve_enrollment leg turned on  — status=409 body={"error":{"code":"conflict","message":"The enrollment is no longer pending.","request_id":"req_655a239c1cd84a4096054f42ad13ac35","details":{
+  PASS  D4: the denial wrote a customer-visible audit event naming the enrollment, because before this route a reviewer's refusal left no record at all and was indistinguishable from nobody looking  — events=[{"action":"device.enrollment.denied.v1","actor_type":"user","resource_id":"enr_eda55f03609748899cd1caf88e522f1a"}]

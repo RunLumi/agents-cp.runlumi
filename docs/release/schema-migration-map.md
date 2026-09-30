@@ -3,7 +3,7 @@
 Generated from `apps/api/migrations/`. `security::release_docs` asserts this file
 names every migration in apply order, so it cannot fall behind the schema.
 
-**20 migrations · 111 tables · 200 indexes · 73 triggers.**
+**22 migrations · 111 tables · 200 indexes · 73 triggers.**
 
 ## Why the trigger count is the headline
 
@@ -162,3 +162,39 @@ explicitly so the gap cannot reopen unnoticed.
 | `0019_p08_migration_adoption.sql` | 4 | 10 | 3 | Migration adoption: workspace adoption state, stage events, remediation, and the published client-compatibility policy. `client_compatibility_policy` is the only class whose owner scope is Platform and whose sensitivity is Public. |
 | `0020_p09_idempotency_null_safety.sql` | 0 | 0 | 4 | **P09. No new tables** — four triggers that close a NULL hole in `0001`'s idempotency CHECK. See below; it was the only migration in the repository that added constraints to an existing table rather than creating a new one, until `0021` below. |
 | `0021_p02_team_id_check_correction.sql` | 0 (2 rebuilt) | 2 (recreated) | 0 | **P02 correction.** Rebuilds `teams` and `team_members` with their primary-key CHECK corrected. See below. |
+| `0022_p07_staff_actor_type.sql` | 0 (1 rebuilt) | 4 (recreated) | 2 (recreated) | **P07 correction.** Rebuilds `security_events` with `actor_type` extended to name `staff`, the third actor kind from ADR 0007. Net zero for tables, indexes, and triggers — measured, not assumed: the four indexes and two immutability triggers are recreated verbatim, and losing them would have been a worse defect than the one repaired. See below. |
+
+## `0022` — `security_events.actor_type` gains `staff`
+
+`0002` declared the audit table and its CHECK enumerated the pre-P07 world:
+
+```sql
+actor_type TEXT NOT NULL CHECK (
+    actor_type IN ('user', 'service_account', 'support', 'system', 'anonymous')
+)
+```
+
+`0018` added `staff_principals`, `StaffActor`, and the whole `/api/v1/internal/**` surface — sixteen
+migrations later — and nothing extended the CHECK to name ADR 0007's third actor kind. So the value
+the product writes is the one value the schema refuses, and ADR 0007's MUST ("a staff audit event is
+written on grant creation and on every use") is unsatisfiable. Every internal write route answered
+`503` on the batch that carried the audit row.
+
+`'support'` is in the `0002` list and reads like the answer. It is not: it is a `StaffRole`, not an
+actor kind, and writing it would record a `security` or `engineering` staff member's action as a
+support action. The value is named, not coerced.
+
+**Why a rebuild.** SQLite cannot `ALTER` a CHECK constraint, and editing `0002` would fix a fresh
+database and nothing else — the ledger records it as applied. This is the same shape as `0021`.
+
+**The column list came from the live schema, not from `0002`.** `0010` appended `run_id`,
+`agent_session_id`, and `tool_call_id` with `ALTER TABLE`, so the table has nineteen columns and the
+three new ones sit at the end. The first version of this migration copied the sixteen columns `0002`
+declared and failed with `no such column: run_id`. The failure was loud, which is the good case; the
+mistake was auditing the ledger for the indexes and triggers the rebuild would drop and not for its
+columns. **The authority for a rebuild's shape is the live schema; the ledger only says what changed.**
+
+**The immutability triggers are recreated verbatim.** `security_events` is append-only, and a rebuild
+that silently dropped that guarantee would be a far worse finding than the one it repairs. Both
+`BEFORE UPDATE` and `BEFORE DELETE` still abort, and the standalone check for the reconstruction is in
+`security::actor_type_correspondence`, which reads the writer and the ledger and compares them.

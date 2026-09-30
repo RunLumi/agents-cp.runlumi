@@ -209,6 +209,10 @@ pub fn security_event_statement_with_context<'a>(
     database: &'a D1Adapter,
     context: &RequestContext,
     principal: Option<&Principal>,
+    // A staff principal, when a STAFF member is the actor. See the V01-038 note at the bind list: a
+    // staff actor is not a `Principal` and cannot be expressed as one, so it needs its own parameter
+    // rather than a synthetic one.
+    staff_principal_id: Option<&'a str>,
     organization_id: Option<&'a str>,
     event_id: SecurityEventId,
     action: &'a str,
@@ -229,12 +233,40 @@ pub fn security_event_statement_with_context<'a>(
         )
     })?;
     let organization_id = organization_id.map_or(BindValue::Null, BindValue::Text);
-    let actor_id = principal
-        .map(|value| BindValue::Text(value.user_id.as_str()))
-        .unwrap_or(BindValue::Null);
-    let effective_user_id = principal
-        .map(|value| BindValue::Text(value.user_id.as_str()))
-        .unwrap_or(BindValue::Null);
+    //
+    // V01-038. `actor_type` used to be `if principal.is_some() { "user" } else { "system" }` -- derived
+    // from whether a `Principal` was SUPPLIED rather than from who acted.
+    //
+    // ADR 0007 establishes three actor kinds and is explicit that a staff actor is not a human
+    // `Principal`: "A `StaffRole` never converts to a `MembershipRole`", and `StaffActor` "must not be
+    // constructible from a" `Principal`. So `Option<&Principal>` has TWO states where the domain has
+    // THREE, and a staff caller passed `None` -- which the old expression rendered as `system`.
+    //
+    // `POST /internal/support-grants` therefore wrote its customer-visible row -- the row ADR 0007
+    // names as what makes a support session reconstructable "without trusting platform-side logs" --
+    // with `actor_type = 'system'` and a NULL `actor_id`. The staff principal's id was in the
+    // metadata JSON, one unjoined column away.
+    //
+    // The fix is NOT to synthesise a `Principal` for the staff member. That is precisely the
+    // conflation ADR 0007 forbids, and it would put a `usr_`-shaped identity in a row whose
+    // `actor_type` says `staff`. The three kinds get three branches, which is the boundary finally
+    // matching the domain.
+    let (actor_type, actor_id, effective_user_id) = match (principal, staff_principal_id) {
+        (Some(value), _) => (
+            "user",
+            BindValue::Text(value.user_id.as_str()),
+            BindValue::Text(value.user_id.as_str()),
+        ),
+        (None, Some(staff_id)) => (
+            // A staff member is a NAMED internal identity (ADR 0007, F24-002). `effective_user_id`
+            // stays NULL: a staff actor is not acting as a customer, and the whole point of the
+            // `staff_` prefix on the column is that the two are distinguishable.
+            "staff",
+            BindValue::Text(staff_id),
+            BindValue::Null,
+        ),
+        (None, None) => ("system", BindValue::Null, BindValue::Null),
+    };
     let session_id = principal
         .map(|value| BindValue::Text(value.session_id.as_str()))
         .unwrap_or(BindValue::Null);
@@ -249,7 +281,7 @@ pub fn security_event_statement_with_context<'a>(
             &[
                 BindValue::Text(event_id.as_str()),
                 organization_id,
-                BindValue::Text(if principal.is_some() { "user" } else { "system" }),
+                BindValue::Text(actor_type),
                 actor_id,
                 effective_user_id,
                 session_id,
@@ -278,10 +310,16 @@ pub fn security_event_statement_with_context<'a>(
 
 /// Build an immutable security-event insert for a P01-P04 mutation.
 #[allow(clippy::too_many_arguments)]
+// V01-038. This wrapper grew the same `staff_principal_id` parameter as the full-arity form, and for
+// the same reason: the support-grant routes are STAFF routes, and without a way to say so their
+// customer-visible audit rows were recorded as `system`. Routing them through the 15-argument form
+// instead would have worked and been worse -- the short wrapper exists precisely so the common case
+// does not have to name four correlation ids it does not have.
 pub fn security_event_statement<'a>(
     database: &'a D1Adapter,
     context: &RequestContext,
     principal: Option<&Principal>,
+    staff_principal_id: Option<&'a str>,
     organization_id: Option<&'a str>,
     event_id: SecurityEventId,
     action: &'a str,
@@ -294,6 +332,7 @@ pub fn security_event_statement<'a>(
         database,
         context,
         principal,
+        staff_principal_id,
         organization_id,
         event_id,
         action,

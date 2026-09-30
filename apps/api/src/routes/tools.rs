@@ -3135,6 +3135,7 @@ pub fn session_security_event(
         database,
         context,
         Some(principal),
+        None,
         Some(organization_id),
         SecurityEventId::new(event_id),
         action,
@@ -3174,6 +3175,7 @@ fn device_security_event(
         database,
         context,
         Some(&owner),
+        None,
         Some(&scope.org_id),
         SecurityEventId::new(event_id),
         action,
@@ -3554,6 +3556,7 @@ pub async fn record_tool_result(
     let security = security_event_statement_with_context(
         database,
         &context,
+        None,
         None,
         Some(&access.device.org_id),
         SecurityEventId::generate(),

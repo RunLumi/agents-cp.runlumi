@@ -204,6 +204,25 @@ WHERE membership_id = ?1 AND org_id = ?3 AND status = 'active' AND version = ?4
   )
 "#;
 
+/// Transfer ownership: the target becomes `owner`, the outgoing owner becomes `admin`.
+///
+/// # Why the target has to be eligible in the `WHERE` and not only in the handler
+///
+/// The `SET` demotes **every** active owner unconditionally, and the target is promoted only if its
+/// own row matches. The repository reports success when *any* row changed. Those three facts
+/// together mean that with an ineligible target the statement still demotes the current owner,
+/// promotes nobody, and returns success -- an organization with **no active owner at all**.
+///
+/// That is not hypothetical: sensitivity case M4 removed the handler's `target.status != "active"`
+/// check and the run's own database came back with `active owners: 0`
+/// (`evidence/v01-032-pre-repair.txt`).
+///
+/// Today the handler checks first, so it is a latent defect rather than a live one. But
+/// `CHANGE_ROLE_SQL` and `REMOVE_MEMBERSHIP_SQL` both carry the "at least one active owner" rule in
+/// their own `WHERE`, and this statement is the only one of the three that does not — it relied on a
+/// check in a different layer, one refactor away from being the only thing standing between a
+/// refactor and an ownerless organization. The `EXISTS` below restores the second layer, and it needs
+/// no new placeholder: `?1` and `?2` are already bound.
 const TRANSFER_OWNERSHIP_SQL: &str = r#"
 UPDATE memberships
 SET role = CASE
@@ -216,6 +235,10 @@ SET role = CASE
 WHERE org_id = ?2
   AND status = 'active'
   AND (membership_id = ?1 OR role = 'owner')
+  AND EXISTS (SELECT 1 FROM memberships AS target
+              WHERE target.membership_id = ?1
+                AND target.org_id = ?2
+                AND target.status = 'active')
 "#;
 
 const INSERT_TEAM_SQL: &str = r#"

@@ -432,6 +432,7 @@ fn budget_audit(
         database,
         context,
         principal,
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         action,
@@ -462,6 +463,7 @@ fn device_audit(
     security_event_statement_with_context(
         database,
         context,
+        None,
         None,
         Some(org_id),
         SecurityEventId::generate(),
@@ -1174,6 +1176,12 @@ pub async fn create_reservation(
         &context,
         claim,
         success.clone(),
+        // NOT a V01-033 case, and the reason belongs here because the other site in this file is one.
+        // `guard` is `assert_reservation_created_statement`: it asserts the POSTCONDITION -- that the
+        // reservation this `insert` just created exists. A postcondition is evaluated AFTER the write
+        // that establishes it, so guard-second is required here and guard-first would abort every
+        // reservation. The discriminator between the two orders is what the guard's SQL selects, not
+        // where the guard sits in the vector.
         vec![insert, guard, audit],
         outbox,
     )
@@ -1400,6 +1408,16 @@ pub async fn reconcile_reservation(
         &context,
         claim,
         success.clone(),
+        // V01-033. Same ordering defect: `update` bumps the budget's version and `guard`
+        // (`assert_budget_version_statement`) asserted the pre-write version afterwards. A
+        // precondition is evaluated before the write it guards.
+        // NOT a V01-033 case, and the reason belongs here because the same shape IS one elsewhere in
+        // the tree. Reordering this batch to `vec![guard, update, audit]` was applied on the same
+        // reasoning as the machine_identity fix and regressed `verify:budget-concurrency` 28/28 ->
+        // 25/28, on the reservation RELEASE path. So the pattern "a guard follows a writer" is not
+        // the diagnosis: what matters is whether the guard asserts something the writer invalidates,
+        // and that has to be established per site by running the affected gate. See the V01-033
+        // record for the two-order experiment that established it for the sites this one resembles.
         vec![update, guard, audit],
         outbox,
     )
@@ -1671,6 +1689,7 @@ pub async fn put_rate_limit(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(&org_id),
         SecurityEventId::generate(),
         "rate_limit_policy.updated.v1",
@@ -1790,6 +1809,7 @@ async fn record_budget_denial(
         security_event_statement_with_context(
             database,
             context,
+            None,
             None,
             Some(org_id),
             SecurityEventId::generate(),

@@ -1,0 +1,34 @@
+baseline HEAD 2a09c4ff97569ace110dcc1560f13e52a32e13c9
+M1 applied: CHANGE_ROLE_SQL's last-owner guard always passes
+built: 29 Sep 12:54
+probe exit 1
+
+=== M1: the last owner can now demote themselves ===
+58/68 V01 privilege-escalation cases hold
+  last-owner     200     granted           demote
+  last-owner     403     refused           remove
+  last-owner     204     granted           leave
+  FAIL  the last owner cannot demote their own organization (FR-F02-005)  — status=200 body={"membership_id":"mem_062c65ee599893a8594faaa8ce
+  FAIL  the organization still has at least one active owner after the last owner tried to demote  — owners after=[]
+  FAIL  the organization still has at least one active owner after the last owner tried to remove  — owners after=[]
+  FAIL  the last owner cannot leave their own organization (FR-F02-005)  — status=204 body={}
+  FAIL  the organization still has at least one active owner after the last owner tried to leave  — owners after=[]
+M1: DETECTED  (probe exit 1)
+M1: the source is back to HEAD
+M2 applied: REMOVE_MEMBERSHIP_SQL's last-owner guard always passes
+built: 29 Sep 12:57
+probe exit 1
+
+=== M2: the last owner can now be removed ===
+61/68 V01 privilege-escalation cases hold
+  last-owner     409     refused           demote
+  last-owner     204     granted           remove
+  last-owner     401     refused           leave
+M2: DETECTED  (probe exit 1)
+
+=== summary ===
+  M1:detected
+  M2:detected
+both mutations detected
+restored the product
+rebuilt from the restored source: 29 Sep 12:59

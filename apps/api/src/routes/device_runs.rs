@@ -329,6 +329,7 @@ fn device_audit(
         database,
         context,
         None,
+        None,
         Some(&access.device.org_id),
         SecurityEventId::generate(),
         action,
@@ -522,6 +523,7 @@ pub async fn create_session(
     let audit = security_event_statement_with_context(
         database,
         &context,
+        None,
         None,
         Some(&access.device.org_id),
         SecurityEventId::generate(),

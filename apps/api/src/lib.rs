@@ -423,6 +423,13 @@ const AUTOMATION_SWEEP_LIMIT: i32 = 50;
 /// which are the existing precedent for "one tick must stay cheap".
 const BUDGET_EXPIRY_SWEEP_LIMIT: i32 = 50;
 
+/// Rows deleted per cron tick by the idempotency purge.
+///
+/// The repository validates `1..=500`. This sits at the low end deliberately: the sweep runs every
+/// minute, so its job is to keep up rather than to catch up in one pass, and a burst delete on a table
+/// that also serves the claim path is the wrong trade for a housekeeping step.
+const IDEMPOTENCY_PURGE_BATCH: usize = 200;
+
 async fn run_scheduled_sweep(env: Env) -> Result<()> {
     let database = D1Adapter::new(env.d1("DB")?);
     let store = repositories::OutboxRepository::new(&database);
@@ -443,7 +450,47 @@ async fn run_scheduled_sweep(env: Env) -> Result<()> {
     .map(|_| ())
     .map_err(|_| Error::RustError("outbox retry sweep failed".into()))?;
 
-    dispatch_due_data_jobs(&database, &env, now.as_str()).await
+    dispatch_due_data_jobs(&database, &env, now.as_str()).await?;
+
+    // V01-042. The third thing this sweep does, and it did not do it at all.
+    //
+    // `PURGE_EXPIRED_SQL`, `IdempotencyRepository::purge_expired_statement` and
+    // `idx_idempotency_records_expires_at` all existed -- a batched, oldest-first, bounded purge with a
+    // dedicated index built for it -- and the method had no caller in the tree. So an expired
+    // idempotency row survived unless the SAME key was presented again, because the only reclamation
+    // path that fired was `CLAIM_SQL`'s `ON CONFLICT ... WHERE expires_at <= ?9`, which overwrites one
+    // row for one key. A key never reused kept its row, and the `response_body` on it, forever.
+    //
+    // Bounded, and **non-fatal**, which is the sweep's own rule: `dispatch_due_data_jobs` says one row
+    // that cannot be turned into a message must not strand every job behind it, and that applies more
+    // sharply here. A purge that returned its error would take the outbox retry sweep and the P06
+    // dispatch down with it -- turning a housekeeping step into an availability incident.
+    //
+    // The limit is the method's own validated bound (1..=500), chosen at the low end on purpose: this
+    // runs every minute, and the sweep's job is to keep up, not to catch up in a single pass.
+    if let Err(error) = purge_expired_idempotency_records(&database, now.as_str()).await {
+        console_error!(
+            "lumi:report:the idempotency purge failed and expired records were retained; \
+                        error={error}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Delete a bounded batch of expired idempotency records, oldest first.
+///
+/// Separate from the sweep so the failure handling is visible in one place, and so the standing
+/// statement check in `security::sweep_completeness` has a single name to look for.
+async fn purge_expired_idempotency_records(database: &D1Adapter, now: &str) -> worker::Result<()> {
+    let repository = repositories::IdempotencyRepository::new(database);
+    let now = crate::core::Timestamp::new(now)
+        .map_err(|_| Error::RustError("invalid clock for the idempotency purge".into()))?;
+    repository
+        .purge_expired_statement(&now, IDEMPOTENCY_PURGE_BATCH)?
+        .run()
+        .await
+        .map(|_| ())
 }
 
 /// Publish the durable P06 job envelopes whose `next_attempt_at` has arrived.

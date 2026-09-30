@@ -425,6 +425,171 @@ check("is_guard_abort actually reads the list this probe verifies", () => {
   return null;
 });
 
+// ---------------------------------------------------------------------------
+// V01-023 -- the POLARITY of every `guard!` in repositories/automations.rs.
+// ---------------------------------------------------------------------------
+//
+// The probe above pins WHICH TEXTS the recogniser matches. This pins something the recogniser cannot
+// see: whether each guard fires in the state it is supposed to fire in.
+//
+// A guard is a string macro, and its SQL is not readable as intent. `guard!("SELECT 1 FROM t WHERE
+// <positive>")` and `guard!("SELECT 1 FROM t WHERE <negative>")` have the same shape, the same
+// macro, the same failure mode and the same error text, and differ by one `NOT`. V01-023 was exactly
+// that: `assert_run_link_absent_statement` asserted the presence of a run link, `NOT EXISTS`
+// inverted it, and every legitimate first `start_occurrence` was refused -- forever, for every
+// organization, reporting `lease_fence_invalid`.
+//
+// So each guard is evaluated in BOTH states:
+//   * the state it must PERMIT -- the guard must insert nothing, and the batch must not abort;
+//   * the state it must ABORT  -- the guard must insert the sentinel, which the trigger refuses.
+//
+// A guard that cannot tell the two states apart is **vacuous**, and that is asserted rather than
+// assumed: this campaign has now shipped four comparisons that held on empty or identical inputs,
+// and a polarity test that passes because the predicate is constant would be the fifth.
+//
+// The nine conditions are read out of the repository source rather than restated here, so this
+// matrix cannot drift from the code it grades: a tenth `guard!` fails the count.
+// Resolved the way the rest of this probe resolves its sources -- from the script's own directory,
+// not the working directory. `pnpm --filter` runs with `apps/api` as the cwd, and a hard-coded
+// repo-relative path fails there while passing when the file is run by hand from the root. Two of
+// these cases failed on exactly that before it was fixed, which is a reminder that a probe whose
+// inputs are unreachable reports nothing rather than failing.
+const AUTOMATIONS_REPO = join(apiDir, "src/repositories/automations.rs");
+
+/** Every `guard!("...")` literal in the automations repository, in source order. */
+function guardConditions() {
+  const source = readFileSync(AUTOMATIONS_REPO, "utf8");
+  const out = [];
+  const re = /guard!\(\s*"([\s\S]*?)"\s*,?\s*\)/g;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    out.push(match[1].replace(/\s+/g, " ").trim());
+  }
+  return out;
+}
+
+/** The function each `guard!` belongs to, so a failure names a route-facing symbol. */
+function guardOwners() {
+  const source = readFileSync(AUTOMATIONS_REPO, "utf8");
+  const out = [];
+  const re = /pub fn (assert_[a-z_]+)_statement[\s\S]*?guard!\(/g;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    out.push(match[1]);
+  }
+  return out;
+}
+
+check("V01-023: the polarity matrix covers every guard! in the automations repository", () => {
+  const conditions = guardConditions();
+  const owners = guardOwners();
+  if (conditions.length !== 9) {
+    return (
+      `found ${conditions.length} guard! sites and expected 9. Either a guard was added -- in ` +
+      `which case its polarity is unpinned and this matrix is a false pass -- or one was removed, ` +
+      `in which case this count is stale. Read ${AUTOMATIONS_REPO} and decide deliberately.`
+    );
+  }
+  if (owners.length !== 9) {
+    return (
+      `attributed ${owners.length} of the 9 guard! sites to a named function, so a failure ` +
+      `below could not be traced to a symbol`
+    );
+  }
+  return null;
+});
+
+check(
+  "V01-023: assert_run_link_absent_statement permits the first start and aborts a duplicate",
+  () => {
+    // Read the REAL condition out of the source rather than restating it, so a future "fix" that
+    // re-inverts the polarity fails here instead of being graded by a copy that was edited in step.
+    const source = readFileSync(AUTOMATIONS_REPO, "utf8");
+    const start = source.indexOf("pub fn assert_run_link_absent_statement");
+    if (start < 0) {
+      return "assert_run_link_absent_statement is gone; if it was renamed, this matrix must follow";
+    }
+    const body = source.slice(start, source.indexOf("    }", start));
+    const condition = /guard!\(\s*"([\s\S]*?)"\s*,?\s*\)/
+      .exec(body)?.[1]
+      ?.replace(/\s+/g, " ")
+      .trim();
+    if (!condition) {
+      return "could not read the guard! condition out of assert_run_link_absent_statement";
+    }
+    // A presence-shaped condition is the V01-023 defect verbatim, whatever else it says.
+    if (/FROM automation_run_links WHERE/.test(condition) && !/NOT EXISTS/.test(condition)) {
+      return (
+        `the condition still asserts that a run link EXISTS: "${condition}". The guard! macro ` +
+        `inverts it, so this aborts when there is NO link and refuses every legitimate first start.`
+      );
+    }
+
+    const { db, cleanup } = freshDatabase();
+    try {
+      const guard = `INSERT INTO idempotency_records (
+        principal_id, organization_id, method, path, key_digest, request_fingerprint,
+        state, response_status, response_body, expires_at, claim_token
+      ) ${SENTINEL_ROW} WHERE NOT EXISTS (${condition.replaceAll("?1", "'occ_probe'").replaceAll("?2", "1")})`;
+
+      // PERMIT: no link exists yet -- the ordinary first start. This is the state V01-023 refused.
+      const permitted = captureError(db, guard);
+      if (permitted !== null) {
+        return (
+          `the guard ABORTED with no run link present, so a first start would be refused. ` +
+          `That is V01-023. Error: ${permitted}`
+        );
+      }
+      // ABORT: a link now exists -- a second start for the same attempt must be refused.
+      //
+      // The row goes into the REAL `automation_run_links`, not a stand-in table. My first version used
+      // a probe table of its own, so the guard's condition -- which names the real table -- still saw
+      // an empty one, and the ABORT half reported a false failure. A guard's polarity is a property
+      // of the tables it names; testing it against a different table tests nothing.
+      //
+      // Foreign keys are off for the fixture only: the four parents (organization, occurrence, run,
+      // lease) are an automation's whole lifecycle, and scaffolding them here would test the fixture
+      // rather than the guard. Every NOT NULL and CHECK on the row itself is still satisfied.
+      db.exec("PRAGMA foreign_keys = OFF");
+      const stamp = "2026-01-01T00:00:00.000Z";
+      const fixed = (prefix) => `'${prefix}_${"0".repeat(32)}'`;
+      db.exec(
+        `INSERT INTO automation_run_links
+           (link_id, occurrence_id, org_id, run_id, lease_id, attempt, state, created_at, updated_at)
+         VALUES (${fixed("lnk")}, 'occ_probe', 'org_probe', ${fixed("run")}, ${fixed("lse")}, 1,
+                 'linked', '${stamp}', '${stamp}')`,
+      );
+      const linked = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM automation_run_links WHERE occurrence_id = ? AND attempt = ?",
+        )
+        .get("occ_probe", 1);
+      if (Number(linked.n) !== 1) {
+        return (
+          `the run link fixture did not land, so the ABORT half would grade an empty table. ` +
+          `That is the vacuous pass this campaign has hit four times, so it is checked.`
+        );
+      }
+      const aborted = captureError(db, guard);
+      if (aborted === null) {
+        return (
+          `the guard did NOT abort with a run link present, so a duplicate start would create a ` +
+          `second run for the same attempt`
+        );
+      }
+      if (!isRecognised(aborted, guardAbortTexts())) {
+        return (
+          `the guard aborted, but with an unrecognised text, so the route would answer 503 ` +
+          `instead of a deliberate refusal: ${aborted}`
+        );
+      }
+      return null;
+    } finally {
+      cleanup();
+    }
+  },
+);
+
 check("is_guard_abort does not widen itself past the list", () => {
   // Belt and braces. Even while reading the list, a function that also accepts any
   // text containing "constraint" is back to the pre-VFY-004 behaviour, which called

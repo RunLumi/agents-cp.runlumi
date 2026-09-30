@@ -288,21 +288,47 @@ impl<'a> DeviceRepository<'a> {
         Ok(())
     }
 
-    pub async fn deny_enrollment(
+    /// The denial as a PREPARED statement, so it can commit in the same batch as the audit event.
+    ///
+    /// V01-041. `deny_enrollment` below used to be the only form, and it executed immediately — which is
+    /// why the route could not exist as written: a denial and the `security_events` row recording it
+    /// have to commit together, or a crash between them leaves a reviewer having refused access with no
+    /// record that they did. Every other mutation on this repository has a `*_statement` form for
+    /// exactly that reason.
+    ///
+    /// The SQL and the bind list live here and nowhere else. `deny_enrollment` is now implemented in
+    /// terms of this, so the two cannot drift — two ways to write the same row is the hazard, not the
+    /// convenience.
+    pub fn deny_enrollment_statement(
         &self,
         enrollment_id: &str,
         org_id: &str,
         now: &Timestamp,
-    ) -> worker::Result<bool> {
-        let statement = self.database.prepare(
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
             DENY_ENROLLMENT_SQL,
             &[
                 BindValue::Text(enrollment_id),
                 BindValue::Text(org_id),
                 BindValue::Text(now.as_str()),
             ],
-        )?;
-        let result = statement.run().await?;
+        )
+    }
+
+    /// Deny a pending enrollment and report whether a row changed.
+    ///
+    /// Prefer [`Self::deny_enrollment_statement`] wherever the denial should be batched with an audit
+    /// event; this exists for a caller that genuinely wants the write on its own.
+    pub async fn deny_enrollment(
+        &self,
+        enrollment_id: &str,
+        org_id: &str,
+        now: &Timestamp,
+    ) -> worker::Result<bool> {
+        let result = self
+            .deny_enrollment_statement(enrollment_id, org_id, now)?
+            .run()
+            .await?;
         Ok(D1Adapter::changes(&result)? > 0)
     }
 
@@ -483,12 +509,20 @@ impl<'a> DeviceRepository<'a> {
 
     /// Revoke a device and invalidate every outstanding token atomically.
     /// Returns `false` when the device was already revoked or is missing.
-    pub async fn revoke_device(
+    /// The two statements a revocation is, as PREPARED statements.
+    ///
+    /// Split out from `revoke_device` so the route can compose them into a larger transaction
+    /// instead of running its own. `revoke_device` below is now a thin wrapper over these, so
+    /// there is exactly one place that decides what a revocation writes and in which order —
+    /// which matters because the second statement is what makes revocation *effective*: the
+    /// device-token lookup does not join `devices`, so deleting the rows is the only thing that
+    /// stops a revoked device authenticating (V01-016, V01-019).
+    pub fn revoke_device_statements(
         &self,
         device_id: &str,
         revoked_by_user_id: &str,
         now: &Timestamp,
-    ) -> worker::Result<bool> {
+    ) -> worker::Result<Vec<D1PreparedStatement>> {
         let revoke = self.database.prepare(
             REVOKE_DEVICE_SQL,
             &[
@@ -500,7 +534,19 @@ impl<'a> DeviceRepository<'a> {
         let drop_tokens = self
             .database
             .prepare(DELETE_DEVICE_TOKENS_SQL, &[BindValue::Text(device_id)])?;
-        let results = self.database.batch(vec![revoke, drop_tokens]).await?;
+        Ok(vec![revoke, drop_tokens])
+    }
+
+    pub async fn revoke_device(
+        &self,
+        device_id: &str,
+        revoked_by_user_id: &str,
+        now: &Timestamp,
+    ) -> worker::Result<bool> {
+        // `results[0]` is the revoke itself and `results[1]` the token deletion, in that order,
+        // so `changes(&results[0])` answers "did this revoke a device that was still active".
+        let statements = self.revoke_device_statements(device_id, revoked_by_user_id, now)?;
+        let results = self.database.batch(statements).await?;
         if !results.iter().all(|result| result.success()) {
             return Ok(false);
         }

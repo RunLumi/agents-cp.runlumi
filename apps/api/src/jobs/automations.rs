@@ -1216,6 +1216,12 @@ fn occurrence_transition(
             now,
             expected_state: occurrence.state.as_str(),
             expected_state_version: occurrence.state_version,
+            // The sweep expires a lease: it transitions an attempt that already exists
+            // and must not move the counter. The lease record already carries the attempt
+            // number, and this is exactly the transition that would have incremented a
+            // second time if the assignment in TRANSITION_OCCURRENCE_SQL were
+            // unconditional. See that statement on why it is COALESCE'd.
+            start_attempt: None,
         })
         .map_err(|_| AutomationStoreError::Unavailable)
 }

@@ -1,0 +1,76 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01leaseR
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:55483
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-eGLIB6/0b9af0ad04b040901382ba5e23963647825a010b-index_bg.wasm is 490s newer than src/repositories/automations.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_15a400bd4c634f89a43530414c1cd4d5
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_18657a7116acc77882518eeaef9481ea
+  PASS  CONTROL: the organization's slug is known, which is how a device enrollment names its org  — slug=v01-lease-mulvt24u9r82
+  PASS  CONTROL: Org A has a real project  — status=201
+  PASS  CONTROL: Org A has a real agent on it  — status=201
+  PASS  CONTROL: enrollment begins for V01 device A  — status=201
+  PASS  CONTROL: the V01 device A enrollment is approved  — status=201
+  PASS  CONTROL: the V01 device A enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 device A enrollment completes with a real device proof  — status=201
+  PASS  CONTROL: enrollment begins for V01 device B  — status=201
+  PASS  CONTROL: the V01 device B enrollment is approved  — status=201
+  PASS  CONTROL: the V01 device B enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 device B enrollment completes with a real device proof  — status=201
+
+  create attempts, in order: 
+  manual    -> 201 
+  PASS  CONTROL: Org A has a real automation  — sent POST /api/v1/orgs/org_18657a7116acc77882518eeaef9481ea/automations -> status=201 body={"agent_definition_id":"agd_5a9299df7ed643cfa2189f2d46567b08","automation_id":"aut_a0dd02df6ae649ad9197644336b43578","created_at":"2026-09-28T23:31:47.880Z","created_by_user_id":"usr_15a400bd4c634f89a43530414c1cd4d5","description":null,"exe
+  PASS  CONTROL: run_now creates a claimable occurrence for the eight-claims case  — status=201 body={"attempt":0,"automation_id":"aut_a0dd02df6ae649ad9197644336b43578","created_at":"2026-09-28T23:31:48.758Z","kind":"manual","occurrence_id":"occ_a329c9c2f9d98d882b02d58810b4ad7f","org_id":"org_18657a7116acc77882518eeaef9481ea","project_id":
+  PASS  CONTROL: the occurrence is in a claimable state BEFORE the burst, so the race is against something real  — state=pending state_version=1 attempt=0
+
+  8 simultaneous claims, one device, one occurrence -> statuses 201 409; 1 winner(s)
+  PASS  CONTROL: exactly ONE of the 8 simultaneous claims succeeds  — 1 succeeded with statuses 201 409
+  PASS  exactly ONE active lease exists for the occurrence after 8 simultaneous claims  — lease=lse_596c5d03ad9241d7a1596556fbd94d37 attempt=1 fence=1
+  PASS  the occurrence advanced by exactly ONE state transition, so `state_version` is a real compare-and-set and not a counter two racers both incremented  — state_version 1 -> 2; state pending -> leased
+  PASS  the occurrence is LEASED after the burst, not left pending  — state=leased attempt=1 started_at=null
+  PASS  V01-013: the occurrence's attempt counter ADVANCES on a claim, so max_start_attempts is enforceable (it is not - attempt is written by nothing)  — attempt 0 -> 1 after a successful claim; the lease row carries attempt=1 while the occurrence still says 1, and TRANSITION_OCCURRENCE_SQL has no attempt in its SET list
+  PASS  CONTROL: a LEASED-but-not-started occurrence has NO started_at -- starting work is a separate transition, and this is what distinguishes a lease never used from one that started and stalled  — started_at=null on a leased occurrence; a non-null value here would mean the claim and the start had been collapsed into one transition
+  PASS  NO losing response contains the winner's lease id or its raw lease token — the conflict re-reads a projection, it does not hand over the lease  — 7 loser(s) answered 409 with no winner lease material
+  PASS  every losing response is an explicit refusal with a stable reason, never a 2xx and never a bare 500  — loser statuses: 409
+  PASS  the winner's raw lease token is NOT persisted — only a fingerprint is stored  — token length=64; the stored lease carries lease_token_fingerprint=sha256:6f3ed688e6d545de2...
+  PASS  the stored lease keeps a FINGERPRINT, so a database read cannot reconstruct the token  — fingerprint=sha256:6f3ed688e6d545de2dfed0a23
+  after the burst: 1 active lease(s), 1 attempt row(s) [1:claimed]
+  PASS  exactly ONE attempt row exists for the occurrence, because eight racers produced one claim and not eight  — attempt=1 outcome=claimed
+  PASS  CONTROL: run_now creates a claimable occurrence for the two-devices case  — status=201 body={"attempt":0,"automation_id":"aut_a0dd02df6ae649ad9197644336b43578","created_at":"2026-09-28T23:31:56.379Z","kind":"manual","occurrence_id":"occ_68e8c1ca9bf00e68e5219860c72830ca","org_id":"org_18657a7116acc77882518eeaef9481ea","project_id":
+
+  2 devices, 1 occurrence, simultaneous -> 201 / 409
+  PASS  CONTROL: exactly one of two DEVICES claims the occurrence  — 1 device(s) won with statuses 201 / 409
+  PASS  exactly ONE active lease exists after two devices race for it  — held by device dvc_c6e9e012f7724381a8e2c500cec21413
+  PASS  the losing DEVICE is told nothing about the winning device's lease  — the loser answered 409 with no winner lease material
+  PASS  CONTROL: run_now creates a claimable occurrence for the reclaim case  — status=201 body={"attempt":0,"automation_id":"aut_a0dd02df6ae649ad9197644336b43578","created_at":"2026-09-28T23:31:58.856Z","kind":"manual","occurrence_id":"occ_70fac1b35283f3f2c5b2d23b914eaed6","org_id":"org_18657a7116acc77882518eeaef9481ea","project_id":
+
+  sequential re-claims on one occurrence -> 201 / 409 / 409
+  PASS  CONTROL: the first claim succeeds, so the refusals below are refusals of an ALREADY-CLAIMED occurrence  — status=201 body={"attempt":1,"expires_at":"2026-09-28T23:36:58.867Z","lease_fence":1,"lease_id":"lse_15bc2dc8bda14773a5e781cb256722fa","lease_token":"b5b147c5b667e6783ab857e104e0b4413472ab38dc7431bad2985cf1f897e4e2",
+  PASS  a second device cannot claim an already-leased occurrence, however many times it tries  — second=409 third=409
+  PASS  still exactly ONE active lease after three sequential claims  — lease=lse_15bc2dc8bda14773a5e781cb256722fa
+  PASS  CONTROL: run_now creates a claimable occurrence for the cross-tenant case  — status=201 body={"attempt":0,"automation_id":"aut_a0dd02df6ae649ad9197644336b43578","created_at":"2026-09-28T23:32:00.532Z","kind":"manual","occurrence_id":"occ_804168bfe13c7217d0edebd9fd0b533a","org_id":"org_18657a7116acc77882518eeaef9481ea","project_id":
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_73a9e6276ca04ea7924c7d6c2c6ac0cd
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_1402861e3a4162e07ff548d67d160c92
+  PASS  CONTROL: enrollment begins for V01 intruder  — status=201
+  PASS  CONTROL: the V01 intruder enrollment is approved  — status=201
+  PASS  CONTROL: the V01 intruder enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 intruder enrollment completes with a real device proof  — status=201
+
+  another org's device claims this occurrence -> 404 reason=occurrence_not_found
+  PASS  another organization's device is refused an occurrence it does not own, with the org id nowhere in the path  — status=404 body={"error":{"code":"not_found","message":"The requested resource was not found.","request_id":"req_e1ba00073ed94cec9dadbb1e6b33ad5e","details":{"reason":"occurrence_not_found"}}}
+  PASS  the refused cross-tenant claim changed NOTHING: the occurrence is in the same state at the same version  — state pending@1 -> pending@1
+  PASS  the refused cross-tenant claim created NO lease, in either org  — no lease exists for this occurrence, so the refusal left nothing behind
+  PASS  another org's device gets the SAME answer for a real occurrence it does not own as for one that does not exist, so the refusal does not confirm existence  — real -> 404 not_found; absent -> 404 not_found
+  PASS  NO occurrence anywhere in the database has more than one active lease, which is the partial unique index's claim stated as one assertion  — the uniqueness held for every occurrence this probe created
+
+60/60 V01 automation-lease cases hold

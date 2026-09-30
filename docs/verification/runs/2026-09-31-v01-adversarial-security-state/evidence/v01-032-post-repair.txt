@@ -1,0 +1,162 @@
+
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/target/v01escT5
+  PASS  fresh D1 applies the full migration ledger  — 21 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:51342
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_cb1463686cfb4f6d97e337b74c9a92c1
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_d6ed2213fa4b4ae781475b6a1ed8b12f
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_1f738200ee634a58b09a9df5935a46da
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_c23c38a374c17c33bbb319fe572a1a56
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_69e2081608bef50100dbf18c6daef897
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  signup Abel  — status=201
+  PASS  verify Abel  — status=200
+  PASS  login start Abel  — status=202
+  PASS  login complete Abel  — status=200
+  PASS  user Abel has an opaque ID  — usr_c34e2c047d5747eb8b5888233422a8c3
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  the attacker is stored as a plain active member, not an outsider and not an admin  — {"role":"member","status":"active","email":"mallory-mumb5vvd2qik@example.com"}
+  PASS  a plain member can read its own organization, so the attacker's session works  — status=200
+  PASS  the second attacker is stored as an admin, who passes the route's permission check and is still bound by the domain  — abel role=admin
+  PASS  id extraction note: three routes name their resource id differently (project `id`, service_account `id`, budget `budget_id`), which is why a missing id is reported with the body that produced it rather than as `undefined`  — recorded
+  PASS  Org A has a real project to attack  — project_id=prj_e0c92d05ce9442e2a2fe73c30d6e8a6f
+  PASS  Org A has a real budget to attack  — budget_id=bud_ac3bc47524cd4459a2662b75dbcd80e1
+  PASS  Org A has a real service account to attack  — service_account_id=svc_dee8db9410934e92aeb4a79414237f89
+  PASS  Org B has a real service account for the credential-id class  — foreign=svc_04dcbb185f2245369391444980c3fb0f
+  PASS  the attacker's own membership_id is known, so self-promotion can be aimed precisely  — membership_id=mem_3dc7085000d74a3597ff4dab91b5be98
+  PASS  the admin's own membership_id is known, so admin self-promotion can be aimed precisely  — membership_id=mem_73f16fcf82a94e24878ea2dea8265d13
+  PASS  no client-supplied field is honoured: every escalation attempt left the stored state with less authority than the client asked for  — 19 attacks, 19 refused, 0 accepted but inert, 0 escalated
+  PASS  no escalation attempt is answered with a 5xx, which would be a store fault dressed as a refusal  — none
+  PASS  every attack was actually completed, so a clean sheet is a clean sheet  — 19/19
+  PASS  every refused attack was refused by an authorization or validation decision, not because the route is absent  — no 404/405/501 among the refusals
+  PASS  the attacker is still a plain member after the whole campaign  — role=member
+
+19 privilege-escalation attacks across 7 classes: org x3, role x8, budget x2, capability x2, model x2, credential x1, policy-version x1
+  refused 19, accepted-but-inert 0, escalated 0
+  status distribution: 403 x14  422 x5
+  PASS  create Solo Org  — status=201
+  PASS  Solo Org organization ID  — org_6f3c0e3883061574ae8f338a6f173ece
+  PASS  create Duo Org  — status=201
+  PASS  Duo Org organization ID  — org_51e81af678ff84183aa317866b504a33
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  the duo fixture has exactly one Bob membership to promote  — [{"membership_id":"mem_c12a96583cae426f90c35be967be74fa","version":1}]
+  PASS  the fixture can promote a member to owner at all, so C3's later success is a fact about the last-owner rule and not about a route that refuses every role change  — status=200 body={"membership_id":"mem_c12a96583cae426f90c35be967be74fa","org_id":"org_51e81af678ff84183aa317866b504a33","user_id":"usr_1f738200ee634a58b09a9df5935a46da","role":"owner","status":"active","version":2,"i
+  PASS  C1 the solo organization has EXACTLY ONE active owner before any attack, so 'the last owner' is the last owner -- otherwise all three attacks are refused for an unrelated reason and pass while proving nothing  — owners=[{"email":"alice-mumb5vvd2qik@example.com","role":"owner","status":"active"}]
+  PASS  C2 the duo organization has EXACTLY TWO active owners, so the control below removes a real second owner  — owners=[{"email":"alice-mumb5vvd2qik@example.com","role":"owner","status":"active"},{"email":"bob-mumb5vvd2qik@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership row in the solo organization is readable and active, so there is a row for the attacks to try to end  — [{"membership_id":"mem_cfe8eacd42fcd49a48db5ab297b75962","role":"owner","status":"active"}]
+  PASS  the last owner cannot demote their own organization (FR-F02-005)  — status=409 body={"error":{"code":"conflict","message":"The last active owner cannot be demoted.","request_id":"req_4d88749ee0014898913e8144652dfff4","details":{"reason":"last_owner_required"}}}
+  PASS  the organization still has at least one active owner after the last owner tried to demote  — owners after=[{"email":"alice-mumb5vvd2qik@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership is UNCHANGED after she tried to demote -- the refusal was transactional, not a status with a half-applied write behind it  — before role=owner/active  after=[{"role":"owner","status":"active"}]
+  PASS  the last owner cannot remove their own organization (FR-F02-005)  — status=409 body={"error":{"code":"conflict","message":"The last active owner cannot be removed.","request_id":"req_cd510dbe5d7d4adaba4a7ae97bfe090f","details":{"reason":"last_owner_required"}}}
+  PASS  the organization still has at least one active owner after the last owner tried to remove  — owners after=[{"email":"alice-mumb5vvd2qik@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership is UNCHANGED after she tried to remove -- the refusal was transactional, not a status with a half-applied write behind it  — before role=owner/active  after=[{"role":"owner","status":"active"}]
+  PASS  the last owner cannot leave their own organization (FR-F02-005)  — status=409 body={"error":{"code":"conflict","message":"Transfer ownership before leaving this organization.","request_id":"req_97218f3e82d743e7970b92a8964476f7","details":{"reason":"last_owner_required"}}}
+  PASS  the organization still has at least one active owner after the last owner tried to leave  — owners after=[{"email":"alice-mumb5vvd2qik@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership is UNCHANGED after she tried to leave -- the refusal was transactional, not a status with a half-applied write behind it  — before role=owner/active  after=[{"role":"owner","status":"active"}]
+  PASS  C3 with a second active owner present, the SAME demotion SUCCEEDS -- so the three refusals above are about the last-owner rule and not about a route that refuses every role change  — status=200 body={"membership_id":"mem_dd58ffeaad519541c28550f783223d61","org_id":"org_51e81af678ff84183aa317866b504a33","user_id":"usr_cb1463686cfb4f6d97e337b74c9a92c1","role":"member","status":"active","version":2,"
+  PASS  C3 the duo organization is left with exactly one active owner, so the demotion really did remove an owner and the count moved  — owners after=[{"email":"bob-mumb5vvd2qik@example.com","role":"owner","status":"active"}]
+  PASS  the transfer fixtures exist: an admin and a plain member in org A, and an owner in org B whose membership id is the cross-tenant target  — abelA={"membership_id":"mem_73f16fcf82a94e24878ea2dea8265d13","role":"admin","status":"active"} malloryA={"membership_id":"mem_3dc7085000d74a3597ff4dab91b5be98","role":"member","status":"active"} bobB={"membership_id":"mem_c1d82dc7cfac7e4e7cd5f8389a172dfa","role":"owner","status":"active"}
+  PASS  T1 a plain MEMBER cannot transfer ownership (FR-F02-006 requires current owner authorization)  — status=403 reason=permission_denied -- a 422 is a rejected body, which is not a refusal of the actor
+  PASS  T1 Mallory is still a plain member afterwards, so the refusal was not a 403 with a half-applied role change behind it  — after={"membership_id":"mem_3dc7085000d74a3597ff4dab91b5be98","role":"member","status":"active"}
+  PASS  T2a a membership belonging to org B cannot receive ownership (FR-F02-006 requires an active member OF THIS ORG)  — status=404 reason=resource_not_found
+  PASS  T2a a membership belonging to org B was refused by a RULE and not by a malformed body -- a 422 is a rejected request, and accepting one here would let this case pass without exercising anything  — status=404 -- if this is 422 the request body is wrong, not the target
+  PASS  T2b a membership that exists in neither org cannot receive ownership (FR-F02-006 requires an active member OF THIS ORG)  — status=404 reason=resource_not_found
+  PASS  T2b a membership that exists in neither org was refused by a RULE and not by a malformed body -- a 422 is a rejected request, and accepting one here would let this case pass without exercising anything  — status=404 -- if this is 422 the request body is wrong, not the target
+  PASS  T2a and T2b answer IDENTICALLY, so the route is not an existence oracle: a membership that exists in another organization is indistinguishable from one that exists nowhere  — foreign(exists in org B)=404/resource_not_found  phantom(exists nowhere)=404/resource_not_found
+  PASS  T2 org A's owners and admins are UNCHANGED, and org B's owner still owns org B  — beforeA=[{"email":"abel-mumb5vvd2qik@example.com","role":"admin"},{"email":"alice-mumb5vvd2qik@example.com","role":"owner"}] afterA=[{"email":"abel-mumb5vvd2qik@example.com","role":"admin"},{"email":"alice-mumb5vvd2qik@example.com","role":"owner"}] beforeB=[{"email":"bob-mumb5vvd2qik@example.com","role":"owner"}] afterB=[{"email":"bob-mumb5vvd2qik@example.com","role":"owner"}]
+  PASS  T3 an owner cannot transfer ownership without recent re-authentication (FR-F02-006), and the refusal says so rather than blaming the target  — status=403 reason=reauthentication_required
+  PASS  signup Carol  — status=201
+  PASS  verify Carol  — status=200
+  PASS  login start Carol  — status=202
+  PASS  login complete Carol  — status=200
+  PASS  user Carol has an opaque ID  — usr_69e7cc9faaa845b99ab0764fdbecff3e
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  Carol is an active member of org A before she is removed  — {"membership_id":"mem_3859ff769502445e9fb9a4a671e798d1","role":"member","status":"active"}
+  PASS  the fixture can remove a member, so T4's refusal is about the removal and not a route that refuses every removal  — status=204 body={}
+  PASS  Carol's membership is stored as REMOVED, which is the precondition T4 depends on  — after={"membership_id":"mem_3859ff769502445e9fb9a4a671e798d1","role":"member","status":"removed"}
+  PASS  T4 ownership cannot be transferred to a member who has been REMOVED (FR-F02-006 requires an ACTIVE target), and the refusal names that rather than blaming the target's existence  — status=409 reason=membership_required
+  PASS  T4 org A still has an active owner after the attempt: the refusal left the ownership of the organization untouched, which a status cannot show  — owners after=[{"email":"abel-mumb5vvd2qik@example.com","role":"admin"},{"email":"alice-mumb5vvd2qik@example.com","role":"owner"}]
+  PASS  the grant really is unconsumed and already expired, read back from D1 rather than assumed -- this is the assertion that says T5 attacked what it claims to have attacked  — row=[{"expires_at":"2020-01-01T00:00:00.000Z","consumed_at":null}]
+  PASS  T5 a REAL grant that has EXPIRED is refused (FR-F02-006 requires RECENT re-authentication, and recency is the part T3 could not test)  — status=403 reason=reauthentication_required
+  PASS  the re-auth endpoint issues a grant at all, without which the control below cannot distinguish 'the rule is enforced' from 'the route never works'
+  PASS  C an OWNER transferring to an ACTIVE member of their own org, with a fresh grant, SUCCEEDS -- so the three refusals above are the rules and not a route that refuses everything  — status=200 body={"membership":{"created_at":"2026-09-29T06:41:41.987Z","invited_by_user_id":"usr_cb1463686cfb4f6d97e337b74c9a92c1","joined_at":"2026-09-29T06:41:41.987Z","membership_id":"mem_3dc7085000d74a3597ff4dab9
+  PASS  C the STORED roles moved: the target is now the owner and the previous owner is now an admin  — mallory={"membership_id":"mem_3dc7085000d74a3597ff4dab91b5be98","role":"owner","status":"active"} alice={"membership_id":"mem_26f90f33e1fc0a704ef2ee698a718319","role":"admin","status":"active"}
+  PASS  C a security event was written for the transfer (FR-F02-006's fourth requirement), so the privileged operation left the audit trail the spec requires  — rows=[{"action":"organization.ownership_transferred.v1","resource_type":"membership","outcome":"success"}]
+
+  class          status  grade              attack
+  org            403     REFUSED           a member renames the organization
+                         reason: permission_denied — You do not have permission to perform this action.
+  org            422     REFUSED           a member rewrites the tool policy to allow everything
+                         reason: validation_failed — The request contains invalid fields.
+  org            422     REFUSED           a body-supplied org_id is accepted as authoritative over the path
+                         reason: validation_failed — The request contains invalid fields.
+  role           403     REFUSED           a member invites a new member as owner
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           403     REFUSED           a member invites a new member as admin
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           403     REFUSED           a member promotes itself to owner
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           403     REFUSED           a member promotes itself to admin
+                         reason: permission_denied — You do not have permission to perform this action.
+  role           422     REFUSED           an admin invites a new member as owner
+                         reason: role_invalid — Choose a valid invitation role.
+  role           403     REFUSED           an admin promotes a member to owner
+                         reason: permission_denied — You do not have permission to change this role.
+  role           403     REFUSED           an admin promotes itself to owner
+                         reason: permission_denied — You do not have permission to change this role.
+  role           422     REFUSED           a member transfers ownership to itself
+                         reason: validation_failed — The request contains invalid fields.
+  budget         403     REFUSED           a member raises the organization budget and clears the hard limit
+                         reason: permission_denied — You do not have permission to perform this action.
+  budget         403     REFUSED           a member creates a second, larger budget
+                         reason: permission_denied — You do not have permission to perform this action.
+  capability     403     REFUSED           a member mints a service account with every capability
+                         reason: permission_denied — You do not have permission to perform this action.
+  capability     403     REFUSED           a member rewrites its own service account's capabilities
+                         reason: permission_denied — You do not have permission to perform this action.
+  model          403     REFUSED           a member publishes a route whose candidates carry a foreign credential_id
+                         reason: permission_denied — You do not have permission to perform this action.
+  model          403     REFUSED           a member adds a catalog model with wildcard capabilities
+                         reason: permission_denied — You do not have permission to perform this action.
+  credential     403     REFUSED           a member patches another organization's service account by id
+                         reason: permission_denied — You do not have permission to perform this action.
+  policy-version 422     REFUSED           a member rewrites the tool policy with an invented schema version
+                         reason: validation_failed — The request contains invalid fields.
+  last-owner     409     refused           demote
+                         reason: last_owner_required — The last active owner cannot be demoted.
+  last-owner     409     refused           remove
+                         reason: last_owner_required — The last active owner cannot be removed.
+  last-owner     409     refused           leave
+                         reason: last_owner_required — Transfer ownership before leaving this organization.
+  ownership-transfer 403     refused           T1 a plain member transfers ownership
+                         reason: permission_denied — 
+  ownership-transfer 404     refused           T2a a membership belonging to org B
+                         reason: resource_not_found — 
+  ownership-transfer 404     refused           T2b a membership that exists in neither org
+                         reason: resource_not_found — 
+  ownership-transfer 403     refused           T3 a valid transfer with no re-auth grant
+                         reason: reauthentication_required — 
+  ownership-transfer 409     refused           T4 a REMOVED member of this org
+                         reason: membership_required — 
+  ownership-transfer 403     refused           T5 a valid transfer with an EXPIRED re-auth grant
+                         reason: reauthentication_required — 
+  ownership-transfer 200     granted           C an owner transfers to an active member of their own org
+
+96/96 V01 privilege-escalation cases hold

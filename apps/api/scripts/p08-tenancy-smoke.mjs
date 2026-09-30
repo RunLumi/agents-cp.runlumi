@@ -93,7 +93,130 @@ const TESTED_HERE = [
  * corrected to match.
  */
 const ALSO_PROVEN = [
+  //
+  // V01 path-id-tenancy. `verify:path-id-tenancy` measures the org-scoped routes that take exactly ONE
+  // resource id in the path, which is the largest block this probe reports as unproven and the one a
+  // substitution attack is the only way to reach. For each it asserts FOUR things: the organization's own
+  // id is not refused, the other organization's id is, a well-formed id that exists NOWHERE answers
+  // IDENTICALLY (so the route is not an existence oracle), and the other organization's row is
+  // byte-identical afterwards, read out of D1.
+  //
+  // Every entry is at FULL STRENGTH and none carries a degraded control. Three did once, and all three
+  // are resolved: two were a real defect (V01-033 -- a `version` guard placed AFTER the statement it
+  // guards, so the route could never succeed and reported `version_conflict`) and one was that gate's own
+  // ordering (the revoke control revoked the credential the rotate control then used, so the rotate
+  // control was refused 404 for an already-revoked row). Every control now creates its own row, so the
+  // controls are independent by construction. The credits below therefore all read PLAIN: a credit that
+  // names a degradation which no longer exists under-claims on purpose, and a stale one is simply wrong.
+  {
+    path: "/api/v1/orgs/{org_id}/agents/{agent_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  // The automations family needs three things the others do not, and each was a fixture fault the control
+  // caught rather than assumed: an `automations.max_active` entitlement, because `entitlement_grants` is
+  // EMPTY in every seeded database and without it every create is refused for a reason that has nothing
+  // to do with tenancy; a project and an agent, which an automation references; and for `resume` a prior
+  // STATE rather than merely a prior row, since the handler transitions `"paused" -> "active"` and
+  // refuses an automation that is not already paused.
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/occurrences",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/pause",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/resume",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/automations/{automation_id}/run-now",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/members/{member_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/invitations/{invitation_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/invitations/{invitation_id}/resend",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/credentials/{credential_id}/revoke",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/credentials/{credential_id}/rotate",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}/suspend",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
+  {
+    path: "/api/v1/orgs/{org_id}/service-accounts/{service_account_id}/resume",
+    by: "v01-path-id-tenancy-probe.mjs",
+  },
   { path: "/api/v1/orgs/{org_id}/runs/{run_id}", by: "p05-smoke.mjs (2 cross-tenant negatives)" },
+  //
+  // V01-027. `verify:collection-tenancy` measures 25 org-scoped COLLECTION routes for leakage: as
+  // Org A, fetch each one and search the whole serialised body for every identifier belonging to
+  // Org B. That is a different proof from this probe's -- a collection route has no request that
+  // should be refused, so a substitution cannot reach it -- and it is the proof that catches a
+  // `WHERE` clause which forgot `org_id` and answered a perfectly authorised 200 with another
+  // tenant's rows.
+  //
+  // Crediting them here is what keeps this probe's headline honest. Without it the number below
+  // would stay at 80 while 25 of those routes are measured elsewhere, and a coverage figure that
+  // overstates the gap is as misleading as one that understates it.
+  //
+  // The credit is for the routes that gate MEASURED. Nine of the ones it lists are deliberately
+  // NOT credited, because it named them NOT_APPLICABLE -- seven answer 405 and two have no fixture
+  // -- and "the other probe tried and could not" is not evidence.
+  ...[
+    "/api/v1/orgs/{org_id}",
+    "/api/v1/orgs/{org_id}/agents",
+    "/api/v1/orgs/{org_id}/api-keys",
+    "/api/v1/orgs/{org_id}/approvals",
+    "/api/v1/orgs/{org_id}/automations",
+    "/api/v1/orgs/{org_id}/catalog",
+    "/api/v1/orgs/{org_id}/catalog/models",
+    "/api/v1/orgs/{org_id}/credentials",
+    "/api/v1/orgs/{org_id}/data-policy",
+    "/api/v1/orgs/{org_id}/deletions",
+    "/api/v1/orgs/{org_id}/devices",
+    "/api/v1/orgs/{org_id}/exports",
+    "/api/v1/orgs/{org_id}/invitations",
+    "/api/v1/orgs/{org_id}/mcp",
+    "/api/v1/orgs/{org_id}/plugin-reports",
+    "/api/v1/orgs/{org_id}/policy/tools",
+    "/api/v1/orgs/{org_id}/rate-limits",
+    "/api/v1/orgs/{org_id}/routes",
+    "/api/v1/orgs/{org_id}/runs",
+    "/api/v1/orgs/{org_id}/service-accounts",
+    "/api/v1/orgs/{org_id}/sessions",
+    "/api/v1/orgs/{org_id}/teams",
+    "/api/v1/orgs/{org_id}/tools",
+    "/api/v1/orgs/{org_id}/usage/denials",
+    "/api/v1/orgs/{org_id}/usage/rollups",
+    "/api/v1/orgs/{org_id}/webhooks",
+  ].map((route) => ({
+    path: route,
+    by: "v01-collection-tenancy-probe.mjs (body searched for Org B ids)",
+  })),
 ];
 
 /** Every org-scoped path the router registers, read from `app.rs`. */
@@ -425,6 +548,36 @@ await runProbe("P08 cross-tenant", async (probe) => {
   console.log(
     `\norg-scoped routes with NO handler-level cross-tenant evidence: ${stillUnproven.length} of ${router.size}`,
   );
+  //
+  // The set itself, grouped by SHAPE and written out, because a count is not a work list.
+  //
+  // "80 of 104" says how much is unmeasured and nothing about what measuring it would take, and the
+  // difference between those two is the whole plan: a `GET` by id needs a substituted identifier and
+  // no body, while a `PUT` needs a valid body to reach its authorization check at all, and a nested
+  // route needs its parents to exist. Grouping by shape is what turns the gap into a sequence of
+  // attacks that can be ordered by cost, instead of 80 separate decisions.
+  //
+  // It is also the honest denominator for any claim of "the boundary is proven": a route in
+  // `byIdNoBody` has no evidence merely because nobody has built a table row for it yet.
+  const shapeOf = (path) => {
+    const rest = path.replace("/api/v1/orgs/{org_id}", "");
+    const ids = (rest.match(/\{[a-z_]+\}/g) ?? []).length;
+    if (ids === 0) return "collection (no path id)";
+    if (ids === 1) return "one path id";
+    if (ids === 2) return "two path ids (nested)";
+    return `${ids} path ids`;
+  };
+  const byShape = new Map();
+  for (const path of stillUnproven) {
+    const shape = shapeOf(path);
+    if (!byShape.has(shape)) byShape.set(shape, []);
+    byShape.get(shape).push(path);
+  }
+  console.log("\nunproven org-scoped routes, by shape:");
+  for (const [shape, paths] of [...byShape].sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`  ${String(paths.length).padStart(3)}  ${shape}`);
+    for (const path of paths) console.log(`         ${path}`);
+  }
   console.log(`  ${withId} take a resource id, so they need a real resource to substitute`);
   console.log(`  ${mutating} are mutating or id-less actions this probe does not drive`);
   console.log("  they are:" + stillUnproven.map((p) => `\n    ${p}`).join(""));

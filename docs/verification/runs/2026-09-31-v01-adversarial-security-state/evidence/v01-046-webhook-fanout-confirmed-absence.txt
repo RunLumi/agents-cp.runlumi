@@ -1,0 +1,49 @@
+V01 webhook fan-out -- V01-046, runtime CONFIRMATION
+captured: 2026-09-29T16:58:05Z
+
+19/19, exit 0. The claim is not 'the fan-out function is uncalled' --
+that is a static read. The claim is:
+
+  > A committed business event reaches a SUBSCRIBED webhook endpoint.
+
+FOUR CONTROLS, all green, which is what makes W5's absence mean something:
+  W0  every subscribed type is a registry LITERAL in consumers/outbox.rs
+  W1  the endpoint's subscription is PERSISTED, not merely accepted
+  W2  test_webhook DOES create a delivery row, in a real state
+  W4  the business event WAS emitted to the outbox
+
+THE ABSENCE:
+  W5  a subscribed endpoint receives NO delivery for a business event it is
+      subscribed to -- asserted as a DELTA from the control, never an absolute
+
+STORED END STATE:
+  endpoint subscriptions: ["agent_definition.created.v1","automation.definition.created.v1"]
+  outbox events: 6   (including agent_definition.created.v1)
+  deliveries:    2   (test_webhook, and its replay)
+
+The event was produced, the subscriber is eligible, and nothing was delivered.
+
+W6  replaying the control's delivery works (201), so the operator's remedy for a
+    missed event is reachable -- which is what makes the absence 'no event is ever
+    fanned out' rather than 'the recovery path is broken'.
+
+--------------------------------------------------------------------------------
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:49639
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-opFm0s/b342aa4e24e85e9a375aacdef998bb3c26141986-index_bg.wasm is 1063s newer than src/security/repository_liveness.rs
+  PASS  signup V01 Webhook Subscriber  — status=201
+  PASS  verify V01 Webhook Subscriber  — status=200
+  PASS  login start V01 Webhook Subscriber  — status=202
+  PASS  login complete V01 Webhook Subscriber  — status=200
+  PASS  user V01 Webhook Subscriber has an opaque ID  — usr_e86a784813244a03b316640668b02088
+  PASS  create Webhook Org  — status=201
+  PASS  Webhook Org organization ID  — org_9f835ab53bfac9a6a567e08b66061114
+  PASS  W0 CONTROL: every event type this probe subscribes to is a STRING LITERAL in the outbox registry, read from the source -- an unregistered type would be rejected on the way out, and the silence below would be the registry's decision rather than a missing fan-out  — registered=["agent_definition.created.v1","automation.definition.created.v1"] wanted=["agent_definition.created.v1","automation.definition.created.v1"]
+  PASS  W1: an endpoint with SUBSCRIBED EVENT TYPES is created, and the stored row keeps the subscription -- a fan-out that cannot see a subscriber proves nothing  — status=201 id=whe_22c3529accff469590e9487869d01187 body={"endpoint":{"auto_disable_enabled":false,"auto_disable_threshold":10,"base_delay_seconds":30,"consecutive_terminal_failures":0,"created_at":"2026-09-29T16:57:37.821Z","d
+  PASS  W1: and the SUBSCRIPTION is persisted, not merely accepted -- the fan-out's own comment says the exact-match check lives in SQL, so the subscription has to be in the database for that check to have anything to read  — row={"endpoint_id":"whe_22c3529accff469590e9487869d01187","subscribed_event_types_json":"[\"agent_definition.created.v1\",\"automation.definition.created.v1\"]","enabled":1,"url":"https://webhoo
+  PASS  W2 CONTROL: `test_webhook` DOES create a delivery row -- so the delivery path, the state machine and the history all work, and anything the assertions below find is about the ABSENCE OF A TRIGGER rather than a broken mechanism  — status=202 deliveryRows=1 body={"delivery_id":"whd_7099baae892d4f4895f02b3a5cd23c14","endpoint_id":"whe_22c3529accff469590e9487869d01187","event_id":"evt_8aee5f52479f4d4c95bbd542295
+  PASS  W2 CONTROL: and the row carries a REAL delivery state -- the code's own comment says the state advances `pending -> queued` in the same batch as the job, so a row without a state is not a delivery  — states=[{"state":"queued","n":1}]
+  PASS  W3: an ordinary business action SUCCEEDS and returns a resource -- the claim is that the event goes nowhere, not that the request is refused, and a refusal would be a different finding  — status=201 id=agd_744158431ef84d6880a6700ce00ea676 body={"allowed_tool_ids":[],"created_at":"2026-09-29T16:57:43.630Z","default_model_alias":null,"description":null,"id":"agd_744158431ef84d6880a6700ce00ea67
+  PASS  W4 CONTROL: the business event WAS emitted to the outbox -- so the silence below is not an event that was never produced, which would be a different (and much smaller) finding  — outboxEvents before=3 after=4
+  PASS  W5: a SUBSCRIBED endpoint receives NO delivery for a business event it subscribed to -- the delivery count is unchanged from the control, read from D1 because a `2xx` that ignored the event would be indistinguishable from one that delivered it  — deliveries before=1 after=1 outboxEvents=3->4
+  PASS  W6: replaying the control's delivery WORKS, so the operator's remedy for a missed event is reachable -- which is what makes the absence below 'no event is ever fanned out' rather than 'the recovery path is broken'  — status=201 body={"body_hash":"sha256:8149a2599405f2d0348e2c457191e08a9a5fef6ad0b369233229d77261f2201c","delivery_id":"whd_df6da045410f4d428a9c52e80ccfbd5c","event_id"

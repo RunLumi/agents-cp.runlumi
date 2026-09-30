@@ -545,6 +545,7 @@ pub async fn patch_policy(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(&org_id),
         SecurityEventId::generate(),
         "plugin_policy.updated",
@@ -563,7 +564,9 @@ pub async fn patch_policy(
         &context,
         claim,
         success,
-        vec![statement, guard],
+        // V01-033, as above: the guard is handed `body.version`, the client's pre-write version.
+        // Measured on `plugin_policies`, same two-order experiment, same result.
+        vec![guard, statement],
         audit,
     )
     .await?
@@ -767,6 +770,7 @@ pub async fn install_plugin(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(&org_id),
         SecurityEventId::generate(),
         "plugin.installed",
@@ -902,6 +906,7 @@ pub async fn approve_plugin(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(&org_id),
         SecurityEventId::generate(),
         "plugin.approved",
@@ -1260,6 +1265,7 @@ pub async fn submit_plugin_report(
             database,
             &context,
             Some(&access.principal),
+            None,
             Some(&org_id),
             SecurityEventId::generate(),
             "plugin.report_received",
@@ -1483,6 +1489,7 @@ async fn write_policy(
         database,
         context,
         Some(&access.principal),
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         action,
@@ -1496,7 +1503,9 @@ async fn write_policy(
         json!({ "policy": policy_json(policy, resulting_version, conflicts) }),
     )
     .map_err(|_| store_unavailable(context))?;
-    let mut writes = vec![statement, guard];
+    // V01-033, as above: the guard is handed `body.version`, the client's pre-write version, so it is a
+    // precondition and must precede the statement that replaces it.
+    let mut writes = vec![guard, statement];
     writes.extend(extra_write);
     match commit_scoped_mutation(database, context, claim, success, writes, audit).await? {
         ScopedMutationCommit::Committed => {}
@@ -1567,6 +1576,7 @@ async fn record_pending_review(
         database,
         context,
         Some(principal),
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         "plugin.permission_expansion_detected",

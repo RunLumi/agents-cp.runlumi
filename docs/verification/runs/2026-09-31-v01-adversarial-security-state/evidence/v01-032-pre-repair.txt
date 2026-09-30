@@ -1,0 +1,19 @@
+# V01-032 pre-repair evidence -- the M4 sensitivity run's OWN database.
+# M4 removed the handler's `target.status != "active"` check. Nothing else changed.
+# Read from $(find target/f02-006-sensitivity/run-m4/v3/d1 -name '*.sqlite' ! -name metadata.sqlite).
+
+--- org_0c52e8f7c27f2e32ee0d52289bdff3bc ---
+alice-mumawjmnec2b@example.com|admin|active
+abel-mumawjmnec2b@example.com|admin|active
+mallory-mumawjmnec2b@example.com|member|active
+  active owners: 0
+--- org_4256a07dc2163c29bf8aab144283fb8e ---
+alice-mumawjmnec2b@example.com|member|active
+bob-mumawjmnec2b@example.com|owner|active
+  active owners: 1
+--- org_4b1bb38bceae51398d02014d0e1140f5 ---
+bob-mumawjmnec2b@example.com|owner|active
+  active owners: 1
+--- org_fb3dfcdc14381f1f551dcdab3e8dde61 ---
+alice-mumawjmnec2b@example.com|owner|active
+  active owners: 1

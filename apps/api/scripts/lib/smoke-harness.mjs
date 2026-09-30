@@ -80,6 +80,10 @@ export class SmokeHarness {
     this.persistDir = "";
     this.worker = null;
     this.persistOwned = true;
+    // Every HTTP request this probe has made, counted here so the console capture can be graded
+    // against something. See `consoleCapture()`.
+    this.httpRequests = 0;
+    this.lastRequestLine = "";
     this.stage = "startup";
     this.passes = [];
     this.failures = [];
@@ -102,6 +106,27 @@ export class SmokeHarness {
   }
 
   // --- redaction -----------------------------------------------------------
+
+  /**
+   * A short, printable rendering of any value, for an assertion's detail string.
+   *
+   * `JSON.stringify(undefined).slice(0, 200)` throws, because `JSON.stringify(undefined)` is
+   * `undefined` and not a string. That is not a cosmetic hazard: an assertion's detail argument
+   * is evaluated EAGERLY, so a probe building its own diagnostic on a response with no body -- a
+   * 204, or any response whose payload did not parse -- dies with `Cannot read properties of
+   * undefined` before the assertion it was about to explain. The reader then gets a TypeError
+   * instead of the finding, and the whole run is reported as a harness failure with no clue which
+   * check was in flight.
+   *
+   * It bit `verify:device-idempotency` on a real 204 from the revoke route. Every probe should
+   * use this rather than composing `JSON.stringify` and `slice` by hand.
+   */
+  brief(value, max = 240) {
+    if (value === undefined) return "(no body)";
+    if (value === null) return "null";
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text === undefined ? String(value) : text.slice(0, max);
+  }
 
   redact(value) {
     let out = String(value);
@@ -255,6 +280,8 @@ export class SmokeHarness {
     let response;
     try {
       response = await fetch(`${this.baseUrl}${routePath}`, init);
+      this.httpRequests += 1;
+      this.lastRequestLine = `${method} ${routePath}`;
     } catch (error) {
       throw new Error(
         `${this.stage}: ${method} ${routePath} transport failure: ${this.redact(error.message)}`,
@@ -314,21 +341,48 @@ export class SmokeHarness {
    */
   parseD1Json(output, label) {
     const text = String(output).trim();
-    try {
-      return JSON.parse(text);
-    } catch {
-      const start = text.search(/[[{]/);
-      if (start >= 0) {
-        try {
-          return JSON.parse(text.slice(start));
-        } catch {
-          /* fall through to the diagnostic */
+    const parse = () => {
+      try {
+        return JSON.parse(text);
+      } catch {
+        const start = text.search(/[[{]/);
+        if (start >= 0) {
+          try {
+            return JSON.parse(text.slice(start));
+          } catch {
+            /* fall through to the diagnostic */
+          }
         }
+        throw new Error(
+          `${label} returned invalid Wrangler JSON: ${this.redact(text.slice(-2_000))}`,
+        );
       }
-      throw new Error(
-        `${label} returned invalid Wrangler JSON: ${this.redact(text.slice(-2_000))}`,
-      );
+    };
+    const parsed = parse();
+    // A statement D1 REFUSED and a statement that matched no rows arrive the same way from
+    // `d1Rows`: no `results`. Only the payload distinguishes them -- `{"success": false, "error":
+    // {"text": "no such column: version"}}` versus `{"results": [], "success": true}` -- and for at
+    // least one wrangler invocation the process still exits 0, so `runWrangler` does not throw.
+    //
+    // That makes a refused query report as "no such row", which a probe then reads as a fact about the
+    // PRODUCT. It is how the invitation fixture in `verify:path-id-tenancy` spent a run reporting
+    // `A=undefined` for a row that existed: the seed asked for a `version` column that `invitations`
+    // does not have, the statement was refused, and the probe concluded there was no invitation.
+    //
+    // So the refusal is raised here, once, for every probe that reads D1. An instrument that reports an
+    // absence it did not measure is the failure this campaign keeps meeting in a new place.
+    const statements = Array.isArray(parsed) ? parsed : [parsed];
+    for (const statement of statements) {
+      const failure = statement?.error?.text ?? statement?.error?.message;
+      if (failure || statement?.success === false) {
+        throw new Error(
+          `${label}: D1 refused the statement: ${this.redact(String(failure ?? "success was false"))}. ` +
+            `An empty result and a refused statement are different findings and this harness now ` +
+            `distinguishes them.`,
+        );
+      }
     }
+    return parsed;
   }
 
   /**
@@ -724,7 +778,20 @@ export class SmokeHarness {
       this.persistOwned = false;
       console.log(`Keeping the local D1/R2 state in ${this.persistDir}`);
     } else {
-      this.persistDir = await mkdtemp(join(tmpdir(), `lumi-${this.name}-`));
+      // The probe NAME goes into a filesystem path here, so it must be a path SEGMENT. One probe is
+      // called `V01 filter/pagination/nested`, and `mkdtemp` treats the `/` as a directory separator:
+      // `pnpm verify:filter-tenancy` died with ENOENT before running a single case.
+      //
+      // It went unnoticed because that gate's sensitivity script exports V01_FILTER_PERSIST_TO, which
+      // takes the other branch -- so the probe had demonstrable evidence, a recorded 65/65 baseline,
+      // and four detected mutations, while the command printed in AGENTS.md could not start. A gate
+      // that only runs when an undocumented environment variable is set provides no evidence to
+      // anyone who follows the documentation, and the failure mode is a clean exit 2 that reads like
+      // "the harness could not run" rather than "this command has never worked".
+      //
+      // Sanitised rather than renamed, because the name is a label in the output and reads well.
+      const slug = this.name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "probe";
+      this.persistDir = await mkdtemp(join(tmpdir(), `lumi-${slug}-`));
       this.persistOwned = true;
     }
     const port = process.env[portEnvVar]
@@ -822,6 +889,74 @@ export class SmokeHarness {
     } catch {
       return "";
     }
+  }
+
+  /**
+   * Is the console capture actually capturing?
+   *
+   * V01-029 cost four builds because this stream was read as an absence of evidence. The probe
+   * instrumented four error sites, and each run concluded "no log fired" -- so the failure was
+   * elsewhere. It was not: `worker-console.log` is appended to ASYNCHRONOUSLY by wrangler's proxy
+   * and is truncated, so across five runs it held sixteen request lines and ended at the last
+   * fixture. It contained no line for a request the probe had demonstrably made and which came back
+   * with a product-shaped body carrying a `request_id`.
+   *
+   * So a log's silence is not evidence until the log has been shown to record something, and the
+   * check for that is cheap and belongs HERE rather than in every probe that reads the console:
+   *
+   *   - count the request lines wrangler's proxy wrote, and
+   *   - compare them with the number of requests this harness actually made.
+   *
+   * A capture that has fallen behind is reported as `ok: false` with both counts, so a probe can
+   * refuse to conclude anything from a silent log and can fail as a HARNESS FAULT (exit 2) rather
+   * than reporting a product verdict. It is a floor, not a ceiling: a capture may be behind by a
+   * line or two through ordinary buffering, so `ok` requires a majority rather than an equality.
+   */
+  consoleCapture() {
+    const requested = this.httpRequests;
+    let seen = 0;
+    // `text` is hoisted OUT of the try on purpose. It is read again after the block, and the first
+    // version of this function declared it inside, so the tail check threw a ReferenceError on every
+    // call -- which `node --check` cannot see, because it is a runtime fault and not a syntax one. The
+    // symptom was a probe that died AFTER its last request with no error of its own, in a function
+    // whose entire job is to report on instrumentation.
+    let text = "";
+    try {
+      text = readFileSync(join(this.persistDir, "worker-console.log"), "utf8");
+      seen = (text.match(/\[wrangler-ProxyWorker:info\]\s+(GET|POST|PUT|PATCH|DELETE) \//g) ?? [])
+        .length;
+    } catch {
+      return { ok: false, requested, seen: 0, reason: "the console file is unreadable" };
+    }
+    // With no requests yet there is nothing to be behind on, and claiming otherwise would make a
+    // probe fail for reading the console before it has made a call.
+    if (requested === 0) {
+      return {
+        ok: true,
+        requested,
+        seen,
+        newest: "",
+        newestSeen: true,
+        reason: "no requests have been made yet",
+      };
+    }
+    // The criterion is the NEWEST request, not a majority. A majority check passes while the most
+    // recent requests -- the ones a diagnosis is about -- are exactly the ones missing, which is both
+    // the truncation shape and the flush shape. A count cannot tell them apart; a tail can.
+    const newestSeen = this.lastRequestLine !== "" && text.includes(this.lastRequestLine);
+    return {
+      ok: newestSeen,
+      requested,
+      seen,
+      newest: this.lastRequestLine,
+      newestSeen,
+      reason: newestSeen
+        ? ""
+        : `the most recent request (${this.lastRequestLine}) does not appear in a file holding ` +
+          `${seen} request line(s) for ${requested} request(s) this harness made, so its SILENCE IS ` +
+          `NOT EVIDENCE that a log was not written. Read it at the END of the run, and do not ` +
+          `conclude anything from it until this says it can be trusted.`,
+    };
   }
 
   rememberWorker() {
@@ -941,6 +1076,16 @@ export class SmokeHarness {
    * a statement about the product.
    */
   finish(code, note = "") {
+    // The Worker's log is read BEFORE the services stop, for the same reason `bail` reads it first: a
+    // diagnostic that removes itself on failure makes the next run start from scratch.
+    //
+    // This was added because a 503 with no cause is a verdict with no evidence, which is the campaign's
+    // recurring failure in a place it had not appeared before. `verify:staff-credential` reported
+    // `create_flag` -> 503 for four separate repairs, and the reason -- which the Worker DOES report,
+    // through `report_error`, with SQLite's own message -- was unreachable because the log was only
+    // printed when the probe BAILED, and a failing case is not a bail. So the sheet said "the route is
+    // broken" five times and the cause was in a log nobody printed.
+    const log = this.failures.length > 0 ? this.workerLog() : "";
     this.stopServices();
     const held = this.passes.length;
     const total = held + this.failures.length;
@@ -951,6 +1096,25 @@ export class SmokeHarness {
     if (this.failures.length > 0) {
       console.log(`\n${this.failures.length} case(s) failed:`);
       for (const name of this.failures) console.log(`  - ${name}`);
+      // Only the lines that name a cause. A raw tail is mostly wrangler's startup banner, and a
+      // failure report buried in it is a failure report nobody reads.
+      const diagnostic = (log ?? "")
+        .split("\n")
+        .filter(
+          (line) =>
+            /error|Error|ERROR|abort|SQLITE|constraint|no such|failed/i.test(line) &&
+            !/wrangler|update available|metrics|dispatcher|nps|node_modules/i.test(line),
+        )
+        .slice(-24);
+      if (diagnostic.length > 0) {
+        console.log(`\n--- Worker lines naming a cause (tail) ---`);
+        for (const line of diagnostic) console.log(`  ${line}`);
+      } else {
+        console.log(
+          `\n(no Worker line named a cause. That is itself a finding: the route refused without ` +
+            `logging why, so the cause is only reachable by reproducing the statement by hand.)`,
+        );
+      }
     }
     process.exit(code);
   }
@@ -968,8 +1132,32 @@ export class SmokeHarness {
     this.stopServices();
     console.error(`\n${this.name} harness failure: ${this.redact(error.message)}`);
     if (log) console.error(`\n--- Worker log (tail) ---\n${log}`);
-    if (this.failures.length === 0) process.exit(2);
-    process.exit(1);
+
+    // ALWAYS exit 2, even when assertions had already failed.
+    //
+    // This used to exit 1 whenever anything had already failed, on the reasoning that there was
+    // something to report. That is the exact collapse the campaign forbids: exit 1 is a
+    // statement about the PRODUCT and exit 2 is a statement about the HARNESS, and merging them
+    // lets a probe that died mid-run read as a detected defect.
+    //
+    // It is not theoretical. `verify:lease-contention` died on `no such table:
+    // automation_attempts` in case 1 -- after the two known-open V01-013 assertions had already
+    // failed -- so it exited 1, and `verify:lease-contention`'s sensitivity harness read that as
+    // a valid measurement. Every "PASS" it reported after that point was reported by a run that
+    // had stopped. Worse, the cases that never ran were silently absent from the denominator: the
+    // gate reported 32/34 while three of its four cases had never executed.
+    //
+    // So: a harness failure is a harness failure, and the count of cases that DID run is printed
+    // so a reader can see the run was incomplete rather than inferring it from a total.
+    console.error(
+      `\n${this.name} DID NOT COMPLETE. ${this.passes.length} assertion(s) passed and ` +
+        `${this.failures.length} failed before it died; every case after the failure above was ` +
+        `NEVER RUN, and the totals below do not include them.`,
+    );
+    console.error(
+      `\n${this.passes.length}/${this.passes.length + this.failures.length} cases reached before the failure`,
+    );
+    process.exit(2);
   }
 }
 

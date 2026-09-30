@@ -355,13 +355,21 @@ pub struct PageResponse<T> {
 // Shared helpers
 // -----------------------------------------------------------------------------
 
-fn service_unavailable(context: &RequestContext) -> ApiError {
-    errors::api_error(
-        context,
-        ApiErrorCode::ServiceUnavailable,
-        "The notification store is unavailable.",
-    )
-}
+// V01-029. This module DEFINED its own `service_unavailable`, shadowing the shared one for all 19 of
+// its call sites, and its message named the wrong subsystem: "The notification store is unavailable."
+// So a failed endpoint lookup, a failed credential rotation, a failed delivery transition and a
+// failed notification preference write all answered `503` claiming the NOTIFICATION store was down.
+//
+// That is a defect in the reporting even when every behaviour behind it is correct, and it has a
+// concrete cost: an operator reading a 503 from a credential or webhook route is sent to the wrong
+// subsystem to investigate. It also cost this campaign four builds, because the message was the only
+// clue to which file the 503 came from.
+//
+// The shared helper says "The control-plane store is unavailable.", which is true of every table this
+// module touches. A module-wide alias keeps the 19 call sites unchanged and makes the message
+// accurate; the notification routes get the same answer, which is correct, because they read the same
+// store.
+use crate::routes::agents::service_unavailable;
 
 fn not_found(context: &RequestContext) -> ApiError {
     errors::api_error(
@@ -543,7 +551,23 @@ async fn load_endpoint(
     WebhookRepository::new(database)
         .find_endpoint(org_id, &endpoint_id)
         .await
-        .map_err(|_| service_unavailable(context))?
+        .map_err(|error| {
+            // V01-010's shape, and the second time in this campaign it has been the reason a real
+            // fault was unreadable. Every error here became an identical `503`, so "the statement
+            // was refused by the schema", "the row could not be decoded" and "the store is down"
+            // were one answer, and the route that owns the endpoint could not be debugged from the
+            // outside at all.
+            //
+            // `worker::Error` carries SQLite's message and the failing statement, never a bound
+            // value -- the ids here are the caller's own, and they are not secrets.
+            worker::console_error!(
+                "load_endpoint: the endpoint lookup FAILED for org {} endpoint {}: {:?}",
+                org_id,
+                endpoint_id,
+                error
+            );
+            service_unavailable(context)
+        })?
         .ok_or_else(|| not_found(context))
 }
 
@@ -597,7 +621,18 @@ async fn mint_secret(
     let version = WebhookRepository::new(database)
         .next_secret_version(endpoint_id)
         .await
-        .map_err(|_| service_unavailable(context))?;
+        .map_err(|error| {
+            // V01-029. `service_unavailable` in THIS module is a private helper whose message is
+            // "The notification store is unavailable." -- it shadows the shared one, so every
+            // endpoint-route failure in this file has been reported as a NOTIFICATION outage. The
+            // message is the first thing that named the file, and it named the wrong subsystem.
+            worker::console_error!(
+                "mint_secret: next_secret_version failed for endpoint {}: {:?}",
+                endpoint_id,
+                error
+            );
+            service_unavailable(context)
+        })?;
     let fingerprint = secret_fingerprint(&plaintext);
     let rotated_at = rotate.then(|| context.received_at.as_str().to_owned());
     let statement = WebhookRepository::new(database)
@@ -629,6 +664,7 @@ fn audit_statement(
         database,
         context,
         Some(principal),
+        None,
         Some(org_id),
         SecurityEventId::generate(),
         action,
@@ -1263,6 +1299,15 @@ pub async fn rotate_webhook_secret(
         true,
     )
     .await?;
+    // V01-029. Stage markers, kept rather than removed. Every `?` in this handler collapsed into
+    // one `503 "The notification store is unavailable."` -- a message that names a subsystem this
+    // route has nothing to do with, because `webhooks.rs` defines a private `service_unavailable`
+    // that shadows the shared one. Four instrumented sites in this file were silent, which put the
+    // failure somewhere in this tail; these two markers bracket what is left of it.
+    worker::console_error!(
+        "rotate_webhook_secret: reached the audit/outbox stage for endpoint {}",
+        existing.endpoint_id
+    );
     let audit = audit_statement(
         database,
         &context,
@@ -1295,7 +1340,14 @@ pub async fn rotate_webhook_secret(
             "secret": plaintext,
         }),
     )
-    .map_err(|_| service_unavailable(&context))?;
+    .map_err(|error| {
+        worker::console_error!(
+            "rotate_webhook_secret: StoredSuccess::new refused the response for endpoint {}: {:?}",
+            existing.endpoint_id,
+            error
+        );
+        service_unavailable(&context)
+    })?;
     if let Some(replay) = commit_mutation(
         database,
         &context,
@@ -1899,6 +1951,7 @@ async fn patch_preference(
         database,
         context,
         Some(principal),
+        None,
         org_id,
         SecurityEventId::generate(),
         "notification.preference_updated.v1",
@@ -2120,6 +2173,7 @@ pub async fn mark_notification_read(
         database,
         &context,
         Some(&authenticated.principal),
+        None,
         notification.org_id.as_deref(),
         SecurityEventId::generate(),
         "notification.read.v1",

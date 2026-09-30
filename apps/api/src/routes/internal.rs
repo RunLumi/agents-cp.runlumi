@@ -59,7 +59,7 @@ use crate::{
     },
     repositories::{
         FeatureFlagUpdateInput, NewFeatureFlagInput, NewKillSwitchInput, NewSupportGrantInput,
-        PlatformOperationsRepository, staff_capabilities_json,
+        PlatformOperationsRepository, PluginGovernanceRepository, staff_capabilities_json,
     },
     routes::{
         agents::replay_response,
@@ -76,6 +76,15 @@ pub const FLAG_CREATE_PATH: &str = "/api/v1/internal/feature-flags";
 pub const FLAG_PATCH_PATH: &str = "/api/v1/internal/feature-flags/{flag_key}";
 pub const KILL_SWITCH_CREATE_PATH: &str = "/api/v1/internal/kill-switches";
 pub const KILL_SWITCH_LIFT_PATH: &str = "/api/v1/internal/kill-switches/{kill_switch_id}/lift";
+
+// V01-043. Quarantine was enforced on four paths and operable on none. These two exist so the
+// idempotency claim has something to key on -- a claim with no path cannot bind a request to a command.
+//
+// Only the WRITES get a constant. The list route is a GET and takes no `Idempotency-Key`, so a path
+// constant for it would have no reader; it was written first, flagged unused by clippy, and removed
+// rather than kept alive by a route that does not need it.
+pub const QUARANTINE_ENGAGE_PATH: &str = "/api/v1/internal/plugin-quarantines";
+pub const QUARANTINE_LIFT_PATH: &str = "/api/v1/internal/plugin-quarantines/{quarantine_id}/lift";
 pub const GRANT_CREATE_PATH: &str = "/api/v1/internal/support-grants";
 pub const GRANT_REVOKE_PATH: &str = "/api/v1/internal/support-grants/{grant_id}/revoke";
 
@@ -129,6 +138,16 @@ pub struct CreateGrantBody {
     pub ticket_reference: String,
     pub ttl_seconds: u32,
     pub capabilities: Vec<String>,
+}
+
+/// V01-043. `deny_unknown_fields`, like every other body in this module, so a stray key is a 422
+/// naming the problem rather than a silently ignored field.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngageQuarantineBody {
+    pub package_id: String,
+    pub version: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -415,7 +434,13 @@ pub async fn patch_flag(
         &context,
         claim,
         success,
-        vec![update, guard],
+        // V01-033. The guard is handed `body.version` -- the client's PRE-write version -- so it is a
+        // precondition, and a precondition is evaluated before the write it guards. With the writer
+        // first the batch bumps `version` and the guard then asserts the version it has already
+        // replaced, so it always aborts and the caller reports `version_conflict` for a route that can
+        // never succeed. Measured on `feature_flags` with the order as the only variable: writer-then-
+        // guard ABORTS, guard-then-writer succeeds and the version becomes 2.
+        vec![guard, update],
         audit,
     )
     .await?
@@ -468,6 +493,260 @@ pub async fn list_kill_switches(
         "items": rows.iter().map(kill_switch_json).collect::<Vec<_>>(),
         "page": { "limit": limit, "next_cursor": next },
     })))
+}
+
+/// V01-043. List the current plugin quarantine set.
+///
+/// The third piece, and the one that makes the other two auditable: an operator who cannot see what is
+/// quarantined cannot reason about whether lifting one is safe. `list_quarantines` already existed and
+/// had no caller.
+#[worker::send]
+pub async fn list_plugin_quarantines(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Query(query): Query<ListQuery>,
+) -> Result<Response<Body>, ApiError> {
+    authorize_staff_route(
+        &state,
+        &headers,
+        &context,
+        StaffPermission::PluginQuarantine,
+    )
+    .await?;
+    let database = database(&state, &context)?;
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let records = PluginGovernanceRepository::new(database)
+        .list_quarantines(query.cursor.as_deref(), query.cursor.as_deref(), limit)
+        .await
+        .map_err(|_| store_unavailable(&context))?;
+    let items: Vec<serde_json::Value> = records
+        .iter()
+        .map(|record| {
+            serde_json::json!({
+                "quarantine_id": record.quarantine_id,
+                "package_id": record.package_id,
+                "version": record.version,
+                "reason": record.reason,
+                "engaged_by_staff_principal_id": record.engaged_by_staff_principal_id,
+                "engaged_at": record.engaged_at,
+                "lifted_at": record.lifted_at,
+                "lifted_by": record.lifted_by,
+                "lift_reason": record.lift_reason,
+            })
+        })
+        .collect();
+    Ok((StatusCode::OK, Json(serde_json::json!({ "items": items }))).into_response())
+}
+
+/// V01-043. Quarantine a plugin version.
+///
+/// The mirror image of `create_kill_switch`, deliberately: same permission shape, same
+/// `engaged_by_staff_principal_id`, same required reason, same `engaged_at`, same idempotency-claim
+/// position. `plugin_quarantines` was built with the same columns as `kill_switches` for exactly this
+/// reason -- and the table, the SQL and the repository method all existing while no route did is the
+/// whole finding.
+#[worker::send]
+pub async fn engage_plugin_quarantine(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Json(body): Json<EngageQuarantineBody>,
+) -> Result<Response<Body>, ApiError> {
+    let staff = authorize_staff_route(
+        &state,
+        &headers,
+        &context,
+        StaffPermission::PluginQuarantine,
+    )
+    .await?;
+    if body.reason.trim().is_empty() || body.reason.len() > 500 {
+        return Err(invalid_input(&context));
+    }
+    if body.version.trim().is_empty() || body.version.len() > 64 {
+        return Err(invalid_input(&context));
+    }
+    let key = idempotency_key(&headers, &context)?;
+    let database = database(&state, &context)?;
+    let repository = PluginGovernanceRepository::new(database);
+    let package_id = crate::core::PluginPackageId::new(body.package_id.as_str())
+        .map_err(|_| invalid_input(&context))?;
+    // The version must EXIST. Quarantining a version nobody published would create a row that
+    // `is_quarantined` can never match, so it would look like a control and do nothing -- the
+    // "documented but inert" shape this whole finding is about.
+    if repository
+        .find_version(package_id.as_str(), &body.version)
+        .await
+        .map_err(|_| store_unavailable(&context))?
+        .is_none()
+    {
+        return Err(staff_denial(
+            &context,
+            ApiErrorCode::NotFound,
+            "plugin_version_not_found",
+            "No such plugin version.",
+        ));
+    }
+    let now = context.received_at.clone();
+    let quarantine_id = new_resource_id("pqr").as_str().to_owned();
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        staff.actor.staff_principal_id.as_str(),
+        // A platform action has no organization (V01-036): the empty string is the schema's own
+        // `NOT NULL DEFAULT ''` for "no organization", and `prepare_scoped_mutation` reads it that way
+        // rather than as a malformed id.
+        "",
+        &key,
+        "POST",
+        QUARANTINE_ENGAGE_PATH,
+        &serde_json::json!({ "package_id": body.package_id, "version": body.version }),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+    let insert = repository
+        .insert_quarantine_statement(
+            &quarantine_id,
+            package_id.as_str(),
+            &body.version,
+            &body.reason,
+            staff.actor.staff_principal_id.as_str(),
+            &now,
+        )
+        .map_err(|_| store_unavailable(&context))?;
+    let audit = staff_audit(
+        database,
+        &context,
+        staff.actor.staff_principal_id.as_str(),
+        "plugin.quarantine.engaged",
+        "plugin_quarantine",
+        Some(&quarantine_id),
+        &serde_json::json!({
+            "package_id": body.package_id,
+            "version": body.version,
+            "reason": body.reason,
+        }),
+    )?;
+    let response = serde_json::json!({
+        "quarantine_id": quarantine_id,
+        "package_id": package_id.as_str(),
+        "version": body.version,
+    });
+    let success = crate::core::StoredSuccess::new(201, response.clone())
+        .map_err(|_| store_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![insert], audit).await? {
+        ScopedMutationCommit::Committed => {}
+        ScopedMutationCommit::Replayed(replay) => return Ok(replay_response(replay)),
+        ScopedMutationCommit::Guarded => {
+            return Err(staff_denial(
+                &context,
+                ApiErrorCode::Conflict,
+                "conflict",
+                "The request conflicts with current state.",
+            ));
+        }
+    }
+    Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+/// V01-043. Lift a quarantine.
+///
+/// **Both directions, deliberately.** Adding only the engage lever would reproduce V01-041 exactly: a
+/// control with an affirmative branch and no negative one. A quarantine that cannot be lifted is its
+/// own outage, so the pair is the unit.
+#[worker::send]
+pub async fn lift_plugin_quarantine(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path((quarantine_id,)): Path<(String,)>,
+    Json(body): Json<RevokeGrantBody>,
+) -> Result<Response<Body>, ApiError> {
+    let staff = authorize_staff_route(
+        &state,
+        &headers,
+        &context,
+        StaffPermission::PluginQuarantine,
+    )
+    .await?;
+    if body.reason.trim().is_empty() || body.reason.len() > 500 {
+        return Err(invalid_input(&context));
+    }
+    let key = idempotency_key(&headers, &context)?;
+    let database = database(&state, &context)?;
+    let repository = PluginGovernanceRepository::new(database);
+    let existing = repository
+        .find_quarantine(quarantine_id.as_str())
+        .await
+        .map_err(|_| store_unavailable(&context))?
+        .ok_or_else(|| {
+            staff_denial(
+                &context,
+                ApiErrorCode::NotFound,
+                "plugin_quarantine_not_found",
+                "No such quarantine.",
+            )
+        })?;
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        staff.actor.staff_principal_id.as_str(),
+        "",
+        &key,
+        "POST",
+        QUARANTINE_LIFT_PATH,
+        &serde_json::json!({ "quarantine_id": quarantine_id }),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+    if !existing.is_active() {
+        return Err(staff_denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "quarantine_already_lifted",
+            "The quarantine has already been lifted.",
+        ));
+    }
+    let now = context.received_at.clone();
+    let lift = repository
+        .lift_quarantine_statement(
+            quarantine_id.as_str(),
+            staff.actor.staff_principal_id.as_str(),
+            &body.reason,
+            &now,
+        )
+        .map_err(|_| store_unavailable(&context))?;
+    let audit = staff_audit(
+        database,
+        &context,
+        staff.actor.staff_principal_id.as_str(),
+        "plugin.quarantine.lifted",
+        "plugin_quarantine",
+        Some(quarantine_id.as_str()),
+        &serde_json::json!({ "reason": body.reason }),
+    )?;
+    let response = serde_json::json!({ "quarantine_id": quarantine_id, "lifted_at": now.as_str() });
+    let success = crate::core::StoredSuccess::new(200, response.clone())
+        .map_err(|_| store_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![lift], audit).await? {
+        ScopedMutationCommit::Committed => {}
+        ScopedMutationCommit::Replayed(replay) => return Ok(replay_response(replay)),
+        ScopedMutationCommit::Guarded => {
+            return Err(staff_denial(
+                &context,
+                ApiErrorCode::Conflict,
+                "quarantine_already_lifted",
+                "The quarantine has already been lifted.",
+            ));
+        }
+    }
+    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 #[worker::send]
@@ -646,7 +925,21 @@ pub async fn lift_kill_switch(
         json!({ "kill_switch_id": kill_switch_id }),
     )
     .map_err(|_| store_unavailable(&context))?;
-    match commit_scoped_mutation(database, &context, claim, success, vec![lift, guard], audit)
+    // V01-033, sixth site. The guard is handed `body.version` -- the PRE-write version -- so it is a
+    // precondition and must precede the statement that replaces it. With the lift first, the lift sets
+    // `version = version + 1` and the guard then asserts the version it has already replaced, so its
+    // `NOT EXISTS` is false, it inserts nothing, and the route reports `409 conflict` for a lift that
+    // can never succeed.
+    //
+    // Measured on `kill_switches` with the order as the only variable: lift-then-guard ABORTS and the
+    // switch stays `engaged` at version 1; guard-then-lift succeeds and it becomes `lifted` at
+    // version 2.
+    //
+    // It survived the original V01-033 sweep because that sweep looked for `vec![update, guard]` and
+    // `vec![statement, guard]` -- four variable NAMES. This one is `lift`. **A scan over a naming
+    // convention is a scan over a convention**, and the standing check that closes the class is in
+    // V01-033's record: find the guard's SQL, not the variable that holds it.
+    match commit_scoped_mutation(database, &context, claim, success, vec![guard, lift], audit)
         .await?
     {
         ScopedMutationCommit::Committed => {}
@@ -783,6 +1076,12 @@ pub async fn create_grant(
         database,
         &context,
         None,
+        // V01-038. A staff member is the actor, and a staff actor is NOT a `Principal` -- ADR 0007
+        // forbids expressing one as the other. Passing `None` for the principal therefore recorded
+        // this CUSTOMER-VISIBLE row as `actor_type = 'system'` with a NULL `actor_id`, which is exactly
+        // what the requirement exists to prevent: the customer's own audit view showed an
+        // unattributable action on their own organization.
+        Some(staff.actor.staff_principal_id.as_str()),
         Some(organization.as_str()),
         SecurityEventId::generate(),
         "support_grant.issued",
@@ -879,6 +1178,12 @@ pub async fn revoke_grant(
         database,
         &context,
         None,
+        // V01-038. A staff member is the actor, and a staff actor is NOT a `Principal` -- ADR 0007
+        // forbids expressing one as the other. Passing `None` for the principal therefore recorded
+        // this CUSTOMER-VISIBLE row as `actor_type = 'system'` with a NULL `actor_id`, which is exactly
+        // what the requirement exists to prevent: the customer's own audit view showed an
+        // unattributable action on their own organization.
+        Some(staff.actor.staff_principal_id.as_str()),
         Some(existing.organization_id.as_str()),
         SecurityEventId::generate(),
         "support_grant.revoked",
@@ -962,7 +1267,23 @@ fn staff_audit(
         .prepare(
             "INSERT INTO security_events (event_id, org_id, actor_type, actor_id, effective_user_id, session_id, device_id, run_id, agent_session_id, tool_call_id, action, resource_type, resource_id, outcome, reason, metadata_json, request_id, correlation_id, created_at) VALUES (?1, NULL, 'staff', ?2, NULL, NULL, NULL, NULL, NULL, NULL, ?3, ?4, ?5, 'success', NULL, ?6, ?7, ?8, ?9)",
             &[
-                crate::adapters::d1::BindValue::Text(crate::adapters::new_event_id().as_str()),
+                // V01-037. This was the SIXTEENTH site of a class that `routes/support.rs` had already
+                // fixed fifteen times, in a type built for the purpose: `SecurityEventId` asserts the
+                // `sec_` namespace and `generate()` builds a conforming id.
+                //
+                // `adapters::new_event_id()` builds the OTHER namespace -- `evt_` + 32 hex, which belongs
+                // to `outbox_events`. `security_events.event_id` is CHECKed for `sec_`, so the insert
+                // failed, took the whole D1 batch with it, and every `/api/v1/internal/**` write route
+                // answered 503.
+                //
+                // It survived fifteen fixes because this function builds its statement inline with a raw
+                // `prepare` instead of going through `security_event_statement`, so the type had no
+                // presence here and the compiler had nothing to check. A type-level guarantee protects
+                // only its users, and "nobody uses the type here" is indistinguishable from "the type is
+                // unnecessary" without a check that counts its users.
+                crate::adapters::d1::BindValue::Text(
+                    crate::routes::support::SecurityEventId::generate().as_str(),
+                ),
                 crate::adapters::d1::BindValue::Text(staff_principal_id),
                 crate::adapters::d1::BindValue::Text(action),
                 crate::adapters::d1::BindValue::Text(resource_type),
@@ -1096,6 +1417,21 @@ fn not_found(context: &RequestContext) -> ApiError {
         "resource_not_found",
         "The requested resource was not found.",
     )
+}
+
+/// A refusal with a stable reason code, the shape `devices.rs` already uses as `denial`.
+///
+/// V01-043. Written here rather than imported because it is four lines and a `use` across route modules
+/// for four lines is worse than one local definition -- but it is a SECOND spelling of the same error
+/// shape, which is a real cost, and the reason it is named and placed beside the module's other error
+/// helpers is so a future reader sees both rather than wondering which is canonical.
+fn staff_denial(
+    context: &RequestContext,
+    code: ApiErrorCode,
+    reason: &str,
+    message: &str,
+) -> ApiError {
+    errors::api_error(context, code, message).with_detail("reason", json!(reason))
 }
 
 fn invalid_input(context: &RequestContext) -> ApiError {

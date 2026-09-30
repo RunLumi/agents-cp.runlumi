@@ -101,7 +101,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     if (typeof enrollmentId !== "string") {
       probe.skip(
         `the ${label} device could not be enrolled, so any race using it would be unproven`,
-        `status=${enrollment.status} body=${JSON.stringify(enrollment.payload).slice(0, 200)}`,
+        `status=${enrollment.status} body=${probe.brief(enrollment.payload, 200)}`,
       );
       return null;
     }
@@ -118,7 +118,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     if (typeof status.payload?.challenge !== "string") {
       probe.skip(
         `the ${label} enrollment released no challenge, so its device token cannot be obtained`,
-        `status=${status.status} body=${JSON.stringify(status.payload).slice(0, 200)}`,
+        `status=${status.status} body=${probe.brief(status.payload, 200)}`,
       );
       return null;
     }
@@ -138,7 +138,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     if (typeof token !== "string" || typeof deviceId !== "string") {
       probe.skip(
         `the ${label} device returned no token, so the race below could not be driven`,
-        `status=${finished.status} body=${JSON.stringify(finished.payload).slice(0, 200)}`,
+        `status=${finished.status} body=${probe.brief(finished.payload, 200)}`,
       );
       return null;
     }
@@ -233,6 +233,48 @@ await runProbe("V01 automation-lease", async (probe) => {
       },
     },
   ];
+  // ENTITLED UP FRONT. V01-025 made `claim_occurrence` check dispatch eligibility before it
+  // allocates an attempt, so an organization without `automations.max_active` can no longer take a
+  // lease at all -- which is the repair working, and which turned every claim in this probe into a
+  // 403. This gate measures lease CONTENTION, so it needs an organization that is allowed to
+  // dispatch; the grant is seeded here and asserted, because a gate that silently measures a route
+  // refusing everyone reports contention of zero and calls it exclusivity.
+  //
+  // `entitlement_grants` is empty in every seeded database. `value_json` is a bare JSON integer (the
+  // repository reads it with `from_str::<i64>`), and the F18 CHECK -- an override must expire, carry a
+  // reason and name a grantor -- applies only to `source = 'internal_override'`, so a `plan` grant
+  // needs none of that. `grant_id` is CHECKed to be exactly 36 characters with an `egr_` prefix.
+  const grantId = `egr_${createHash("sha256")
+    .update(`${probe.nonce}-lease-contention`)
+    .digest("hex")
+    .slice(0, 32)}`;
+  expect(
+    "CONTROL: the lease-contention grant id is well formed, or the schema would refuse the fixture and every claim would 403",
+    /^egr_[0-9a-f]{32}$/.test(grantId),
+    `grantId=${grantId} (needs 36 characters)`,
+  );
+  {
+    const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
+    await d1Rows(
+      `INSERT INTO entitlement_grants
+         (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
+       VALUES ('${grantId}', '${org.orgId}', 'automations.max_active', 'organization', '5', 'plan',
+               '${stamp}', '${stamp}', '${stamp}')`,
+      "V01 granting automations.max_active so this organization may claim",
+    );
+    const live = await d1Rows(
+      `SELECT COUNT(*) AS n FROM entitlement_grants
+        WHERE org_id = '${org.orgId}' AND entitlement_key = 'automations.max_active' AND revoked_at IS NULL`,
+      "V01 the lease-contention organization is entitled",
+    );
+    expect(
+      "CONTROL: the organization holds automations.max_active, so a refused claim means contention and not ineligibility",
+      Number(live[0]?.n ?? 0) === 1,
+      `live grants=${live[0]?.n ?? "unread"} -- with none, all 8 racers are refused for the same ` +
+        `non-reason and "exactly one winner" is satisfied by zero winners`,
+    );
+  }
+
   let automation = null;
   let automationId = null;
   const attempts = [];
@@ -276,7 +318,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     "CONTROL: Org A has a real automation",
     automation.status === 201 && typeof automationId === "string",
     `sent ${automation.method} ${automation.path} -> status=${automation.status} ` +
-      `body=${JSON.stringify(automation.payload).slice(0, 240)}` +
+      `body=${probe.brief(automation.payload, 240)}` +
       (automation.status >= 400
         ? `\n  --- FULL worker log, unfiltered, because the filtered version hid the answer ---\n${FULLLOG}`
         : ""),
@@ -309,7 +351,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     );
   const attemptRows = (id) =>
     d1Rows(
-      `SELECT attempt_id, lease_id, attempt, outcome, reason_code FROM automation_attempts WHERE occurrence_id = '${id}'`,
+      `SELECT attempt_id, lease_id, attempt, outcome, reason_code FROM automation_occurrence_attempts WHERE occurrence_id = '${id}'`,
       `V01 attempts for ${id}`,
     );
 
@@ -344,7 +386,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     expect(
       `CONTROL: run_now creates a claimable occurrence for the ${label} case`,
       typeof id === "string",
-      `status=${runNow.status} body=${JSON.stringify(runNow.payload).slice(0, 240)}`,
+      `status=${runNow.status} body=${probe.brief(runNow.payload, 240)}`,
     );
     return typeof id === "string" ? id : null;
   };
@@ -387,7 +429,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       leases.length === 1,
       leases.length === 1
         ? `lease=${leases[0].lease_id} attempt=${leases[0].attempt} fence=${leases[0].lease_fence}`
-        : `${leases.length} ACTIVE LEASES: ${JSON.stringify(leases).slice(0, 400)}`,
+        : `${leases.length} ACTIVE LEASES: ${probe.brief(leases, 400)}`,
     );
 
     const after = (await occurrenceRow(occ1))[0];
@@ -419,10 +461,22 @@ await runProbe("V01 automation-lease", async (probe) => {
       Number(after?.attempt) > Number(before?.attempt),
       `attempt ${before?.attempt} -> ${after?.attempt} after a successful claim; the lease row carries attempt=1 while the occurrence still says ${after?.attempt}, and TRANSITION_OCCURRENCE_SQL has no attempt in its SET list`,
     );
+    // NOT a defect. A LEASED occurrence has no `started_at`, and that is correct: starting work is
+    // a separate transition (`POST /devices/automation-occurrences/{id}/start`), so "has the lease"
+    // and "has begun work" are different facts. Collapsing them would destroy the only signal that
+    // separates a lease taken and never used from one that started and stalled -- which is exactly
+    // what the expiry sweep and any stuck-work report depend on.
+    //
+    // This probe asserted the OPPOSITE for a while, and would have driven a "fix" that collapsed a
+    // deliberate two-phase design. Reading the route table caught it; `verify:attempt-exhaustion`
+    // now carries the two-phase case, and it is SKIPPED there for want of an entitled
+    // organization, so this control is currently the only statement in the campaign that the
+    // leased-but-unstarted state is intentional.
     expect(
-      "V01-013: a LEASED occurrence records when the work started (it does not - the claim binds None, so COALESCE(started_at, NULL) is NULL)",
-      typeof after?.started_at === "string" && after.started_at.length === 24,
-      `started_at=${after?.started_at ?? "null"} on a ${after?.state} occurrence`,
+      "CONTROL: a LEASED-but-not-started occurrence has NO started_at -- starting work is a separate transition, and this is what distinguishes a lease never used from one that started and stalled",
+      after?.started_at === null || after?.started_at === undefined,
+      `started_at=${after?.started_at ?? "null"} on a ${after?.state} occurrence; a non-null value here ` +
+        `would mean the claim and the start had been collapsed into one transition`,
     );
 
     // The losers must learn nothing about the winner.
@@ -439,7 +493,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       lossyLeak.length === 0,
       lossyLeak.length === 0
         ? `${losers.length} loser(s) answered ${[...new Set(losers.map((r) => r.status))].join(" ")} with no winner lease material`
-        : `${lossyLeak.length} loser response(s) carried the winner's lease: ${JSON.stringify(lossyLeak[0].payload).slice(0, 300)}`,
+        : `${lossyLeak.length} loser response(s) carried the winner's lease: ${probe.brief(lossyLeak[0].payload, 300)}`,
     );
     expect(
       "every losing response is an explicit refusal with a stable reason, never a 2xx and never a bare 500",
@@ -475,7 +529,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       attempts.length === 1,
       attempts.length === 1
         ? `attempt=${attempts[0].attempt} outcome=${attempts[0].outcome}`
-        : `${attempts.length} attempt rows: ${JSON.stringify(attempts).slice(0, 300)}`,
+        : `${attempts.length} attempt rows: ${probe.brief(attempts, 300)}`,
     );
   }
 
@@ -506,7 +560,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       leases.length === 1,
       leases.length === 1
         ? `held by device ${leases[0].device_id}`
-        : `${leases.length} ACTIVE LEASES: ${JSON.stringify(leases).slice(0, 300)}`,
+        : `${leases.length} ACTIVE LEASES: ${probe.brief(leases, 300)}`,
     );
     const winnerToken = winners[0]?.payload?.lease_token;
     const winnerLeaseId = winners[0]?.payload?.lease_id;
@@ -543,7 +597,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     expect(
       "CONTROL: the first claim succeeds, so the refusals below are refusals of an ALREADY-CLAIMED occurrence",
       first.status >= 200 && first.status < 300,
-      `status=${first.status} body=${JSON.stringify(first.payload).slice(0, 200)}`,
+      `status=${first.status} body=${probe.brief(first.payload, 200)}`,
     );
     expect(
       "a second device cannot claim an already-leased occurrence, however many times it tries",
@@ -600,7 +654,7 @@ await runProbe("V01 automation-lease", async (probe) => {
       expect(
         "another organization's device is refused an occurrence it does not own, with the org id nowhere in the path",
         attack.status >= 400,
-        `status=${attack.status} body=${JSON.stringify(attack.payload).slice(0, 240)}`,
+        `status=${attack.status} body=${probe.brief(attack.payload, 240)}`,
       );
       expect(
         "the refused cross-tenant claim changed NOTHING: the occurrence is in the same state at the same version",
@@ -613,7 +667,7 @@ await runProbe("V01 automation-lease", async (probe) => {
         leases.length === 0,
         leases.length === 0
           ? "no lease exists for this occurrence, so the refusal left nothing behind"
-          : `${leases.length} lease(s) exist: ${JSON.stringify(leases).slice(0, 300)}`,
+          : `${leases.length} lease(s) exist: ${probe.brief(leases, 300)}`,
       );
       // And the existence of the occurrence must not be distinguishable from a missing one.
       const missing = await claim(intruder, "occ_00000000000000000000000000000000");
@@ -638,7 +692,7 @@ await runProbe("V01 automation-lease", async (probe) => {
     everyActive.length === 0,
     everyActive.length === 0
       ? "the uniqueness held for every occurrence this probe created"
-      : `MULTIPLE ACTIVE LEASES: ${JSON.stringify(everyActive).slice(0, 400)}`,
+      : `MULTIPLE ACTIVE LEASES: ${probe.brief(everyActive, 400)}`,
   );
 
   probe.finish(probe.failures.length > 0 ? 1 : 0);

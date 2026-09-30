@@ -23,7 +23,7 @@ use crate::{
         add_seconds, d1::BindValue, new_resource_id, new_secret, sha256_hex, verify_device_proof,
     },
     app::AppState,
-    core::{ApiError, ApiErrorCode, RequestContext},
+    core::{ApiError, ApiErrorCode, RequestContext, StoredSuccess},
     http::auth::require_csrf,
     modules::{
         authorization::Permission,
@@ -38,14 +38,79 @@ use crate::{
         ProjectRepository, ToolRepository,
     },
     routes::{
+        agents::replay_response,
         authorization::authorize_org,
         errors,
         support::{
             SecurityEventId, database, database_error, domain_error, idempotency_key,
             outbox_statement, security_event_statement,
         },
+        usage::{
+            PreparedScopedMutation, ScopedMutationCommit, commit_scoped_mutation,
+            prepare_scoped_mutation,
+        },
     },
 };
+
+/// A TEMPLATE, not the concrete path: the claim's scope must be identical for every device in an
+/// organization, so a client retrying the same logical request gets the same answer whichever
+/// device id it addressed.
+const REVOKE_DEVICE_PATH: &str = "/api/v1/orgs/{org_id}/devices/{device_id}";
+
+/// A TEMPLATE for the same reason as `REVOKE_DEVICE_PATH`: the claim's scope must not vary with the
+/// enrollment id, or a client retrying the same logical approval would miss its own claim.
+// V01-041. The sibling of `APPROVE_ENROLLMENT_PATH`. The enrollment state machine has an affirmative
+// branch and no negative one: this is the path a denial is recorded against, and without it the
+// idempotency claim has nothing to key on.
+const DENY_ENROLLMENT_PATH: &str = "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/deny";
+const APPROVE_ENROLLMENT_PATH: &str =
+    "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve";
+
+/// The device row `INSERT_DEVICE_SQL` is about to create, built in memory so the `201` body can be
+/// written into the idempotency claim in the SAME batch as the insert.
+///
+/// This exists because the stored success must be known before the commit, and the honest body is
+/// `device_json` of the committed row (V01-020). Every field here is traceable to that statement, so
+/// nothing is duplicated from the DDL's defaults:
+///
+/// | field | source in `INSERT_DEVICE_SQL` |
+/// |---|---|
+/// | `device_id` … `key_fingerprint` | binds `?1`–`?8` |
+/// | `status` | the statement's literal `'active'` — the column is `NOT NULL` with no `DEFAULT` |
+/// | `created_at`, `updated_at` | bind `?9` |
+/// | `capabilities`, `capability_reported_at`, `last_seen_at`, `revoked_at`, `revoked_by_user_id` |
+///   not listed in the statement, nullable, and with no `DEFAULT` — so `NULL` |
+///
+/// Two things make drift from that table a loud failure rather than a silent one. The struct has no
+/// `Default` and every field is public, so a column added to `DeviceRecord` breaks the build here.
+/// And the assertion that a replayed approval equals the first one is exactly a detector for the
+/// remaining risk — a `DEFAULT` added to a column this projection assumes is `NULL` — so
+/// `verify:device-idempotency` goes red the day that happens.
+fn approved_device_record(
+    enrollment: &crate::repositories::DeviceEnrollmentRecord,
+    device_id: &str,
+    approved_by_user_id: &str,
+    now: &crate::core::Timestamp,
+) -> crate::repositories::DeviceRecord {
+    crate::repositories::DeviceRecord {
+        device_id: device_id.to_string(),
+        org_id: enrollment.org_id.clone(),
+        enrolled_by_user_id: approved_by_user_id.to_string(),
+        name: enrollment.device_name.clone(),
+        platform: enrollment.platform.clone(),
+        app_version: enrollment.app_version.clone(),
+        public_key: enrollment.public_key.clone(),
+        key_fingerprint: enrollment.key_fingerprint.clone(),
+        status: "active".to_string(),
+        capabilities: None,
+        capability_reported_at: None,
+        last_seen_at: None,
+        revoked_at: None,
+        revoked_by_user_id: None,
+        created_at: now.as_str().to_string(),
+        updated_at: now.as_str().to_string(),
+    }
+}
 
 const PAGE_LIMIT_DEFAULT: i32 = 50;
 const PAGE_LIMIT_MAX: i32 = 100;
@@ -654,7 +719,16 @@ pub struct NonceResponse {
 pub async fn token_nonce(
     State(state): State<Arc<AppState>>,
     Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
+    // A nonce is the fresh half of a proof of possession, so issuing one to a party that has proved
+    // nothing is incoherent. This route took no `HeaderMap` at all and authenticated nothing, which
+    // meant it minted server-generated secret material for anonymous callers AND for a revoked
+    // device (V01-019). `authorize_device` checks the token, the enrollment membership, the
+    // organization, and -- since that finding -- the device's own status, so a revoked device is
+    // refused here exactly as it is on every other device route.
+    let _access =
+        crate::routes::authorization::authorize_device(&state, &headers, &context).await?;
     // Binding existence is validated so the route stays unavailable when the
     // D1 binding is missing (consistent with other storage-backed routes).
     database(&state, &context)?;
@@ -1246,6 +1320,122 @@ pub struct ListQuery {
 /// Approve a pending enrollment: any active org member may confirm a device
 /// presented to them (device-flow trust model, mirroring the P02 approve
 /// route). Device + enrollment close + first token commit atomically.
+/// V01-041. Deny a pending device enrollment.
+///
+/// The negative branch of the same human control `approve_enrollment` is the positive branch of. The
+/// domain below this handler was complete: `device_enrollments.status` admits `'denied'`, and
+/// `DENY_ENROLLMENT_SQL` sets it, org-scoped on `org_id` and guarded on `status = 'pending'`. The
+/// repository method `deny_enrollment` existed too, and occurred exactly once in the tree — its own
+/// definition. So this handler is not a new decision; it surfaces one the schema, the statement and the
+/// repository had already made.
+///
+/// Mirrors `approve_enrollment` field for field on purpose, because a divergent twin is how the two
+/// branches drift: the same `Permission::DevicesRead`, the same `require_csrf`, the same idempotency
+/// claim taken AFTER authorization and the org check and BEFORE the state check, and the same `409` for
+/// a row that is no longer pending. The state check is what the SQL's own guard would do anyway; doing
+/// it here is what turns "the statement changed nothing" into a stable `409` rather than a `200` that
+/// lies.
+///
+/// The audit event is the point of the whole repair. Before it, a reviewer's decision NOT to grant
+/// access left no record at all — the row either lingered `pending` or was later marked `expired` by
+/// the sweep, so a human refusal was indistinguishable from nobody looking. F16 names "device
+/// enrollment/revocation" as an event class; this is the enrollment half that was missing.
+#[worker::send]
+pub async fn deny_enrollment(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path((org_id, enrollment_id)): Path<(String, String)>,
+) -> Result<Response<Body>, ApiError> {
+    let access = authorize_org(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        Permission::DevicesRead,
+        Some("device"),
+        None,
+    )
+    .await?;
+    require_csrf(&headers, &access.session, &context).await?;
+    let key = idempotency_key(&headers, &context)?;
+    let database = database(&state, &context)?;
+    let repository = DeviceRepository::new(database);
+    let enrollment = repository
+        .find_enrollment(&enrollment_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?
+        .filter(|enrollment| enrollment.org_id == org_id)
+        .ok_or_else(|| {
+            denial(
+                &context,
+                ApiErrorCode::NotFound,
+                "device_not_found",
+                "No such enrollment.",
+            )
+        })?;
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "POST",
+        DENY_ENROLLMENT_PATH,
+        &json!({}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+    if EnrollmentStatus::parse(&enrollment.status) != Some(EnrollmentStatus::Pending) {
+        return Err(denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "enrollment_not_pending",
+            "The enrollment is no longer pending.",
+        ));
+    }
+    // The same compare-and-set shape as the rest of the surface: the statement is guarded on
+    // `status = 'pending'`, and the read above is the same guard read from the row. A concurrent
+    // approve or expire between the two loses here, and the batch changes nothing.
+    let changed = repository
+        .deny_enrollment_statement(&enrollment_id, org_id.as_str(), &context.received_at)
+        .map_err(|_| service_unavailable(&context))?;
+    let audit = security_event_statement(
+        database,
+        &context,
+        Some(&access.principal),
+        None,
+        Some(org_id.as_str()),
+        SecurityEventId::generate(),
+        "device.enrollment.denied.v1",
+        "device",
+        Some(&enrollment_id),
+        "success",
+        &json!({ "enrollment_id": enrollment_id }),
+    )?;
+    let body = json!({ "enrollment_id": enrollment_id, "status": "denied" });
+    let success =
+        StoredSuccess::new(200, body.clone()).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![changed], audit).await? {
+        ScopedMutationCommit::Committed => {}
+        ScopedMutationCommit::Replayed(replay) => return Ok(replay_response(replay)),
+        ScopedMutationCommit::Guarded => {
+            return Err(denial(
+                &context,
+                ApiErrorCode::Conflict,
+                "enrollment_not_pending",
+                "The enrollment is no longer pending.",
+            ));
+        }
+    }
+    // Mirrors `approve_enrollment`'s return shape exactly. A twin that answers through a different
+    // helper is a twin that can drift in status code as well as in body.
+    Ok((StatusCode::OK, Json(body)).into_response())
+}
+
 #[worker::send]
 pub async fn approve_enrollment(
     State(state): State<Arc<AppState>>,
@@ -1264,7 +1454,16 @@ pub async fn approve_enrollment(
     )
     .await?;
     require_csrf(&headers, &access.session, &context).await?;
-    idempotency_key(&headers, &context)?;
+    // V01-015 site 1. This used to read the key and discard it — `idempotency_key(..)?;` with the
+    // value bound to nothing — and then refuse a retry at the pending-status check below. A retried
+    // approval therefore answered `409` for a request that had already succeeded, and the positive
+    // control proved the key was irrelevant: a *different* key answered the identical 409.
+    //
+    // The claim is taken AFTER authorization and the enrollment's org check, and BEFORE the pending
+    // check, which is the whole repair: the pending check is what used to stand where the replay
+    // belonged. The "no longer pending" refusal is kept exactly as it was — it is still the right
+    // answer for a genuinely new key on an already-approved enrollment.
+    let key = idempotency_key(&headers, &context)?;
     let database = database(&state, &context)?;
     let repository = DeviceRepository::new(database);
     let enrollment = repository
@@ -1280,6 +1479,21 @@ pub async fn approve_enrollment(
                 "No such enrollment.",
             )
         })?;
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "POST",
+        APPROVE_ENROLLMENT_PATH,
+        &json!({}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
     if EnrollmentStatus::parse(&enrollment.status) != Some(EnrollmentStatus::Pending) {
         return Err(denial(
             &context,
@@ -1314,7 +1528,7 @@ pub async fn approve_enrollment(
         ));
     }
     let device_id = generated_id("dvc");
-    let mut statements = repository
+    let statements = repository
         .approve_enrollment_statements(
             &enrollment,
             &device_id,
@@ -1327,6 +1541,7 @@ pub async fn approve_enrollment(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(org_id.as_str()),
         SecurityEventId::new(event_id),
         "device.enrolled.v1",
@@ -1335,21 +1550,33 @@ pub async fn approve_enrollment(
         "success",
         &json!({ "enrollment_id": enrollment_id }),
     )?;
-    statements.push(security_statement);
-    database
-        .batch(statements)
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    let device = DeviceRepository::new(database)
-        .find_device(&device_id)
-        .await
-        .map_err(|_| service_unavailable(&context))?
-        .ok_or_else(|| service_unavailable(&context))?;
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "device": device_json(&device) })),
+    // Built from the values the same batch is inserting, so the claim and the device commit together
+    // and a retry cannot observe one without the other. This replaces a read-back of the row the
+    // batch had just written.
+    let device = approved_device_record(
+        &enrollment,
+        &device_id,
+        access.principal.user_id.as_str(),
+        &context.received_at,
+    );
+    let body = json!({ "device": device_json(&device) });
+    let success =
+        StoredSuccess::new(201, body.clone()).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(
+        database,
+        &context,
+        claim,
+        success,
+        statements,
+        security_statement,
     )
-        .into_response())
+    .await?
+    {
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+        ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
+            Ok((StatusCode::CREATED, Json(body)).into_response())
+        }
+    }
 }
 
 #[worker::send]
@@ -1465,7 +1692,7 @@ pub async fn revoke_device(
     )
     .await?;
     require_csrf(&headers, &access.session, &context).await?;
-    idempotency_key(&headers, &context)?;
+    let key = idempotency_key(&headers, &context)?;
     let is_manager = authorize_org(
         &state,
         &headers,
@@ -1500,15 +1727,36 @@ pub async fn revoke_device(
             "Only org device managers or the enrolling member can revoke a device.",
         ));
     }
-    let revoked = DeviceRepository::new(database)
-        .revoke_device(
-            &device_id,
-            access.principal.user_id.as_str(),
-            &context.received_at,
-        )
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    if !revoked {
+    // The claim is taken AFTER authorization -- an unauthorized caller must not be able to learn
+    // whether a key is live -- and BEFORE the state decision, because that ordering is the repair.
+    //
+    // The stored state on a retry was already correct before this change: `REVOKE_DEVICE_SQL` is
+    // `WHERE device_id = ?1 AND status = 'active'`, so a second revoke matched nothing and left
+    // `revoked_at` alone. What was wrong was the ANSWER. A retry got
+    // `409 "The device was already revoked."` for a request that had already succeeded, which a
+    // client cannot distinguish from "someone else revoked it".
+    //
+    // So the fix adds a *replayed response*, not a new guard -- and the "already revoked" refusal
+    // below is kept exactly as it was, now decided from the record we already read rather than from
+    // how many rows the write happened to touch. That distinction is what makes the regression test
+    // meaningful: a test on the stored state would have passed before the repair and after it.
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "DELETE",
+        REVOKE_DEVICE_PATH,
+        &json!({}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+
+    if DeviceStatus::parse(&device.status) == Some(DeviceStatus::Revoked) {
         return Err(denial(
             &context,
             ApiErrorCode::Conflict,
@@ -1516,11 +1764,19 @@ pub async fn revoke_device(
             "The device was already revoked.",
         ));
     }
+    let statements = DeviceRepository::new(database)
+        .revoke_device_statements(
+            &device_id,
+            access.principal.user_id.as_str(),
+            &context.received_at,
+        )
+        .map_err(|error| database_error(&context, error))?;
     let event_id = generated_id("sec");
     let statement = security_event_statement(
         database,
         &context,
         Some(&access.principal),
+        None,
         Some(org_id.as_str()),
         SecurityEventId::new(event_id),
         "device.revoked.v1",
@@ -1529,9 +1785,13 @@ pub async fn revoke_device(
         "success",
         &json!({}),
     )?;
-    database
-        .batch(vec![statement])
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    // A 204 has no body, so the stored success is constructible from inputs -- which is what every
+    // one of the 27 wired call sites does, and the reason this route can be repaired at all.
+    let success = StoredSuccess::new(204, json!({})).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, statements, statement).await? {
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+        ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+    }
 }

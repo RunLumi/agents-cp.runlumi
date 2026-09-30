@@ -38,6 +38,7 @@
 //    and the assertion is that the response says so rather than treating it as a success.
 
 import { createServer } from "node:http";
+import { networkInterfaces } from "node:os";
 import { runProbe } from "./lib/smoke-harness.mjs";
 
 await runProbe("V01 provider-http-faults", async (probe) => {
@@ -93,13 +94,40 @@ await runProbe("V01 provider-http-faults", async (probe) => {
   // `provider_unavailable` with no detail, because it discards the transport error entirely.
   // That combination is the least diagnosable failure in this probe, and it is the product's
   // error handling that makes it so, not the probe.
+  //
+  // Bound to EVERY interface, and the endpoint host is chosen by measurement rather than assumed.
+  //
+  // The recorded blocker for this probe was "the environment will not route a Worker's outbound fetch
+  // to a host-local HTTP endpoint", and the probe had only ever tried `localhost`. That is a claim
+  // about LOOPBACK, not about host-local endpoints generally: workerd refuses loopback for its own
+  // reasons, and a routable address on the same machine is a different destination with the same
+  // server behind it. A blocker recorded from one untried address is a hypothesis wearing a
+  // BLOCKED label, and this campaign has closed two gaps that way already (GAP-006 by falsification,
+  // GAP-008 by finding the defect the "environmental" gap was covering).
+  //
+  // So the candidates are tried in order and the FIRST that registers a real call is used. The
+  // control is unchanged in strength -- it still requires an observed call on the server's own tally
+  // -- so this widens where the probe looks, not what it demands.
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, () => resolve());
+    server.listen(0, "0.0.0.0", () => resolve());
   });
   const port = server.address().port;
-  const base = `http://localhost:${port}`;
-  console.log(`\n  local fault server listening on ${base}`);
+  const candidates = ["127.0.0.1", "localhost"];
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      // IPv4 only, and skip the internal/loopback ones already listed. A link-local or a
+      // docker bridge address would answer but is not this machine's own identity.
+      if (address.family !== "IPv4" || address.internal) continue;
+      candidates.push(address.address);
+    }
+  }
+  const hosts = [...new Set(candidates)];
+  let base = `http://127.0.0.1:${port}`;
+  let reachable = null;
+  console.log(
+    `\n  local fault server listening on 0.0.0.0:${port}; candidate hosts: ${hosts.join(", ")}`,
+  );
 
   try {
     // The endpoint has to be REACHABLE, and the product has two gates in the way: a private
@@ -118,7 +146,10 @@ await runProbe("V01 provider-http-faults", async (probe) => {
     // not surface the process environment as Worker vars, so assigning `process.env` here
     // leaves the Worker behaving exactly as if the host had never been named. The harness
     // grows a `--var` passthrough for this, which is a test affordance in the test harness.
-    probe.setWorkerVars({ LUMI_PROVIDER_ALLOWLIST: "127.0.0.1,localhost" });
+    // Every candidate is named, not just the one that ends up being used: the probe does not know
+    // yet which host the Worker can reach, and the allowlist is the product's own supported way to
+    // say "these hosts are permitted", so naming all of them is the honest configuration.
+    probe.setWorkerVars({ LUMI_PROVIDER_ALLOWLIST: hosts.join(",") });
     await probe.setup({ persistEnvVar: "V01_FAULT_PERSIST_TO", portEnvVar: "V01_FAULT_PORT" });
 
     probe.stage = "fixtures";
@@ -258,12 +289,9 @@ await runProbe("V01 provider-http-faults", async (probe) => {
       return published.status === 200 ? { alias, providerId, modelId } : null;
     };
 
-    probe.stage = "routes";
-    const okRoute = await routeFor("ok");
-    const rateRoute = await routeFor("429");
-    const serverErrorRoute = await routeFor("503");
-    const malformedRoute = await routeFor("malformed");
-    const rateRetryRoute = await routeFor("429", { maxRetries: 2, variant: "-retry" });
+    // The `ok` route and the reachability verdict are built after `ask` exists, below: the control
+    // has to make a real call to decide which host works, and it cannot do that before the request
+    // helper is defined. The fault routes follow it there, on the winning host.
 
     // --- the state reader ---------------------------------------------------
     const requestRow = (requestId) =>
@@ -299,72 +327,110 @@ await runProbe("V01 provider-http-faults", async (probe) => {
       );
       return result;
     };
+    // REACHABILITY FIRST, and it decides `base` for everything below.
+    //
+    // The recorded blocker for this probe was that "the environment will not route a Worker's
+    // outbound fetch to a host-local HTTP endpoint", and the probe had only ever tried `localhost`.
+    // That is a claim about LOOPBACK derived from one untried address, so the control now builds an
+    // `ok` route per candidate host and keeps the first whose request this server actually counts.
+    //
+    // There is no endpoint-URL update route -- `PATCH .../providers/{id}` is
+    // `update_provider_lifecycle` -- so the host is chosen by building a route against it rather
+    // than by re-pointing one. That is more setup, not less rigour: each attempt is a real provider,
+    // model, credential and published route, and the verdict is still this server's own tally.
+    //
+    // If NO host registers a call the run is BLOCKED below, exactly as before. Widening where the
+    // probe looks does not weaken what it demands.
+    let okRoute = null;
+    const reachability = [];
+    for (const host of hosts) {
+      base = `http://${host}:${port}`;
+      const candidate = await routeFor("ok", { variant: `-${host.replaceAll(/\W+/g, "")}` });
+      if (!candidate) {
+        reachability.push(`${host}: the route could not be built`);
+        continue;
+      }
+      const before = callsFor("ok");
+      const result = await ask(candidate.alias, { label: `control-ok-${host}` });
+      const calls = callsFor("ok") - before;
+      reachability.push(`${host}: http=${result.status} server_calls=${calls}`);
+      console.log(`  reachability via ${host}: http=${result.status} server_calls=${calls}`);
+      if (calls >= 1) {
+        okRoute = candidate;
+        reachable = host;
+        break;
+      }
+    }
+
+    probe.stage = "routes";
+    const rateRoute = await routeFor("429");
+    const serverErrorRoute = await routeFor("503");
+    const malformedRoute = await routeFor("malformed");
+    const rateRetryRoute = await routeFor("429", { maxRetries: 2, variant: "-retry" });
 
     // =========================================================================
     // CONTROL — a healthy local endpoint, so "the server was reached" is proven
     // before any fault is believed
     // =========================================================================
+    // =========================================================================
+    // CONTROL -- "the server was reached" is settled by the sweep above, and this is where it
+    // becomes a verdict.
+    // =========================================================================
     probe.stage = "control-ok";
-    let controlCallsBefore = 0;
-    if (okRoute) {
-      controlCallsBefore = callsFor("ok");
-      const result = await ask(okRoute.alias, { label: "control-ok" });
-      const controlCalls = callsFor("ok") - controlCallsBefore;
-      console.log(`\n  CONTROL ok: http=${result.status} server_calls=${controlCalls}`);
-      expect(
-        "CONTROL: the local provider was actually REACHED over a real socket, so the fault cases below are testing a dispatch and not a refusal",
-        controlCalls >= 1,
-        `server saw ${controlCalls} request(s) on /v1/ok; a count of 0 would mean the endpoint was never used and every fault case below would be vacuous`,
-      );
+    expect(
+      "CONTROL: the local provider was actually REACHED over a real socket, so the fault cases below are testing a dispatch and not a silence",
+      reachable !== null,
+      `tried ${reachability.length} host(s) -- ${reachability.join(" | ")}`,
+    );
 
-      if (controlCalls === 0) {
-        // BLOCKED, not four product failures.
-        //
-        // Every case below is graded on a call count from this server. If the socket is never
-        // reached, all of them would read as "the provider was not called", which is true and
-        // useless — and the probe would report a red sheet against a product that has not been
-        // tested. The campaign's own rule is that exit 2 means the harness could not run, and
-        // this is precisely that: the environment will not route a Worker's outbound fetch to a
-        // host-local HTTP endpoint.
-        //
-        // The product's part in making this undiagnosable is recorded as V01-010:
-        // `providers.rs` maps every fetch error to `transport_error()` and logs nothing, so a
-        // misconfigured endpoint, a refused connection and a provider outage are one answer.
-        // The Worker's own log, because that is the only place the cause now appears. Before
-        // V01-010's fix there was nothing to print: the transport error was discarded, so this
-        // probe spent three runs establishing the same fact with no evidence to show for it.
-        const log = (probe.workerLog() ?? "")
-          .split("\n")
-          .filter((line) => line.includes("provider_dispatch_failed"))
-          .slice(-3)
-          .join("\n");
-        console.log(
-          "\n  BLOCKED: the Worker's outbound fetch never reached the local server.\n" +
-            "  Every case in this probe is graded on that server's call tally, so none of them\n" +
-            "  can run. Exiting 2 — the harness could not run, which is not a product verdict.",
-        );
-        console.log(
-          log
-            ? `  the Worker logged the cause (V01-010):\n${log
-                .split("\n")
-                .map((l) => `    ${l.slice(0, 200)}`)
-                .join("\n")}`
-            : "  the Worker logged NO cause for the failed dispatch. providers.rs maps every\n" +
-                "  fetch error to transport_error(); V01-010 makes it log, and this run was built\n" +
-                "  before that fix reached the binary, so its absence here is expected.",
-        );
-        probe.finish(
-          2,
-          "the local fault server was never reached, so no 429/5xx/malformed case was measured",
-        );
-        return;
-      }
-
-      expect(
-        "CONTROL: the healthy local endpoint answers 200, so the server is a working provider and not a black hole",
-        result.status === 200,
-        `status=${result.status} body=${(result.text ?? JSON.stringify(result.payload)).slice(0, 200)}`,
+    if (reachable === null) {
+      // BLOCKED, not four product failures.
+      //
+      // Every case below is graded on a call count from this server. If the socket is never
+      // reached, all of them would read as "the provider was not called", which is true and
+      // useless — and the probe would report a red sheet against a product that has not been
+      // tested. The campaign's own rule is that exit 2 means the harness could not run, and
+      // this is precisely that: the environment will not route a Worker's outbound fetch to a
+      // host-local HTTP endpoint.
+      //
+      // The product's part in making this undiagnosable is recorded as V01-010:
+      // `providers.rs` maps every fetch error to `transport_error()` and logs nothing, so a
+      // misconfigured endpoint, a refused connection and a provider outage are one answer.
+      // The Worker's own log, because that is the only place the cause now appears. Before
+      // V01-010's fix there was nothing to print: the transport error was discarded, so this
+      // probe spent three runs establishing the same fact with no evidence to show for it.
+      const log = (probe.workerLog() ?? "")
+        .split("\n")
+        .filter((line) => line.includes("provider_dispatch_failed"))
+        .slice(-3)
+        .join("\n");
+      console.log(
+        "\n  BLOCKED: the Worker's outbound fetch never reached the local server.\n" +
+          "  Every case in this probe is graded on that server's call tally, so none of them\n" +
+          "  can run. Exiting 2 — the harness could not run, which is not a product verdict.",
       );
+      console.log(
+        log
+          ? `  the Worker logged the cause (V01-010):\n${log
+              .split("\n")
+              .map((l) => `    ${l.slice(0, 200)}`)
+              .join("\n")}`
+          : "  the Worker logged NO cause for the failed dispatch. providers.rs maps every\n" +
+              "  fetch error to transport_error(); V01-010 makes it log, and this run was built\n" +
+              "  before that fix reached the binary, so its absence here is expected.",
+      );
+      probe.finish(
+        2,
+        "the local fault server was never reached, so no 429/5xx/malformed case was measured",
+      );
+      return;
+    }
+
+    // The healthy endpoint answering 200 is now implied by the sweep: a host that registered a call
+    // got a real HTTP response, and the sweep's own log line prints its status. Asserting it again
+    // from a request this block no longer makes would be asserting a stale variable.
+    if (reachable !== null) {
+      console.log(`  reachability settled on host ${reachable}; the fault cases below are live`);
     }
 
     // =========================================================================

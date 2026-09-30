@@ -2660,6 +2660,7 @@ fn audit_statement(
             context,
             principal,
             None,
+            None,
             SecurityEventId::new(event_id),
             action,
             resource_type,

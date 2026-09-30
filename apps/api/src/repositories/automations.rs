@@ -429,10 +429,25 @@ ORDER BY o.scheduled_for_ ASC, o.occurrence_id ASC
 LIMIT ?4
 "#;
 
+/// `attempt` is COALESCE'd rather than assigned.
+///
+/// This statement is prepared by six routes and only ONE of them starts an attempt: `claim`
+/// allocates the attempt number and writes the attempt row. `renew_lease`, `start_occurrence`,
+/// `settle_occurrence`, `release_occurrence` and `resume_next_run` all transition an attempt that
+/// already exists and must leave its number alone — `start_occurrence` in particular *reads*
+/// `lease.attempt` and would increment the occurrence's copy if the assignment were unconditional,
+/// so a claim followed by a start would burn two of a `max_start_attempts: 2` budget on one start.
+///
+/// `COALESCE(?14, attempt)` makes the distinction a property of the CALL rather than of the
+/// statement: a route that means to start passes `Some(n)`, and every other route passes `None` and
+/// physically cannot advance the counter. That is the fix for V01-013, where `attempt` was in no
+/// SET list at all, so the column was written by nothing and `let attempt = occurrence.attempt + 1`
+/// recomputed 1 on every claim for the lifetime of an occurrence.
 const TRANSITION_OCCURRENCE_SQL: &str = r#"
 UPDATE automation_occurrences
 SET state = ?3,
     state_version = state_version + 1,
+    attempt = COALESCE(?14, attempt),
     reason_code = ?4,
     run_id = COALESCE(?5, run_id),
     lease_expires_at = ?6,
@@ -1122,6 +1137,10 @@ pub struct OccurrenceTransition<'a> {
     pub now: &'a Timestamp,
     pub expected_state: &'a str,
     pub expected_state_version: i64,
+    /// The attempt number this transition STARTS, or `None` for a transition of an attempt that
+    /// already exists. `Some` means "this is a new start and the counter must move"; `None` means
+    /// "leave the counter exactly where it is". See `TRANSITION_OCCURRENCE_SQL`.
+    pub start_attempt: Option<i64>,
 }
 
 pub struct NewLeaseInput<'a> {
@@ -1710,6 +1729,9 @@ WHERE automation_id = ?1 AND org_id = ?2
                 BindValue::Text(input.now.as_str()),
                 BindValue::Text(input.expected_state),
                 BindValue::Int64(input.expected_state_version),
+                input
+                    .start_attempt
+                    .map_or(BindValue::Null, BindValue::Int64),
             ],
         )
     }
@@ -2303,9 +2325,23 @@ WHERE automation_id = ?1 AND org_id = ?2
         attempt: i64,
     ) -> worker::Result<D1PreparedStatement> {
         self.database.prepare(
+            // V01-023. The `guard!` macro aborts when its condition returns NO rows, so a guard must
+            // state a POSITIVE precondition. This one stated the negative of its own name: the
+            // condition was "a run link already exists", `NOT EXISTS` inverted it, and the guard
+            // aborted precisely when there was NO link -- so every legitimate first `start` was
+            // refused and `start_occurrence` could never succeed for any organization. The symptom
+            // was `lease_fence_invalid`, which names a lease, because that is what a guard abort is
+            // mapped to at the call site.
+            //
+            // The condition is now "no run link exists for this attempt", which is what the
+            // function's name, its doc comment and the route's comment at the call site have always
+            // said. `SELECT 1 WHERE <expr>` is valid SQLite without a FROM, and is the only way to
+            // express an absence as a positive row.
             guard!(
-                "SELECT 1 FROM automation_run_links
-                   WHERE occurrence_id = ?1 AND attempt = ?2"
+                "SELECT 1 WHERE NOT EXISTS (
+                   SELECT 1 FROM automation_run_links
+                   WHERE occurrence_id = ?1 AND attempt = ?2
+                 )"
             ),
             &[BindValue::Text(occurrence_id), BindValue::Int64(attempt)],
         )
@@ -2779,5 +2815,107 @@ mod v01_011_statement_shape {
             "?32",
             "the trailing column was the one the old value list never reached"
         );
+    }
+}
+
+#[cfg(test)]
+mod v01_013_attempt_counter {
+    //! The attempt counter must move on a START and on nothing else.
+    //!
+    //! `automation_occurrences.attempt` shipped with no writer at all: `TRANSITION_OCCURRENCE_SQL`
+    //! had no `attempt` in its SET list, the column was inserted at `0`, and nothing else changed
+    //! it. So `let attempt = occurrence.attempt + 1` in `claim_occurrence` recomputed **1** for
+    //! the whole life of an occurrence, `max_start_attempts` could never be exceeded, and a
+    //! re-claim after an expired lease reinserted `(occurrence, 1, 'claimed')` and collided on
+    //! `ux_automation_occurrence_attempts` -- which surfaced to the device as a detail-less `503`.
+    //!
+    //! The repair cannot simply assign `attempt = ?14` in a statement that six routes prepare,
+    //! because only one of them starts an attempt. `renew_lease`, `start_occurrence`,
+    //! `settle_occurrence`, `release_occurrence` and the expiry sweep all transition an attempt
+    //! that already exists -- and `start_occurrence` in particular READS `lease.attempt`, so an
+    //! unconditional assignment would burn two of a `max_start_attempts: 2` budget on one start.
+    //!
+    //! So the statement COALESCEs on a caller-supplied value, and these two tests pin BOTH halves:
+    //! the SQL refuses to advance on `NULL`, and exactly one route supplies a value.
+
+    use super::*;
+
+    const ROUTES: &str = include_str!("../routes/automations.rs");
+    const JOBS: &str = include_str!("../jobs/automations.rs");
+
+    #[test]
+    fn the_transition_only_advances_the_counter_when_asked_to() {
+        assert!(
+            TRANSITION_OCCURRENCE_SQL.contains("attempt = COALESCE(?14, attempt)"),
+            "TRANSITION_OCCURRENCE_SQL must advance `attempt` through COALESCE, so a transition of \
+             an attempt that already exists cannot move it. Without the COALESCE the five \
+             non-starting routes would each increment the counter."
+        );
+    }
+
+    /// The behavioural half, which the SQL cannot express: **one** starter, and it is the claim.
+    ///
+    /// A structural check on a source file, and deliberately so. The alternative -- a runtime
+    /// assertion that a start does not double-count -- cannot distinguish "the counter is
+    /// COALESCE'd" from "the counter is assigned but the routes happen to pass the current value",
+    /// and the second is precisely the defect this finding was about.
+    #[test]
+    fn exactly_one_route_starts_an_attempt_and_it_is_the_claim() {
+        let mut sources: Vec<(&str, &str)> = vec![("routes/automations.rs", ROUTES)];
+        sources.push(("jobs/automations.rs", JOBS));
+
+        let mut starting_sites = Vec::new();
+        for (name, src) in sources {
+            for (number, line) in src.lines().enumerate() {
+                if line.contains("start_attempt: Some(") {
+                    starting_sites.push(format!("{name}:{}", number + 1));
+                }
+            }
+        }
+        assert_eq!(
+            starting_sites.len(),
+            1,
+            "exactly ONE transition may pass `start_attempt: Some(..)` -- the one that starts an \
+             attempt. Found {starting_sites:?}. Every other transition of the shared statement must \
+             pass `None`, or a single start consumes several of the occurrence's \
+             `max_start_attempts`."
+        );
+        assert!(
+            starting_sites[0].starts_with("routes/automations.rs:"),
+            "the starting transition must be the claim in routes/automations.rs, not {:?}",
+            starting_sites[0]
+        );
+    }
+
+    /// Every other transition literal must pass `None` explicitly.
+    ///
+    /// `Option::None` is what `COALESCE` keys on, so a literal that omits the field would not
+    /// compile -- but a literal that passes `Some(existing)` would compile, pass the count above,
+    /// and quietly re-introduce the defect. So this pins the other direction too.
+    #[test]
+    fn every_non_starting_transition_declares_none() {
+        let mut sources: Vec<(&str, &str)> = vec![("routes/automations.rs", ROUTES)];
+        sources.push(("jobs/automations.rs", JOBS));
+
+        let mut declared = 0usize;
+        let mut some_sites = 0usize;
+        for (name, src) in sources {
+            for line in src.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("start_attempt:") {
+                    declared += 1;
+                    if trimmed.contains("Some(") {
+                        some_sites += 1;
+                        let _ = name;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            declared, 6,
+            "all SIX transition literals must state their intent: the claim, renew, start, settle, \
+             release, and the expiry sweep. Found {declared}."
+        );
+        assert_eq!(some_sites, 1, "and exactly one of them may be a `Some`.");
     }
 }

@@ -407,6 +407,13 @@ pub(crate) async fn require_staff(
     if !presented.starts_with(crate::core::STAFF_KEY_SCHEME) {
         return Err(staff_authentication_required(context));
     }
+    // Parsed here as well as inside the repository, because the secret has to be compared on THIS
+    // side of the lookup. `resolve_staff_credential` takes the whole presented string and hands back a
+    // row; it does not hand back the key, so nothing downstream could reach `key.secret()` even in
+    // principle. A malformed token is refused identically to a wrong one, so this parse adds no
+    // oracle of its own.
+    let key = crate::core::StaffKey::parse(&presented)
+        .map_err(|_| staff_authentication_required(context))?;
     let resolved = crate::repositories::PlatformOperationsRepository::new(database)
         .resolve_staff_credential(&presented)
         .await
@@ -418,6 +425,31 @@ pub(crate) async fn require_staff(
             )
         })?
         .ok_or_else(|| staff_authentication_required(context))?;
+
+    // V01-034. The lookup above is by PREFIX ALONE, and a prefix is a lookup key, not a secret: it
+    // is 16 lowercase hex characters, it is carried into `StaffActor` and from there into audit rows,
+    // and migration 0018 describes the credential as "the raw value is shown once and never stored".
+    // Every one of those statements is a property of a SECRET, and it is only true of a secret if the
+    // presented raw value is CHECKED. It was not: `credential_hash` was written by the provisioning
+    // path, read into the record, and length-checked by a unit test, and then never compared with
+    // anything. `StaffKey::secret()` had no non-test caller in the tree.
+    //
+    // So any well-formed `lumi_staff_<known-prefix>_<any-43-char-base64url>` authenticated as the
+    // principal owning that prefix, and the same wrong secret and the same nonexistent principal
+    // answered differently -- which made the endpoint an existence oracle for staff principals as
+    // well as an unauthenticated one.
+    //
+    // Constant time for the same reason the machine path gives eleven lines above: the prefix lookup
+    // has already told us WHICH row this is, so this is the factor that decides, and a shortcut here
+    // is the kind of thing that gets introduced by accident. The refusal is the SAME error the
+    // nonexistent-prefix case returns, so the two remain indistinguishable.
+    let presented_staff_hash = machine_secret_hash(key.secret());
+    if !core_constant_time_eq(
+        presented_staff_hash.as_bytes(),
+        resolved.credential_hash.as_bytes(),
+    ) {
+        return Err(staff_authentication_required(context));
+    }
 
     // A stored role that no longer parses is reported as an authentication
     // failure rather than defaulted. Defaulting would mean a renamed or corrupted
