@@ -391,3 +391,83 @@ the **build** (`E0425`) was reported as **DETECTED**, and two `exit 2, no sheet`
 miniflare recreating its persist directory were also read as detections. **`run_case` now
 discriminates a rustc diagnostic and reports `INVALID`; `settle_worker` polls until `workerd` is
 gone.**
+
+## V01-049 — the liveness check could not see an unrouted handler (CLOSED, and the check is fixed)
+
+**Status: CLOSED. Five orphans of 266 handlers, all diagnosed, none a security gap — and the check
+now has a `routes/` dimension so the class cannot recur silently.**
+
+`repository_liveness` scanned `repositories/`. A `pub` handler in `routes/` was structurally
+invisible to it, and `pub` in a `pub(crate)` module chain is exactly the shape of a capability that
+looks complete. Triaging `seat_policy_for_plan` made me ask the question the check could not.
+
+| | handler | diagnosis |
+|---|---|---|
+| 1 | `billing::create_internal_override` | Deliberately not routed — and this is **V01-040's implementation**, so that finding's *"not implemented"* is materially wrong |
+| 2 | `billing::apply_provider_callback` | Its doc names a `billing.sync` consumer that does not exist |
+| 3 | `organizations::audit` | **A third body for the routed route.** The router wires `audit::audit`, a *"compatibility entry point"* delegating to `audit::list`; this is an independent third implementation |
+| 4 | `ai_catalog::get_policy` | `update_policy` is routed and this read of the same row is not |
+| 5 | `ai_catalog::usage` | Superseded by the dedicated `usage` module |
+
+**Three of the five are divergence, not absence** — two audit bodies, a write with no read, and a
+capability whose only would-be failure path sits behind a dead handler.
+
+### The scan's two errors, which are the more useful half
+
+My shell scan **over-reported** three handlers because it excluded each *file* rather than the
+*definition*: `update_budget` is a one-line delegate to `patch_budget`, so `patch_budget` is the
+implementation of a routed `PATCH /budgets/{budget_id}`. A reader trusting that would have gone looking
+for a budget-update capability that does not exist and is fully wired. And it **under-reported**,
+missing three of the five the compiled check found.
+
+**A scan that excludes a file reports every intra-file delegate as uncalled, and the error direction is
+toward false findings** — the expensive direction, because a false *"capability wired to nothing"* is
+convincing enough to send someone into the product looking for a feature decision that was never
+needed. **A shell scan and a compiled check disagreeing on the count is the strongest argument there
+is for the check being a check.**
+
+### A new shape: a capability with no producer AND no consumer
+
+`provider_sync_state.consecutive_failures` and `last_error_code` are written **only** by the success
+writer — whose `ON CONFLICT` sets them to `0` and `NULL` — and read by nobody. `seed_ledger` reads
+only `last_event_id`, `last_event_version` and `last_event_at`.
+
+**A grep for callers produces a confidently wrong story about this.** The handler that would have
+recorded a failure is `apply_provider_callback`, which is *itself* unrouted and uncalled, and **even
+inside it there is no failure branch** — so the absence is not one dead call from being fixed. There
+is no `billing.sync` consumer at all.
+
+Every previous instance of this class (V01-040, V01-043, V01-046, V01-047) was **wired at the top and
+dead at the bottom**. This one is dead at the bottom, the layer above is also dead, and the layer
+above that is a routed `POST` that works. **A capability can be unwired at the bottom while every
+layer above it looks complete.**
+
+### What the check does now
+
+`security::repository_liveness` gained a `routes()` dimension:
+
+- every `pub async fn` in `routes/*.rs` must appear in `app.rs` or have a non-test caller, or be on
+  `REVIEWED_UNROUTED` with a reason;
+- the routed set is read from the **product's own router**, not parsed out of the handlers —
+  `verify:collection-tenancy` already established that a static parse of the route table gets routes
+  wrong;
+- **non-vacuity is asserted before any verdict** (≥ 200 handlers, ≥ 100 routed references, a non-empty
+  list), because a scan that read nothing would otherwise pass and claim the class closed;
+- **both staleness directions**, as the repositories list has: an entry naming a handler that no
+  longer exists, and a *"deliberately"* entry that has since become reachable. The second is a
+  deliberate deferral that has been **overtaken**, which is a decision nobody re-made.
+
+**The rule is deliberately not "is it reachable"**, because a resolved entry is a *record* of a
+deferral and deleting it would erase why the capability was never surfaced — the same distinction
+V01-045 established for the repositories list.
+
+**A blind spot in a standing check is a claim the check is making about the whole of `repositories/`
+that is quietly false.** This one now has a name and a list.
+
+### Triage also closed: the entitlement-provisioning cluster
+
+`UNTRIAGED` **23 → 17**. The two plan writes are platform provisioning seeded by migration `0015` with
+no customer surface; the two catalog reads are leaves covered by live siblings; and
+`seat_policy_for_plan` is a **second derivation** of the seat policy that agrees with the live path
+today with **nothing enforcing that agreement** — recorded because it is the more plausible name to
+wire, and wiring it would let a plan's flag silently override the account's configured policy.
