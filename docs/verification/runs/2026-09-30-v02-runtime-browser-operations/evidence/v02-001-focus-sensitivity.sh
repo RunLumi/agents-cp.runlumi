@@ -237,6 +237,26 @@ run_case() {
   MUTATING=0
 }
 
+# Bring the stack up before the BASELINE, not only between mutations.
+#
+# `smoke:browser` expects a Vite dev server on :5173 and a Worker on :8787 to be running already. With
+# neither up, the probe navigates to nothing, the app never renders the auth screen, and the journey
+# dies with `timed out waiting for auth screen` and exit 2 -- which is a statement about the harness
+# and not about the product. This session's very first run of the gate died exactly that way, and
+# the honest reading was "I invoked it wrong", not "the product is broken".
+#
+# A baseline that is red for that reason is worse than no baseline: the script would refuse to run,
+# correctly, and the refusal would look like a product failure. So the script owns the prerequisite
+# rather than assuming the operator remembered it.
+echo "=== stack ==="
+restart_dev || exit 2
+if [ "$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)" = "000" ]; then
+  echo "FATAL: the API is not answering on :8787 after restart_dev" >&2
+  exit 2
+fi
+echo "  vite=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/" 2>/dev/null || true)" \
+     api=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8787/api/v1/me" 2>/dev/null || true)"
+
 echo "=== baseline ==="
 pkill -9 -f "Google Chrome for Testing" 2>/dev/null
 sleep 4
