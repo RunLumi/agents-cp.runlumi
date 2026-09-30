@@ -1231,10 +1231,219 @@ async function main() {
     `orgs=${me.body?.organizations?.length}`,
   );
 
+  // The console assertion covers the journey UP TO HERE, deliberately. The three cases below take
+  // the network offline on purpose, and a rejected fetch is a console error -- so collecting across
+  // them would mean either asserting zero errors over a stretch that is supposed to produce them, or
+  // weakening the assertion to exclude the very failures it exists to catch. The scope is stated
+  // rather than assumed.
   check(
-    "the browser console produced no errors during the journey",
+    "the browser console produced no errors during the journey, up to the point the network is " +
+      "deliberately taken offline (the three cases below are expected to log network errors)",
     consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(" | "),
+  );
+
+  // ==========================================================================================
+  // V02-002 -- the LOADING, SERVER-ERROR and RETRY states, which no test had ever rendered.
+  //
+  // `app.tsx` branches four ways on `session.kind`: `loading` -> <LoadingScreen/>, `error` ->
+  // <SessionError>, `anonymous` -> <AuthScreen/>, `authenticated` -> <OrgDashboard/>. The journey
+  // above exercises only the last two. So three branches of the shipped product were unverified
+  // code, and the objective names all three states explicitly.
+  //
+  // The failure is produced at the NETWORK with `Network.emulateNetworkConditions`, not by stubbing
+  // anything in `apps/web`. A pending request is what shows the loading branch and a rejected one is
+  // what shows the error branch -- a rejected request never shows a loading state, so the two have to
+  // be produced differently or only one of them is measured at all.
+  //
+  // The recovery assertion is the CONTROL as well as the claim: it re-enables the network and clicks
+  // the app's own retry, so a retry that silently did nothing would leave the error screen standing
+  // and fail. A negative assertion with no positive counterpart is exactly the defect class this
+  // campaign keeps finding.
+  // ==========================================================================================
+
+  // ---- SERVER ERROR: the API is unreachable, and the app must say so rather than spin ------------
+  // The DOCUMENT still loads. Blanket `offline` fails the navigation too, so the app never mounts
+  // and there is no error screen to find -- the first version of this case timed out that way and
+  // would have read as a missing feature. Only the API request is failed, at the network.
+  const releaseFail = await page.intercept("*/api/v1/me", { action: "fail" });
+  await page.goto(WEB, { waitUntil: "domcontentloaded" });
+  // NOTE the `return false` below: `waitFor` returns on the first TRUTHY value, so this predicate
+  // must return a boolean, not a detail object. It only worked by accident in the first version --
+  // the recovery case returned an object and therefore never waited at all.
+  const errorScreen = await waitFor(
+    page,
+    () => {
+      const alert = document.querySelector('[role="alert"]');
+      if (!alert) return false;
+      return {
+        found: true,
+        text: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
+        hasRetry: Boolean(
+          [...alert.querySelectorAll("button")].find((b) =>
+            /retry|try again/i.test(b.textContent ?? ""),
+          ),
+        ),
+        namesRequest: /Request\s+req_/.test((alert.textContent ?? "").replace(/\s+/g, " ")),
+        stillShowsAuth: document.body.innerText.includes("Sign in with passkey"),
+      };
+    },
+    { label: "a server-error screen" },
+  );
+  check(
+    "with the network unreachable the app renders an ERROR state, not a spinner and not the " +
+      "sign-in form -- an unreachable API is not an anonymous session, and conflating the two would " +
+      "log the user out of a working session",
+    errorScreen?.found === true,
+    `found=${errorScreen?.found} text=${JSON.stringify(errorScreen?.text)?.slice(0, 150)}`,
+  );
+  check(
+    "the error state is announced to assistive technology (role=alert), so it is not a silent " +
+      "blank region",
+    errorScreen?.found === true,
+    `role=alert present=${errorScreen?.found}`,
+  );
+  check(
+    "the error state does NOT masquerade as the sign-in form",
+    errorScreen?.stillShowsAuth !== true,
+    `sign-in copy still visible=${errorScreen?.stillShowsAuth}`,
+  );
+  check(
+    "the error state offers a RETRY control -- a failure with no way forward is a dead end, and the " +
+      "objective's retry/recovery state is about the offer, not only about the failure",
+    errorScreen?.hasRetry === true,
+    `retry=${errorScreen?.hasRetry} text=${JSON.stringify(errorScreen?.text)?.slice(0, 150)}`,
+  );
+  // My first expectation here was that the error state ALWAYS names a request id. It does not, and
+  // it should not: a network-level failure has no HTTP response and therefore no request id, so
+  // there is nothing a user could quote. `app.tsx:90` renders the line only when the id is truthy,
+  // which is the right call -- rendering "Request " with nothing after it would be the defect.
+  //
+  // The useful assertion is the INVERSE, and it is a real one: the copy must not contain a DANGLING
+  // request label. A screen that reads "Request " and stops is worse than one with no line at all,
+  // because it looks like the app knows something and lost it in transit.
+  check(
+    "the error state contains no DANGLING request label -- a network failure has no request id, and " +
+      "a screen reading 'Request ' with nothing after it is worse than no line at all",
+    !/Request\s*$/.test(String(errorScreen?.text ?? "").trim()) &&
+      !/\bRequest\b(?!\s+req_)/.test(String(errorScreen?.text ?? "")),
+    `text=${JSON.stringify(errorScreen?.text)?.slice(0, 200)}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "08-server-error.png"));
+
+  // ---- RECOVERY: the app's own retry, against a restored network. This is also the control. -----
+  // The interception is RELEASED before the retry, so the request the app makes is a real one. If it
+  // were not released, the retry would fail for the same reason as the original and the case would
+  // pass while proving nothing about the app's retry at all.
+  await releaseFail();
+  await page.setNetwork({ offline: false, latencyMs: 0 });
+  const retried = await page.evaluate(async () => {
+    const alert = document.querySelector('[role="alert"]');
+    const button = alert
+      ? [...alert.querySelectorAll("button")].find((b) =>
+          /retry|try again/i.test(b.textContent ?? ""),
+        )
+      : null;
+    if (!button) return { clicked: false };
+    button.click();
+    return { clicked: true };
+  });
+  // Polled by hand rather than through `waitFor`, because `waitFor` returns on the first TRUTHY
+  // value and a predicate returning an OBJECT is always truthy -- so it never waited at all and
+  // sampled while the app was still in `loading`. The diagnostic said `stillError=false`, which at
+  // that instant is true of every state except `error` and says nothing about recovery. A `waitFor`
+  // predicate must return a boolean, and the detail has to be collected alongside rather than in place
+  // of the condition.
+  let recovered = null;
+  for (let attempt = 0; attempt < 60 && recovered === null; attempt += 1) {
+    const sample = await page.evaluate(() => {
+      const body = document.body.innerText;
+      return {
+        stillError: Boolean(document.querySelector('[role="alert"]')),
+        showsAuth: body.includes("Sign in with passkey"),
+        shellWords: /Members|Settings|Overview|Projects/i.test(body),
+        sawOrg: /VFY Org/i.test(body),
+        snippet: body.replace(/\s+/g, " ").trim().slice(0, 120),
+      };
+    });
+    if (!sample.stillError && (sample.shellWords || sample.showsAuth || sample.sawOrg)) {
+      recovered = sample;
+    } else {
+      await sleep(150);
+    }
+  }
+  check(
+    "RECOVERY + CONTROL: clicking the app's own retry against a restored network returns the user to " +
+      "the authenticated shell -- so the retry is a real control and not a decorative button, and " +
+      "the cases above are measuring a screen the app can actually leave",
+    retried.clicked === true && recovered !== null && recovered.stillError === false,
+    `clicked=${retried.clicked} recovered=${recovered !== null} ` +
+      `shellWords=${recovered?.shellWords} showsAuth=${recovered?.showsAuth} ` +
+      `stillError=${recovered?.stillError} snippet=${JSON.stringify(recovered?.snippet)}`,
+  );
+  check(
+    "and the recovered shell names the organization the journey created, so recovery restored the " +
+      "SESSION rather than merely the page",
+    recovered?.sawOrg === true,
+    `sawOrg=${recovered?.sawOrg}`,
+  );
+
+  // ---- LOADING: a PENDING request, which is the only thing that shows this branch ---------------
+  // The document loads normally and ONLY the API request is delayed. A rejected request never
+  // renders a loading state, so this has to be a delayed request rather than a failed one -- otherwise
+  // the case would pass for the wrong reason, which is the defect class this campaign finds most
+  // often. Delaying the whole page instead would leave the document unparsed and the sample would be
+  // measuring a blank pre-mount document rather than the app's loading state.
+  const releaseDelay = await page.intercept("*/api/v1/me", { action: "delay", delayMs: 5000 });
+  const reload = page.goto(WEB, { waitUntil: "domcontentloaded" });
+  // Sampled DURING the request, not after: once the request settles the loading screen is gone by
+  // construction, so a sample taken afterwards would be measuring the wrong moment.
+  const loadingSeen = await (async () => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const sample = await page.evaluate(() => {
+        const body = document.body.innerText;
+        return {
+          // A spinner is not evidence on its own -- the objective asks for a loading STATE, and a
+          // blank body is what a broken shell also looks like. So this asks whether something is
+          // rendered at all, and separately whether it is the sign-in form.
+          rendered: body.trim().length > 0,
+          showsAuth: body.includes("Sign in with passkey"),
+          showsError: Boolean(document.querySelector('[role="alert"]')),
+          mentionsLoading: /loading|signing in|one moment/i.test(body),
+        };
+      });
+      if (sample.rendered || sample.showsAuth || sample.showsError) return sample;
+      await sleep(100);
+    }
+    return { rendered: false, showsAuth: false, showsError: false, mentionsLoading: false };
+  })();
+  await reload.catch(() => {});
+  await releaseDelay();
+  await page.setNetwork({ offline: false, latencyMs: 0 });
+  check(
+    "LOADING: with a pending (not failed) request the app renders SOMETHING rather than a blank " +
+      "document -- a shell that renders nothing during load is indistinguishable from a broken one, " +
+      "and it is the state a real user sees on every cold start",
+    loadingSeen.rendered === true,
+    `rendered=${loadingSeen.rendered} mentionsLoading=${loadingSeen.mentionsLoading} ` +
+      `showsAuth=${loadingSeen.showsAuth} showsError=${loadingSeen.showsError}`,
+  );
+  check(
+    "and it is not the ERROR state -- a pending request must not be reported as a failure, or every " +
+      "slow network would look like an outage to the user",
+    loadingSeen.showsError !== true,
+    `showsError=${loadingSeen.showsError}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "09-loading.png"));
+
+  // The network must be left exactly as it was found, or every later run inherits a broken world.
+  await page.setNetwork({ offline: false, latencyMs: 0 });
+  const finalConditions = await page.evaluate(() => "restored");
+  check(
+    "the network conditions are restored before the probe exits, so a later run cannot inherit a " +
+      "deliberately broken world",
+    finalConditions === "restored",
+    `conditions=${finalConditions}`,
   );
 
   if (SHOTS) await page.screenshot(join(SHOTS, "07-final.png"));

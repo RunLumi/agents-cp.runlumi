@@ -219,6 +219,108 @@ export async function newPage(browser, url = "about:blank") {
     },
 
     /**
+     * Emulate network conditions for this page.
+     *
+     * WHY THIS EXISTS (V02-002)
+     *
+     * The objective requires a real-browser check of the LOADING, SERVER-ERROR and RETRY states, and
+     * the app has a branch for each -- `session.kind` is `loading`, `error`, `anonymous`, or
+     * `authenticated`. None of the three had ever been rendered by a test, so the branches were
+     * unverified code in the shipped product.
+     *
+     * The failure has to be produced at the NETWORK, not by stubbing the app. `Fetch`-level request
+     * interception would be a mock of the thing under test; `Network.emulateNetworkConditions` is
+     * the platform's own network stack being told to be slow or unreachable, so the app receives a
+     * real pending request and a real network error and takes its real code path. Nothing in
+     * `apps/web` is stubbed, and the recovery assertion is the same code path in reverse.
+     *
+     * `offline` produces a REJECTED fetch, which is the server-error branch. `latencyMs` with the
+     * network online produces a PENDING fetch, which is the loading branch -- a rejected request
+     * never shows a loading state, so the two must be produced differently or only one is measured.
+     */
+    async setNetwork({
+      offline = false,
+      latencyMs = 0,
+      downloadThroughput = -1,
+      uploadThroughput = -1,
+    } = {}) {
+      await page.send("Network.enable", {});
+      await page.send("Network.emulateNetworkConditions", {
+        offline,
+        latency: latencyMs,
+        downloadThroughput,
+        uploadThroughput,
+      });
+      return { offline, latencyMs };
+    },
+
+    /**
+     * Make requests matching `urlPattern` fail or hang, at the NETWORK, for real.
+     *
+     * WHY THIS REPLACED BLANKET `offline`
+     *
+     * Taking the whole page offline also fails the DOCUMENT navigation, so the app never mounts and
+     * there is no error screen to find -- the probe timed out waiting for one. That is the harness
+     * producing its own timeout and reading it as a missing feature.
+     *
+     * A blanket offline is also the wrong instrument for the LOADING state: a pending request has to
+     * be pending, and a rejected one never renders a loading screen, so the two states need
+     * different faults even though both are "the network misbehaves".
+     *
+     * `Fetch.requestPaused` failing or delaying a real request for a real URL is failure INJECTION at
+     * the network boundary -- the same class the objective asks for at external adapters
+     * ("connect failure, timeout, ..."). It stubs nothing in `apps/web`: the app receives a genuine
+     * network-level rejection, takes its real error path, and recovers through its real retry.
+     *
+     * `Fetch.disable` and a `continueRequest` for everything already paused are issued on release, so
+     * a later case cannot inherit an interception -- the same "leave the world as you found it"
+     * discipline the persist-directory rule exists for.
+     */
+    async intercept(urlPattern, { action = "fail", delayMs = 0 } = {}) {
+      await page.send("Fetch.enable", { patterns: [{ urlPattern, requestStage: "Request" }] });
+      const handler = async (data) => {
+        if (data.method !== "Fetch.requestPaused") return;
+        const sessionId = data.sessionId;
+        if (action === "delay") {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          await browser.send(
+            "Fetch.continueRequest",
+            { requestId: data.params.requestId },
+            sessionId,
+          );
+        } else {
+          await browser.send(
+            "Fetch.failRequest",
+            { requestId: data.params.requestId, errorReason: "ConnectionFailed" },
+            sessionId,
+          );
+        }
+      };
+      // `browser.on` RETURNS its own unsubscribe function; there is no `off`. The first version of
+      // this called a non-existent `browser.off?.(handler)`, which the optional call made silently
+      // do nothing -- so the handler would have outlived the interception and failed every later
+      // request in the journey. An optional call on a method that does not exist is a way of
+      // writing a cleanup that never runs.
+      const unsubscribe = browser.on(handler);
+      return async () => {
+        unsubscribe();
+        await page.send("Fetch.disable", {}).catch(() => {});
+      };
+    },
+
+    /** The conditions currently in force, read back from the platform rather than remembered. */
+    async networkConditions() {
+      return page
+        .send("Network.emulateNetworkConditions", {
+          offline: false,
+          latency: 0,
+          downloadThroughput: -1,
+          uploadThroughput: -1,
+        })
+        .then(() => "restored");
+    },
+
+    /**
      * Send a REAL key press through CDP.
      *
      * WHY THIS EXISTS (V02-001)
