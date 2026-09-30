@@ -471,3 +471,73 @@ no customer surface; the two catalog reads are leaves covered by live siblings; 
 `seat_policy_for_plan` is a **second derivation** of the seat policy that agrees with the live path
 today with **nothing enforcing that agreement** — recorded because it is the more plausible name to
 wire, and wiring it would let a plan's flag silently override the account's configured policy.
+
+## V01-050 — a routed customer endpoint reads a table nothing can ever write (HIGH, open by decision)
+
+**Status: OPEN by decision. The capability is absent; the product's behaviour on the path is correct.**
+
+`GET /api/v1/orgs/{org_id}/entitlements/provider` reads `provider_entitlement_projections`
+(`routes/billing.rs:633`). **The only `INSERT` into that table in the whole tree is inside
+`upsert_provider_projection_statement`, which has no caller**, and migration `0013` creates the
+table without seeding it. So `rows` is empty on every request and the endpoint answers `200`
+with `items: []` forever.
+
+It is the same read-half-live / write-half-dead shape as V01-046's notification cluster and
+`record_provider_failure_statement` — and **those two sit behind no route. This one sits behind
+a routed, authenticated, org-scoped endpoint.** That is the entire difference between an
+architectural note and a customer-visible gap.
+
+### Why no gate could have caught it
+
+It is **V01-030's shape on a customer surface**: a success status while the thing read can never
+exist. A `200` with an empty list is *also* what correct behaviour looks like for a tenant with
+no provider entitlements — the two are the same bytes.
+
+**A leak probe is a vacuity probe on this route.** `verify:collection-tenancy` and
+`verify:filter-tenancy` search the body for another tenant's identifiers, which an empty body
+trivially satisfies. Both would report a clean sheet on an endpoint that can only answer `[]`.
+
+### Why it is left unrepaired
+
+Wiring the write means deciding which events may produce a projection, whether provider-sourced
+data may reach a customer-visible surface at all, and what happens when a source event is later
+revoked — a stale projection tells a customer they have a capability they lost, or the reverse.
+Those need their own spec; editing `f18` to match the code is the move this campaign may not
+make. **Fail-closed**: nothing wrong is disclosed and no money moves. The cost is a capability
+that does not work.
+
+### How it was found
+
+By triaging **one** `UNTRIAGED` liveness entry, mechanically: locate the function, find its SQL,
+count callers. **The triage was the detector** — no mutation, no probe, no gate.
+
+## The liveness triage is COMPLETE: `UNTRIAGED` 47 → 0
+
+Every uncalled repository function now carries a recorded reason. **That number is not a coverage
+claim** — it says every entry has a reason, and it is only as good as those reasons. **Four
+reasons written during the campaign were wrong on arrival** and had to be corrected by reading
+the product.
+
+### The standing lesson, and it happened three times
+
+I formed a Tier-0 hypothesis — *"an organization can never be suspended"* — from **one** grep
+result showing a similarly-named function uncalled, and was about to write it up. The live
+function is `update_state_statement`; `update_state` is a documented retained primitive whose own
+doc says it *"remains for the paths that have nothing to pair it with"*; and
+`POST /api/v1/orgs/{org_id}/suspend` **is** routed and live, with `automations.rs:200`
+requiring `o.state = 'active'` — so f15's *"a suspended org stops new dispatch"* is enforced in
+SQL. **Two citations in f02, one in f04 and one in f15 all have what they name.**
+
+The same shape twice more:
+
+- **V01-048** — found the `changes()` guard at line 1876, saw it gated on `scope.managed_run`,
+  and generalised to *"the pattern is managed-only"* without checking the first instance sixteen
+  lines earlier, which is ungated and load-bearing.
+- **the `routes/` scan** — a shell scan reported 5 unrouted handlers with a **different
+  membership** from the compiled check: three false positives from intra-file delegates, three
+  misses.
+
+**A product fact inferred from a single search result about a similarly-named symbol is a
+hypothesis, and the cheapest thing to do with a hypothesis is to read the sibling.** Both false
+alarms cost more than the triage that corrected them, and one nearly became a written Tier-0
+finding.

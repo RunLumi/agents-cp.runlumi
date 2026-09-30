@@ -182,8 +182,32 @@ mod tests {
                 "table was unwritten"
             ),
         ),
-        ("decode_json_document", "UNTRIAGED"),
-        ("decode_stored_bytes", "UNTRIAGED"),
+        (
+            "decode_json_document",
+            concat!(
+                "EXAMINED, a leaf with the same shape as `decode_stored_bytes`: a fail-closed codec ",
+                "whose doc states the rule it exists to enforce -- 'a malformed governance document ",
+                "is a store problem, never a permissive default' -- and no production consumer. The ",
+                "governance documents it would read are evidently decoded by a sibling, or the read ",
+                "that would need them is not routed. Noted rather than assumed: a codec with an ",
+                "explicit fail-closed contract and no caller is the cheapest place for a permissive ",
+                "default to hide if a future reader adds a caller and skips the rule"
+            ),
+        ),
+        (
+            "decode_stored_bytes",
+            concat!(
+                "EXAMINED, a codec with a fully specified contract and no production consumer. Its ",
+                "doc says the encoding has 'exactly one valid encoding' so a tampered row cannot be ",
+                "read as a valid signature, and its four callers are all `#[cfg(test)]` inline tests ",
+                "asserting exactly that (lowercase hex, even length, non-empty). A tested invariant ",
+                "with no reader: whatever column it was written for is decoded elsewhere or not at ",
+                "all. Worth a reader's attention precisely because the tests are thorough enough to ",
+                "look like coverage of something in use. Note that a shell grep reports four callers ",
+                "for this name and the compiled check reports zero, because the check strips ",
+                "`#[cfg(test)]` blocks and a filename filter does not"
+            ),
+        ),
         (
             "deny_enrollment_statement",
             "V01-041, now called by the `deny_enrollment` handler: POST .../enrollments/{id}/deny. A pending enrollment could be approved and never denied, so a human control had an affirmative branch and no negative one.",
@@ -192,12 +216,31 @@ mod tests {
             "find_active_credential",
             "EXAMINED, no gap. Superseded by the session/machine authentication paths, which resolve a credential together with the principal rather than alone. A credential lookup that returns a row without its owner is the same shape as V01-034's prefix resolver, so it has no caller.",
         ),
-        ("find_active_route_version", "UNTRIAGED"),
+        (
+            "find_active_route_version",
+            concat!(
+                "EXAMINED, a leaf covered by a sibling. The live resolution path is ",
+                "`find_route_version(org_id, route.active_version_id)` at routes/inference.rs, which ",
+                "is the correct shape: the active version is a pointer on the route, and a query that ",
+                "had to re-derive 'which is active' would be a second authority for a fact the route ",
+                "row already owns. A convenience read that would blur that"
+            ),
+        ),
         (
             "find_budget_for_scope_period",
             "EXAMINED, no gap. A point lookup for deterministic create conflicts. The create path resolves the same scope/period through the budget read that `list_budgets` uses, and `verify:budget-concurrency` exercises create-on-an-existing-period through the live route. A duplicate create is refused on the UNIQUE constraint rather than by a pre-read, which is the stronger answer under concurrency anyway -- a pre-read races, a constraint does not.",
         ),
-        ("find_identity_by_user", "UNTRIAGED"),
+        (
+            "find_identity_by_user",
+            concat!(
+                "GAP-003, the same dead feature as V01-005. Identity LINKING is unspecified: no spec ",
+                "names which reauth purpose guards it, so the link surface cannot be built without a ",
+                "decision, and the read that would serve it is uncalled for the same reason rather ",
+                "than by accident. Unchanged by this campaign and still open BY DECISION -- the ",
+                "blocking question is which purpose guards identity linking, not how to write the ",
+                "read",
+            ),
+        ),
         (
             "find_key_by_prefix",
             "EXAMINED, deliberately uncalled, and the reason is V01-034. It resolves a credential by its lookup prefix alone. The V01-034 fix made the staff path compare the presented secret in constant time against the stored hash, and the machine path eleven lines above already did. A prefix-only resolver is the exact shape of the authentication bypass that was CRITICAL, so no caller is the safe state. Recorded because the method still exists and the temptation is symmetric.",
@@ -384,7 +427,22 @@ mod tests {
                 "SQL. The lifecycle is operable, not a kill switch with no lever"
             ),
         ),
-        ("upsert_provider_projection_statement", "UNTRIAGED"),
+        (
+            "upsert_provider_projection_statement",
+            concat!(
+                "V01-050, HIGH, and the only one of these that is behind a CUSTOMER ROUTE. It holds ",
+                "the ONLY `INSERT INTO provider_entitlement_projections` in the tree, the table is ",
+                "created by migration 0013 and never seeded, and it has no caller -- so the table is ",
+                "permanently empty. The routed `GET /api/v1/orgs/{org_id}/entitlements/provider` ",
+                "reads it at routes/billing.rs:633 and answers 200 with `items: []` forever. ",
+                "This is V01-030's shape on a customer surface: a success status while the thing ",
+                "read can never exist, so no assertion could have distinguished it from correct ",
+                "behaviour. It also completes the read-half-live / write-half-dead family: V01-046's ",
+                "notification cluster and `record_provider_failure_statement` are the same shape ",
+                "behind NO route, and this one is behind a routed, authenticated, org-scoped ",
+                "endpoint -- which is the difference that makes it a finding rather than a note"
+            ),
+        ),
         (
             "upsert_rollup_statement",
             "V01-047, examined. `list_rollups` IS called (`routes/usage.rs:776`) but nothing WRITES a rollup, so every rollup read returns nothing. Same shape as the run-source writer: a read wired without its write. Open with V01-047.",
