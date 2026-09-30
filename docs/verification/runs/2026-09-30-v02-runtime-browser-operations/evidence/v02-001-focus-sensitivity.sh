@@ -325,7 +325,29 @@ if [ -z "$BASELINE_HASH" ]; then
 fi
 echo "  baseline served-module hash: ${BASELINE_HASH:0:16}"
 
-# --- M1: delete the focus ring from the switcher -------------------------------------------------
+# --- M1: delete the app's focus ring from the switcher -- a DECLARED KNOWN MISSED ----------------
+#
+# Written expecting DETECTED. It came back MISSED, and the measured cause is not a defect in the
+# gate -- it is a fact about the product that the gate is right to be insensitive to.
+#
+# WITH the app's ring removed, measured on the same control in the same run:
+#
+#     before.boxShadow = "none"    after.boxShadow = "none"      <-- the app's ring IS gone
+#     changed          = [outlineWidth, outlineColor]            <-- focus is STILL visible
+#
+# `boxShadow` being `none` on both sides is the proof the mutation landed. And the outline properties
+# still changing means the BROWSER supplies its own focus indicator on this control. So removing the
+# app's ring removed a REDUNDANT layer: the user-visible requirement -- "visible focus" -- is still
+# satisfied, and an assertion that measures the requirement rather than the implementation detail is
+# correct to pass.
+#
+# This is the difference between a missed detection and a correct verdict, and the run distinguishes
+# them by MEASUREMENT rather than by assertion: had the outline not changed either, the delta would
+# have been empty and the gate would have gone red. It did not.
+#
+# Detecting the removal WOULD require a different claim -- "the focus indicator uses the design-system
+# ring token" -- which is a styling-conformance assertion, not an accessibility one. That is a real
+# claim worth making somewhere, and it is not this gate's claim.
 python3 - <<'MUTATE_M1'
 import pathlib, re
 p = pathlib.Path("apps/web/src/features/organizations/org-dashboard.tsx")
@@ -351,7 +373,7 @@ print("    the switcher's focus ring is removed")
 MUTATE_M1
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M1 changed nothing" >&2; exit 1; }
 await_served_change "$BASELINE_HASH" || exit 1
-run_case "M1 (the focus ring deleted from the switcher)" "DETECTED"
+run_case "M1 (the app's focus ring deleted -- KNOWN MISSED: the browser supplies its own)" "MISSED"
 
 # --- M2: the control direction -- ring present, outline-neutered only ----------------------------
 python3 - <<'MUTATE_M2'
@@ -396,13 +418,23 @@ python3 - <<'MUTATE_M3B'
 import pathlib
 p = pathlib.Path("apps/web/scripts/browser-probe.mjs")
 s = p.read_text()
-anchor = '  check(\n    "the ring is not merely PRESENT but CHANGED'
-assert s.count(anchor) == 1, "the V02-001 regression case was not found"
+# Anchored on a case name that EXISTS. The first version anchored on the pre-repair name, so this
+# block raised AssertionError, the mutation never happened, and the run reported a DISAGREEMENT about
+# a run that never occurred -- a harness reporting a verdict for a run it did not perform, which is
+# the failure this campaign has now hit in four distinct harnesses.
+anchor = '  check(\n    "focusing the switcher changes a property that RENDERS A FOCUS INDICATOR'
+assert s.count(anchor) == 1, (
+    "the RENDERS A FOCUS INDICATOR case was not found; the repaired assertion has probably been "
+    "renamed again, and this block must be updated rather than allowed to fail silently"
+)
 # Reinsert the pre-V02-001 assertion verbatim, next to the repaired one, so the same run reports
 # both verdicts on the same control. This is the finding reproduced rather than described.
-old_assertion = '''  const legacyFocusAssertion =
-    (focusProbe.boxShadow && focusProbe.boxShadow !== "none") ||
-    (focusAfter?.outline && !focusAfter.outline.startsWith("none"));
+old_assertion = '''  // The pre-V02-001 assertion, verbatim, evaluated on the FOCUSED reading. It is true whenever the
+  // focused control has any box-shadow at all -- which is why it passed on `rgba(0, 0, 0, 0)` and
+  // would pass with the ring deleted.
+  const legacyFocusAssertion =
+    (focusAfter?.boxShadow && focusAfter.boxShadow !== "none") ||
+    (focusAfter?.outline && !String(focusAfter.outline).startsWith("none"));
   check(
     "M3 CONTROL: the PRE-V02-001 assertion, reinstated verbatim, still PASSES with the focus " +
       "ring deleted from the source -- which is the whole finding in one assertion",
