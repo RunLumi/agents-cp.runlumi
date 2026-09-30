@@ -36,10 +36,42 @@ Here a *route* reports success while the table it reads is permanently empty, an
 anywhere could have distinguished that from correct behaviour** — a `200` with an empty list is what
 correct behaviour looks like when a tenant has no provider entitlements, and the two are the same bytes.
 
-No gate attacks it. `verify:collection-tenancy` and `verify:filter-tenancy` fetch collection routes and
-search the body for another tenant's identifiers — which an empty body trivially satisfies. **A leak
-probe is also a vacuity probe here**, and that is worth stating: those gates would report a clean
-sheet on an endpoint that can only ever answer `[]`.
+No gate attacks it — and the reason is sharper than "an empty body passes a leak search".
+
+`verify:collection-tenancy` **does** fetch this route (it is in the route list at line 147), and it
+**does** carry a positive-match control. So the gate is not fooled wholesale. But look at what the
+control asserts:
+
+```js
+alphaNeedles.length > 0 &&
+  ownProjects.status === 200 &&
+  alphaNeedles.every((v) => ownBody.includes(v))
+```
+
+It proves the *search mechanism* can find an identifier — **using `/projects`, not this route.** The
+per-route verdict is "no foreign identifier appears in the body", and a body that can only ever be
+`[]` satisfies that trivially.
+
+**So: a positive-match control proves the needle can be found *somewhere*, not that every route's body
+can contain one.** The gate is honest about its mechanism and silent about this route's content, and
+its denominator counts the route as **covered**.
+
+That is a generalisable verifier observation, and this probe's own comments say it is the **sixth**
+time this campaign has hit a *negative assertion graded on an empty set*:
+
+> "A positive-match control that passes when there is nothing to match is the same defect as a
+> negative assertion graded on an empty set."
+
+**A per-case leak assertion is graded on the absence of a needle. A body that can never contain one
+satisfies it — and the control that defends the gate defends the aggregate, not the case.** The
+defence against that is a per-route *non-emptiness* control: for each collection route, assert the
+response is not trivially empty before its leak verdict means anything. That is a change to a frozen
+gate's design, so it is recorded here as an observation about the gate rather than applied to it —
+and it applies to every collection route, not only this one.
+
+**This is a source reading, not a measured false pass:** the route is in the list, the control targets
+`/projects`, and the per-route assertion is a "no foreign id" search. Running the gate green is
+consistent with all three, which is the point.
 
 ## What is *not* wrong
 

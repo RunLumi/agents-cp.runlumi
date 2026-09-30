@@ -493,9 +493,20 @@ It is **V01-030's shape on a customer surface**: a success status while the thin
 exist. A `200` with an empty list is *also* what correct behaviour looks like for a tenant with
 no provider entitlements — the two are the same bytes.
 
-**A leak probe is a vacuity probe on this route.** `verify:collection-tenancy` and
-`verify:filter-tenancy` search the body for another tenant's identifiers, which an empty body
-trivially satisfies. Both would report a clean sheet on an endpoint that can only answer `[]`.
+**A per-case leak assertion is graded on the absence of a needle, and a body that can never contain
+one satisfies it.** `verify:collection-tenancy` *does* fetch this route (it is in the list) and *does*
+carry a positive-match control — but the control proves the search mechanism can find an identifier
+**using `/projects`**, not that this route's body is non-empty. The gate is honest about its mechanism
+and silent about this route's content, and its denominator counts the route as **covered**.
+
+**A positive-match control proves the needle can be found *somewhere*, not that every route's body can
+contain one — it defends the aggregate, not the case.** The probe's own comments record this as the
+**sixth** instance of a *negative assertion graded on an empty set*. The defence is a per-route
+non-emptiness control, and it applies to **every** collection route, not only this one. That is a
+change to a frozen gate's design, so it is recorded as an observation rather than applied.
+
+**This is a source reading, not a measured false pass** — and running the gate green is consistent
+with all of it, which is the point.
 
 ### Why it is left unrepaired
 
