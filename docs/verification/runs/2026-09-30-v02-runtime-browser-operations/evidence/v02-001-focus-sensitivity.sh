@@ -248,7 +248,11 @@ if [ "$BASE_RC" -ne 0 ]; then
   grep -E "^FAIL" "$LOG" | head -6 >&2
   exit 2
 fi
-for needed in "reachable by pressing Tab" "VISIBLY changes its rendering" "ring is not merely PRESENT"; do
+# These names are asserted to EXIST before any mutation runs, so the script cannot report a verdict
+# for a case that has been renamed or removed. It fired on its first run after the closing assertion
+# was renamed -- which is the guard working, and the reason a mutation run cannot silently stop
+# attacking anything.
+for needed in "reachable by pressing Tab" "VISIBLY changes its rendering" "RENDERS A FOCUS INDICATOR" "PRECONDITION"; do
   grep -qF "$needed" "$LOG" || {
     echo "BASELINE LACKS the case this script attacks: $needed" >&2; exit 2; }
 done
