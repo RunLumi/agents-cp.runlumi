@@ -25,6 +25,7 @@
     "verify:collection-tenancy": "node scripts/v01-collection-tenancy-probe.mjs",
     "verify:staff-credential": "node scripts/v01-staff-credential-probe.mjs",
     "verify:webhook-fanout": "node scripts/v01-webhook-fanout-probe.mjs",
+    "verify:budget-hardceiling": "node scripts/v01-budget-hardceiling-probe.mjs",
     "verify:secret-tenancy": "node scripts/v01-secret-tenancy-probe.mjs",
     "verify:path-id-tenancy": "node scripts/v01-path-id-tenancy-probe.mjs"
   },
