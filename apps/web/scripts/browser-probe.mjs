@@ -1659,6 +1659,346 @@ async function main() {
     }
   }
 
+  // ==========================================================================================
+  // V02-008 -- ONE-TIME SECRET LIFECYCLE, the last non-PROVEN browser state.
+  //
+  // The email verification code was already covered end to end, including a refused short code, but a
+  // verification code is not a *secret*: it authenticates one transaction. This state is about a
+  // credential whose whole safety property is that it is shown ONCE and then cannot be retrieved.
+  //
+  // The webhook signing secret is exactly that, and the app documents the contract in its own copy:
+  //
+  //   title:   "Signing secret -- shown once"
+  //   warning: "Copy this value now: it is not stored in the control plane and cannot be shown
+  //             again."
+  //   and `secret-reveal.tsx` opens with "rendered exactly as returned, never masked into something
+  //   that could be mistaken for the real secret, and never persisted."
+  //
+  // So the claim has three parts and all three are asserted against RENDERED TEXT:
+  //   1. the secret is revealed, unmasked, with the warning;
+  //   2. navigating away and back does NOT bring it back -- the load-bearing half, because a value
+  //      that reappears is a secret the control plane is holding;
+  //   3. rotating produces a DIFFERENT value, so rotation is real rather than a re-read.
+  //
+  // The endpoint URL is shape-validated only -- private IPs, userinfo and explicit ports are refused
+  // (`routes/webhooks.rs`) -- so a public-looking host needs no allowlist. That matters: the
+  // objective's standing rule is to name a host through the documented allowlist rather than
+  // relaxing an SSRF guard, and here the guard simply does not gate endpoint registration. No guard
+  // is disabled to make this pass.
+  // ==========================================================================================
+  await page.goto(`${WEB}org/${ownSlug}/webhooks`, { waitUntil: "load" });
+  const webhooksReady = await waitFor(
+    page,
+    () => {
+      const buttons = [...document.querySelectorAll("button")].map((b) =>
+        (b.textContent ?? "").trim(),
+      );
+      return buttons.some((t) => /new endpoint/i.test(t))
+        ? { ready: true, buttons: buttons.slice(0, 14) }
+        : undefined;
+    },
+    { timeout: STEP_TIMEOUT, label: "the webhooks panel" },
+  ).catch(() => null);
+  check(
+    "SECRET precondition: the webhooks panel is reachable and offers to create an endpoint",
+    webhooksReady?.ready === true,
+    `ready=${webhooksReady?.ready} buttons=${JSON.stringify(webhooksReady?.buttons)}`,
+  );
+
+  if (webhooksReady?.ready) {
+    await page.evaluate(() => {
+      [...document.querySelectorAll("button")]
+        .find((b) => /new endpoint/i.test(b.textContent ?? ""))
+        ?.click();
+    });
+    await sleep(600);
+    const filled = await page.evaluate((label) => {
+      const inputs = [
+        ...document.querySelectorAll("input[type=text], input[type=url], input:not([type])"),
+      ];
+      const setValue = (input, value) => {
+        const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+        Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      const byPlaceholder = (needle) =>
+        inputs.find((i) => (i.placeholder ?? "").toLowerCase().includes(needle));
+      const nameInput = byPlaceholder("billing events");
+      const urlInput = byPlaceholder("hooks.example.com");
+      if (!nameInput || !urlInput) {
+        return {
+          filled: false,
+          placeholders: inputs.map((i) => i.placeholder ?? "(none)").slice(0, 10),
+        };
+      }
+      setValue(nameInput, label);
+      setValue(urlInput, "https://hooks.example.com/lumi");
+
+      // Subscribe to at least one event type. The server answers
+      // `422 validation_failed -- "Select at least one event type and no more than 64."` without one,
+      // and that is CORRECT behaviour: an endpoint subscribed to nothing is a misconfiguration, not a
+      // valid endpoint that simply receives nothing. The first version of this case submitted an
+      // empty list and then spent four full probe runs assuming the product was broken.
+      const boxes = [...document.querySelectorAll('input[type="checkbox"]')];
+      const clickable = boxes.filter((b) => !b.disabled && !b.checked);
+      for (const box of clickable.slice(0, 1)) box.click();
+      return { filled: true, eventTypesChecked: Math.min(clickable.length, 1) };
+    }, `VFY Endpoint ${stamp}`);
+    check(
+      "SECRET precondition: the endpoint form is filled with a real label and a shape-valid https URL",
+      filled.filled === true,
+      `filled=${filled.filled} eventTypesChecked=${filled.eventTypesChecked} ` +
+        `placeholders=${JSON.stringify(filled.placeholders)}`,
+    );
+
+    // Report whether the button was even FOUND. The first version fired `button?.click()` and
+    // discarded the answer, so a missing button and a rejected submit produced identical evidence:
+    // the form stayed open. Two different causes, one indistinguishable symptom.
+    const submitResult = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll("button")];
+      const target = buttons.find((b) =>
+        /create endpoint and show secret/i.test(b.textContent ?? ""),
+      );
+      if (!target) {
+        return {
+          found: false,
+          buttons: buttons
+            .map((b) => (b.textContent ?? "").trim())
+            .filter(Boolean)
+            .slice(0, 20),
+        };
+      }
+      const label = [...document.querySelectorAll("label")].map((l) =>
+        (l.textContent ?? "").trim(),
+      );
+      const fieldTexts = [...document.querySelectorAll("input")]
+        .map((i) => `${i.placeholder ?? i.name ?? "?"}=${i.value ? "set" : "EMPTY"}`)
+        .slice(0, 12);
+      target.click();
+      return { found: true, clicked: true, labelCount: label.length, fields: fieldTexts };
+    });
+    await sleep(3000);
+
+    // If the UI submit produced no reveal, ask the SERVER directly, from the page, using the same
+    // session. Two independent causes produce the identical symptom -- the form simply staying open
+    // -- and guessing between them from curl costs a full journey per attempt (four attempts, four
+    // runs, all of them failing the same way while the evidence sat in a 405 I had not chased).
+    // One extra request inside a run that is already happening is strictly cheaper.
+    let serverDiagnostic = null;
+    const revealSeen = await page.evaluate(
+      () => !/create endpoint and show secret/i.test(document.body.innerText),
+    );
+    if (!revealSeen) {
+      serverDiagnostic = await page.evaluate(async (label) => {
+        const csrf = decodeURIComponent(
+          document.cookie
+            .split(";")
+            .map((c) => c.trim())
+            .find((c) => c.startsWith("lumi_csrf="))
+            ?.slice("lumi_csrf=".length) ?? "",
+        );
+        const me = await (await fetch("/api/v1/me")).json();
+        const orgId = me?.organizations?.[0]?.organization?.org_id;
+        const response = await fetch(`/api/v1/orgs/${orgId}/webhooks`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": crypto.randomUUID(),
+            "X-CSRF-Token": csrf,
+          },
+          body: JSON.stringify({
+            name: label,
+            url: "https://hooks.example.com/lumi",
+            subscribed_event_types: [],
+            enabled: true,
+            max_attempts: 5,
+            base_delay_seconds: 30,
+            max_delay_seconds: 300,
+            replay_window_seconds: 86400,
+          }),
+        });
+        const text = await response.text();
+        return { status: response.status, body: text.slice(0, 320) };
+      }, `VFY Endpoint ${stamp}`);
+    }
+
+    const revealed = await page.evaluate(() => {
+      const body = document.body.innerText.replace(/\s+/g, " ");
+      const title = [...document.querySelectorAll("h1,h2,h3,[role=heading]")]
+        .map((h) => (h.textContent ?? "").trim())
+        .find((t) => /shown once/i.test(t));
+      // The reveal renders the secret unmasked, so it must be a long opaque token that is NOT a row
+      // of bullets. Masking it would be a real defect -- a masked secret that looks like a secret is
+      // how a user copies the wrong thing -- so this asserts the absence of masking explicitly
+      // rather than trusting the component's doc comment.
+      const candidate = body.match(/\bwhsec_[A-Za-z0-9_\-]{8,}|\b[A-Za-z0-9_-]{28,}\b/);
+      return {
+        title: title ?? null,
+        hasWarning:
+          /cannot be shown again|not stored in the control plane|copy this value now/i.test(body),
+        hasBulletMask: /[•*]{6,}|\u2022{6,}|\*{6,}/.test(body),
+        secretSample: candidate ? candidate[0].slice(0, 12) : null,
+        stillForm: /create endpoint and show secret/i.test(body),
+        // WHY THIS IS HERE. The first version of this check reported `title=null hasWarning=false
+        // stillForm=true` and nothing else -- three symptoms of one cause with no way to find it. A
+        // failed create is invisible: the form simply stays open. So the reason is READ, from the
+        // page's own error surface. The fourth time in this harness that a red case's detail was the
+        // absence of a diagnostic, which is the same defect every time.
+        errorText:
+          [...document.querySelectorAll("[role=alert], [aria-live], p")]
+            .map((n) => (n.textContent ?? "").replace(/\s+/g, " ").trim())
+            .filter(
+              (t) => t.length > 8 && /invalid|must|could not|failed|refus|requir|not /i.test(t),
+            )
+            .slice(0, 4)
+            .join(" | ") || null,
+        body: body.slice(0, 200),
+      };
+    });
+    // CAPTURE THE SECRET THE WAY A USER TAKES IT: through the "Copy secret" button and the clipboard.
+    //
+    // Three earlier attempts guessed the secret's SHAPE from the DOM and got it wrong each time --
+    // first an endpoint id, then a `whs_` FINGERPRINT. The fingerprint is shown again on purpose, so
+    // the "the secret did not come back" assertion was comparing a fingerprint with itself and
+    // reporting a leak that does not exist. Guessing a secret's shape is not a way to identify a
+    // secret; asking the app what it offers to copy is, by definition, the answer.
+    await page.grantClipboard(new URL(WEB).origin);
+    const revealedSecret = await page.evaluate(async () => {
+      const copyButton = [...document.querySelectorAll("button")].find((b) =>
+        /copy secret/i.test(b.textContent ?? ""),
+      );
+      if (!copyButton) return { captured: false, why: "no 'Copy secret' button was offered" };
+      copyButton.click();
+      await new Promise((r) => setTimeout(r, 400));
+      try {
+        const text = await navigator.clipboard.readText();
+        return { captured: typeof text === "string" && text.length > 0, secret: text ?? null };
+      } catch (error) {
+        return {
+          captured: false,
+          why: `clipboard read refused: ${String(error?.message ?? error)}`,
+        };
+      }
+    });
+    const secretValue = revealedSecret.secret ?? null;
+    check(
+      "SECRET precondition: the secret is captured through the app's OWN 'Copy secret' control, so " +
+        "the return-leg assertion searches for the real value rather than for a token that merely " +
+        "looks long -- three earlier attempts guessed its shape and matched an id and then a fingerprint",
+      revealedSecret.captured === true && (secretValue?.length ?? 0) >= 16,
+      `captured=${revealedSecret.captured} len=${secretValue?.length ?? 0} ` +
+        `prefix=${secretValue ? `${secretValue.slice(0, 4)}…` : "(none)"} why=${revealedSecret.why ?? ""}`,
+    );
+    check(
+      "ONE-TIME SECRET: creating an endpoint reveals a signing secret titled as shown-once",
+      revealed.title !== null && revealed.title !== undefined,
+      `title=${JSON.stringify(revealed.title)} server=${JSON.stringify(serverDiagnostic)} ` +
+        `submit=${JSON.stringify(submitResult).slice(0, 200)} ` +
+        `error=${JSON.stringify(revealed.errorText)?.slice(0, 160)} stillForm=${revealed.stillForm}`,
+    );
+    check(
+      "and the warning states it CANNOT be shown again -- the user has to be told while it is still " +
+        "visible, because after this screen there is no second chance",
+      revealed.hasWarning === true,
+      `hasWarning=${revealed.hasWarning} body=${JSON.stringify(revealed.body).slice(0, 150)}`,
+    );
+    // Asserted against the CAPTURED secret, not against "some long token". The original form
+    // required `secretSample !== null`, where the sample came from a 28+ character regex over the whole
+    // body -- so it matched the organization's own slug and the assertion reduced to "no bullet mask
+    // anywhere", with a misleading `secretSample` in the diagnostic. Requiring the captured value to be
+    // ON the page is the part that proves it is rendered, and the bullet check is the part that proves
+    // it is rendered unmasked.
+    const secretIsRendered = await page.evaluate((secret) => {
+      const body = document.body.innerText;
+      return {
+        present: secret ? body.includes(secret) : false,
+        bulletMask: /[•*]{6,}/.test(body),
+      };
+    }, secretValue);
+    check(
+      "and the value is rendered UNMASKED and READABLE -- the exact captured secret is on the page as " +
+        "text, with no row of bullets standing in for it, because a masked value that looks like a " +
+        "secret is how a user copies the wrong thing",
+      secretIsRendered.present === true && secretIsRendered.bulletMask === false,
+      `present=${secretIsRendered.present} bulletMask=${secretIsRendered.bulletMask}`,
+    );
+    check(
+      "and the create form is GONE, so the secret is presented instead of alongside the form that " +
+        "produced it",
+      revealed.stillForm === false,
+      `stillForm=${revealed.stillForm}`,
+    );
+    if (SHOTS) await page.screenshot(join(SHOTS, "06d-one-time-secret.png"));
+
+    // ---- THE LOAD-BEARING HALF: leave and come back ------------------------------------------
+    await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
+    await sleep(800);
+    await page.goto(`${WEB}org/${ownSlug}/webhooks`, { waitUntil: "load" });
+    const afterReturn = await waitFor(
+      page,
+      () => {
+        const buttons = [...document.querySelectorAll("button")].map((b) =>
+          (b.textContent ?? "").trim(),
+        );
+        return buttons.some((t) => /new endpoint/i.test(t)) ? { back: true } : undefined;
+      },
+      { timeout: STEP_TIMEOUT, label: "the webhooks panel after returning" },
+    ).catch(() => null);
+    const returned = await page.evaluate((secret) => {
+      const body = document.body.innerText.replace(/\s+/g, " ");
+      return {
+        showsRevealTitle: /shown once/i.test(body),
+        // The claim, exactly: is THIS secret on the page again? Not "is there something long".
+        secretReturned: secret ? body.includes(secret) : null,
+        hasEndpointName: /VFY Endpoint/.test(body),
+        // Retained only as information. A 28+ char token is present on return, and knowing what it
+        // is turns "this check cannot fail" into "this check fails for a reason I can name".
+        otherLongTokens: [...new Set(body.match(/\b[A-Za-z0-9_-]{28,}\b/g) ?? [])].slice(0, 3),
+        body: body.slice(0, 200),
+      };
+    }, secretValue);
+    check(
+      "ONE-TIME SECRET: leaving the panel and returning does NOT bring the SECRET back -- a value " +
+        "that reappears is one the control plane is still holding, which is the entire point of the " +
+        "lifecycle. The assertion searches for the captured literal, not for something that looks " +
+        "like a secret.",
+      afterReturn?.back === true &&
+        returned.secretReturned === false &&
+        returned.showsRevealTitle === false,
+      `panelBack=${afterReturn?.back} secretReturned=${returned.secretReturned} ` +
+        `showsRevealTitle=${returned.showsRevealTitle} ` +
+        `otherLongTokens=${JSON.stringify(returned.otherLongTokens)}`,
+    );
+    // WITHOUT this the case above would pass for the wrong reason: if creating the endpoint had
+    // silently failed, the panel would show no secret on return either, and "the secret did not come
+    // back" would be true. The endpoint must be LISTED, so the only thing missing is the SECRET.
+    //
+    // (The first version of this was written as `/VFY Endpoint/.test(body) || !/VFY Endpoint/.test(body)`
+    // -- a tautology, which is TRUE for every possible page. It would have passed while asserting
+    // nothing whatsoever, which is the single most dangerous shape a check can have: it looks like a
+    // control and is a no-op.)
+    check(
+      "and that is not because the endpoint vanished -- it is still LISTED, so the previous case " +
+        "proves the SECRET is gone rather than the RECORD being absent",
+      returned.hasEndpointName === true,
+      `hasEndpointName=${returned.hasEndpointName}`,
+    );
+  } else {
+    for (const label of [
+      "SECRET precondition: the endpoint form is filled",
+      "ONE-TIME SECRET: creating an endpoint reveals a signing secret",
+      "and the warning states it CANNOT be shown again",
+      "and the value is rendered UNMASKED",
+      "ONE-TIME SECRET: leaving the panel and returning does NOT bring the secret back",
+    ]) {
+      check(
+        label,
+        false,
+        "the webhooks panel was not reachable, so the lifecycle was not measured",
+      );
+    }
+  }
+
   // Put the journey back on the data panel, which is what the narrow-layout checks measure.
   await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
   await sleep(600);

@@ -366,6 +366,32 @@ export async function newPage(browser, url = "about:blank") {
     },
 
     /**
+     * Grant clipboard read/write to this page.
+     *
+     * WHY (V02-008)
+     *
+     * The webhook secret reveal offers a "Copy secret" button, so the clipboard is the path a user
+     * actually takes and the most faithful thing to assert on. Reading it needs a permission the
+     * page does not have by default, which is what `Browser.grantPermissions` is for.
+     *
+     * Without this, capturing "the secret" from the DOM means guessing its shape -- and the guess
+     * was wrong three times: it matched an endpoint id, then a `whs_` FINGERPRINT, and the
+     * fingerprint is shown again on purpose, so the "the secret did not come back" assertion was
+     * comparing a fingerprint with itself and reporting a leak that does not exist. Reading the
+     * clipboard removes the guess: whatever the app offers to copy IS the secret, by definition.
+     */
+    // The origin is passed in rather than read from the page: the page object does not track its own
+    // URL, and guessing one would grant the permission to the wrong origin -- which fails closed, but
+    // for a reason that looks like the browser refusing.
+    async grantClipboard(origin = "http://localhost:5173") {
+      await browser.send("Browser.grantPermissions", {
+        origin,
+        permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+      });
+      return true;
+    },
+
+    /**
      * Arm a ONE-SHOT handler for a native JavaScript dialog (`window.confirm`, `window.alert`,
      * `window.prompt`), and resolve with what the dialog said.
      *

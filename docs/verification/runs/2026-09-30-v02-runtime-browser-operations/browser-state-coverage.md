@@ -12,7 +12,7 @@ sensitivity is the evidence.**
 **Of the twelve required states, one has a *product-side* sensitivity proof — and that one is the
 state that was previously over-claimed.**
 
-**All twelve are now exercised in a real browser. One (12) is partial. None is absent.**
+**All twelve are PROVEN in a real browser. None is absent, none is partial.**
 
 | | state | status | basis |
 |---|---|---|---|
@@ -27,7 +27,7 @@ state that was previously over-claimed.**
 | 4 | permission denied | **PROVEN, after V02-006** | a URL naming an org the session cannot see renders `role="alert"`; the content region carries the refusal and not the previous org's data; and a recovery leg proves it is not a dead end |
 | 10 | destructive confirmation | **PROVEN, after V02-006** | Revoke opens a confirmation whose copy states the consequence; **dismissing it leaves the credential alive**; accepting it removes the control and shows a revoked status — while the row stays as an audit surface |
 | 7 | keyboard navigation | **PROVEN, after V02-006** | `Tab` reachability (V02-001) plus a **real** `ArrowRight` through CDP — the synthetic `KeyboardEvent` is gone |
-| 12 | one-time secret lifecycle | PARTIAL | the email code is covered end to end, including a refused short code; a real secret (download grant, webhook secret) is not |
+| 12 | one-time secret lifecycle | **PROVEN, after V02-008** | a webhook signing secret is revealed unmasked with a "cannot be shown again" warning; captured through the app's own **Copy secret** control; and after leaving the panel and returning the exact value is **absent while the endpoint is still listed** — so the secret is gone, not the record |
 
 **The gate now exercises all twelve states in a real browser.** What separates them is not coverage
 but *evidence*: state 8 has a product-side sensitivity proof, and the rest have been watched to go
@@ -171,24 +171,24 @@ browser drives them. But they turn the next three attacks from "build a feature 
 
 ## What remains
 
-1. **One-time secret lifecycle (12) is the only non-PROVEN state.** The email verification code is
-   covered end to end, including a refused short code. A *real* secret — a download grant, a webhook
-   secret — is not: nothing observes a value that is shown once and then cannot be retrieved again.
-2. **Product-side sensitivity proofs for the V02-002 and V02-006 classes.** Both have been watched to
-   report FAIL, but only on harness faults. `v02-004-observability-sensitivity.sh` is the model, and
-   it exists because a gate nobody has watched fail is an assumption — the V02-004 sheet was made of
-   absences and could have passed on a product that recorded nothing at all.
-3. **A design question worth deciding, not just testing.** `AGENTS.md:181` asks for "an appropriate
-   confirmation pattern", and credential revoke uses a native `window.confirm`. It does satisfy the
-   requirement as written — the copy states the consequence, and the test above proves the dialog
-   actually *prevents* the action rather than merely appearing. But a native modal is not styleable
-   and is not consistent with the rest of the design system, which uses in-DOM surfaces (the
-   automations delete flow is one). Whether that is acceptable is a product decision, and this
-   campaign records it rather than resolving it.
+1. **Product-side sensitivity proofs for the V02-002, V02-006 and V02-008 classes.** All three have
+   been watched to report FAIL, but only on harness faults — and in this campaign that has repeatedly
+   turned out to be the same statement. `v02-004-observability-sensitivity.sh` is the model: it
+   exists because the V02-004 sheet was made of *absences* and could have passed on a product that
+   recorded nothing at all. Three classes now carry the same risk with no proof behind them.
+2. **A design question worth deciding, not just testing.** `AGENTS.md:181` asks for "an appropriate
+   confirmation pattern", and credential revoke uses a native `window.confirm`. It satisfies the
+   requirement as written — the copy states the consequence, and V02-007 proves the dialog actually
+   *prevents* the action rather than merely appearing. But a native modal is not styleable and is
+   inconsistent with the rest of the design system, which uses in-DOM surfaces (the automations
+   delete flow, and the webhook secret reveal, both are). Recorded, not resolved.
+3. **One asymmetry worth naming.** State 12 is proven for the *reveal* half of a secret's life. That
+   the secret is never *persisted* server-side is asserted by the API's own design and by
+   `verify:secret-tenancy`, not by this browser case — a browser cannot see the absence of a column.
 
 ## A caution this map exists to prevent
 
-The temptation with a 73/73 sheet is to record the browser pass as done. Twelve named states, one
-partial, one exercised by a check that **could not fail** until this session repaired it, and ten
-newly exercised by checks whose own sensitivity is still unproven. **The count is telemetry; the map
-is the evidence.**
+The temptation with an 82/82 sheet is to record the browser pass as done. Twelve named states, all
+covered, one of which **could not fail** until this session repaired it, and eleven of which are
+exercised by checks whose own sensitivity is unproven. **The count is telemetry; the map is the
+evidence.**
