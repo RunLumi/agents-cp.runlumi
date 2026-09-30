@@ -171,11 +171,15 @@ browser drives them. But they turn the next three attacks from "build a feature 
 
 ## What remains
 
-1. **Product-side sensitivity proofs for the V02-002, V02-006 and V02-008 classes.** All three have
-   been watched to report FAIL, but only on harness faults — and in this campaign that has repeatedly
-   turned out to be the same statement. `v02-004-observability-sensitivity.sh` is the model: it
-   exists because the V02-004 sheet was made of *absences* and could have passed on a product that
-   recorded nothing at all. Three classes now carry the same risk with no proof behind them.
+1. **Product-side sensitivity proofs for the V02-002, V02-006 and V02-008 classes.** V02-009 now
+   proves the **permission-denied and recovery** classes can fail: M1 drops the `!` from
+   `unauthorizedPath` and the gate goes 82/82 → 53/78 with 25 FAIL. Two things it does **not**
+   establish are recorded rather than glossed: most of those 25 failures are **cascades** (five other
+   classes went red because the app could not render the page they test), so the fault is caught
+   strongly and the attribution is coarse; and **non-disclosure went red because its subject
+   disappeared, not because two answers diverged** — a prediction I had written into the harness
+   header and the run corrected. The other two classes still carry the risk with no proof behind
+   them.
 2. **A design question worth deciding, not just testing.** `AGENTS.md:181` asks for "an appropriate
    confirmation pattern", and credential revoke uses a native `window.confirm`. It satisfies the
    requirement as written — the copy states the consequence, and V02-007 proves the dialog actually
