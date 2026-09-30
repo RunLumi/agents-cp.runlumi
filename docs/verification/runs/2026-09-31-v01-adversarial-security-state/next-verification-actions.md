@@ -253,3 +253,33 @@ were already written down and implemented backwards in the one that failed:
 **The generalisable form:** a check that describes a rule it does not follow is worse than one that
 omits it, because a reader trusts the prose. This script's header *named* the mtime trap in its
 first ten lines and then walked into it on line 200.
+
+## The liveness triage, in progress: 47 → 26 `UNTRIAGED`
+
+`security::repository_liveness` lists 61 `pub` repository functions. Every entry is a **decision
+someone made**; `UNTRIAGED` is the honest label for the ones nobody has looked at, and *an absent
+list is a false assurance*. Sixteen are now examined across five clusters, and the verdicts are not
+the same shape — which is the reason the work is worth doing rather than the count:
+
+| verdict | entries | what it means |
+|---|---|---|
+| **a real gap** | `insert_run_usage_statement` (V01-047) | committed, unwired, and the read path pretends otherwise |
+| **a latent tenant read** | `find_snapshot` | `WHERE policy_id = ?1` with **no `org_id`**, unreachable today, one route away |
+| **superseded by something safer** | `find_live_device_token`, `find_active_credential` | wiring them would be a *regression* |
+| **deliberately uncalled for security** | `find_key_by_prefix` | the exact shape of the V01-034 bypass; the live path compares constant-time |
+| **a leaf, lifecycle intact** | `mark_artifact_deleted_statement`, `set_deletion_cutoff_statement` | the deletion job transitions; only the stamp is absent |
+| **a convenience projection** | `to_verification_key` | the billing path uses the row directly |
+| **out of band** | `insert_remediation_statement` | reached through the migration runner, not a route |
+| **narrow capability gap** | `revoke_grants_statement` | export grants are live and unrevokable; 15-min TTL is the working control |
+
+**The one that matters is `find_snapshot`.** Three of these verdicts are "correctly absent", and only
+one is a defect waiting to happen. A check reporting the call graph without this distinction would
+print sixteen identical names, and the fourth is the only one a reviewer could act on.
+
+**26 remain `UNTRIAGED`, and that number is the honest one.** The untriaged remainder is money
+(`find_budget_for_scope_period`, `insert_budget_reservation_statement`, `list_reservations_page`,
+`insert_plan_statement`, `list_active_plans`, `seat_policy_for_plan`,
+`insert_plan_entitlement_statement`, `list_entitlement_definitions`), plus identity, provisioning
+and the notification cluster covered by V01-046. **The budget-reservation cluster is the next place
+to look**: it is money, and V01-047 showed that a money statement with no caller can sit beside a
+*working* money path and be invisible to every gate.
