@@ -152,39 +152,45 @@ restart_dev() {
   return 1
 }
 
-# Wait for the dev server to STOP serving the token, which is the property the mutation changes.
+# The content hash of the module the dev server is actually serving.
 #
-# TWO versions of this marker were wrong, and both failed for the same reason -- it could not
-# distinguish the mutated element from the eleven other controls that legitimately keep a focus ring.
+# THREE token-based versions of this check failed, all for one reason: a substring of a class list
+# cannot be assumed unique to the element being mutated. `focus-visible:ring-2` is served 12 times;
+# `outline-none focus-visible:ring-2` -- chosen because I believed the switcher was the only control
+# pairing those two utilities -- is served TWICE on a CLEAN tree, so "absent after the mutation" can
+# never hold. Assuming uniqueness and then testing uniqueness is how both versions reported a false
+# FATAL for a fault that had landed.
 #
-#   1. `org-switcher` is present in the module in BOTH states, so it could only ever prove the
-#      module was served, never that the fault had reached the browser.
-#   2. `focus-visible:ring-2` is served TWELVE times -- the other controls keep their rings, so an
-#      ABSENCE check on it can never succeed, and the helper ran to exhaustion again.
+# A hash carries no such assumption. It answers the only question that matters: is the browser's
+# module graph built from the source I just wrote, or from the source before it?
+served_hash() {
+  curl -s "http://localhost:${WEB_PORT}/src/features/organizations/org-dashboard.tsx" 2>/dev/null \
+    | shasum | cut -d" " -f1
+}
+
+# Restart the dev server, then wait until the served module DIFFERS from the pre-mutation hash.
 #
-# The marker must be unique to the MUTATED ELEMENT. The switcher is the only control that pairs
-# `outline-none` with `focus-visible:ring-2` adjacently, so that adjacency is present before the
-# mutation and absent after it, and no other control can satisfy or defeat the check.
-await_served_change_absent() {
-  local marker="$1" tries=0
+# The restart is required. Vite's log shows `hmr update` firing on every mutation -- the server knows
+# the source changed -- yet a fresh request kept returning the previous transform, and a cache-busting
+# query string did not help. Measured: mutated source, served count unchanged for 12 seconds, then 2 -> 1
+# immediately after a restart. This is not a mock and not a shortcut: the browser still runs against a
+# real Vite server serving real source. It is what makes "the fault reached the browser" a fact rather
+# than an assumption -- the same discipline as the Rust-side `cp` + `touch` rule, where an
+# mtime-preserving restore made cargo ship the faulted binary while the sheet read green.
+await_served_change() {
+  local before="$1" tries=0 current
   restart_dev || return 1
   while [ "$tries" -lt 20 ]; do
-    # NOT `| grep -q`. Under `set -o pipefail`, `grep -q` exits on its first match, curl then takes
-    # SIGPIPE and exits 141, and pipefail reports that as the PIPELINE's status -- so the test failed
-    # on a module that contained the marker on every one of 40 attempts. `grep -c` reads the whole
-    # stream, curl finishes normally, and the comparison happens in the shell.
-    local served_count
-    served_count="$(curl -s "http://localhost:${WEB_PORT}/src/features/organizations/org-dashboard.tsx" 2>/dev/null \
-      | grep -c "$marker" || true)"
-    if [ "${served_count:-0}" -eq 0 ]; then
-      echo "    the dev server has stopped serving '$marker' -- the fault reached the browser"
+    current="$(served_hash)"
+    if [ -n "$current" ] && [ "$current" != "$before" ]; then
+      echo "    the dev server is serving different bytes than before the mutation"
       return 0
     fi
     tries=$((tries + 1))
     sleep 1
   done
-  echo "    FATAL: the dev server never dropped '$marker'; the run would read MISSED for a fault" >&2
-  echo "           that never reached the browser" >&2
+  echo "    FATAL: the served module did not change after a restart; the run would read MISSED for a" >&2
+  echo "           fault that never reached the browser" >&2
   return 1
 }
 
@@ -230,6 +236,15 @@ for needed in "reachable by pressing Tab" "VISIBLY changes its rendering" "ring 
     echo "BASELINE LACKS the case this script attacks: $needed" >&2; exit 2; }
 done
 echo "  green, and every case the mutations attack is present"
+# The reference every mutation is compared against. Sound only because `restore` proves the tree
+# returns to the COMMITTED source with both `cmp` and `git diff`, so "the baseline" is one state and
+# not an accident of what the last restore happened to leave behind.
+BASELINE_HASH="$(served_hash)"
+if [ -z "$BASELINE_HASH" ]; then
+  echo "FATAL: could not read a baseline hash from the dev server" >&2
+  exit 2
+fi
+echo "  baseline served-module hash: ${BASELINE_HASH:0:16}"
 
 # --- M1: delete the focus ring from the switcher -------------------------------------------------
 python3 - <<'MUTATE_M1'
@@ -248,7 +263,7 @@ p.write_text(s[:start] + mutated + s[start + 1200:])
 print("    the switcher's focus ring is removed")
 MUTATE_M1
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M1 changed nothing" >&2; exit 1; }
-await_served_change_absent "outline-none focus-visible:ring-2" || exit 1
+await_served_change "$BASELINE_HASH" || exit 1
 run_case "M1 (the focus ring deleted from the switcher)" "DETECTED"
 
 # --- M2: the control direction -- ring present, outline-neutered only ----------------------------
@@ -263,6 +278,7 @@ p.write_text(s[:start] + tail.replace("outline-none", "", 1) + s[start + 1200:])
 print("    outline-none is removed; the ring stays")
 MUTATE_M2
 cmp -s "$TARGET" "$SNAP/org-dashboard.tsx" && { echo "M2 changed nothing" >&2; exit 1; }
+await_served_change "$BASELINE_HASH" || exit 1
 run_case "M2 (outline-neutered, ring intact -- KNOWN MISSED by construction)" "MISSED"
 
 # --- M3: the V02-001 defect verbatim, on a control with no ring ---------------------------------
@@ -309,7 +325,7 @@ s = s[:s.index(anchor)] + old_assertion + s[s.index(anchor):]
 p.write_text(s)
 print("    the pre-V02-001 assertion is reinstated beside the repaired one")
 MUTATE_M3B
-await_served_change_absent "outline-none focus-visible:ring-2" || exit 1
+await_served_change "$BASELINE_HASH" || exit 1
 pkill -9 -f "Google Chrome for Testing" 2>/dev/null
 sleep 4
 pnpm smoke:browser > "$LOG" 2>&1
