@@ -197,8 +197,14 @@ mod tests {
         ),
         ("insert_notification_delivery_statement", "UNTRIAGED"),
         ("insert_notification_statement", "UNTRIAGED"),
-        ("insert_plan_entitlement_statement", "UNTRIAGED"),
-        ("insert_plan_statement", "UNTRIAGED"),
+        (
+            "insert_plan_entitlement_statement",
+            "EXAMINED, no gap. `plans` and `plan_entitlements` are a PLATFORM PRICING CATALOG, provisioned by migration 0015_p06_baseline_seed.sql, and there is no plan-management route because a customer does not define pricing tiers. The customer-facing money surface is `subscriptions`, which has live writes (apply_subscription_statement, insert_subscription_event_statement). Same shape as the provider and model registries, which DO have routes because an operator configures them per organization and a plan is not per-organization",
+        ),
+        (
+            "insert_plan_statement",
+            "EXAMINED, no gap. The sibling of the entry above and the same reasoning: a write to the platform pricing catalog, seeded by migration 0015, with no customer-facing surface that would create a plan. A plan is a pricing tier the platform sells, not a row a tenant authors",
+        ),
         (
             "insert_quarantine_statement",
             "V01-043, now called by POST /api/v1/internal/plugin-quarantines. The write half of a quarantine that was enforced on four paths and operable on none.",
@@ -211,7 +217,10 @@ mod tests {
             "insert_run_usage_statement",
             "V01-047, OPEN by decision. P05-CR-002 §7 commits to a second usage source and §8 says it `must use` the same cost rules, but `UsageSource::Run` is constructed only in `modules/usage_tests.rs`, so this writer is unreachable and `list_usage`/`summarize_usage` UNION ALL an always-empty table. Left open: what counts as billable non-inference usage is a money decision needing the deliberate change process.",
         ),
-        ("list_active_plans", "UNTRIAGED"),
+        (
+            "list_active_plans",
+            "EXAMINED, a leaf covered by siblings. No route enumerates the plan catalog, and none needs to: `find_plan` has 4 production call sites and `list_plan_entitlements` has 1, which is how a subscription resolves to the plan it bought. Enumerating every ACTIVE plan is a catalog-listing operation, and the only surface that lists a catalog is the seeded model registry. Not a gap and not a latent tenant defect -- `plans` has no `org_id` column at all, so there is no boundary for it to cross",
+        ),
         (
             "list_cost_records",
             "V01-047, examined. A list over `cost_records` with no caller. The per-record reads (`find_cost_record`, `find_run_cost_record`) ARE called from `routes/usage.rs:1193-1204`, so this is a list variant nothing needs -- not a gap, and recorded so it is not re-derived.",
@@ -220,7 +229,10 @@ mod tests {
             "list_deletions_for_user",
             "EXAMINED, no gap. A per-user listing; the routes read deletions by scope (`find_deletion_for_scope`, `find_deletion_for_target`) and by id (`find_deletion_for_scope` at `routes/data_governance.rs`), which is what the tenant-scoped API needs. Nothing asks for one user's deletions across scopes.",
         ),
-        ("list_entitlement_definitions", "UNTRIAGED"),
+        (
+            "list_entitlement_definitions",
+            "EXAMINED, a leaf covered by a sibling. The live read is ENTITLEMENT_DEFINITION_SQL, which returns the definitions JOINED with THIS organization's active grants and is org-scoped twice over (`FROM entitlement_grants WHERE org_id = ?1 AND effective_at <= ?2`). This function enumerates the definition catalog with no org, which no route needs: the customer surface is `GET /api/v1/orgs/{org_id}/entitlements`, and a customer asking 'what am I entitled to' must be answered with their grants, never with the whole catalog",
+        ),
         (
             "list_quarantines",
             "V01-043, now called by GET /api/v1/internal/plugin-quarantines. Without it the other two are unauditable: an operator who cannot see the set cannot judge a lift.",
@@ -234,12 +246,37 @@ mod tests {
             "mark_artifact_deleted_statement",
             "EXAMINED, no gap in the deletion LIFECYCLE, and a leaf that is unused rather than missing. The lifecycle is live: `insert_deletion_statement`, `update_deletion_state_statement` (two sites in `consumers/data_jobs.rs`) and the queue envelope all have callers, and the consumer plans through `deletion_inventory`. This one would flip `export_artifacts.deleted_at` and has no caller -- a leaf the expiry path covers by TTL, so nothing is left un-deleted; recorded so it is not re-derived.",
         ),
-        ("record_provider_failure_statement", "UNTRIAGED"),
+        (
+            "record_provider_failure_statement",
+            concat!(
+                "EXAMINED, and this is a NEW shape: a capability with no producer AND no consumer. ",
+                "The only writer of `provider_sync_state` that any code reaches is the SUCCESS ",
+                "writer, whose ON CONFLICT explicitly sets `consecutive_failures = 0` and ",
+                "`last_error_code = NULL` -- so on every row the platform can write, those two ",
+                "columns are structurally 0 and NULL. The reader side agrees: `seed_ledger` ",
+                "(`routes/billing.rs:1849-1851`) reads only `last_event_id`, ",
+                "`last_event_version` and `last_event_at`. So the two columns and this function ",
+                "carry the concept 'this provider feed is failing' with no producer and no ",
+                "consumer. ",
+                "The reason is structural, not accidental, and a reader who saw only the missing ",
+                "caller would get the diagnosis wrong. The live path is `cancel_subscription` -> ",
+                "`provider_transition_batch` -> `record_provider_success_statement`. The handler ",
+                "that would have recorded a failure is `apply_provider_callback`, which is itself ",
+                "unrouted and uncalled -- and even inside it there is no branch that calls this ",
+                "writer, so the absence is not one dead call away from being fixed. There is no ",
+                "`billing.sync` job consumer; the one that is named in the doc comment does not ",
+                "exist. Not a defect: nothing depends on the columns. Recorded because a ",
+                "capability unwired at the bottom can have every layer above it look complete"
+            ),
+        ),
         (
             "revoke_grants_statement",
             "EXAMINED, and the sixth instance of the read-without-write / write-without-read shape. `export_download_grants` is LIVE: `insert_download_grant_statement`, `find_download_grant` and `touch_download_grant_statement` all have callers in `routes/data_governance.rs`. Only the REVOKE is unreachable. Redemption checks `revoked_at IS NULL` AND `expires_at`, and the TTL is `DOWNLOAD_GRANT_TTL_SECONDS = 900` (15 min, frozen by the AccessGrant baseline), so the working control is expiry and the missing one is EARLY revocation: a leaked grant cannot be killed before it expires. No spec requires revocation, and the failure direction is fail-closed, so this is a capability gap rather than a contract violation -- recorded so it is not re-derived, not repaired here because adding a revoke route is a feature with its own spec.",
         ),
-        ("seat_policy_for_plan", "UNTRIAGED"),
+        (
+            "seat_policy_for_plan",
+            "EXAMINED, and this is the one worth keeping: it is a SECOND DERIVATION of the seat policy, not a gap and not a leaf. The live path takes the policy from the billing account's own column -- `seat_policy_for(&account.seat_policy)` at routes/billing.rs:2211, over rows from `list_seat_rows(org.as_str())` -- so the customer-configured policy is authoritative. This function derives the same policy from a plan's `seat_based` flag instead, and the two AGREE today (`true` <-> `per_active_member` -> SeatPolicy::baseline(), `false` <-> `flat` -> SeatPolicy::new([])), and NOTHING enforces that agreement. It is also the more plausible name to wire: it takes a plan, which reads as authoritative and is not. A future change that calls it would let a plan's flag silently override the account's configured policy, which is a billing change nobody asked for. Recorded so a reviewer wiring it sees that the two derivations exist and must be reconciled first",
+        ),
         (
             "set_deletion_cutoff_statement",
             "EXAMINED, same family as `mark_artifact_deleted_statement`: a leaf with no caller. It would stamp `deletion_jobs` with the cutoff the job actually applied. The job still transitions through `update_deletion_state_statement`, so the lifecycle completes; what is absent is the record of WHERE the deletion stopped. Left untriaged in the sense that whether the retention certificate needs it is a P06 question, not a code one.",
@@ -596,6 +633,307 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n  - "),
             declared.len()
+        );
+    }
+
+    /// Handlers that are `pub` in `routes/`, are not in `app.rs`, and have no production caller.
+    ///
+    /// One reason per line, because Rust does not concatenate adjacent string literals and a
+    /// wrapped literal silently becomes N tuple elements.
+    const REVIEWED_UNROUTED: &[(&str, &str)] = &[
+        (
+            "billing::create_internal_override",
+            concat!(
+                "V01-040, examined. A SUPPORT/SERVICE entry point, deliberately not a browser route: ",
+                "its own doc comment says so. The database CHECK independently refuses an override ",
+                "that lacks an expiry, a reason or a granting principal, and a unique active- ",
+                "override index refuses a second unrevoked override for the same key and scope, so ",
+                "the surface is not what makes it safe. This is the IMPLEMENTATION of ADR 0007's ",
+                "grant-on-every-use MUST, which the campaign record previously described as 'not ",
+                "implemented' -- materially wrong. What is missing is where staff access to customer ",
+                "context is surfaced and who may exercise it, which is a smaller question than the ",
+                "one on the books"
+            ),
+        ),
+        (
+            "billing::apply_provider_callback",
+            concat!(
+                "EXAMINED, a capability with no producer AND no consumer below it. Its doc comment ",
+                "says it is consumed by the `billing.sync` job consumer or a provider webhook route; ",
+                "neither exists. And even inside it there is no branch that calls ",
+                "`record_provider_failure_statement`, so the failure writer's absence is not one dead ",
+                "call away from being fixed. A capability can be unwired at the bottom while every ",
+                "layer above it looks complete: the live path is `cancel_subscription` -> ",
+                "`provider_transition_batch` -> the SUCCESS writer, and its ON CONFLICT zeroes ",
+                "`consecutive_failures` and NULLs `last_error_code`, so those columns are ",
+                "structurally 0 and NULL on every row the platform can write"
+            ),
+        ),
+        (
+            "organizations::audit",
+            concat!(
+                "V01-049, examined, and this one is a THIRD implementation of the same route. The ",
+                "router wires `audit::audit` on `GET /api/v1/orgs/{org_id}/audit`, and that ",
+                "function's own doc calls itself a 'compatibility entry point' that delegates to ",
+                "`audit::list`. So the live surface is a shim over the canonical body, and this is ",
+                "an independent third body with its own `authorize_org` and no delegate. Not a gap ",
+                "-- the capability is served twice over -- but two independent bodies for one read ",
+                "is a divergence surface, and only one of them is exercised. Recorded so a reviewer ",
+                "consolidating them knows there are three"
+            ),
+        ),
+        (
+            "ai_catalog::get_policy",
+            concat!(
+                "EXAMINED, a real asymmetry rather than a duplicate. `ai_catalog::update_policy` is ",
+                "routed (`PUT /api/v1/orgs/{org_id}/policy`) and this read of the same row is not, so ",
+                "a customer can write an organization model policy and cannot read it back through ",
+                "the module that wrote it. The product is unaffected: `resolve_effective` and the ",
+                "inference path read the policy through `AiRepository::find_policy`. Recorded ",
+                "because 'the write is routed and the read is not' is a fact about the surface that a ",
+                "reviewer should decide deliberately rather than discover"
+            ),
+        ),
+        (
+            "ai_catalog::usage",
+            concat!(
+                "EXAMINED, superseded. The router serves `usage::usage_summary`, ",
+                "`usage::usage_rollups` and `usage::usage_denials` from the dedicated `usage` ",
+                "module, and this is the same derived-totals read left behind when the surface was ",
+                "split. Its own doc notes the aggregate is rebuildable and raw usage events are the ",
+                "reconciliation source, which is the relationship the `usage` module documents. No ",
+                "gap and no divergence to guard: nothing routes it and nothing calls it"
+            ),
+        ),
+    ];
+
+    /// Every `pub async fn` in `routes/`, keyed `module::name`.
+    fn route_handlers(root: &Path) -> BTreeMap<String, String> {
+        let mut found = BTreeMap::new();
+        let dir = root.join("routes");
+        let entries =
+            fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+        for entry in entries {
+            let path = entry.expect("readable dir entry").path();
+            if !path.extension().is_some_and(|e| e == "rs") {
+                continue;
+            }
+            let module = path
+                .file_stem()
+                .expect("a .rs file has a stem")
+                .to_string_lossy()
+                .to_string();
+            let code = fs::read_to_string(&path).expect("readable route source");
+            for line in code.lines() {
+                let Some(rest) = line.trim_start().strip_prefix("pub async fn ") else {
+                    continue;
+                };
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    found.insert(
+                        format!("{module}::{name}"),
+                        path.to_string_lossy().to_string(),
+                    );
+                }
+            }
+        }
+        found
+    }
+
+    /// Every `module::name` the router mentions, read from `app.rs`.
+    ///
+    /// Read from the router rather than parsed out of the handlers, for the reason
+    /// `verify:collection-tenancy` already established: a static parse of the route table gets
+    /// routes wrong, and this check must take its denominator from the product's own answer.
+    fn routed_handlers(root: &Path) -> BTreeSet<String> {
+        let code = fs::read_to_string(root.join("app.rs")).expect("readable app.rs");
+        let mut routed = BTreeSet::new();
+        for line in code.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            let bytes = line.as_bytes();
+            let mut index = 0usize;
+            while index < bytes.len() {
+                if !(bytes[index].is_ascii_alphanumeric() && bytes[index].is_ascii_lowercase()
+                    || bytes[index] == b'_')
+                {
+                    index += 1;
+                    continue;
+                }
+                let start = index;
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+                {
+                    index += 1;
+                }
+                let first = line[start..index].to_string();
+                if bytes.get(index) == Some(&b':') && bytes.get(index + 1) == Some(&b':') {
+                    let name_start = index + 2;
+                    let mut name_end = name_start;
+                    while name_end < bytes.len()
+                        && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'_')
+                    {
+                        name_end += 1;
+                    }
+                    if name_end > name_start {
+                        routed.insert(format!("{first}::{}", &line[name_start..name_end]));
+                    }
+                    index = name_end;
+                    continue;
+                }
+            }
+        }
+        routed
+    }
+
+    /// Names invoked with `(` anywhere in production code.
+    ///
+    /// Route handler *declarations* are skipped, and only the declaration line: a delegate in the
+    /// SAME file is a real call. The first version of the V01-049 scan excluded the whole file and
+    /// reported `budgets::patch_budget` as dead -- when `update_budget` is a one-line delegate to it,
+    /// so it is the implementation of a routed `PATCH /budgets/{budget_id}`. **A scan that excludes
+    /// a file reports every intra-file delegate as uncalled**, and the error direction is toward
+    /// false findings, which is the expensive direction: a false "capability wired to nothing" is
+    /// convincing enough to send someone looking for a feature decision that was never needed.
+    fn route_call_names(root: &Path) -> BTreeSet<String> {
+        let mut called = BTreeSet::new();
+        for path in source_files(root) {
+            let is_route = path.to_string_lossy().contains("/routes/");
+            let code = production_code(&fs::read_to_string(&path).expect("readable source"));
+            for line in code.lines() {
+                if is_route && line.trim_start().starts_with("pub async fn ") {
+                    continue;
+                }
+                let bytes = line.as_bytes();
+                let mut index = 0usize;
+                while index < bytes.len() {
+                    if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') {
+                        index += 1;
+                        continue;
+                    }
+                    let start = index;
+                    while index < bytes.len()
+                        && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+                    {
+                        index += 1;
+                    }
+                    if bytes.get(index) == Some(&b'(') {
+                        called.insert(line[start..index].to_string());
+                    }
+                }
+            }
+        }
+        called
+    }
+
+    /// A `pub` handler in `routes/` that is neither routed nor called cannot be reached.
+    ///
+    /// This is a dimension `repository_liveness` did not have, and its absence was a claim the check
+    /// was making about the whole of `repositories/` that was quietly false: a handler can be fully
+    /// written, documented, constraint-backed and unit-tested, and still be unreachable, and nothing
+    /// in this check would have said so. That is the same class as V01-040/043/046/047 -- a
+    /// capability that exists and cannot be reached -- arriving from the other direction.
+    #[test]
+    fn every_route_handler_is_routed_or_called_or_on_the_reviewed_list() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+
+        // --- vacuity, BEFORE any verdict -------------------------------------------------------
+        let handlers = route_handlers(&root);
+        assert!(
+            handlers.len() >= 200,
+            "only {} `pub async fn` handlers found in routes/. The scan's denominator is the \
+             handler set, and a small one means the declaration pattern no longer matches -- which \
+             is a silent pass, not a clean bill.",
+            handlers.len()
+        );
+        let routed = routed_handlers(&root);
+        assert!(
+            routed.len() >= 100,
+            "only {} `module::name` route references found in app.rs. The router is the \
+             denominator for 'is this routed', and taking it from a static parse instead of the \
+             product's own router is how a check inherits the parse's mistakes.",
+            routed.len()
+        );
+        assert!(
+            !REVIEWED_UNROUTED.is_empty(),
+            "REVIEWED_UNROUTED is empty. An empty list cannot be stale, and a check whose list can \
+             never go stale is not checking anything."
+        );
+
+        // --- stale entries, in BOTH directions -------------------------------------------------
+        let declared_names: BTreeSet<&str> = handlers.keys().map(String::as_str).collect();
+        let mut gone: Vec<&str> = REVIEWED_UNROUTED
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| !declared_names.contains(name))
+            .collect();
+        gone.sort_unstable();
+        assert!(
+            gone.is_empty(),
+            "REVIEWED_UNROUTED names {} handler(s) that no longer exist: {}. A stale entry is a \
+             decision recorded against a handler that is gone, so the list stops describing the \
+             present -- and a list that only grows is how a review list rots into a permission slip.",
+            gone.len(),
+            gone.join(", ")
+        );
+
+        // The REVERSE direction, which V01-045 added for the repositories list and which is the one
+        // that matters here: an entry whose handler has since been wired is a record of a decision
+        // nobody re-made. The rule is deliberately NOT "is it reachable" -- a resolved entry like
+        // `create_internal_override` is a *record* of a deliberate deferral, and deleting it would
+        // erase why the capability was never surfaced. The assertion is on a deferral-labelled entry
+        // that has become reachable, which is a decision that has been overtaken.
+        let called = route_call_names(&root);
+        let mut since_wired: Vec<&str> = REVIEWED_UNROUTED
+            .iter()
+            .map(|(name, reason)| (*name, *reason))
+            .filter(|(name, reason)| {
+                reason.contains("deliberately")
+                    && (routed.contains(*name)
+                        || called.contains(name.rsplit("::").next().unwrap_or(name)))
+            })
+            .map(|(name, _)| name)
+            .collect();
+        since_wired.sort_unstable();
+        assert!(
+            since_wired.is_empty(),
+            "REVIEWED_UNROUTED still records {} as DELIBERATELY unrouted, but it is now reachable. \
+             A deliberate deferral that has been overtaken is a decision nobody re-made, and the \
+             reason now describes a choice that no longer holds.",
+            since_wired.join(", ")
+        );
+
+        // --- the verdict ------------------------------------------------------------------------
+        let mut orphaned: Vec<(String, String)> = handlers
+            .iter()
+            .filter(|(name, _)| {
+                !routed.contains(*name)
+                    && !called.contains(name.rsplit("::").next().unwrap_or(name))
+                    && !REVIEWED_UNROUTED.iter().any(|(entry, _)| entry == *name)
+            })
+            .map(|(name, file)| (name.clone(), file.clone()))
+            .collect();
+        orphaned.sort();
+
+        assert!(
+            orphaned.is_empty(),
+            "{} route handler(s) are neither routed in app.rs nor called from production code, and \
+             are not on REVIEWED_UNROUTED. Each one is a capability that exists and cannot be \
+             reached. Add each WITH A REASON, or route it.\n  - {}\n\
+             Handlers scanned: {}. Routed references read from app.rs: {}.",
+            orphaned.len(),
+            orphaned
+                .iter()
+                .map(|(name, file)| format!("{name}  ({})", short(file)))
+                .collect::<Vec<_>>()
+                .join("\n  - "),
+            handlers.len(),
+            routed.len()
         );
     }
 
