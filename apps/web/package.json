@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "ui:add": "shadcn add"
+    "ui:add": "shadcn add",
+    "perf:budgets": "node scripts/perf-probe.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
