@@ -7,8 +7,8 @@ Not because the product is broadly broken. Because the release gate's own rule i
 > Release is blocked if: any Tier-0 claim is FAIL, UNPROVEN, or BLOCKED …
 
 **One Tier-0 claim is BLOCKED (T0-16, export/deletion), 15 P0 criteria are unproven at the runtime
-layer, and the
-auth-replay mutant class was not reached.** Those are blockers by the repository's own definition, and
+layer, and five of those 15 are missing *features* rather than missing proofs.** Those are blockers by
+the repository's own definition, and
 the definition is the authority — not the size of what passed. One earlier blocker — the performance
 baseline — was **resolved during this campaign** and is recorded as such rather than quietly dropped.
 
@@ -58,7 +58,7 @@ it. "The gate exists" is not evidence; the gate's own result is.
 | T0-15 | a client cannot override server authorization | **PASS** | `verify:privilege-escalation`, machine-key boundary assertions |
 | T0-16 | export/deletion authorized, idempotent, every data class disposed | **BLOCKED** | `smoke:p06` **27/27 cases hold, 1 leg blocked** — envelope `queued`/attempt 1, outbox `delivered`, export row still `requested`. **This is a hard blocker.** |
 | T0-17 | outbound retries bounded, no duplicate side effect | **PASS** | `verify:lease-contention`, `verify:attempt-exhaustion`, `verify:webhook-fanout` |
-| T0-18 | a meaningful Tier-0 mutant is killed | **PASS** | 10 mutants KILLED, each "the verifier failed, and the failure names the invariant" |
+| T0-18 | a meaningful Tier-0 mutant is killed | **PASS** | **11 mutants KILLED across all 6 named classes**, each "the verifier failed, and the failure names the invariant". The auth-replay class (`VI-AUTH-001`) closed this turn: control 76/76, fault verbatim from the campaign, DETECTED, exit 0 |
 | T0-19 | stale org context cannot leak across a switch | **PASS, sensitivity unproven** | `smoke:browser` 24 DOM samples per direction, 0 leaks — but this class has never been watched to fail |
 | T0-20 | machine identity isolated from customer sessions and vice versa | **PASS** | `verify:staff-credential` (machine key refused on a staff route; session refused on a staff route) |
 
@@ -204,8 +204,29 @@ the problem rather than solve it — a new write surface would arrive with nothi
 `evidence/v04-008-sensitivity.sh` proves it (**2/2 detected, exit 0**) by making the lever appear and
 by renaming the guard in the product.
 
-**3. 15 P0 acceptance criteria are unproven at the runtime layer**, and three of the six mutant classes the
-release gate names were not reached before the campaign stopped.
+**3d. The recovery ceremony is defended by one layer and tested by none (V04-009, MEDIUM).**
+`ensure_pending` is the shared route-level replay guard and it is called for **four** ceremony kinds —
+`PasskeySignup`, `PasskeyLogin`, `PasskeyAdd`, `Reauthenticate` — and for **none** of recovery. Recovery
+therefore has a single defence, `consume_recovery`'s compare-and-set, against four siblings that have
+two. That one defence is **correct**: `CONSUME_RECOVERY_SQL` predicates on `AND status = 'pending'`
+(and binds `code_hash`, bounds attempts at 10, and checks expiry), so a second completion matches zero
+rows and is refused. **There is no vulnerability** — the recovery ceremony cannot be replayed.
+
+It is a finding because nothing has ever *executed* that refusal, and because it is the path that
+changes an account password — the one ceremony whose successful replay is worth the most. `consume_recovery`
+has a unit test over its SQL, which is the shape AGENTS.md names for the staff-grant read: *a test over
+a string constant cannot report that nothing calls the function that owns it.*
+
+It also narrows a claim this verdict would otherwise make too broadly: **VI-AUTH-001's kill does not
+extend to recovery.** That case removes the *login* `consume_ceremony` CAS and the shared
+`ensure_pending` status check; removing both leaves `consume_recovery` untouched and fully armed. So
+"auth replay mutant killed" is true of registration, login, add-credential and reauthenticate, and
+unproven for recovery. Recorded with its next action named (a recovery-replay case in `smoke:passkey`
+asserting the refusal names the consumed state, not the attempt bound) rather than added inside a
+campaign that cites a `smoke:passkey` baseline.
+
+**3. 15 P0 acceptance criteria are unproven at the runtime layer**. All six mutant classes the release
+gate names are now killed — see the mutation sample.
 
 ## P0 acceptance criteria
 
@@ -242,18 +263,53 @@ rows, and the one gate that does publish and wait for delivery was blamed on the
 
 ## Mutation sample
 
-10 mutants KILLED, each naming the invariant its verifier caught:
+**11 mutants KILLED, covering all 6 classes the release gate names**, each naming the invariant its
+verifier caught:
 
 `VI-TEN-001` cross-tenant read loses its org predicate · `VI-TEN-001` service-account page stops being
 org-scoped · `VI-AUTHZ-001` human-only permission becomes grantable to a machine · `VI-INF-001`
 truncated stream may complete · `VI-BUD-001` hard budget stops being enforced · `VI-BUD-001` budget
 denial stops consulting its own decision · `VI-IDEM-001` completed idempotency record may hold no
 status · `VI-MIG-001` terminal-state trigger stops enforcing · `VI-SEC-001` API key projection returns
-the secret hash.
+the secret hash · **`VI-AUTH-001` a consumed WebAuthn ceremony is accepted a second time**.
 
-That covers **5 of the 6** classes the release gate names. The **auth-replay** class was mid-build when
-the campaign stopped — **its verdict is UNKNOWN, not MISSED**, and a stalled build says nothing about
-the mutant.
+`VI-AUTH-001` was UNKNOWN until this turn, and closing it cost three harness defects that are each
+worth more than the verdict. Its evidence is `evidence/v04-auth-001-sensitivity.sh`: control first
+(`smoke:passkey` 76/76 on the unmutated tree), then the fault taken **verbatim** from the campaign's
+own case definition, then **DETECTED**, restore verified against git, HEAD unmoved, exit 0.
+
+**What that sequence actually found, in order:**
+
+1. **The campaign wedged, and the cause was mine.** A stray `workerd` left on port 8787 by an earlier
+   probe of this campaign made `wrangler dev` unable to bind, and `p02-passkey-smoke.mjs` sat for
+   **1h35m having consumed 1.17s of CPU** with no worker child and the port free. It could not
+   complete, so its verdict was UNMEASURED. The script now *checks port 8787 before starting* and
+   refuses — a held port here produces a silent hang, not an error, which is worse than a false exit 2
+   because nothing downstream is ever reached.
+2. **A fresh worktree has no `node_modules`**, so `wrangler` cannot bundle `sentry-entry.mjs`, the
+   Worker never becomes healthy, and the probe reports that — which a campaign grades as a kill for the
+   wrong reason. The campaign symlinks them; this script now does too. **The control run is what caught
+   it**, which is the whole argument for running the control first.
+3. **A substring is not a verdict.** The classifier looked for `consumed login ceremony cannot be
+   replayed` anywhere in the output — and the probe *prints that text when the check passes*, as the
+   name of the check. An unmutated, fully green 76/76 tree was classified DETECTED.
+4. **My restore was a silent no-op.** It wrote to `$REPO/$WT/...` with `$WT` absolute, so both `cp`s
+   failed into `/dev/null`. The `git diff --quiet` check after every restore is what caught it — the
+   same lesson as the V01 harness whose restores did nothing "while the script printed RESTORE FAILED
+   and the grades carried on".
+5. **I nearly recorded a Tier-0 mutant survivor that did not exist.** My site-2 assert required the
+   anchor to be *unique*; it is not — `Ok(D1Adapter::changes(&result)? == 1)` occurs three times, in
+   `consume_ceremony`, `revoke_passkey` and `consume_recovery`. The assert refused the mutation,
+   silently degrading a **two-site fault to one**, and the resulting 76/76 is the *expected*
+   single-site result. Only the diffstat saying `1 file changed` after a two-site mutation gave it away.
+
+That fifth one is a real defect in the campaign's own case, not only in my harness: the campaign applies
+faults with JavaScript `String.replace` on a **string** pattern, which replaces the **first** occurrence
+only, so `VI-AUTH-001` is aimed correctly **only because `consume_ceremony` is defined first**. That is
+targeting by source order, unstated and unchecked. Reorder those functions and the case silently
+disables `revoke_passkey` or `consume_recovery` and reports a kill for a fault nobody intended — and it
+would do so while the auth-replay class still reads KILLED. Written up in `V04-009`; the case should
+anchor on the `UPDATE webauthn_ceremonies` statement or the function header.
 
 ## Accepted residual risks
 
