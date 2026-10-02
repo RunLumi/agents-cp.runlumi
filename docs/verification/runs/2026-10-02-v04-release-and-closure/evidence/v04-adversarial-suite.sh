@@ -123,7 +123,46 @@ run_gate "attempt-exhaustion"  pnpm verify:attempt-exhaustion
 # --- Tier-0 webhook/outbox, data governance, observability ---------------------------------------------
 run_gate "webhook-fanout"      pnpm verify:webhook-fanout
 run_gate "data-governance p06" pnpm smoke:p06
-run_gate "observability"       pnpm verify:observability
+
+# V04 HARNESS FIX #4 -- the observability probe needs a Worker that ALREADY EXISTS.
+#
+# It is the one gate in this suite that does not start its own: it fetches `${OBS_API ?? localhost:8787}`
+# immediately and has no `probe.setup()`. Run without the dev stack it fails in about a second with a
+# bare "fetch failed" -- which reads like a product fault and is not one. Proved both ways here: with
+# no stack, exit 2 in 1s; with the stack up, 28/28 exit 0.
+#
+# So the stack is started for it, waited on for BOTH services (a 401 from /api/v1/me is the correct
+# unauthenticated answer and means the Worker is serving), and stopped afterwards -- the Worker the
+# browser gate will use next is the same one, and leaving it up is what creates the held port.
+DEV_LOG="$LOGDIR/v04-dev-stack.log"
+start_stack() {
+  pkill -9 -f "pnpm dev" 2> /dev/null
+  pkill -9 -f workerd    2> /dev/null
+  sleep 4
+  ( cd "$REPO" && nohup pnpm dev > "$DEV_LOG" 2>&1 & )
+  local tries=0 v a
+  while [ "$tries" -lt 150 ]; do
+    v="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/ 2> /dev/null)"
+    a="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/api/v1/me 2> /dev/null)"
+    if [ "$v" = "200" ] && [ "$a" = "401" ]; then sleep 3; return 0; fi
+    tries=$((tries + 1)); sleep 2
+  done
+  printf 'the stack did not come up (vite=%s api=%s) -- observability is UNPROVEN, not passed\n' \
+    "${v:-000}" "${a:-000}" >> "$LOG"
+  return 1
+}
+
+if start_stack; then
+  # OBS_LOG makes the log-correlation leg readable; without it that leg is honestly UNMEASURED
+  # (26/28 rather than 28/28), which is the correct behaviour, not a failure.
+  run_gate "observability" env OBS_LOG="$DEV_LOG" pnpm verify:observability
+else
+  RESULTS+=("observability=UNPROVEN-no-stack")
+  printf 'observability SKIPPED -- no Worker to fetch from. UNPROVEN, not a pass.\n' >> "$LOG"
+fi
+pkill -9 -f "pnpm dev" 2> /dev/null
+pkill -9 -f workerd    2> /dev/null
+sleep 2
 
 {
   printf '\n===========================================================\n'
