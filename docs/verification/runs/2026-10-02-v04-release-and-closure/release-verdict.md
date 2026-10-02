@@ -1,4 +1,4 @@
-# V04 release verdict — candidate `e55af37`
+# V04 release verdict — candidate `1d3ec1e`
 
 ## VERDICT: **FAIL — do not release**
 
@@ -17,15 +17,16 @@ baseline — was **resolved during this campaign** and is recorded as such rathe
 | Tier-0 claims | 20 | **19 PASS, 1 BLOCKED** |
 | P0 acceptance criteria mapped | 210 | 195 with evidence · **15 unproven at the runtime layer** |
 | Runtime/adversarial gates run | 25 + 12 | 34 PASS · 1 BLOCKED (correctly reported) · 2 harness artefacts, re-run |
-| Mutants killed | 10 | 5 of the 6 classes the release gate names |
-| Defects found and repaired | 7 | **1 HIGH product**, 5 harness, 1 process |
-| Product code changed | 2 files | both from the HIGH repair |
+| Mutants killed | **11** | **all 6** classes the release gate names |
+| Defects found | **9** | **2 HIGH product** (1 repaired, 1 recorded — `V04-008`), 1 product closed (`V04-009`), 5 harness, 1 process |
+| Code changed | 9 files | 1 from the HIGH repair, 2 new check/probe modules, 6 harness repairs |
+| `pnpm check` | exit **0** | re-run after the last repair; 463 binds, clippy clean, WASM target builds |
 
 ## The candidate
 
 | | |
 |---|---|
-| **commit** | `e55af37` (re-pinned twice; see `candidate-pin.md`) |
+| **commit** | `1d3ec1e` (re-pinned **four** times; see `candidate-pin.md`). Every re-pin was forced by a repair landing after a judgement was made, which is the pin working as intended |
 | **original pin** | `795d403` — **a FAILED candidate**, it shipped V04-002 |
 | **tree** | `main`, clean |
 | **OS / node / pnpm / cargo** | Darwin 27.0.0 / v24.20.0 / 10.33.0 / 1.98.1 |

@@ -69,3 +69,32 @@ about a browser V02 never touched**, and that is worth knowing rather than disco
 
 Nothing else drifted: node, pnpm, cargo, the OS and the migration head are identical to V02's
 recorded environment.
+
+
+---
+
+## Re-pin 4 — `1d3ec1e`
+
+`e55af37` was voided by its own rule the moment a repair landed: `V04-008` (the minimum client version
+control has no lever) and its standing check `security::guarded_column_writers`, then `V04-009`
+(recovery ceremony replay), then the `FR-F04-007` assertion and `FR-F22-010`/`FR-F21-006`
+reclassification in the P0 map.
+
+**What was re-run against `1d3ec1e`, rather than inherited from `e55af37`:**
+
+| proof | result |
+|---|---|
+| `pnpm check` | **exit 0** — 463 binds, clippy clean, WASM target builds |
+| `security::guarded_column_writers` | 5/5, plus sensitivity **2/2 detected** |
+| `smoke:passkey` (control leg, twice) | **80/80**, with the new recovery-replay case asserted present |
+| `verify:tool-policy-deny` (control leg) | **50/50**, FR-F04-007 asserted present |
+| `VI-AUTH-001` | **DETECTED**, control 76/76, exit 0 |
+| `V04-009` recovery replay | **DETECTED** with both defences removed, exit 0 |
+| `FR-F04-007` discrimination | **DETECTED** against a constant reason, exit 0 |
+
+**What was NOT re-run against `1d3ec1e`:** the 34-gate adversarial and smoke/browser/perf suites, and
+the earlier nine mutants. The product code changed in this stretch is confined to
+`apps/api/src/security/guarded_column_writers.rs`, `apps/api/src/security/mod.rs`, and **probe scripts
+only** — no handler, route, repository, SQL statement or migration was touched after `e55af37`. The
+nine earlier kills are therefore carried forward explicitly rather than re-measured, and that is a
+judgement about blast radius, not a claim that they were re-verified.
