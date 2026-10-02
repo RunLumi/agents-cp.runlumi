@@ -43,10 +43,22 @@ That is the release-repair loop working, not a problem with the rule: the loop *
 move when it repairs something, and the rule exists so a reader can tell a re-pinned candidate from a
 quietly-changed tree.
 
-**The re-pinned candidate is `454376a`** (identical product tree to whatever `main` is at, modulo
-further repairs). Work item 1 (the deterministic baseline) and work item 4 (the adversarial suite)
-were run against `795d403`; both must be re-run against the re-pinned tree before any release verdict
-is issued, and the re-run is what decides whether the repairs regressed anything.
+**Re-pin 2 — `3d619c9` (the candidate the release verdict is about).** V04-006 and V04-007 changed
+`apps/` again: `perf-probe.mjs` (harness) and `billing-panel.test.ts` (a test whose fixture had expired
+and taken `pnpm check` red with no product change). Under the rule above the pin is void a second time,
+and it is voided in the direction that matters: **V04-007 repaired the repository gate itself**, so the
+evidence that said "the gate is green" had to be re-established after it.
+
+**What was re-run against `3d619c9`:** `pnpm check` (exit 0, 48/48 test files, bind-count 463, clippy
+clean), `perf:budgets` against the production preview (0 over budget, 1 UNMEASURED), and the gates
+touched by V04-005 (`smoke:p03`, 17/17).
+
+**What was NOT re-run after the final re-pin**, and is therefore evidence about an earlier tree:
+`pnpm build`, the WASM check, the fresh and populated migration paths, the 25-gate adversarial suite,
+and `smoke:browser` 91/91. Those repairs touched `apps/api/sentry-entry.mjs`,
+`apps/api/scripts/p03-smoke.mjs` and `apps/api/scripts/p06-data-smoke.mjs` — none of which the
+`apps/web` changes can affect — and the release verdict says so rather than implying a single tree
+produced every number on it.
 
 ## Environment drift from the campaigns this inherits
 
