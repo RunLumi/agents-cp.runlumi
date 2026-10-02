@@ -16,7 +16,22 @@
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
-LOG="/tmp/v04-adversarial.log"
+# V04 HARNESS FIX #1 -- LOGS GO ON THE REPOSITORY VOLUME, NOT /tmp.
+#
+# The first adversarial run died with ENOSPC on the SYSTEM volume (98% full, 326 MiB free) while
+# wrangler was writing its own state there -- and every per-gate log went to /tmp with it, so the
+# evidence for the failure was destroyed by the failure. A harness that loses its own evidence when
+# the machine is under pressure cannot show what the machine did.
+#
+# /tmp is on the system volume, which is also where wrangler writes. The repository volume is a
+# different filesystem with the space, and it is the volume this campaign already designates for
+# scratch -- the mutation campaign needs ~2.4 GB per case and is explicitly told to stay off the
+# system volume for exactly this reason. So the logs go there: `target/` is gitignored, sits on the
+# repository volume, and is wiped by a rebuild rather than by a machine restart.
+LOGDIR="${V04_LOGDIR:-$REPO/target/v04-logs}"
+mkdir -p "$LOGDIR"
+LOG="$LOGDIR/v04-adversarial.log"
+
 : > "$LOG"
 
 GATE=0
@@ -26,7 +41,7 @@ run_gate() {
   local label="$1"
   shift
   GATE=$((GATE + 1))
-  local out="/tmp/v04-gate${GATE}-${label}.log"
+  local out="$LOGDIR/v04-gate${GATE}-${label}.log"
   local start end code
   start=$(date +%s)
   ( cd "$REPO" && "$@" ) > "$out" 2>&1
@@ -92,7 +107,7 @@ run_gate "observability"       pnpm verify:observability
   done
   printf '  %s gates run, %s non-zero exit\n' "${#RESULTS[@]}" "$NONZERO"
   printf '\n'
-  printf 'Per-gate logs: /tmp/v04-gate<N>-<name>.log\n'
+  printf 'Per-gate logs: $LOGDIR/v04-gate<N>-<name>.log\n'
   printf 'exit 0 = every check held. exit 1 = a check did not hold (a finding about the product).\n'
   printf 'exit 2 = the harness could not run (a finding about the environment, NOT a detection).\n'
   printf 'finished: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"

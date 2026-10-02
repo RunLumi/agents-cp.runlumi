@@ -13,7 +13,22 @@
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
-LOG="/tmp/v04-smoke-browser-perf.log"
+# V04 HARNESS FIX #1 -- LOGS GO ON THE REPOSITORY VOLUME, NOT /tmp.
+#
+# The first adversarial run died with ENOSPC on the SYSTEM volume (98% full, 326 MiB free) while
+# wrangler was writing its own state there -- and every per-gate log went to /tmp with it, so the
+# evidence for the failure was destroyed by the failure. A harness that loses its own evidence when
+# the machine is under pressure cannot show what the machine did.
+#
+# /tmp is on the system volume, which is also where wrangler writes. The repository volume is a
+# different filesystem with the space, and it is the volume this campaign already designates for
+# scratch -- the mutation campaign needs ~2.4 GB per case and is explicitly told to stay off the
+# system volume for exactly this reason. So the logs go there: `target/` is gitignored, sits on the
+# repository volume, and is wiped by a rebuild rather than by a machine restart.
+LOGDIR="${V04_LOGDIR:-$REPO/target/v04-logs}"
+mkdir -p "$LOGDIR"
+LOG="$LOGDIR/v04-smoke-browser-perf.log"
+
 : > "$LOG"
 
 GATE=0
@@ -23,7 +38,7 @@ run_gate() {
   local label="$1"
   shift
   GATE=$((GATE + 1))
-  local out="/tmp/v04-sb${GATE}-${label}.log"
+  local out="$LOGDIR/v04-sb${GATE}-${label}.log"
   local start end code
   start=$(date +%s)
   ( cd "$REPO" && "$@" ) > "$out" 2>&1
@@ -61,7 +76,7 @@ start_stack() {
   pkill -9 -f workerd 2>/dev/null
   pkill -9 -f "wrangler dev" 2>/dev/null
   sleep 4
-  ( cd "$REPO" && nohup pnpm dev > /tmp/v04-dev-stack.log 2>&1 & )
+  ( cd "$REPO" && nohup pnpm dev > "$LOGDIR/v04-dev-stack.log" 2>&1 & )
   local tries=0 v a
   while [ "$tries" -lt 150 ]; do
     v="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/ 2>/dev/null)"

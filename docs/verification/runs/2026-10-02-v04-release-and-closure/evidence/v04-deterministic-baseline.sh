@@ -13,7 +13,22 @@
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
-LOG="/tmp/v04-baseline.log"
+# V04 HARNESS FIX #1 -- LOGS GO ON THE REPOSITORY VOLUME, NOT /tmp.
+#
+# The first adversarial run died with ENOSPC on the SYSTEM volume (98% full, 326 MiB free) while
+# wrangler was writing its own state there -- and every per-gate log went to /tmp with it, so the
+# evidence for the failure was destroyed by the failure. A harness that loses its own evidence when
+# the machine is under pressure cannot show what the machine did.
+#
+# /tmp is on the system volume, which is also where wrangler writes. The repository volume is a
+# different filesystem with the space, and it is the volume this campaign already designates for
+# scratch -- the mutation campaign needs ~2.4 GB per case and is explicitly told to stay off the
+# system volume for exactly this reason. So the logs go there: `target/` is gitignored, sits on the
+# repository volume, and is wiped by a rebuild rather than by a machine restart.
+LOGDIR="${V04_LOGDIR:-$REPO/target/v04-logs}"
+mkdir -p "$LOGDIR"
+LOG="$LOGDIR/v04-baseline.log"
+
 : > "$LOG"
 
 STEP=0
@@ -23,7 +38,7 @@ run_step() {
   local label="$1"
   shift
   STEP=$((STEP + 1))
-  local out="/tmp/v04-baseline-step${STEP}.log"
+  local out="$LOGDIR/v04-baseline-step${STEP}.log"
   printf '\n===== [%d] %s =====\n' "$STEP" "$label" >> "$LOG"
   local start end code
   start=$(date +%s)
