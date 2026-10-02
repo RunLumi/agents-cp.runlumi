@@ -76,9 +76,29 @@ Measured carefully, because an earlier reading of this was wrong in both directi
   appear in the final run. It *did* appear in an earlier run of the same probe, so local delivery to
   that consumer is **intermittent** rather than absent.
 
-That is the documented V01 condition — the local queue does not reliably deliver a published body — and
-it is why the R2 leg cannot be decided on this host. The R2 artifact is never written, so the
-data-governance rows ("private artifacts protected", "every data class disposition") are **UNPROVEN**.
+**What the campaign established about the cause, which is stronger than "the local queue is
+unreliable":** in **two fresh runs** (`/Volumes/SSD/v04-logs/p06-probe1.log`, `p06-probe2.log`) the jobs
+consumer was **never invoked at all** — zero `p06_queue_routed` lines, both runs, versus eight in one
+earlier run, so local delivery is intermittent rather than reliably absent.
+
+And the repository side is verifiably correct, which is what makes this environmental rather than a
+defect:
+
+| link | state | how it was checked |
+|---|---|---|
+| the export job is **published** | **yes** | `queue_job_envelopes` row is `state: queued, attempt: 1` |
+| the **producer binding** is declared | **yes** | `wrangler.jsonc` dev env: `JOBS_QUEUE` → `lumi-agents-jobs-development` |
+| a **consumer** is registered on it | **yes** | same file, `max_batch_size 10`, `max_retries 8`, with `lumi-agents-jobs-development-dlq` |
+| the consumer's **route diagnostic** fires | **never** | no `p06_queue_routed` in two fresh runs |
+
+So: produced, wired, and registered — and not invoked by the local runtime. That is the documented V01
+condition, now measured rather than assumed, and it is a **stop condition** under the release repair
+rule: *a required external system cannot be exercised*. There is no repository change that makes a local
+queue simulator deliver a message, and inventing one would replace the proof with a mock.
+
+The R2 artifact is therefore never written, so the data-governance rows ("private artifacts protected",
+"every data class disposition") are **UNPROVEN** — correctly, and not because the product refused
+anything. Fail-closed: the job sits queued and does nothing.
 
 **V04-002 removed a real crash from underneath this**, and that is what made the distinction
 measurable at all: before the repair, the jobs consumer could not even be constructed.
@@ -219,8 +239,14 @@ at `queued` with `attempt: 1`. That is a Tier-0 export/deletion claim, and the g
 as the one just found, one layer further in, and no gate had ever driven a real queue delivery to
 completion before today.
 
-We also do not know the production performance numbers — not because they are slow, but because
-nobody measured them in this campaign against the artefact the budgets describe.
+The queue question is now answered and the answer is not reassuring in the way a bug would be: **the
+export path is correctly wired and the local runtime simply never runs the jobs consumer.** Two fresh
+runs, zero invocations, a published envelope, a declared producer and a registered consumer with a dead
+letter queue. So the remaining unknown is not "is there a defect in the export path" — on this evidence
+there is not one to find — but **"does the jobs consumer work at all in production?"** Nothing here can
+answer that, because the only way to exercise it is the mechanism this host does not provide. That is a
+narrower and more uncomfortable gap than the one the campaign started with: it is not a defect to fix,
+it is a whole Tier-0 feature path with no runtime evidence at all.
 
 And we do not know whether 8 of the 12 browser states could fail at all, which means the browser
 journey can still be green over a product that has lost one of them.
