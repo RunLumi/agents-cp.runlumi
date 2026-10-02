@@ -2311,7 +2311,19 @@ async function main() {
     page,
     () => {
       const alert = document.querySelector('[role="alert"]');
-      if (!alert) return false;
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      if (!alert) {
+        // A STUCK LOADER is reported, not thrown on. Without this branch a product fault that
+        // leaves the app on its loading screen (V02-013's mutation: the session error branch
+        // rendering loading) turns this waitFor into an uncaught timeout and the probe exits 2
+        // -- INVALID, discarding the real signal that no error state ever appeared. A check must
+        // FAIL when its precondition is absent, not throw; this is the fourth instance of the
+        // rule in this campaign.
+        if (/loading|please wait/i.test(body)) {
+          return { found: false, stuckLoader: true, bodyText: body.slice(0, 240) };
+        }
+        return false;
+      }
       return {
         found: true,
         text: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
@@ -2325,13 +2337,13 @@ async function main() {
       };
     },
     { label: "a server-error screen" },
-  );
+  ).catch(() => null);
   check(
     "with the network unreachable the app renders an ERROR state, not a spinner and not the " +
       "sign-in form -- an unreachable API is not an anonymous session, and conflating the two would " +
       "log the user out of a working session",
     errorScreen?.found === true,
-    `found=${errorScreen?.found} text=${JSON.stringify(errorScreen?.text)?.slice(0, 150)}`,
+    `found=${errorScreen?.found} stuckLoader=${errorScreen?.stuckLoader} text=${JSON.stringify(errorScreen?.text ?? errorScreen?.bodyText)?.slice(0, 150)}`,
   );
   check(
     "the error state is announced to assistive technology (role=alert), so it is not a silent " +
