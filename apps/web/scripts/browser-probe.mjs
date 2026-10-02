@@ -800,7 +800,12 @@ async function main() {
     // the settled state. The switcher's own <select> is excluded: it
     // legitimately lists every organization, so its option text is not a leak.
     const samples = [];
-    for (let i = 0; i < 24; i += 1) {
+    // CI can take longer than 1.4s to load the new organization's panel.
+    // Keep sampling throughout that load: a stale flash still fails, but an
+    // honest loading state is not confused with a failed switch. Require at
+    // least the original 24 samples and bound settlement at 20 seconds.
+    const deadline = Date.now() + 20_000;
+    for (let i = 0; Date.now() < deadline; i += 1) {
       samples.push(
         await page.evaluate(() => {
           const switcher = document.querySelector("#org-switcher");
@@ -810,6 +815,7 @@ async function main() {
           return text;
         }),
       );
+      if (i >= 23 && samples.at(-1).includes(label)) break;
       await sleep(60);
     }
     return { applied, samples };
@@ -826,7 +832,9 @@ async function main() {
     const leakedOnB = switchedToB.samples.filter((t) => t.includes(orgA));
     check(
       "after switching to org B no sample of the DOM ever shows org A's name",
-      leakedOnB.length === 0 && switchedToB.samples.at(-1).includes(orgB),
+      switchedToB.samples.length >= 24 &&
+        leakedOnB.length === 0 &&
+        switchedToB.samples.at(-1).includes(orgB),
       `samples=${switchedToB.samples.length} leaks=${leakedOnB.length}`,
     );
     if (SHOTS) await page.screenshot(join(SHOTS, "04-org-b-after-switch.png"));
@@ -835,7 +843,9 @@ async function main() {
     const leakedOnA = switchedToA.samples.filter((t) => t.includes(orgB));
     check(
       "switching back restores org A and org B's name is never left behind",
-      leakedOnA.length === 0 && switchedToA.samples.at(-1).includes(orgA),
+      switchedToA.samples.length >= 24 &&
+        leakedOnA.length === 0 &&
+        switchedToA.samples.at(-1).includes(orgA),
       `samples=${switchedToA.samples.length} leaks=${leakedOnA.length}`,
     );
   }
@@ -851,9 +861,16 @@ async function main() {
       window.dispatchEvent(new PopStateEvent("popstate"));
       return window.location.pathname;
     },
-    await page.evaluate(() => document.body.innerText.match(/([a-z0-9-]+) · active/)?.[1] ?? "x"),
+    await page.evaluate(() => window.location.pathname.split("/")[2]),
   );
-  await sleep(1400);
+  await waitFor(
+    page,
+    () => /Data & retention|Export history|Billing/i.test(document.body.innerText),
+    {
+      label: "deep-linked data panel settles",
+      timeout: 20_000,
+    },
+  ).catch(() => false);
   const deepLinkText = await page.text();
   check(
     "a hand-edited deep link resolves to a real panel, not a silent Overview",
