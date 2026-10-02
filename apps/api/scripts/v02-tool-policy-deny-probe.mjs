@@ -581,6 +581,26 @@ await runProbe(LABEL, async (probe) => {
       `http=${result.status} stored=${row ? row.status : "NO ROW"} body=${probe.brief(result.payload, 160)}`,
     );
     decisions[`${tag}Row`] = row;
+
+    // FR-F04-007, and the reason this is asserted HERE rather than left to a reading of the stored
+    // row above. D1 grades the STORED decision, which is a different requirement: the spec asks that
+    // the backend RETURN a machine-readable denial reason to the caller, and a product that stored the
+    // reason while returning an opaque body would satisfy every other assertion in this probe.
+    //
+    // It is also the only assertion here that cannot be satisfied by a constant. D1 accepts any
+    // non-empty status; this one requires the reason to MATCH THE TAG, so `policy_allowed` on the deny
+    // leg fails. A route that returned one fixed reason for both outcomes would pass a presence check
+    // and fail this one -- which is the difference between asserting a field exists and asserting it
+    // means something.
+    const expectReason = tag === "deny" ? "org_tool_denied" : "policy_allowed";
+    probe.expect(
+      `FR-F04-007: the ${tag} call RETURNS a machine-readable reason to the authorized caller, and it ` +
+        `discriminates -- "${expectReason}" here. The stored row above is a separate requirement, and ` +
+        `this one is on the wire: a product that persisted the reason while answering an opaque body ` +
+        `would pass every other assertion in this probe`,
+      result.payload?.reason === expectReason && result.payload?.decision === tag,
+      `decision=${result.payload?.decision ?? "ABSENT"} reason=${result.payload?.reason ?? "ABSENT"}`,
+    );
   }
 
   const denyRow = decisions.denyRow;
