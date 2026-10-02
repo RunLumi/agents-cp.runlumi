@@ -832,7 +832,9 @@ async function main() {
     const leakedOnB = switchedToB.samples.filter((t) => t.includes(orgA));
     check(
       "after switching to org B no sample of the DOM ever shows org A's name",
-      leakedOnB.length === 0 && switchedToB.samples.at(-1).includes(orgB),
+      switchedToB.samples.length >= 24 &&
+        leakedOnB.length === 0 &&
+        switchedToB.samples.at(-1).includes(orgB),
       `samples=${switchedToB.samples.length} leaks=${leakedOnB.length}`,
     );
     if (SHOTS) await page.screenshot(join(SHOTS, "04-org-b-after-switch.png"));
@@ -841,7 +843,9 @@ async function main() {
     const leakedOnA = switchedToA.samples.filter((t) => t.includes(orgB));
     check(
       "switching back restores org A and org B's name is never left behind",
-      leakedOnA.length === 0 && switchedToA.samples.at(-1).includes(orgA),
+      switchedToA.samples.length >= 24 &&
+        leakedOnA.length === 0 &&
+        switchedToA.samples.at(-1).includes(orgA),
       `samples=${switchedToA.samples.length} leaks=${leakedOnA.length}`,
     );
   }
