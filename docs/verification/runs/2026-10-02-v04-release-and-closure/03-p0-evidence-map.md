@@ -277,6 +277,57 @@ that does not exist.
 
 ## The summary this produces, stated before the results are read
 
+## Coverage gap or capability gap? — every unproven row, classified
+
+A coverage table cannot tell these apart, and the two demand different work: "write a probe" versus
+"build a routed surface". `FR-F19-008` was annotated *"no probe asserts a too-old client is refused"* —
+a statement about a probe — and the truth was that the **capability** is absent. So every row below was
+classified by asking one question: **does a route exist that makes this reachable?**
+
+| FR | classification | what decided it |
+|---|---|---|
+| FR-F03-008 bulk operations | **CAPABILITY ABSENT** | no bulk route in the router at all |
+| FR-F05-006 security notifications | **CAPABILITY ABSENT** | `notifications` has a table (migration 0012) and `notification_preferences` **is** written (`repositories/webhooks.rs:1015`), but nothing ever `INSERT`s a notification — a V04-008-shaped row: a read path with no producer |
+| FR-F19-008 min client version | **CAPABILITY ABSENT**, fails **open** | V04-008 — the guard exists and nothing can arm it |
+| FR-F23-008 OpenAPI | **CAPABILITY ABSENT** | no document is generated or published |
+| FR-F23-010 rate-limit headers | **CAPABILITY ABSENT** | no response emits a rate-limit header; the only `Retry-After` in the tree is an *inbound* webhook consumer (`adapters/webhooks/`) |
+| FR-F04-007 explainability | COVERAGE — observed, **unasserted** | the reason is in the response body; nothing fails if it stops being there |
+| FR-F13-005 browser use | COVERAGE | `BrowserPolicy` (`modules/policy_p05.rs:43`) expresses **all six**: `allowed_domains`, `blocked_domains`, `blocked_categories`, `allow_download`, `allow_upload`, `allow_authenticated`, `allow_clipboard`, `external_submit` |
+| FR-F13-006 computer use | COVERAGE | `ComputerPolicy` (`policy_p05.rs:56`) expresses **all five**: `allow_accessibility`, `allow_screen_capture`, `allow_keyboard_mouse`, `allow_shell_escalation`, `allowed_applications`/`blocked_applications` |
+| FR-F23-007 deprecation | COVERAGE | enforced on a routed path: `ToolLifecycle::Deprecated => None` (`routes/tools.rs:135`), and `CatalogLifecycle::Deprecated.allows_new_routes()` is false |
+| FR-F21-006 timeouts (`S`) | COVERAGE | every adapter sets one; no probe measures an expiry |
+| FR-F22-010 design system (`S`) | COVERAGE | `pnpm lint` and a component inventory; no rendered comparison gate |
+| FR-F09-007 provider health | WIRED, **BLOCKED** by V01-026 | `HealthState::cooling_down` is called from a production path (`routes/inference.rs:4120`) and `cooldown_until` is persisted (`repositories/ai.rs:226`) — it needs a real upstream to drive |
+| FR-F21-008 circuit / cooldown | WIRED, **BLOCKED** by V01-026 | same call site |
+| FR-F13-009 network egress | WIRED, **BLOCKED** by V01-026 | the allowlist logic exists; no socket is reachable from this host |
+| FR-F12-008 provider reconciliation | **CONFLICT IN THE FROZEN CONTRACTS** | `docs/specs/README.md` marks **F12 as P0**; the requirement's own text (`f12`, line 92) opens "**P1** compare internal usage/cost with provider invoice/export *where API exists*". A P0 spec containing a self-labelled P1 requirement, conditional on an API no provider exposes. **Verification may not resolve this** — settling it means editing a frozen contract, which is the deliberate process. Recorded as a contract conflict and left unproven |
+
+**So of 15 unproven rows: 5 are missing features, 3 are blocked by a measured environmental cause, 1 is
+a conflict inside the frozen contracts, and 6 are missing probes.** The first group is the one that
+changes the release decision, and none of the five is a small addition.
+
+That sixth row is worth naming as a class on its own: **a `P0` spec can contain a requirement whose own
+text says `P1`.** `README.md`'s priority column and the requirement body disagree, and the release gate
+lists "unreviewed drift in frozen client/event contracts" as a hard blocker. Nothing in this campaign
+resolves it, because resolving it means editing a frozen contract — the one move this campaign is
+forbidden to make. It is recorded so that a human decides it deliberately rather than discovering it
+when a gate fails.
+
+### Two corrections this classification forced, both against my own first reading
+
+**`FR-F13-005`/`FR-F13-006` were about to be recorded as a capability gap, and that would have been
+false.** The inference was: the `BrowserCapability` enum has four variants (`None`, `Read`, `Interact`,
+`ComputerUse`) against **eleven** sub-controls the specs name, so the product must model them coarsely.
+It does not — `policy_p05.rs` carries a dedicated `BrowserPolicy` and `ComputerPolicy` with a field per
+sub-control. The enum is the *tool definition's* capability class; the policy is a separate struct. A
+pattern inferred from a single instance is a hypothesis, and the cheapest thing to do with a hypothesis
+is read the other instances.
+
+**`FR-F23-007` was about to be recorded as a capability gap for the same reason** — `Deprecated` looked
+like an inert label. It is enforced: `routes/tools.rs:135` returns `None` for a deprecated tool.
+
+Both were caught only because the question was "is it *reachable*" rather than "does the thing exist".
+
 - **15 of 147** P0 `FR-*` criteria are **unproven at the runtime layer**: 13 tagged `—` (no evidence at any layer) plus 2 tagged `S`. The two `S` rows are `FR-F21-006` (timeouts — every adapter sets one, no probe measures an expiry) and `FR-F22-010` (design system — `pnpm lint` and a component inventory, no rendered comparison gate). Per this table's own legend an `S` mapping "does not thereby satisfy" the criterion, so counting only the 13 `—` rows would understate the release decision by two. Of the 15, one (`FR-F19-008`) is **not an evidence gap at all** — the capability is absent — and one (`FR-F04-007`) has runtime evidence that nothing asserts
   of what this repository can run: desktop sign-in (F01-013), bulk membership (F03-008), explainability
   (F04-007), security notifications (F05-006), provider health/cooldown (F09-007), browser- and
