@@ -370,6 +370,38 @@ fault detected (123/125, naming the two dependent checks). **RTO 1483 ms; RPO 0 
 snapshot.** The only schema change in this campaign is a bound parameter reusing an existing column —
 no migration, so rollback is a pure revert.
 
+## A production deployment exists, and this verdict was issued against a different commit than it
+
+Found while auditing the pin at the very end of this campaign, and it belongs in the record rather than
+in a message, because it changes what a reader has to do next.
+
+`main` has **diverged from `origin/main`**: two commits landed from another instance
+(`b2f3e94` production operations + deployment runbook, `a0ea9b6` deploy to `agents-cp.runlumi.app`) while
+this verdict was being written. Neither is in the tree these measurements were taken on. What they change:
+
+| surface | changed? | consequence for this verdict |
+|---|---|---|
+| `apps/api/src/**`, migrations | **no** | every handler, repository, SQL statement and migration measured here is the measured code |
+| `wrangler.jsonc` — queue wiring | **no** | `JOBS_QUEUE` → `lumi-agents-jobs-development`, its consumer, and its dead-letter queue are unchanged, so **T0-16's evidence stands** |
+| `wrangler.jsonc` — production | **yes** | a production env is declared: `workers_dev: false`, `preview_urls: false`, a custom domain `agents-cp.runlumi.app`, and production-only vars including `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGINS` = `https://agents-cp.runlumi.app` |
+| `apps/web/scripts/browser-probe.mjs` | **yes** | the org-switch staleness loop changed from a fixed 24 samples to a time-bounded loop (20 s) that breaks once ≥24 samples show the new org. It is *more* patient, not less — but **T0-19's cited "24 DOM samples per direction, 0 leaks" was measured against the superseded probe** and is carried forward, not re-measured |
+| `package.json` build order | **yes** | web is now built before the API. `pnpm check` exit 0 here ran the previous order |
+
+**Three consequences, stated plainly.**
+
+1. **This verdict is FAIL, and a production deployment target exists.** Whether shipping it is right is a
+   decision this campaign has no standing to make — but a reader holding this document needs to know
+   both facts at once, not discover the second by reading `wrangler.jsonc`.
+2. **Every WebAuthn ceremony verified here ran against a localhost origin.** Production's
+   `WEBAUTHN_ORP_ID` and `WEBAUTHN_ORIGINS` are the custom domain, and that pairing has **never** been
+   exercised by any gate in this repository — `smoke:passkey` drives ceremonies over loopback. Origin
+   and RP-ID are exactly where WebAuthn ceremonies fail in production and pass locally, and the specs
+   name both. This is an **UNPROVEN** Tier-0 authentication surface, and it is unproven for a reason no
+   amount of local work fixes.
+3. **Two Tier-0 rows are now carried forward against superseded tooling** (T0-19's probe). The pin
+   discipline says a change to the judged surface voids the measurement; the honest resolution is to
+   label the carry-forward rather than re-run a browser suite for a change this campaign did not make.
+
 ## Limitations of this verdict
 
 1. **The worktree was shared** (V04-004). A concurrent instance advanced `main` and created worktrees
