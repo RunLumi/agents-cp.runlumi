@@ -27,6 +27,7 @@ since the V01 merge (`870f116`): the V02 squash (`a1f5f4a`, PR #41, CI green) + 
 | `evidence/v02-001-focus-sensitivity.sh` | sensitivity proof, focus class | 0 detected, 2 declared KNOWN MISSED |
 | `evidence/v02-004-observability-sensitivity.sh` | sensitivity proof, observability class | **M1 DETECTED**, exit 0 |
 | `evidence/v02-006-permission-denied-sensitivity.sh` | sensitivity proof, permission-denied class | **M1 DETECTED**, exit 0 |
+| `evidence/v02-013-session-error-sensitivity.sh` | sensitivity proof, error-state class (states 1/5/6 + V02-010/012) | **M1 DETECTED**, exit 0 (after 2 INVALID runs) |
 | `pnpm check` | the repository's own gate | **exit 0**, bind-count 463, clippy clean |
 
 ## Verdict per claim
@@ -35,12 +36,12 @@ since the V01 merge (`870f116`): the V02 squash (`a1f5f4a`, PR #41, CI green) + 
 
 | # | state | verdict | evidence |
 |---|---|---|---|
-| 1 | loading | **PASS** | V02-002 — a *delayed* request, not a failed one; a rejected request never renders a loading state |
+| 1 | loading | **PASS** (failure-proven) | V02-002 — a *delayed* request, not a failed one; a rejected request never renders a loading state. V02-013: the case **still passes** while every error case goes red, which is what distinguishes the two screens |
 | 2 | empty | **PASS** | V02-006 — create panel offered, labelled, not the error surface; **with a control** re-read once populated |
 | 3 | success | **PASS** | two organizations created through the UI, switcher populated, session live |
 | 4 | permission denied | **PASS** | V02-006 — announced `role=alert`, content region carries the refusal, recovery leg |
-| 5 | server error | **PASS** | V02-002 — `Fetch.failRequest` on `/api/v1/me` only; the document still loads and the app mounts |
-| 6 | retry/recovery | **PASS** | V02-002 recovery + V02-006 recovery-after-denial + V02-010 recovery-after-malformed + V02-012 recovery-after-disconnect |
+| 5 | server error | **PASS** (failure-proven) | V02-002 — `Fetch.failRequest` on `/api/v1/me` only; the document still loads and the app mounts. V02-013 M1 makes a failed `/me` render loading forever and this goes red |
+| 6 | retry/recovery | **PASS** (failure-proven) | four recovery legs, each a control for its own fault; V02-013 M1 reds all three that depend on the error branch |
 | 7 | keyboard navigation | **PASS** | V02-006 — a **real** `ArrowRight` through CDP, plus `Tab` reachability; the synthetic `KeyboardEvent` is gone |
 | 8 | visible focus | **PASS** (repaired) | V02-001 — was `boxShadow !== "none"`, which a resting shadow satisfies |
 | 9 | narrow layout | **PASS** | 5 checks at 390 px, including containment rather than document overflow |
@@ -126,9 +127,10 @@ looking.
 
 ## What is NOT established, stated plainly
 
-- **Eleven of the twelve browser states have no product-side sensitivity proof.** They have been
-  watched to report FAIL only on harness faults. Two classes now have one (V02-005, V02-009); the rest
-  do not.
+- **Eight of the twelve browser states still have no product-side sensitivity proof.** Four do:
+  focus (V02-001), observability (V02-005), permission-denied/recovery (V02-009), and the
+  error-state class behind states 1/5/6 plus V02-010 and V02-012 (V02-013). Unproven: empty,
+  keyboard, narrow layout, destructive confirmation, stale-data, one-time-secret.
 - **A first-visit LCP p75 in a fresh Chrome profile is UNPROVEN.** Cache-cold is 0.22 s and warm is
   0.08 s, but a genuine first-visit distribution was measured once at 3.6 s and is not reproducible in
   this harness.
