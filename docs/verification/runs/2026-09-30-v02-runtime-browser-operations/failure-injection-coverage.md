@@ -23,7 +23,7 @@ non-obvious part: the blocker that has stopped this section twice (V01-026 / GAP
 | 4 | 5xx | **NOT COVERED — BLOCKED** | Same cause. |
 | 5 | **malformed response** | **PROVEN (V02-010)** | `Fetch.fulfillRequest` answers `/api/v1/me` with **HTTP 200 and a body that is not JSON**, from the browser, with no upstream. The app renders an announced, explained, retryable error state and does **not** echo the proxy's HTML back as its own copy; a control proves the session recovers through the app's own retry. This is the row where a status-code assertion would have read the fault as success and an error interceptor could not see it at all. |
 | 6 | queue / webhook retry | **PARTIAL, then BLOCKED** | `verify:webhook-fanout` W6 shows **replay** works over real HTTP (W0–W4 are controls, W6 the replay). Delivery **failure** injection is BLOCKED: the local queue does not deliver a published body, and driving a real non-2xx from a receiving endpoint needs an outbound socket. |
-| 7 | downstream disconnect | **NOT COVERED — REACHABLE in part** | #1 is a failure *before* the response. A disconnect **after headers, mid-body** is a different fault and is not driven. Reachable via the same boundary. |
+| 7 | **downstream disconnect** | **PROVEN, narrow (V02-012)** | Pause at Response stage, then fail with `ConnectionAborted`: headers arrived, body died. The app renders an announced error (not a stuck loader) with a retry, and the control recovers through the app's own retry. Narrow: session read, and the local Worker serves headers+body together, so this is not a slow stream cut in half. |
 
 ## The objective's second list, per injection
 
@@ -54,9 +54,8 @@ through the documented allowlist, as `v01-provider-fault-probe.mjs` does.
 
 1. ~~**Malformed response (5).**~~ **CLOSED in V02-010.** Client handling was already written and
    tested; the user-visible consequence is now measured, with a recovery control.
-2. **Downstream disconnect (7).** Same boundary, different fault: the response begins and then fails.
-   This is the one the objective lists that most resembles a real flaky network, and the loading/error
-   distinction depends on it. Now the strongest remaining candidate.
+2. ~~**Downstream disconnect (7).**~~ **CLOSED in V02-012**, narrow: the abort is genuine at the
+   protocol level but the local body is fast, so a slow-stream cut is still unproven.
 3. **Bounded retry + reconciliation.** These two are properties of a *loop*, so they need a fault
    that repeats. That is the part of this section that will need a provider-shaped adapter, and it is
    the part most likely to remain blocked.

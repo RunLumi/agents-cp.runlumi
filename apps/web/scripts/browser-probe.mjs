@@ -2538,6 +2538,98 @@ async function main() {
       `snippet=${JSON.stringify(afterMalformed?.snippet)}`,
   );
 
+  // ==========================================================================================
+  // V02-012 -- DOWNSTREAM DISCONNECT. Headers arrive, then the connection dies mid-body.
+  //
+  // Injected at Response stage: the pause fires AFTER the Worker answered the headers, and the
+  // request is then failed with `ConnectionAborted`. The browser received a status line and then
+  // nothing it could use — the closest this boundary can get to a flaky network, and the fault
+  // the objective lists that most resembles what a real user actually suffers. Nothing in
+  // `apps/web` is stubbed; the app's real fetch runs against a real Worker and dies mid-body.
+  //
+  // Why this is a different case from V02-002's connect failure and not a duplicate of it: a
+  // connect failure never produces a response object at all, while here the response EXISTED and
+  // then broke. An app that handles one does not necessarily handle the other — a retry that
+  // reuses a half-read body, a loading spinner that never clears because the promise neither
+  // resolved nor rejected in the path the code handles, a cache that stores the partial response.
+  // The assertions below are shaped by that: the error state must appear (not a stuck loader),
+  // and the retry must work (the failed attempt must not have poisoned anything).
+  // ==========================================================================================
+  const releaseDisconnect = await page.intercept("*/api/v1/me", {
+    action: "fail",
+    stage: "Response",
+    errorReason: "ConnectionAborted",
+  });
+  await page.goto(WEB, { waitUntil: "domcontentloaded" });
+  const disconnectScreen = await waitFor(
+    page,
+    () => {
+      const alert = document.querySelector("[role=alert]");
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      // A STUCK LOADER is the failure this case exists to catch: the promise broke mid-body and
+      // the app never left its loading branch. So the loading text is read too, and the first
+      // assertion below fails on it explicitly rather than on a timeout.
+      const loading = /loading|please wait/i.test(body) && !alert;
+      return (
+        (alert && {
+          announced: true,
+          text: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
+          bodyText: body.slice(0, 240),
+          hasRetry: [...alert.querySelectorAll("button")].some((b) =>
+            /retry|try again/i.test(b.textContent ?? ""),
+          ),
+        }) ||
+        (loading && { announced: false, stuckLoader: true, bodyText: body.slice(0, 240) }) ||
+        undefined
+      );
+    },
+    { label: "an error state for a mid-body disconnect", timeout: STEP_TIMEOUT },
+  ).catch(() => null);
+
+  await releaseDisconnect();
+
+  check(
+    "DOWNSTREAM DISCONNECT: headers arrive and the connection dies mid-body, and the app renders " +
+      "an ERROR state rather than a loader that never clears — a stuck spinner is the distinctive " +
+      "failure of this fault, because the response existed and then broke",
+    disconnectScreen?.announced === true,
+    `announced=${disconnectScreen?.announced} stuckLoader=${disconnectScreen?.stuckLoader} body=${JSON.stringify(disconnectScreen?.bodyText)}`,
+  );
+  check(
+    "and it offers a RETRY, because the failed attempt must not have poisoned anything the retry needs",
+    disconnectScreen?.hasRetry === true,
+    `hasRetry=${disconnectScreen?.hasRetry} text=${JSON.stringify(disconnectScreen?.text)?.slice(0, 120)}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "08c-downstream-disconnect.png"));
+
+  // ---- CONTROL: the app's own retry against a restored network --------------------------------
+  const disconnectRetry = await page.evaluate(() => {
+    const alert = document.querySelector("[role=alert]");
+    const button = [...(alert?.querySelectorAll("button") ?? [])].find((b) =>
+      /retry|try again/i.test(b.textContent ?? ""),
+    );
+    button?.click();
+    return { clicked: Boolean(button), label: button?.textContent?.trim() ?? null };
+  });
+  const afterDisconnect = await waitFor(
+    page,
+    () => {
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      return (
+        (!document.querySelector("[role=alert]") && /VFY Org/.test(body) && { recovered: true }) ||
+        undefined
+      );
+    },
+    { timeout: STEP_TIMEOUT, label: "the shell after retrying a disconnect" },
+  ).catch(() => null);
+  check(
+    "DISCONNECT CONTROL: the session RECOVERS through the app's own retry once the network is " +
+      "whole again — so the mid-body failure left no poisoned state behind, and the two cases " +
+      "above measure a screen the app can actually exit",
+    afterDisconnect?.recovered === true,
+    `clicked=${disconnectRetry.clicked} (${disconnectRetry.label}) recovered=${afterDisconnect?.recovered}`,
+  );
+
   // ---- LOADING: a PENDING request, which is the only thing that shows this branch ---------------
   // The document loads normally and ONLY the API request is delayed. A rejected request never
   // renders a loading state, so this has to be a delayed request rather than a failed one -- otherwise
