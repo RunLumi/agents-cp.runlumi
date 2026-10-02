@@ -30,6 +30,24 @@ a non-zero count of product files, the candidate has moved and this pin is void 
 trusting any result, because a verdict about a different tree than the one recorded is a verdict
 about nothing.
 
+## THE PIN WENT VOID, exactly as that rule predicts
+
+`454376a` repaired two defects in `apps/api/` (V04-002's queue entrypoint, V04-003's gate failure
+report), so the product tree moved and **795d403 is a FAILED candidate**:
+
+> `795d403` ships a HIGH defect: the queue handler cannot construct the Worker, so no queue message
+> has ever been delivered. Every async proof taken against it describes a product that cannot consume
+> a queue.
+
+That is the release-repair loop working, not a problem with the rule: the loop *expects* the pin to
+move when it repairs something, and the rule exists so a reader can tell a re-pinned candidate from a
+quietly-changed tree.
+
+**The re-pinned candidate is `454376a`** (identical product tree to whatever `main` is at, modulo
+further repairs). Work item 1 (the deterministic baseline) and work item 4 (the adversarial suite)
+were run against `795d403`; both must be re-run against the re-pinned tree before any release verdict
+is issued, and the re-run is what decides whether the repairs regressed anything.
+
 ## Environment drift from the campaigns this inherits
 
 **Chrome is 154.0.8037.93. V02 recorded 153.0.8010.53.** That is a different browser build than the
