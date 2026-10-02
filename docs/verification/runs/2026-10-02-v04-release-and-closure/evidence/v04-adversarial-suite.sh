@@ -37,12 +37,34 @@ LOG="$LOGDIR/v04-adversarial.log"
 GATE=0
 RESULTS=()
 
+# V04 HARNESS FIX #2 -- SETTLE THE WORKER BETWEEN GATES.
+#
+# The first run's last two gates both exited 2: p06 died on a ReferenceError and left workerd holding
+# ports, then the gate behind it could not reach a Worker at all. That is the standing hazard -- a
+# held port produces a false exit 2, and a false exit 2 is a statement about the machine wearing the
+# costume of a finding. `settle_worker` polls until workerd is actually gone, because a live miniflare
+# RECREATES the persist directory it was using, so a fixed sleep either races it or tears down a
+# directory still in use.
+settle_worker() {
+  local tries=0
+  while [ "$tries" -lt 30 ]; do
+    if ! pgrep -f workerd > /dev/null 2>&1; then return 0; fi
+    pkill -9 -f workerd 2> /dev/null
+    pkill -9 -f "wrangler dev" 2> /dev/null
+    tries=$((tries + 1))
+    sleep 1
+  done
+  printf 'WARN: workerd was still alive after %ss; the next gate may report a false exit 2\n' "$tries" >> "$LOG"
+  return 0
+}
+
 run_gate() {
   local label="$1"
   shift
   GATE=$((GATE + 1))
   local out="$LOGDIR/v04-gate${GATE}-${label}.log"
   local start end code
+  settle_worker
   start=$(date +%s)
   ( cd "$REPO" && "$@" ) > "$out" 2>&1
   code=$?

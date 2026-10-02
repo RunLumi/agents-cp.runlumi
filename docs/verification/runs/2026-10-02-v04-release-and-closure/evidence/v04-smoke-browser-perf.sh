@@ -34,12 +34,29 @@ LOG="$LOGDIR/v04-smoke-browser-perf.log"
 GATE=0
 RESULTS=()
 
+# V04 HARNESS FIX #2 (same reason as the adversarial runner) -- poll until workerd is gone rather
+# than sleeping a guessed interval, so a gate behind a crashed one cannot inherit its held ports and
+# report a false exit 2.
+settle_worker() {
+  local tries=0
+  while [ "$tries" -lt 30 ]; do
+    if ! pgrep -f workerd > /dev/null 2>&1; then return 0; fi
+    pkill -9 -f workerd 2> /dev/null
+    pkill -9 -f "wrangler dev" 2> /dev/null
+    tries=$((tries + 1))
+    sleep 1
+  done
+  printf 'WARN: workerd was still alive after %ss; the next gate may report a false exit 2\n' "$tries" >> "$LOG"
+  return 0
+}
+
 run_gate() {
   local label="$1"
   shift
   GATE=$((GATE + 1))
   local out="$LOGDIR/v04-sb${GATE}-${label}.log"
   local start end code
+  settle_worker
   start=$(date +%s)
   ( cd "$REPO" && "$@" ) > "$out" 2>&1
   code=$?
