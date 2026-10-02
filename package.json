@@ -57,7 +57,8 @@
     "verify:secret-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:secret-tenancy",
     "verify:path-id-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:path-id-tenancy",
     "perf:budgets": "pnpm --filter @runlumi/agents-cp-web perf:budgets",
-    "verify:observability": "pnpm --filter @runlumi/agents-cp-api verify:observability"
+    "verify:observability": "pnpm --filter @runlumi/agents-cp-api verify:observability",
+    "verify:tool-policy-deny": "pnpm --filter @runlumi/agents-cp-api verify:tool-policy-deny"
   },
   "devDependencies": {
     "oxfmt": "0.70.0",

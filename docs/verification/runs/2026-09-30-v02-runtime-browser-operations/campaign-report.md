@@ -1,7 +1,9 @@
 # V02 campaign report — runtime, browser, and operations verification
 
-**Run: 2026-09-30 · Recorded from real runs, not from intention · HEAD `9762ed1` · 32 commits since the
-V01 merge (`870f116`) · 21 files changed, +5168/−36**
+**Run: 2026-09-30–10-02 · Recorded from real runs, not from intention · HEAD `84e71ef` · 3 commits
+since the V01 merge (`870f116`): the V02 squash (`a1f5f4a`, PR #41, CI green) + V02-011 + V02-012 ·
+29 files changed, +6969/−40 · the pre-squash 33-commit narrative is preserved at tag
+`v02-campaign-history` (identical tree)**
 
 ## Environment, stated because a measurement without it is not a measurement
 
@@ -19,12 +21,13 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 
 | command | what it is | result |
 |---|---|---|
-| `pnpm smoke:browser` | the real-browser journey, extended from 42 → **87** checks | **87/87, exit 0**, stable ×3 |
+| `pnpm smoke:browser` | the real-browser journey, extended from 42 → **90** checks | **90/90, exit 0**, stable ×4 |
 | `pnpm perf:budgets` | measures the repository's stated budgets against the production build | 0 over budget, 1 honestly UNMEASURED |
 | `pnpm verify:observability` | one request id followed through the system + credential canaries | 26/0/2, or **28/0/0** with `OBS_LOG` |
 | `evidence/v02-001-focus-sensitivity.sh` | sensitivity proof, focus class | 0 detected, 2 declared KNOWN MISSED |
 | `evidence/v02-004-observability-sensitivity.sh` | sensitivity proof, observability class | **M1 DETECTED**, exit 0 |
 | `evidence/v02-006-permission-denied-sensitivity.sh` | sensitivity proof, permission-denied class | **M1 DETECTED**, exit 0 |
+| `evidence/v02-013-session-error-sensitivity.sh` | sensitivity proof, error-state class (states 1/5/6 + V02-010/012) | **M1 DETECTED**, exit 0 (after 2 INVALID runs) |
 | `pnpm check` | the repository's own gate | **exit 0**, bind-count 463, clippy clean |
 
 ## Verdict per claim
@@ -33,12 +36,12 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 
 | # | state | verdict | evidence |
 |---|---|---|---|
-| 1 | loading | **PASS** | V02-002 — a *delayed* request, not a failed one; a rejected request never renders a loading state |
+| 1 | loading | **PASS** (failure-proven) | V02-002 — a *delayed* request, not a failed one; a rejected request never renders a loading state. V02-013: the case **still passes** while every error case goes red, which is what distinguishes the two screens |
 | 2 | empty | **PASS** | V02-006 — create panel offered, labelled, not the error surface; **with a control** re-read once populated |
 | 3 | success | **PASS** | two organizations created through the UI, switcher populated, session live |
 | 4 | permission denied | **PASS** | V02-006 — announced `role=alert`, content region carries the refusal, recovery leg |
-| 5 | server error | **PASS** | V02-002 — `Fetch.failRequest` on `/api/v1/me` only; the document still loads and the app mounts |
-| 6 | retry/recovery | **PASS** | V02-002 recovery + V02-006 recovery-after-denial + V02-010 recovery-after-malformed |
+| 5 | server error | **PASS** (failure-proven) | V02-002 — `Fetch.failRequest` on `/api/v1/me` only; the document still loads and the app mounts. V02-013 M1 makes a failed `/me` render loading forever and this goes red |
+| 6 | retry/recovery | **PASS** (failure-proven) | four recovery legs, each a control for its own fault; V02-013 M1 reds all three that depend on the error branch |
 | 7 | keyboard navigation | **PASS** | V02-006 — a **real** `ArrowRight` through CDP, plus `Tab` reachability; the synthetic `KeyboardEvent` is gone |
 | 8 | visible focus | **PASS** (repaired) | V02-001 — was `boxShadow !== "none"`, which a resting shadow satisfies |
 | 9 | narrow layout | **PASS** | 5 checks at 390 px, including containment rather than document overflow |
@@ -65,7 +68,7 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 | 4 | 5xx | **BLOCKED** — same cause |
 | 5 | malformed response | **PASS** — V02-010; the one a status-code check cannot see |
 | 6 | queue / webhook retry | **PARTIAL** — replay proven; delivery-failure injection BLOCKED |
-| 7 | downstream disconnect | **NOT COVERED** — reachable in part via the same boundary |
+| 7 | downstream disconnect | **PASS, narrow** — V02-012: Response-stage abort, announced error (not a stuck loader) with retry + control. Narrow: session read, fast local body, no slow-stream cut. |
 
 ### Performance — measured against `AGENTS.md`
 
@@ -88,13 +91,23 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 | # | slice | verdict |
 |---|---|---|
 | 1, 2, 3, 4, 6, 8, 9, 10 | as listed in the objective | **PASS** — see `vertical-slice-coverage.md` |
-| 5 | tool-policy allow/deny | **ALLOW ONLY** — the deny branch exists (`routes/tools.rs:1758`) with a production caller, and **every fixture in the tree sets `denied_tool_ids: []`**, so `ToolDecision::Deny` is never produced by a real request |
+| 5 | tool-policy allow/deny | **PROVEN (V02-011)** — `verify:tool-policy-deny` 48/48, exit 0, stable ×4. Driving the branch for the first time found and repaired two product defects (fail-open denial, check-order oracle), each sensitivity-proven. |
 | 7 | webhook/outbox | **PASS with a known gap** — delivery and replay work; V01-046, fan-out to a subscriber never happens, fail-closed |
 
 ## Repaired defects — pre-fix and post-fix evidence
 
-Every finding in this campaign was a **verifier** defect or a measurement artefact. **No product code
-changed**: `apps/web/src` and `apps/api/src` are byte-identical to `870f116`.
+Fourteen findings in this campaign were **verifier** defects or measurement artefacts — and then
+V02-011 found two **product** defects, the first of V02. Driving the tool-policy deny branch for the
+first time over real HTTP showed (1) a fail-open denial: `INSERT_TOOL_CALL_REF_SQL` hardcoded
+`'requested'`, dropping the decided status `call_writes` was given, so a first-time denial left a
+ref that still read awaiting-decision and `record_tool_result` accepted a result for the denied
+call (`http=200 stored=completed` pre-fix); and (2) a check-order existence oracle: the device
+check ran before the organization check, so a foreign-org device got 403 where a phantom run got
+404. Both repaired (status bound as `?9`; org check first), both sensitivity-proven (M1: 4 legs
+red; M2: 1 leg red), probe 48/48 stable ×5, `pnpm check` green. That is consistent with V01 having
+repaired the 54 defects it found: the remaining product defects were the ones no gate had ever
+driven, and this is the honest answer to "did the product have bugs" rather than an absence of
+looking.
 
 | finding | pre-fix | post-fix |
 |---|---|---|
@@ -114,9 +127,10 @@ changed**: `apps/web/src` and `apps/api/src` are byte-identical to `870f116`.
 
 ## What is NOT established, stated plainly
 
-- **Eleven of the twelve browser states have no product-side sensitivity proof.** They have been
-  watched to report FAIL only on harness faults. Two classes now have one (V02-005, V02-009); the rest
-  do not.
+- **Eight of the twelve browser states still have no product-side sensitivity proof.** Four do:
+  focus (V02-001), observability (V02-005), permission-denied/recovery (V02-009), and the
+  error-state class behind states 1/5/6 plus V02-010 and V02-012 (V02-013). Unproven: empty,
+  keyboard, narrow layout, destructive confirmation, stale-data, one-time-secret.
 - **A first-visit LCP p75 in a fresh Chrome profile is UNPROVEN.** Cache-cold is 0.22 s and warm is
   0.08 s, but a genuine first-visit distribution was measured once at 3.6 s and is not reproducible in
   this harness.
@@ -124,7 +138,9 @@ changed**: `apps/web/src` and `apps/api/src` are byte-identical to `870f116`.
 - **Inference TTFT/total** is not covered, blocked with V01-026.
 - **Only one destructive action** is covered; automations delete needs an entitlement
   (`entitlement_grants` is empty, 0 rows) and webhooks have no delete UI.
-- **The tool-policy deny branch has no runtime evidence** (slice 5).
+- **Slice 5 now HAS runtime evidence** (V02-011, 48/48 + two repaired product defects). What it
+  does NOT have: sensitivity proofs for the attribution/timeline legs, coverage of a repeat
+  decision for the same call (UPDATE branch), or of the `failed`/`cancelled` terminal gates.
 - **The `DESIGN.md` / `docs/screens/**` comparison duty is vacuous this campaign** — no UI surface
   changed, so there was nothing to compare. Recorded rather than left silent.
 - **Inherited V01 items unchanged**: V01-046, V01-047, V01-050, V01-040, V01-026/GAP-007.

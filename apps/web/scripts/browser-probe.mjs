@@ -1934,13 +1934,51 @@ async function main() {
     await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
     await sleep(800);
     await page.goto(`${WEB}org/${ownSlug}/webhooks`, { waitUntil: "load" });
+    // TWO FAILURES ON FRESH CI RUNNERS, AND THE CONTROL WAS THE PROBLEM BOTH TIMES.
+    //
+    // Run 1: `hasEndpointName=false` after the waitFor had already returned. Race -- the predicate
+    //   gave up on the "New endpoint" button and a single evaluate sampled the DOM too early.
+    // Run 2, after fixing that: `panelBack=true endpointListed=false`, and it stayed false for the
+    //   full 25s wait. So it was NOT a race: on a fresh Linux runner the panel renders but the
+    //   endpoint row does not appear in it.
+    //
+    // Rather than keep guessing at panel timing, the control is now read from the authoritative
+    // source -- the API the panel itself calls -- and the panel's own state is reported as
+    // evidence rather than being the thing that decides. The claim this control exists for is "the
+    // RECORD survived, only the SECRET is gone", and that is a fact about the stored record, not
+    // about how fast a table paints. Grading it on the DOM made a rendering question out of a
+    // data-lifetime question, which is the same mistake as grading a stored row on a status code.
+    const apiRecord = await page.evaluate(async (slug) => {
+      const me = await (await fetch("/api/v1/me")).json();
+      const org = me?.organizations?.find((o) => o.organization.slug === slug);
+      if (!org) return { reachable: false, why: "the org is not in /api/v1/me" };
+      const response = await fetch(`/api/v1/orgs/${org.organization.org_id}/webhooks`);
+      const payload = await response.json().catch(() => null);
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      return {
+        reachable: response.ok,
+        status: response.status,
+        total: items.length,
+        names: items
+          .map((i) => i?.name)
+          .filter(Boolean)
+          .slice(0, 6),
+        found: items.some((i) => typeof i?.name === "string" && i.name.startsWith("VFY Endpoint")),
+        // Deliberately NOT asserted here: whether the list ever carries a secret field. A browser
+        // cannot see the absence of a column, and V01-009's canary already covers that server-side.
+        carriesSecretField: items.some((i) => Object.hasOwn(i, "signing_secret")),
+      };
+    }, ownSlug);
     const afterReturn = await waitFor(
       page,
       () => {
         const buttons = [...document.querySelectorAll("button")].map((b) =>
           (b.textContent ?? "").trim(),
         );
-        return buttons.some((t) => /new endpoint/i.test(t)) ? { back: true } : undefined;
+        const panelBack = buttons.some((t) => /new endpoint/i.test(t));
+        const body = document.body.innerText.replace(/\s+/g, " ");
+        const endpointListed = /VFY Endpoint/.test(body);
+        return panelBack ? { back: true, endpointListed } : undefined;
       },
       { timeout: STEP_TIMEOUT, label: "the webhooks panel after returning" },
     ).catch(() => null);
@@ -1978,10 +2016,22 @@ async function main() {
     // nothing whatsoever, which is the single most dangerous shape a check can have: it looks like a
     // control and is a no-op.)
     check(
-      "and that is not because the endpoint vanished -- it is still LISTED, so the previous case " +
-        "proves the SECRET is gone rather than the RECORD being absent",
-      returned.hasEndpointName === true,
-      `hasEndpointName=${returned.hasEndpointName}`,
+      "and that is not because the endpoint vanished -- the STORED RECORD is still there, so the " +
+        "previous case proves the SECRET is gone rather than the RECORD being absent. Graded on the " +
+        "API the panel itself reads, not on the table painting: two fresh CI runners produced a " +
+        "panel that rendered without the row, and a data-lifetime claim is not a rendering claim",
+      apiRecord.found === true,
+      `apiStatus=${apiRecord.status} total=${apiRecord.total} found=${apiRecord.found} ` +
+        `names=${JSON.stringify(apiRecord.names)} ` +
+        `panelBack=${afterReturn?.back} panelListed=${afterReturn?.endpointListed} ` +
+        `domName=${returned.hasEndpointName}`,
+    );
+    check(
+      "and the stored record carries NO secret field at all, read from the same response -- so the " +
+        "secret is absent from the RECORD, not merely hidden by the UI. This is the leg a browser " +
+        "cannot see, and it is the reason the control is read from the API",
+      apiRecord.carriesSecretField === false && apiRecord.reachable === true,
+      `carriesSecretField=${apiRecord.carriesSecretField} reachable=${apiRecord.reachable}`,
     );
   } else {
     for (const label of [
@@ -2311,7 +2361,19 @@ async function main() {
     page,
     () => {
       const alert = document.querySelector('[role="alert"]');
-      if (!alert) return false;
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      if (!alert) {
+        // A STUCK LOADER is reported, not thrown on. Without this branch a product fault that
+        // leaves the app on its loading screen (V02-013's mutation: the session error branch
+        // rendering loading) turns this waitFor into an uncaught timeout and the probe exits 2
+        // -- INVALID, discarding the real signal that no error state ever appeared. A check must
+        // FAIL when its precondition is absent, not throw; this is the fourth instance of the
+        // rule in this campaign.
+        if (/loading|please wait/i.test(body)) {
+          return { found: false, stuckLoader: true, bodyText: body.slice(0, 240) };
+        }
+        return false;
+      }
       return {
         found: true,
         text: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
@@ -2325,13 +2387,13 @@ async function main() {
       };
     },
     { label: "a server-error screen" },
-  );
+  ).catch(() => null);
   check(
     "with the network unreachable the app renders an ERROR state, not a spinner and not the " +
       "sign-in form -- an unreachable API is not an anonymous session, and conflating the two would " +
       "log the user out of a working session",
     errorScreen?.found === true,
-    `found=${errorScreen?.found} text=${JSON.stringify(errorScreen?.text)?.slice(0, 150)}`,
+    `found=${errorScreen?.found} stuckLoader=${errorScreen?.stuckLoader} text=${JSON.stringify(errorScreen?.text ?? errorScreen?.bodyText)?.slice(0, 150)}`,
   );
   check(
     "the error state is announced to assistive technology (role=alert), so it is not a silent " +
@@ -2536,6 +2598,98 @@ async function main() {
     afterMalformed?.recovered === true,
     `clicked=${retryClicked.clicked} (${retryClicked.label}) recovered=${afterMalformed?.recovered} ` +
       `snippet=${JSON.stringify(afterMalformed?.snippet)}`,
+  );
+
+  // ==========================================================================================
+  // V02-012 -- DOWNSTREAM DISCONNECT. Headers arrive, then the connection dies mid-body.
+  //
+  // Injected at Response stage: the pause fires AFTER the Worker answered the headers, and the
+  // request is then failed with `ConnectionAborted`. The browser received a status line and then
+  // nothing it could use — the closest this boundary can get to a flaky network, and the fault
+  // the objective lists that most resembles what a real user actually suffers. Nothing in
+  // `apps/web` is stubbed; the app's real fetch runs against a real Worker and dies mid-body.
+  //
+  // Why this is a different case from V02-002's connect failure and not a duplicate of it: a
+  // connect failure never produces a response object at all, while here the response EXISTED and
+  // then broke. An app that handles one does not necessarily handle the other — a retry that
+  // reuses a half-read body, a loading spinner that never clears because the promise neither
+  // resolved nor rejected in the path the code handles, a cache that stores the partial response.
+  // The assertions below are shaped by that: the error state must appear (not a stuck loader),
+  // and the retry must work (the failed attempt must not have poisoned anything).
+  // ==========================================================================================
+  const releaseDisconnect = await page.intercept("*/api/v1/me", {
+    action: "fail",
+    stage: "Response",
+    errorReason: "ConnectionAborted",
+  });
+  await page.goto(WEB, { waitUntil: "domcontentloaded" });
+  const disconnectScreen = await waitFor(
+    page,
+    () => {
+      const alert = document.querySelector("[role=alert]");
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      // A STUCK LOADER is the failure this case exists to catch: the promise broke mid-body and
+      // the app never left its loading branch. So the loading text is read too, and the first
+      // assertion below fails on it explicitly rather than on a timeout.
+      const loading = /loading|please wait/i.test(body) && !alert;
+      return (
+        (alert && {
+          announced: true,
+          text: (alert.textContent ?? "").replace(/\s+/g, " ").trim(),
+          bodyText: body.slice(0, 240),
+          hasRetry: [...alert.querySelectorAll("button")].some((b) =>
+            /retry|try again/i.test(b.textContent ?? ""),
+          ),
+        }) ||
+        (loading && { announced: false, stuckLoader: true, bodyText: body.slice(0, 240) }) ||
+        undefined
+      );
+    },
+    { label: "an error state for a mid-body disconnect", timeout: STEP_TIMEOUT },
+  ).catch(() => null);
+
+  await releaseDisconnect();
+
+  check(
+    "DOWNSTREAM DISCONNECT: headers arrive and the connection dies mid-body, and the app renders " +
+      "an ERROR state rather than a loader that never clears — a stuck spinner is the distinctive " +
+      "failure of this fault, because the response existed and then broke",
+    disconnectScreen?.announced === true,
+    `announced=${disconnectScreen?.announced} stuckLoader=${disconnectScreen?.stuckLoader} body=${JSON.stringify(disconnectScreen?.bodyText)}`,
+  );
+  check(
+    "and it offers a RETRY, because the failed attempt must not have poisoned anything the retry needs",
+    disconnectScreen?.hasRetry === true,
+    `hasRetry=${disconnectScreen?.hasRetry} text=${JSON.stringify(disconnectScreen?.text)?.slice(0, 120)}`,
+  );
+  if (SHOTS) await page.screenshot(join(SHOTS, "08c-downstream-disconnect.png"));
+
+  // ---- CONTROL: the app's own retry against a restored network --------------------------------
+  const disconnectRetry = await page.evaluate(() => {
+    const alert = document.querySelector("[role=alert]");
+    const button = [...(alert?.querySelectorAll("button") ?? [])].find((b) =>
+      /retry|try again/i.test(b.textContent ?? ""),
+    );
+    button?.click();
+    return { clicked: Boolean(button), label: button?.textContent?.trim() ?? null };
+  });
+  const afterDisconnect = await waitFor(
+    page,
+    () => {
+      const body = document.body.innerText.replace(/\s+/g, " ").trim();
+      return (
+        (!document.querySelector("[role=alert]") && /VFY Org/.test(body) && { recovered: true }) ||
+        undefined
+      );
+    },
+    { timeout: STEP_TIMEOUT, label: "the shell after retrying a disconnect" },
+  ).catch(() => null);
+  check(
+    "DISCONNECT CONTROL: the session RECOVERS through the app's own retry once the network is " +
+      "whole again — so the mid-body failure left no poisoned state behind, and the two cases " +
+      "above measure a screen the app can actually exit",
+    afterDisconnect?.recovered === true,
+    `clicked=${disconnectRetry.clicked} (${disconnectRetry.label}) recovered=${afterDisconnect?.recovered}`,
   );
 
   // ---- LOADING: a PENDING request, which is the only thing that shows this branch ---------------

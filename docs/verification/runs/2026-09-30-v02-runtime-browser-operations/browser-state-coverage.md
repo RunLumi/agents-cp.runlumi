@@ -9,8 +9,10 @@ sensitivity is the evidence.**
 
 ## The headline
 
-**Of the twelve required states, one has a *product-side* sensitivity proof — and that one is the
-state that was previously over-claimed.**
+**Four of the twelve required states now have a *product-side* sensitivity proof** — states 1, 5
+and 6 (V02-013) and state 8 (V02-001), plus the permission-denied family (V02-009). The remaining
+eight are covered by checks whose own failure mode is still unproven, and that is stated here rather
+than left for a reader to assume.
 
 **All twelve are PROVEN in a real browser. None is absent, none is partial.**
 
@@ -20,9 +22,9 @@ state that was previously over-claimed.**
 | 11 | stale data after org switch | **PROVEN** | 24 DOM samples per direction, 0 leaks, both directions asserted |
 | 3 | success | **PROVEN** | org created, second org created, switcher populated, session live |
 | 8 | visible focus | **PROVEN, after V02-001** | repaired to a delta; sensitivity proof in `evidence/v02-001-focus-sensitivity.sh` |
-| 1 | loading | **PROVEN, after V02-002** | a **delayed** request — a rejected one never renders a loading state, so a failure would have satisfied the case for the wrong reason |
-| 5 | server error | **PROVEN, after V02-002** | `Fetch.requestPaused` fails only `/api/v1/me`, so the document still loads and the app mounts and takes its real error path |
-| 6 | retry/recovery | **PROVEN, after V02-002** | clicking the app's own retry against a restored network returns to the shell **and names the organization** — so recovery restored the session, not merely the page. **This is the control for the two rows above.** |
+| 1 | loading | **PROVEN, after V02-002; failure-proven by V02-013** | a **delayed** request — a rejected one never renders a loading state, so a failure would have satisfied the case for the wrong reason. V02-013 mutates the error branch to render loading and this case **still passes while every error case goes red** — the control that distinguishes the two screens |
+| 5 | server error | **PROVEN, after V02-002; failure-proven by V02-013** | `Fetch.requestPaused` fails only `/api/v1/me`, so the document still loads and the app mounts and takes its real error path. M1 makes a failed `/me` render loading forever and this case goes red |
+| 6 | retry/recovery | **PROVEN, after V02-002; failure-proven by V02-013** | clicking the app's own retry against a restored network returns to the shell **and names the organization** — so recovery restored the session, not merely the page. **This is the control for the two rows above**, and it is red under V02-013's M1 along with two sibling controls. |
 | 2 | empty | **PROVEN, after V02-006** | a zero-organization account is offered the create panel; the form is labelled; it does not reuse the error surface — **with a control** re-read once populated |
 | 4 | permission denied | **PROVEN, after V02-006** | a URL naming an org the session cannot see renders `role="alert"`; the content region carries the refusal and not the previous org's data; and a recovery leg proves it is not a dead end |
 | 10 | destructive confirmation | **PROVEN, after V02-006** | Revoke opens a confirmation whose copy states the consequence; **dismissing it leaves the credential alive**; accepting it removes the control and shows a revoked status — while the row stays as an audit surface |
@@ -30,8 +32,8 @@ state that was previously over-claimed.**
 | 12 | one-time secret lifecycle | **PROVEN, after V02-008** | a webhook signing secret is revealed unmasked with a "cannot be shown again" warning; captured through the app's own **Copy secret** control; and after leaving the panel and returning the exact value is **absent while the endpoint is still listed** — so the secret is gone, not the record |
 
 **The gate now exercises all twelve states in a real browser.** What separates them is not coverage
-but *evidence*: state 8 has a product-side sensitivity proof, and the rest have been watched to go
-red only on harness faults.
+but *evidence*: states 1, 5, 6 and 8 carry product-side sensitivity proofs, and the rest have been
+watched to go red only on harness faults.
 
 ### An honest distinction about states 1, 5 and 6
 
@@ -171,15 +173,17 @@ browser drives them. But they turn the next three attacks from "build a feature 
 
 ## What remains
 
-1. **Product-side sensitivity proofs for the V02-002, V02-006 and V02-008 classes.** V02-009 now
-   proves the **permission-denied and recovery** classes can fail: M1 drops the `!` from
-   `unauthorizedPath` and the gate goes 82/82 → 53/78 with 25 FAIL. Two things it does **not**
-   establish are recorded rather than glossed: most of those 25 failures are **cascades** (five other
-   classes went red because the app could not render the page they test), so the fault is caught
-   strongly and the attribution is coarse; and **non-disclosure went red because its subject
-   disappeared, not because two answers diverged** — a prediction I had written into the harness
-   header and the run corrected. The other two classes still carry the risk with no proof behind
-   them.
+1. **Product-side sensitivity proofs: three of four done, and the fourth class is named.** V02-009
+   proves the **permission-denied and recovery** classes can fail (M1 drops the `!` from
+   `unauthorizedPath`, 82/82 → 53/78, 25 FAIL); V02-013 proves the **error-state** class behind
+   states 1, 5, 6 and both V02-010/V02-012 (M1 makes the error branch render loading, 90/90 →
+   77/90, 13 FAIL, with the loading case still passing as the control). What neither establishes
+   is recorded rather than glossed: most red lines are **cascades** — the fault is caught strongly
+   and the attribution is coarse — and V02-009's **non-disclosure went red because its subject
+   disappeared, not because two answers diverged**, a prediction written into the harness header
+   and corrected by the run. **Still unproven: V02-008's one-time-secret class**, and the empty,
+   keyboard, focus, narrow-layout, destructive and stale-data classes each need their own mutation.
+   "All twelve covered" remains a statement about the probe, not the product.
 2. **A design question worth deciding, not just testing.** `AGENTS.md:181` asks for "an appropriate
    confirmation pattern", and credential revoke uses a native `window.confirm`. It satisfies the
    requirement as written — the copy states the consequence, and V02-007 proves the dialog actually

@@ -278,9 +278,22 @@ export async function newPage(browser, url = "about:blank") {
      */
     async intercept(
       urlPattern,
-      { action = "fail", delayMs = 0, status = 200, body = "", contentType = "text/html" } = {},
+      {
+        action = "fail",
+        delayMs = 0,
+        status = 200,
+        body = "",
+        contentType = "text/html",
+        // V02-012 — the STAGE the interception pauses at. `Request` fails before anything is
+        // sent (connect failure); `Response` pauses AFTER the response headers arrive and fails
+        // there, so the browser received headers and then the connection died mid-body. That is
+        // the downstream-disconnect fault: the closest this boundary can get to a flaky network,
+        // and the one the objective lists that most resembles what a real user actually suffers.
+        stage = "Request",
+        errorReason = "ConnectionFailed",
+      } = {},
     ) {
-      await page.send("Fetch.enable", { patterns: [{ urlPattern, requestStage: "Request" }] });
+      await page.send("Fetch.enable", { patterns: [{ urlPattern, requestStage: stage }] });
       // TWO DEFECTS, both found by the `fulfill` action failing with `Invalid InterceptionId`.
       //
       // 1. NO SESSION FILTER. `browser.on` receives events from EVERY attached target, and this
@@ -348,7 +361,7 @@ export async function newPage(browser, url = "about:blank") {
         } else {
           await browser.send(
             "Fetch.failRequest",
-            { requestId: data.params.requestId, errorReason: "ConnectionFailed" },
+            { requestId: data.params.requestId, errorReason },
             sessionId,
           );
         }
