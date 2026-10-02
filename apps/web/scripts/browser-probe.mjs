@@ -1934,15 +1934,33 @@ async function main() {
     await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
     await sleep(800);
     await page.goto(`${WEB}org/${ownSlug}/webhooks`, { waitUntil: "load" });
+    // The wait is for the ENDPOINT NAME, not merely for the panel to come back. This case failed
+    // on a fresh CI runner with `hasEndpointName=false` while passing five times locally, and the
+    // reason was a race inside the control itself: the predicate returned as soon as the
+    // "New endpoint" button appeared, and the `page.evaluate` below then sampled the DOM once --
+    // before the endpoint row had rendered. The control was racing the thing it is supposed to
+    // prove.
+    //
+    // So the predicate now requires BOTH, and returns which one is missing rather than a bare
+    // `{back: true}`. A control that cannot distinguish "the panel did not come back" from "the
+    // endpoint is not listed" reports a race as a product failure, which is how a verifier
+    // invents findings.
     const afterReturn = await waitFor(
       page,
       () => {
         const buttons = [...document.querySelectorAll("button")].map((b) =>
           (b.textContent ?? "").trim(),
         );
-        return buttons.some((t) => /new endpoint/i.test(t)) ? { back: true } : undefined;
+        const panelBack = buttons.some((t) => /new endpoint/i.test(t));
+        const body = document.body.innerText.replace(/\s+/g, " ");
+        const endpointListed = /VFY Endpoint/.test(body);
+        return panelBack && endpointListed
+          ? { back: true, endpointListed: true }
+          : panelBack
+            ? { back: true, endpointListed: false }
+            : undefined;
       },
-      { timeout: STEP_TIMEOUT, label: "the webhooks panel after returning" },
+      { timeout: STEP_TIMEOUT, label: "the webhooks panel with the endpoint listed" },
     ).catch(() => null);
     const returned = await page.evaluate((secret) => {
       const body = document.body.innerText.replace(/\s+/g, " ");
@@ -1980,8 +1998,9 @@ async function main() {
     check(
       "and that is not because the endpoint vanished -- it is still LISTED, so the previous case " +
         "proves the SECRET is gone rather than the RECORD being absent",
-      returned.hasEndpointName === true,
-      `hasEndpointName=${returned.hasEndpointName}`,
+      afterReturn?.endpointListed === true && returned.hasEndpointName === true,
+      `panelBack=${afterReturn?.back} endpointListed=${afterReturn?.endpointListed} ` +
+        `hasEndpointName=${returned.hasEndpointName}`,
     );
   } else {
     for (const label of [
