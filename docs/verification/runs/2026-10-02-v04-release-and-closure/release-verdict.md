@@ -15,7 +15,7 @@ baseline — was **resolved during this campaign** and is recorded as such rathe
 | | count | of which |
 |---|---|---|
 | Tier-0 claims | 20 | **19 PASS, 1 BLOCKED** |
-| P0 acceptance criteria mapped | 210 | **198** with evidence · **12 unproven at the runtime layer** |
+| P0 acceptance criteria mapped | 210 | **200** with evidence · **10 unproven at the runtime layer** |
 | Runtime/adversarial gates run | 25 + 12 | 34 PASS · 1 BLOCKED (correctly reported) · 2 harness artefacts, re-run |
 | Mutants killed | **11** | **all 6** classes the release gate names |
 | Defects found | **10** | **3 HIGH product** (1 repaired — `V04-002`; 2 recorded — `V04-008`, `V04-010`), 1 product closed (`V04-009`), 5 harness, 1 process |
@@ -161,7 +161,7 @@ annotated as a probe gap when it was a capability gap, and the two demand differ
 | **capability absent** | `FR-F03-008` bulk operations · `FR-F05-006` security notifications · `FR-F19-008` min client version · `FR-F23-008` OpenAPI · `FR-F23-010` rate-limit headers |
 | blocked by V01-026 | `FR-F09-007` · `FR-F13-009` · `FR-F21-008` |
 | conflict in the frozen contracts | `FR-F12-008` |
-| **missing probes only** | **three remain**: `FR-F23-007` · `FR-F21-006` · `FR-F22-010`. Three more were on this list and are now **closed** — `FR-F04-007` (asserted on the wire, `50/50`, **1/1 detected** against a constant reason) and both `FR-F13-005`/`FR-F13-006` (`71/71`, **2/2 detected**, and doing it found V04-010) |
+| **missing probes only** | **one remains**: `FR-F22-010` (design system — needs a rendered comparison against `DESIGN.md`, and this candidate changed no UI). Five more were on this list and are now **closed**: `FR-F04-007` (**1/1 detected** against a constant reason), `FR-F13-005`/`FR-F13-006` (**2/2 detected**, and doing it found V04-010), and `FR-F23-007`/`FR-F21-006` — closed by **locating** their enforcement, not by probing it |
 
 So **5 of 15 are unimplemented capabilities** and only **3 are missing probes** — `FR-F04-007` and both
 `FR-F13-005`/`FR-F13-006` were closed while this verdict was being written. `FR-F05-006` is a
@@ -274,8 +274,12 @@ hand-written check. A future path can lose it with `pnpm check` green. Folding i
 or adding the recovery-replay case to VI-AUTH-001 so the class covers all five ceremony kinds, is a
 refactor of an authentication path and outside this campaign's authority.
 
-**3. 12 P0 acceptance criteria are unproven at the runtime layer** — down from 15, because three rows
-were closed while this verdict was written. All six mutant classes the release gate names are killed —
+**3. 10 P0 acceptance criteria are unproven at the runtime layer** — down from 15. Five rows were closed
+while this verdict was written, and the tally has a second lesson: **two of the five needed no probe at
+all**, only a location. `FR-F23-007` and `FR-F21-006` were carried as "no probe exists", which is a
+statement about a probe and said nothing whatever about the code — the deprecation gate is at
+`routing.rs:180-181` and every outbound timeout is built and applied. **"Unproven" was partly a claim
+that the verifier had not looked.** All six mutant classes the release gate names are killed —
 see the mutation sample.
 
 ## P0 acceptance criteria
@@ -466,22 +470,30 @@ does not exist for real users.
 That is the largest single unknown in this record, and it is not closable by more local work. Everything
 below is smaller.
 
-**Second: we do not know whether the three remaining missing probes would find anything — and we have
+**Second: we do not know whether the one remaining missing probe would find anything — and we have
 just learned that "unproven because untested" has twice meant "absent".**
 
 That question was open at the start of this section and it is now **answered**: all 15 unproven rows were
 classified by asking whether a route exists that makes the behaviour reachable. Five are missing
 features, three are blocked by a measured environmental cause, one is a conflict inside the frozen
-contracts, and six genuinely needed only a probe — **three of those are now closed**:
-`FR-F04-007`, and both `FR-F13-005` and `FR-F13-006`.
+contracts, and six genuinely needed only a probe — **five of those six are now closed**: `FR-F04-007`,
+both `FR-F13-005` and `FR-F13-006`, and — on inspection, without writing a probe — `FR-F23-007` and
+`FR-F21-006`, whose enforcement turned out to be implemented and merely **unlocated**.
 
-So the residual unknown is narrower still. It is about **three** rows:
+So the residual unknown is narrower still. It is about **one** row:
 
-- `FR-F23-007` deprecation — enforced at `routes/tools.rs:135` for tools. Whether `CatalogLifecycle`
-  deprecation is enforced on the catalog path is unproven.
-- `FR-F21-006` — a timeout is configured on every adapter and no probe has watched one expire.
 - `FR-F22-010` — the design system is verified by lint and a component inventory, with no rendered
-  comparison against `DESIGN.md` or `docs/screens/**`.
+  comparison against `DESIGN.md` or `docs/screens/**`. This campaign changed no UI at all (the diff is
+  one new Rust check module, its registration, and probe scripts), so the comparison `AGENTS.md` requires
+  "for changed primary screens" has nothing to compare. It remains the single standing gap, and it needs
+  a rendered judgement rather than an assertion.
+
+**`FR-F23-007` and `FR-F21-006` were closed by looking rather than by probing**, which is the cheapest
+possible result and worth stating plainly: the deprecation enforcement is at `routing.rs:180-181`
+(`provider_satisfies` and `model_satisfies`, both gating on `allows_new_routes()`), and every outbound
+timeout is built and applied — `adapters/providers.rs:439,443` combines the caller's signal with the
+validated `candidate.timeout_ms`, webhook delivery uses `DELIVERY_TIMEOUT_MS = 10_000`. Both had been
+carried as "no probe exists", which is a statement about a probe and said nothing about the code.
 
 **And the two closed rows are why the remaining three are worth closing.** `FR-F13-005`/`FR-F13-006`
 were annotated "no probe drives a browser-use grant end to end" — a statement about a **probe**. Writing

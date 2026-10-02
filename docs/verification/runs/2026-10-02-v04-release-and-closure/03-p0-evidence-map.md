@@ -224,7 +224,7 @@ that does not exist.
 | FR-F21-003 | Metrics cardinality | `verify:observability` (bounded dimensions) | R |
 | FR-F21-004 | Tracing | Sentry entry + ADR 0009; span collection **not** verified end to end | R/S |
 | FR-F21-005 | Health | `smoke:local` `/api/health`, `smoke:p02` | R |
-| FR-F21-006 | Timeouts | `S` (every adapter sets one; no probe measures an expiry) | **S** |
+| FR-F21-006 | Timeouts | **the "explicit timeout" half is implemented and located**: every provider dispatch builds `timeout_signal(caller_signal, candidate.timeout_ms)` and passes it to `send_with_signal` (`adapters/providers.rs:439,443`), webhook delivery uses `DELIVERY_TIMEOUT_MS = 10_000` (`adapters/webhooks/outbound.rs:624`), the candidate's `timeout_ms` is range-validated (`routing.rs:140-141`, 250ms–120s) and a deadline is recorded (`routes/inference.rs:2084`). **The "never waits forever" half is BLOCKED** by V01-026: watching an expiry needs an unresponsive endpoint, and this Worker cannot open an outbound socket on this host (0 calls across three address classes) | R (configured) / **BLOCKED** (expiry) |
 | FR-F21-007 | Retries | `smoke:p05` outbox retry sweep, `verify:attempt-exhaustion` (bounded) | R |
 | FR-F21-008 | Circuit / cooldown | no probe drives repeated classified upstream failure | **—** |
 | FR-F21-009 | Queues / jobs | **this campaign** — `smoke:p06` after V04-002; dead-letter recorded and replayed | R |
@@ -257,7 +257,7 @@ that does not exist.
 | FR-F23-004 | **Idempotency** | `verify:idempotency` (simultaneous same-key creates one row), `verify:device-idempotency` | R |
 | FR-F23-005 | Optimistic concurrency | `verify:mutating-tenancy` sensitivity `P3`; `verify:path-id-tenancy` control finding (V01-033) | R |
 | FR-F23-006 | Request limits | `MAX_JSON_BODY_BYTES` boundary suite (`payload_too_large`) | R |
-| FR-F23-007 | Deprecation | no policy exists; nothing to violate | **—** |
+| FR-F23-007 | Deprecation | **implemented and consulted**, runtime probe missing. `routing.rs:180-181` filters candidates through `provider_satisfies` AND `model_satisfies`, both of which gate on `lifecycle.allows_new_routes()` — and `catalog.rs:294` asserts that is false for `Deprecated`. So a deprecated model or provider **cannot be selected for new work**. The redundant `provider.lifecycle == Disabled` check beside it is belt-and-braces, not the only gate. `ToolLifecycle::Deprecated => None` at `routes/tools.rs:135` is the tool-side enforcement | R (static) |
 | FR-F23-008 | **OpenAPI** | no OpenAPI document is generated or published | **—** |
 | FR-F23-009 | Org context | the four tenancy gates | R |
 | FR-F23-010 | Rate-limit headers | no probe asserts the header set | **—** |
@@ -294,8 +294,8 @@ classified by asking one question: **does a route exist that makes this reachabl
 | FR-F04-007 explainability | COVERAGE — observed, **unasserted** | the reason is in the response body; nothing fails if it stops being there |
 | FR-F13-005 browser use | **now EVIDENCED**, and proving it found a bigger defect | all six settable controls are enforced (`71/71`, `browser_action_denied`, sensitivity 2/2). `blocked_categories` is unimplemented and rejected `422`. **The surface is unreachable**: `capability_definitions` has no writer, so every browser call is refused `capability_not_defined` — **V04-010** |
 | FR-F13-006 computer use | **now EVIDENCED**, same defect | all five settable controls enforced (`computer_action_denied`). `blocked_applications` unimplemented. Unreachable for the same reason — **V04-010** |
-| FR-F23-007 deprecation | COVERAGE | enforced on a routed path: `ToolLifecycle::Deprecated => None` (`routes/tools.rs:135`), and `CatalogLifecycle::Deprecated.allows_new_routes()` is false |
-| FR-F21-006 timeouts (`S`) | COVERAGE | every adapter sets one; no probe measures an expiry |
+| FR-F23-007 deprecation | COVERAGE, **now located** | `routing.rs:180-181` filters candidates through `provider_satisfies` and `model_satisfies`, both gating on `allows_new_routes()`, which is false for `Deprecated` (`catalog.rs:294`). Implemented and consulted on the selection path; only a runtime probe is missing |
+| FR-F21-006 timeouts | **half evidenced, half BLOCKED** | the timeout is built and applied on every outbound path (`providers.rs:439,443`; `outbound.rs:624` with `DELIVERY_TIMEOUT_MS = 10_000`), and the candidate value is range-validated. Observing an **expiry** needs an unresponsive endpoint, and V01-026 measured that this Worker cannot open an outbound socket on this host — a measured environmental cause, not an unexamined gap |
 | FR-F22-010 design system (`S`) | COVERAGE | `pnpm lint` and a component inventory; no rendered comparison gate |
 | FR-F09-007 provider health | WIRED, **BLOCKED** by V01-026 | `HealthState::cooling_down` is called from a production path (`routes/inference.rs:4120`) and `cooldown_until` is persisted (`repositories/ai.rs:226`) — it needs a real upstream to drive |
 | FR-F21-008 circuit / cooldown | WIRED, **BLOCKED** by V01-026 | same call site |
@@ -303,9 +303,7 @@ classified by asking one question: **does a route exist that makes this reachabl
 | FR-F12-008 provider reconciliation | **CONFLICT IN THE FROZEN CONTRACTS** | `docs/specs/README.md` marks **F12 as P0**; the requirement's own text (`f12`, line 92) opens "**P1** compare internal usage/cost with provider invoice/export *where API exists*". A P0 spec containing a self-labelled P1 requirement, conditional on an API no provider exposes. **Verification may not resolve this** — settling it means editing a frozen contract, which is the deliberate process. Recorded as a contract conflict and left unproven |
 
 **So of 15 unproven rows: 5 are missing features, 3 are blocked by a measured environmental cause, 1 is
-a conflict inside the frozen contracts, and 6 WERE missing probes — three of which are now **closed**:
-`FR-F04-007`, and both `FR-F13-005`/`FR-F13-006`, leaving **three** (`FR-F23-007`, `FR-F21-006`,
-`FR-F22-010`). The first group is the one that
+a conflict inside the frozen contracts, and 6 WERE missing probes. **Five of those six are now closed** — `FR-F04-007`, `FR-F13-005`/`FR-F13-006`, and on inspection `FR-F23-007` and `FR-F21-006`, whose enforcement was implemented all along and merely unlocated. **`FR-F22-010` is the only row still needing a probe**, and it needs a rendered comparison this candidate's changes do not touch. The first group is the one that
 changes the release decision, and none of the five is a small addition.
 
 That sixth row is worth naming as a class on its own: **a `P0` spec can contain a requirement whose own
