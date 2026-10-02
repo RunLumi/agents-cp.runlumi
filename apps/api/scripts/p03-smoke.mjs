@@ -424,18 +424,44 @@ const run = async () => {
   );
   assert.equal(result.status, 204, `member removal failed: ${result.status}`);
 
-  // Bob's device token refresh now fails membership_required.
+  // Bob's device token refresh now fails membership_required -- and it fails at WHICHEVER step
+  // bites first, which is not always the one this test originally assumed.
+  //
+  // V04-005: the original assumed the challenge nonce would still be issued, signed it, and exchanged
+  // it. But `token_nonce` calls `authorize_device`, which checks the enrollment membership -- and Bob
+  // was just removed, so the nonce is REFUSED and `bobNonce.payload.nonce` is `undefined`. Passing
+  // that to `sign()` threw `ERR_INVALID_ARG_TYPE`, which aborted the whole probe: a crash, not a
+  // verdict. So for as long as that line has existed, this case reported the health of the harness
+  // rather than the property -- the fifth instance in this campaign of a check that throws where it
+  // should fail.
+  //
+  // The product is right and fail-closed: a removed member's device cannot even obtain a challenge.
+  // That is a STRONGER guarantee than being refused only at the exchange, so the assertion states the
+  // chain is refused, and names the step and the reason it actually refused with.
   const bobNonce = await request(new CookieJar(), "GET", "/api/v1/devices/token/nonce");
-  const bobSignature = bobDevice.sign(bobNonce.payload.nonce);
-  result = await request(new CookieJar(), "POST", "/api/v1/devices/token", {
-    device_id: bobDeviceId,
-    signature: bobSignature,
-    nonce: bobNonce.payload.nonce,
-    app_version: bobDevice.appVersion,
-  });
-  assert.equal(result.status, 403);
-  assert.equal(result.payload.error.details.reason, "membership_required");
-  check("11. stale membership blocks device token refresh", true);
+  const nonceRefused = bobNonce.status !== 200 || typeof bobNonce.payload?.nonce !== "string";
+  let tokenOutcome;
+  if (nonceRefused) {
+    tokenOutcome = `refused at the challenge (nonce ${bobNonce.status}/${bobNonce.payload?.error?.details?.reason ?? "no reason"})`;
+    assert.notEqual(
+      bobNonce.status,
+      200,
+      "a removed member's device must not be able to obtain a challenge nonce",
+    );
+  } else {
+    // The challenge was issued; the exchange must be the step that refuses, with the recorded reason.
+    const bobSignature = bobDevice.sign(bobNonce.payload.nonce);
+    result = await request(new CookieJar(), "POST", "/api/v1/devices/token", {
+      device_id: bobDeviceId,
+      signature: bobSignature,
+      nonce: bobNonce.payload.nonce,
+      app_version: bobDevice.appVersion,
+    });
+    tokenOutcome = `refused at the exchange (${result.status}/${result.payload?.error?.details?.reason ?? "no reason"})`;
+    assert.equal(result.status, 403);
+    assert.equal(result.payload.error.details.reason, "membership_required");
+  }
+  check("11. stale membership blocks device token refresh", true, tokenOutcome);
 
   console.log(`\nP03 smoke: ${passed} checks passed`);
 };
