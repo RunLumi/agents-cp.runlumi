@@ -6,7 +6,8 @@ Not because the product is broadly broken. Because the release gate's own rule i
 
 > Release is blocked if: any Tier-0 claim is FAIL, UNPROVEN, or BLOCKED …
 
-**One Tier-0 claim is BLOCKED (T0-16, export/deletion), 13 P0 criteria are UNPROVEN, and the
+**One Tier-0 claim is BLOCKED (T0-16, export/deletion), 15 P0 criteria are unproven at the runtime
+layer, and the
 auth-replay mutant class was not reached.** Those are blockers by the repository's own definition, and
 the definition is the authority — not the size of what passed. One earlier blocker — the performance
 baseline — was **resolved during this campaign** and is recorded as such rather than quietly dropped.
@@ -14,7 +15,7 @@ baseline — was **resolved during this campaign** and is recorded as such rathe
 | | count | of which |
 |---|---|---|
 | Tier-0 claims | 20 | **19 PASS, 1 BLOCKED** |
-| P0 acceptance criteria mapped | 210 | 197 with evidence · **13 UNPROVEN** |
+| P0 acceptance criteria mapped | 210 | 195 with evidence · **15 unproven at the runtime layer** |
 | Runtime/adversarial gates run | 25 + 12 | 34 PASS · 1 BLOCKED (correctly reported) · 2 harness artefacts, re-run |
 | Mutants killed | 10 | 5 of the 6 classes the release gate names |
 | Defects found and repaired | 7 | **1 HIGH product**, 5 harness, 1 process |
@@ -128,13 +129,64 @@ Re-measured against `vite preview` with `PROBE_WEB`:
 which is correct behaviour and is not counted as a defect. Only INP remains, and it is genuinely
 unmeasurable on this stack: the collector runs and the click produces no event-timing entry.
 
-**3. 13 P0 acceptance criteria have no evidence at any layer**, and three of the six mutant classes the
+### A harness bug this campaign already documented, walked into again in a new script
+
+`v04-008-sensitivity.sh` reported both of its first cases `INVALID` because its compile-error
+discriminator was `grep -qE "^error(\[|:)"` — which matches cargo's own summary line
+`error: test failed, to rerun pass '--lib'`. That is the exact trap recorded against the V01-035
+harness: `cargo test` exits 101 for a failing assertion *and* for a compile error, and `^error:` cannot
+tell them apart.
+
+Two things are worth separating. The **discrimination worked** — the script refused to report a
+detection it had not measured, which is the behaviour that matters, and it exited 1 rather than 0. And
+the recurrence is the actual finding: a lesson written into `AGENTS.md` did not transfer to a script
+written in the same campaign, ninety minutes later, by the same author. **A recorded lesson reaches
+only the code that already reads it.** The fix is now in the script, matching only rustc's coded
+diagnostics (`error[E####]`, `could not compile`, `aborting`).
+
+The same script's first run also produced a **false** `POST-RESTORE MISMATCH`, because its restore
+function covered two of the three files it mutated. A false alarm in a harness reads exactly like a
+real one, and it is the same shape as the `exit 2, no sheet` flakes `AGENTS.md` records: widening or
+carelessly scoping a harness's own bookkeeping deletes the signal that separates "the product failed"
+from "the harness is wrong about itself".
+
+**3a. A security control the platform cannot operate (V04-008, HIGH, product) — and this one is not
+a coverage gap.** `FR-F19-008` says an organization or the platform can require a minimum client
+version when a security fix demands it, with staged rollout and grace messaging. The device path
+implements the control almost completely: the comparator (`modules/devices.rs:203`), the policy read
+(`routes/devices.rs:386`), and the refusal (`routes/devices.rs:822` → `client_version_too_old`). What
+does not exist is **the lever**. `org_device_policy_settings.min_client_version` is read and enforced
+and **never written** — the table has exactly two mentions in the whole repository, the `CREATE TABLE`
+in migration 0007 and that `SELECT`. So `if let Some(minimum)` is never taken and `version_at_least` at
+`devices.rs:823` is a call that can never execute, which is the `is_run_source` shape from V01-047 and
+invisible to any caller-counting check.
+
+The consequence, measured rather than inferred: the one reachable floor,
+`MIN_CLIENT_APP_VERSION = "0.4.0"`, only produces a `Remediation` via `derive_remediations` — it never
+refuses — and `validate_app_version` checks syntax alone. **A device may present any syntactically
+valid `app_version` and reach cloud-managed operations.**
+
+This is the dangerous variant of a class the campaign has now seen seven times. V01-046 and V01-050
+fail *closed* and are merely absent. This fails **open**, and it is the lever for responding to a
+client-side security fix: every credential-handling bug in a desktop client is a candidate for a
+forced minimum version, and there is nothing to set.
+
+Recorded and deliberately **not implemented**: adding a routed write surface to a device-authorization
+boundary, against a spec sentence that names no route, status or acceptance criteria, would broaden
+the problem rather than solve it — a new write surface would arrive with nothing to check it against.
+`security::guarded_column_writers` now enforces the class, and
+`evidence/v04-008-sensitivity.sh` proves it (**2/2 detected, exit 0**) by making the lever appear and
+by renaming the guard in the product.
+
+**3. 15 P0 acceptance criteria are unproven at the runtime layer**, and three of the six mutant classes the
 release gate names were not reached before the campaign stopped.
 
 ## P0 acceptance criteria
 
 210 criteria across 18 P0 specs (147 `FR-*` + 63 `MUST`), mapped in `03-p0-evidence-map.md` with each
-row tagged by proof layer. **197 carry evidence; 13 are `—` UNPROVEN** and are named individually there.
+row tagged by proof layer. **195 carry runtime evidence; 15 are unproven** — 13 tagged `—` plus 2
+tagged `S`, because this campaign's own legend says an `S` mapping "does not thereby satisfy" a
+criterion, so the earlier 13 undercounted the decision by two. Both `S` rows are named individually there.
 
 One correction is recorded in that file and is worth repeating here: **the map first graded
 FR-F01-013 (desktop sign-in) UNPROVEN, and that was false.** `smoke:p02:245-270` drives the whole
@@ -232,7 +284,32 @@ no migration, so rollback is a pure revert.
 
 ## What important thing do we still not know?
 
-**We do not know whether the jobs queue consumer actually processes an envelope.** Everything up to it
+**We do not know whether the other 14 unproven P0 rows are coverage gaps or capability gaps — and the
+distinction changes what the release requires.**
+
+This campaign found V04-008 by doing something it had never done before: taking one `—` UNPROVEN row
+and asking *why* it has no evidence, rather than accepting the annotation. `FR-F19-008` was annotated
+"no probe asserts a too-old client is refused" — a statement about a **probe**. The truth was that the
+**capability** is absent: the guard exists, is correct, and has a tested comparator, and nothing in the
+repository can ever arm it. Those two readings look identical in a coverage table and they are not the
+same work: the first is "write a probe", the second is "build a routed write surface with authorization
+and audit". One is an afternoon; the other is a feature, and it fails **open** while it is missing.
+
+So the honest statement is not "15 criteria are unproven". It is: **one of them is a known absent
+security control, and the classification of the other 14 has never been attempted.** Seven of the eight
+capabilities this repository built and wired to nothing were found by *reading*, not by any gate —
+`fan_out_event_statement`, `provider_entitlement_projections`, the `'run'` usage writer, the staff
+grant-use surface, the quarantine levers, the idempotency purge, and now the client-version floor. Every
+one of them sat behind a `pnpm check` that was green throughout. A coverage table cannot distinguish
+that class from a missing probe, and this campaign only found the seventh instance by accident, while
+closing a different row.
+
+That is the thing worth acting on, and it is cheap to act on: each remaining `—` row needs one
+question — *does a route exist that makes this reachable?* — answered before the release decision is
+final. A row that answers "yes, there is a route" needs a probe. A row that answers "no" is a missing
+feature and belongs in the backlog as one.
+
+**We also do not know whether the jobs queue consumer actually processes an envelope.** Everything up to it
 now works — a message is published, delivered, and a consumer is invoked — and the envelope still sits
 at `queued` with `attempt: 1`. That is a Tier-0 export/deletion claim, and the gap between "invoked" and
 "processed" is exactly where the remaining defects of this shape hide: it is the same class of failure

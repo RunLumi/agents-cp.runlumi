@@ -90,7 +90,7 @@ that does not exist.
 | FR-F04-004 | Owner invariants | `verify:privilege-escalation` last-owner class | R |
 | FR-F04-005 | Project access | `verify:privilege-escalation`, `verify:path-id-tenancy` (grants) | R |
 | FR-F04-006 | Policy precedence | `verify:privilege-escalation` (policy-version class) | R |
-| FR-F04-007 | **Explainability** | no gate asserts a decision reason is returned to an authorized caller | **—** |
+| FR-F04-007 | **Explainability** | `verify:tool-policy-deny` — the tool-decision response body carries `"reason":"org_tool_denied"` to a device-authorized caller, and `policy_allowed` when it permits, so the reason is machine-readable and discriminates. Non-disclosure half: `verify:path-id-tenancy` (198/198). **Caveat: observed, not asserted** — the reason appears in the gate's log, and no assertion fails if the product stops returning it, so a regression here would pass silently | R (unasserted) |
 
 ## F05 — Sessions, Devices & Account Security (P0) · 6 FR
 
@@ -212,7 +212,7 @@ that does not exist.
 | FR-F19-005 | Signed / versioned sync | `smoke:p05`; static snapshot predicate in `verify:budget-hardceiling` | R |
 | FR-F19-006 | Fail-safe behavior | `smoke:p05`, `verify:revoked-device` | R |
 | FR-F19-007 | Revocation | `verify:revoked-device` | R |
-| FR-F19-008 | Minimum client version | no probe asserts a too-old client is refused | **—** |
+| FR-F19-008 | Minimum client version | **UNIMPLEMENTED, not merely unproven.** `org_device_policy_settings.min_client_version` is read (`devices.rs:386`) and enforced (`devices.rs:822` → `client_version_too_old`) but **never written** — repo-wide the table has two mentions: the `CREATE TABLE` (migration 0007) and that `SELECT`. So the guard's condition can never hold and `version_at_least` at `devices.rs:823` cannot execute. The one reachable floor (`MIN_CLIENT_APP_VERSION`) is **advisory** only (`derive_remediations`), and `validate_app_version` checks syntax alone, so any syntactically valid `app_version` reaches cloud-managed operations. Fails **open**. No spec or ADR names the column or a route that arms it. **V04-008**; enforced against recurrence by `security::guarded_column_writers` | **—** (capability absent) |
 | FR-F19-009 | Heartbeat | `smoke:p05` | R |
 
 ## F21 — Operations, Observability & Reliability (P0) · 11 FR
@@ -277,7 +277,7 @@ that does not exist.
 
 ## The summary this produces, stated before the results are read
 
-- **15 of 147** P0 `FR-*` criteria have **no evidence at any layer** and are UNPROVEN by construction
+- **15 of 147** P0 `FR-*` criteria are **unproven at the runtime layer**: 13 tagged `—` (no evidence at any layer) plus 2 tagged `S`. The two `S` rows are `FR-F21-006` (timeouts — every adapter sets one, no probe measures an expiry) and `FR-F22-010` (design system — `pnpm lint` and a component inventory, no rendered comparison gate). Per this table's own legend an `S` mapping "does not thereby satisfy" the criterion, so counting only the 13 `—` rows would understate the release decision by two. Of the 15, one (`FR-F19-008`) is **not an evidence gap at all** — the capability is absent — and one (`FR-F04-007`) has runtime evidence that nothing asserts
   of what this repository can run: desktop sign-in (F01-013), bulk membership (F03-008), explainability
   (F04-007), security notifications (F05-006), provider health/cooldown (F09-007), browser- and
   computer-use grants (F13-005/006), network egress (F13-009), minimum client version (F19-008),

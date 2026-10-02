@@ -26,6 +26,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 API="$REPO/apps/api"
 CHECK="apps/api/src/security/guarded_column_writers.rs"
 VICTIM="apps/api/src/repositories/security.rs"
+GUARD="apps/api/src/routes/devices.rs"
 SNAP="/Volumes/SSD/v04-logs/gcw-snapshot"
 LOG="/Volumes/SSD/v04-logs/v04-008-sensitivity.log"
 mkdir -p /Volumes/SSD/v04-logs
@@ -39,11 +40,12 @@ restore() {
   # `cp` then `touch`: the touch is what stops a mtime-based build from skipping the rebuild.
   cp "$SNAP/check.rs" "$REPO/$CHECK" && touch "$REPO/$CHECK"
   cp "$SNAP/victim.rs" "$REPO/$VICTIM" && touch "$REPO/$VICTIM"
-  if git -C "$REPO" diff --quiet -- "$CHECK" "$VICTIM"; then
+  cp "$SNAP/guard.rs" "$REPO/$GUARD" && touch "$REPO/$GUARD"
+  if git -C "$REPO" diff --quiet -- "$CHECK" "$VICTIM" "$GUARD"; then
     log "  restored: both files match HEAD"
   else
     log "  RESTORE FAILED -- a file still differs from HEAD; the verdicts below are void"
-    git -C "$REPO" diff --stat -- "$CHECK" "$VICTIM" | tee -a "$LOG"
+    git -C "$REPO" diff --stat -- "$CHECK" "$VICTIM" "$GUARD" | tee -a "$LOG"
   fi
   return 0
 }
@@ -52,7 +54,7 @@ trap restore EXIT
 trap on_signal INT TERM HUP
 
 # --- precondition: our own files must be clean against an independent reference ---------------
-if ! git -C "$REPO" diff --quiet -- "$CHECK" "$VICTIM"; then
+if ! git -C "$REPO" diff --quiet -- "$CHECK" "$VICTIM" "$GUARD"; then
   log "FATAL: $CHECK or $VICTIM has uncommitted changes. A snapshot taken now would launder whatever"
   log "       is already there into the baseline, and every compare below would be correct about a"
   log "       wrong reference. Commit or stash first."
@@ -61,6 +63,7 @@ fi
 mkdir -p "$SNAP"
 cp "$REPO/$CHECK" "$SNAP/check.rs"
 cp "$REPO/$VICTIM" "$SNAP/victim.rs"
+cp "$REPO/$GUARD" "$SNAP/guard.rs"
 log "V04-008 sensitivity -- security::guarded_column_writers"
 log "  HEAD at launch : $SNAPSHOT_HEAD"
 log "  baseline       : $(cd "$API" && cargo test --lib guarded_column_writers 2>&1 | grep -oE '[0-9]+ passed' | head -1)"
@@ -82,8 +85,13 @@ run_case() {
   ( cd "$API" && cargo test --lib guarded_column_writers ) > "/Volumes/SSD/v04-logs/gcw-$name.log" 2>&1 || true
   local out; out="$(sed 's/\x1b\[[0-9;]*m//g' "/Volumes/SSD/v04-logs/gcw-$name.log")"
 
-  # A compile error is not a detection. `cargo test` exits 101 for both.
-  if grep -qE "^error(\[|:)" <<< "$out"; then
+  # A compile error is not a detection. `cargo test` exits 101 for both, so exit code alone cannot
+  # tell them apart -- and `^error:` cannot either, because it matches cargo's OWN summary line
+  # `error: test failed, to rerun pass '--lib'`. That is the trap AGENTS.md records from the
+  # V01-035 harness, and this script walked straight into it on its first run: both cases reported
+  # INVALID having detected nothing but a failing assertion. Match only rustc's coded diagnostics and
+  # cargo's compile failures.
+  if grep -qE "^error\[E[0-9]+\]|^error: could not compile|^error: aborting" <<< "$out"; then
     VERDICTS+=("INVALID $name -- the build failed, so no verdict was measured")
     log "  INVALID -- rustc diagnostic, not an assertion"
     restore
@@ -91,7 +99,7 @@ run_case() {
   fi
   if grep -q "test result: FAILED" <<< "$out"; then
     VERDICTS+=("DETECTED $name")
-    log "  DETECTED -- the check went red: $(grep -m1 -E 'assertion|recorded as having no writer|no longer appears' <<< "$out" | cut -c1-110)"
+    log "  DETECTED -- $(grep -m1 -A 1 'panicked at' <<< "$out" | tail -1 | cut -c1-150)"
   else
     VERDICTS+=("MISSED $name")
     log "  MISSED -- the check stayed green on a fault it exists to catch"
@@ -121,17 +129,13 @@ run_case "M1-lever-appears" "$VICTIM" "$SNAP/victim.rs"
 # --- M2: the guard's own subject is renamed ------------------------------------------------
 log ""
 log "M2  the guard is renamed in the product -- the record now describes code that is not there"
-cp "$REPO/apps/api/src/routes/devices.rs" "$SNAP/devices.rs"
-python3 - "$REPO/apps/api/src/routes/devices.rs" << 'PY'
+python3 - "$REPO/$GUARD" << 'PY'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 p.write_text(p.read_text().replace("latest_min_client_version", "read_device_policy_setting"))
 PY
-assert_changed "$SNAP/devices.rs" "$REPO/apps/api/src/routes/devices.rs"
-run_case "M2-guard-renamed" "apps/api/src/routes/devices.rs" "$SNAP/devices.rs"
-cp "$SNAP/devices.rs" "$REPO/apps/api/src/routes/devices.rs" && touch "$REPO/apps/api/src/routes/devices.rs"
-git -C "$REPO" diff --quiet -- apps/api/src/routes/devices.rs \
-  && log "  (M2 victim restored; git confirms clean)"
+assert_changed "$SNAP/guard.rs" "$REPO/$GUARD"
+run_case "M2-guard-renamed" "$GUARD" "$SNAP/guard.rs"
 
 # --- verdict ------------------------------------------------------------------------------
 log ""
@@ -160,7 +164,7 @@ if [ "$(git -C "$REPO" rev-parse HEAD)" != "$SNAPSHOT_HEAD" ]; then
 else
   log "  HEAD unmoved: yes"
 fi
-if git -C "$REPO" diff --quiet -- "$CHECK" "$VICTIM" apps/api/src/routes/devices.rs; then
+if git -C "$REPO" diff --quiet -- "$CHECK" "$VICTIM" "$GUARD"; then
   log "  final tree: clean against HEAD"
 else
   log "  final tree: DIRTY -- a deliberate fault may still be in the source"
