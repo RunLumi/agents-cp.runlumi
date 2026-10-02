@@ -1604,6 +1604,61 @@ async function probeRecoveryWithActiveSessions(authenticator) {
     return;
   }
 
+  // --- hostile: REPLAY the completed recovery (V04-009) ---------------------------------
+  //
+  // `smoke:passkey` proved replay for registration and for login. Recovery had no such case, and the
+  // reason was structural rather than an oversight in the probe: `ensure_pending` -- the shared
+  // route-level guard -- is called for PasskeySignup, PasskeyLogin, PasskeyAdd and Reauthenticate, and
+  // for NONE of recovery. Recovery therefore has ONE defence, `consume_recovery`'s compare-and-set,
+  // where its four siblings have two. That makes this the cheapest possible replay probe to give
+  // teeth to, and it is also the most valuable: recovery is the ceremony that changes a password.
+  //
+  // The refusal reason CANNOT be used to prove which defence fired. `consume_recovery` returning false
+  // yields `generic_recovery_failure`, whose reason is the deliberately undifferentiated
+  // `recovery_invalid` -- correct, since distinguishing "already consumed" from "never existed" would
+  // be an oracle, but it means a green status proves nothing on its own.
+  //
+  // So the assertions are on STORED EFFECT. The replay carries a DIFFERENT new password: if the
+  // compare-and-set were removed the replay would succeed and the account's password would change,
+  // which the two follow-up logins below would see. A refusal asserted only by status would pass on a
+  // product that accepted the replay and then failed for an unrelated reason.
+  const replayPassword = "replayed-password-long-enough-3";
+  const replay = await call(victimJar, "POST", "/api/v1/auth/password/reset", {
+    challenge_id: recoveryChallengeId,
+    code: recoveryCode,
+    password: replayPassword,
+  });
+  expect(
+    "a consumed recovery ceremony cannot be replayed with the same challenge and code",
+    replay.status >= 400,
+    `status=${replay.status} reason=${reasonOf(replay)}`,
+  );
+  expect(
+    "and the replay is refused as `recovery_invalid` -- the same undifferentiated answer a wrong code "
+      + "gets, so consuming a ceremony is not distinguishable from never having started one",
+    reasonOf(replay) === "recovery_invalid",
+    `reason=${reasonOf(replay) ?? "none"}`,
+  );
+  const recoveredStillWorks = await call(new Jar(), "POST", "/api/v1/auth/password/login", {
+    email,
+    password: "recovered-password-long-enough-2",
+  });
+  expect(
+    "and the password set by the ORIGINAL recovery still authenticates, so the replay changed nothing",
+    recoveredStillWorks.status === 200,
+    `status=${recoveredStillWorks.status}`,
+  );
+  const replayDidNotTake = await call(new Jar(), "POST", "/api/v1/auth/password/login", {
+    email,
+    password: replayPassword,
+  });
+  expect(
+    "and the password carried by the replay does NOT authenticate -- the state assertion that a "
+      + "removed compare-and-set would fail, since accepting the replay would have set exactly this",
+    replayDidNotTake.status >= 400,
+    `status=${replayDidNotTake.status}`,
+  );
+
   // The claim. The pre-recovery session must be dead.
   const attackerSessionAfter = await call(attackerJar, "GET", "/api/v1/me");
   expect(
