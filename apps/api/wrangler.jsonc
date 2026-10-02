@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "lumi-agents-control-plane-api",
+  "account_id": "73fe06de8746378768229a64680dd62f",
   "main": "sentry-entry.mjs",
   "compatibility_date": "2026-09-24",
   "compatibility_flags": ["nodejs_compat"],
@@ -88,9 +89,6 @@
     "command": "worker-build --release",
   },
   "env": {
-    "production": {
-      "send_email": [{ "name": "EMAIL" }],
-    },
     "development": {
       "name": "lumi-agents-control-plane-api-development",
       "version_metadata": {
@@ -165,11 +163,24 @@
     },
     "production": {
       "name": "lumi-agents-control-plane-api-production",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "agents-cp.runlumi.app", "custom_domain": true }],
+      "assets": {
+        "directory": "../web/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api", "/api/*"],
+      },
+      "send_email": [{ "name": "EMAIL" }],
       "version_metadata": {
         "binding": "CF_VERSION_METADATA",
       },
       "vars": {
         "ENVIRONMENT": "production",
+        "WEBAUTHN_RP_ID": "agents-cp.runlumi.app",
+        "WEBAUTHN_RP_NAME": "Lumi Agents",
+        "WEBAUTHN_ORIGINS": "https://agents-cp.runlumi.app",
+        "EMAIL_FROM": "agents@runlumi.app",
         "OUTBOX_DLQ_NAME": "lumi-agents-outbox-dlq",
         "JOBS_DLQ_NAME": "lumi-agents-jobs-dlq",
         "JOBS_QUEUE_NAME": "lumi-agents-jobs",
@@ -178,6 +189,7 @@
         {
           "binding": "DB",
           "database_name": "lumi-agents-control-plane",
+          "database_id": "3cc54c20-2b3c-4ad2-a3b3-6d2d19d5d0f1",
           "migrations_dir": "./migrations",
         },
       ],
