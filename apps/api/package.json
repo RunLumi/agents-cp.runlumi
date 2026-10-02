@@ -28,7 +28,8 @@
     "verify:budget-hardceiling": "node scripts/v01-budget-hardceiling-probe.mjs",
     "verify:secret-tenancy": "node scripts/v01-secret-tenancy-probe.mjs",
     "verify:path-id-tenancy": "node scripts/v01-path-id-tenancy-probe.mjs",
-    "verify:observability": "node scripts/v02-observability-correlation-probe.mjs"
+    "verify:observability": "node scripts/v02-observability-correlation-probe.mjs",
+    "verify:tool-policy-deny": "node scripts/v02-tool-policy-deny-probe.mjs"
   },
   "dependencies": {
     "@sentry/cloudflare": "10.74.0"

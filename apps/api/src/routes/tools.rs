@@ -1615,6 +1615,16 @@ pub async fn create_tool_decision(
         .await
         .map_err(|error| database_error(&context, error))?
         .ok_or_else(|| not_found(&context, "The run was not found."))?;
+    // The ORGANIZATION check comes first, deliberately. A device from another organization must be
+    // answered identically to a run id that exists nowhere (404), or this endpoint is a
+    // cross-tenant existence oracle: 403-here-but-404-there confirms the run exists. The device
+    // check below still fires for a same-organization device that is not this run's device, which
+    // is the same-tenant case and correctly stays 403. (`verify:tool-policy-deny` pins this with
+    // a four-assertion comparison: own call 2xx, foreign-org refused, phantom refused, and the
+    // two refusals byte-identical.)
+    if scope.org_id != device.org_id {
+        return Err(not_found(&context, "The run was not found."));
+    }
     if scope.device_id != device.device_id {
         return Err(domain_error(
             &context,
@@ -1622,9 +1632,6 @@ pub async fn create_tool_decision(
             "device_not_approved",
             "The device is not approved for this run.",
         ));
-    }
-    if scope.org_id != device.org_id {
-        return Err(not_found(&context, "The run was not found."));
     }
     if !run_can_request_tool_decision(&scope.state) {
         return Err(domain_error(
@@ -1955,6 +1962,7 @@ fn call_writes(
             tool_fingerprint: &input.fingerprint,
             risk_class: &input.risk_class,
             arguments_summary: &input.arguments_summary,
+            status,
             now: &input.context.received_at,
         })
     } else {

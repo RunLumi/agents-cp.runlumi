@@ -88,13 +88,23 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 | # | slice | verdict |
 |---|---|---|
 | 1, 2, 3, 4, 6, 8, 9, 10 | as listed in the objective | **PASS** — see `vertical-slice-coverage.md` |
-| 5 | tool-policy allow/deny | **ALLOW ONLY** — the deny branch exists (`routes/tools.rs:1758`) with a production caller, and **every fixture in the tree sets `denied_tool_ids: []`**, so `ToolDecision::Deny` is never produced by a real request |
+| 5 | tool-policy allow/deny | **PROVEN (V02-011)** — `verify:tool-policy-deny` 48/48, exit 0, stable ×4. Driving the branch for the first time found and repaired two product defects (fail-open denial, check-order oracle), each sensitivity-proven. |
 | 7 | webhook/outbox | **PASS with a known gap** — delivery and replay work; V01-046, fan-out to a subscriber never happens, fail-closed |
 
 ## Repaired defects — pre-fix and post-fix evidence
 
-Every finding in this campaign was a **verifier** defect or a measurement artefact. **No product code
-changed**: `apps/web/src` and `apps/api/src` are byte-identical to `870f116`.
+Fourteen findings in this campaign were **verifier** defects or measurement artefacts — and then
+V02-011 found two **product** defects, the first of V02. Driving the tool-policy deny branch for the
+first time over real HTTP showed (1) a fail-open denial: `INSERT_TOOL_CALL_REF_SQL` hardcoded
+`'requested'`, dropping the decided status `call_writes` was given, so a first-time denial left a
+ref that still read awaiting-decision and `record_tool_result` accepted a result for the denied
+call (`http=200 stored=completed` pre-fix); and (2) a check-order existence oracle: the device
+check ran before the organization check, so a foreign-org device got 403 where a phantom run got
+404. Both repaired (status bound as `?9`; org check first), both sensitivity-proven (M1: 4 legs
+red; M2: 1 leg red), probe 48/48 stable ×4, `pnpm check` green. That is consistent with V01 having
+repaired the 54 defects it found: the remaining product defects were the ones no gate had ever
+driven, and this is the honest answer to "did the product have bugs" rather than an absence of
+looking.
 
 | finding | pre-fix | post-fix |
 |---|---|---|
@@ -124,7 +134,9 @@ changed**: `apps/web/src` and `apps/api/src` are byte-identical to `870f116`.
 - **Inference TTFT/total** is not covered, blocked with V01-026.
 - **Only one destructive action** is covered; automations delete needs an entitlement
   (`entitlement_grants` is empty, 0 rows) and webhooks have no delete UI.
-- **The tool-policy deny branch has no runtime evidence** (slice 5).
+- **Slice 5 now HAS runtime evidence** (V02-011, 48/48 + two repaired product defects). What it
+  does NOT have: sensitivity proofs for the attribution/timeline legs, coverage of a repeat
+  decision for the same call (UPDATE branch), or of the `failed`/`cancelled` terminal gates.
 - **The `DESIGN.md` / `docs/screens/**` comparison duty is vacuous this campaign** — no UI surface
   changed, so there was nothing to compare. Recorded rather than left silent.
 - **Inherited V01 items unchanged**: V01-046, V01-047, V01-050, V01-040, V01-026/GAP-007.

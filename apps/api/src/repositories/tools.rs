@@ -230,7 +230,7 @@ const INSERT_TOOL_CALL_REF_SQL: &str = r#"
 INSERT INTO tool_call_refs (
     tool_call_id, org_id, project_id, run_id, tool_id, tool_fingerprint, risk_class,
     arguments_summary, status, created_at, updated_at
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'requested', ?9, ?9)
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
 "#;
 
 const TOOL_CALL_REF_BY_ID_SQL: &str = r#"
@@ -597,6 +597,10 @@ pub struct NewToolCallRef<'a> {
     pub tool_fingerprint: &'a str,
     pub risk_class: &'a str,
     pub arguments_summary: &'a str,
+    // The status the decision reached — never hardcoded. The INSERT used to write 'requested'
+    // unconditionally and drop this, so a first-time denial left a ref that still looked
+    // awaiting-decision, and `record_tool_result` then accepted a result for a denied call.
+    pub status: &'a str,
     pub now: &'a Timestamp,
 }
 
@@ -1057,6 +1061,7 @@ impl<'a> ToolRepository<'a> {
                 BindValue::Text(call.tool_fingerprint),
                 BindValue::Text(call.risk_class),
                 BindValue::Text(call.arguments_summary),
+                BindValue::Text(call.status),
                 BindValue::Text(call.now.as_str()),
             ],
         )
