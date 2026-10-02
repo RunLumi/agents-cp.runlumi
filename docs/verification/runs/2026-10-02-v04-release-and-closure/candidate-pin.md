@@ -98,3 +98,7 @@ the earlier nine mutants. The product code changed in this stretch is confined t
 only** — no handler, route, repository, SQL statement or migration was touched after `e55af37`. The
 nine earlier kills are therefore carried forward explicitly rather than re-measured, and that is a
 judgement about blast radius, not a claim that they were re-verified.
+
+**One further commit landed after this re-pin (`822d81c`), and it touches `docs/` only** — the
+verdict's own summary table. It is therefore *not* a re-pin: nothing under `apps/` differs between
+`1d3ec1e` and `822d81c`, so every measurement above describes both trees exactly.
