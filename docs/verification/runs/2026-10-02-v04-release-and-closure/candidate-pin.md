@@ -15,6 +15,21 @@ decision that cannot name its candidate is a decision about something else.
 | **web build** | `vite build` production artefact, served on `vite preview` :4173 with the API proxied to :8787 |
 | **contract versions** | in-repo; no external client contract is consumed by this candidate (see the External Lumi Agents verdict) |
 
+## The commits this campaign adds are not part of the candidate
+
+Verification records are committed on top of the candidate as the campaign proceeds, so `HEAD` moves
+away from `795d403` while the *product* does not. Measured after the first two record commits:
+
+```
+$ git diff --name-only 795d403..HEAD -- apps Cargo.toml Cargo.lock pnpm-lock.yaml
+0 files
+```
+
+**Every judgement in this campaign is about `795d403`'s product tree.** If that command ever returns
+a non-zero count of product files, the candidate has moved and this pin is void — re-pin before
+trusting any result, because a verdict about a different tree than the one recorded is a verdict
+about nothing.
+
 ## Environment drift from the campaigns this inherits
 
 **Chrome is 154.0.8037.93. V02 recorded 153.0.8010.53.** That is a different browser build than the
