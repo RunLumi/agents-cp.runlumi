@@ -418,7 +418,22 @@ this verdict was being written. Neither is in the tree these measurements were t
 
 ## What important thing do we still not know?
 
-**We do not know whether the five remaining missing probes would find anything — and we have just learned that
+**We do not know whether a WebAuthn ceremony works on the production origin — and every ceremony this
+campaign verified ran on localhost.**
+
+`wrangler.jsonc` declares `WEBAUTHN_RP_ID` and `WEBAUTHN_ORIGINS` as `agents-cp.runlumi.app`.
+`smoke:passkey` drives every registration, login, add-credential and recovery ceremony over loopback,
+against a local RP ID. The origin/RP-ID pairing is where ceremonies characteristically pass locally and
+fail in production, the specs name both explicitly, and **no gate in this repository exercises the
+production pairing** — not because one is missing, but because nothing here can reach a public
+hostname. Authentication is a Tier-0 claim on the strength of evidence gathered in a configuration that
+does not exist for real users.
+
+That is the largest single unknown in this record, and it is not closable by more local work. Everything
+below is smaller.
+
+**Second: we do not know whether the five remaining missing probes would find anything — and we have
+just learned that "unproven because untested" has twice meant "absent".**
 "unproven because untested" has twice meant "absent".**
 
 That question was open at the start of this section and it is now **answered**: all 15 unproven rows were
