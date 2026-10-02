@@ -204,26 +204,42 @@ the problem rather than solve it — a new write surface would arrive with nothi
 `evidence/v04-008-sensitivity.sh` proves it (**2/2 detected, exit 0**) by making the lever appear and
 by renaming the guard in the product.
 
-**3d. The recovery ceremony is defended by one layer and tested by none (V04-009, MEDIUM).**
-`ensure_pending` is the shared route-level replay guard and it is called for **four** ceremony kinds —
-`PasskeySignup`, `PasskeyLogin`, `PasskeyAdd`, `Reauthenticate` — and for **none** of recovery. Recovery
-therefore has a single defence, `consume_recovery`'s compare-and-set, against four siblings that have
-two. That one defence is **correct**: `CONSUME_RECOVERY_SQL` predicates on `AND status = 'pending'`
-(and binds `code_hash`, bounds attempts at 10, and checks expiry), so a second completion matches zero
-rows and is refused. **There is no vulnerability** — the recovery ceremony cannot be replayed.
+**3d. The recovery ceremony had no replay test — CLOSED this turn, and the finding's first draft was
+wrong (V04-009, LOW).** `smoke:passkey` drove replay for registration and for login; **recovery had no
+such case**, and recovery is the ceremony that changes an account password. That gap is now closed: four
+assertions added, baseline **76/76 → 80/80**, and `evidence/v04-009-sensitivity.sh` proves the new case
+fails (**DETECTED**, exit 0).
 
-It is a finding because nothing has ever *executed* that refusal, and because it is the path that
-changes an account password — the one ceremony whose successful replay is worth the most. `consume_recovery`
-has a unit test over its SQL, which is the shape AGENTS.md names for the staff-grant read: *a test over
-a string constant cannot report that nothing calls the function that owns it.*
+The case is graded on **stored effect**, not status. `consume_recovery` returning `false` yields
+`generic_recovery_failure` → the deliberately undifferentiated reason `recovery_invalid`, which is
+correct (distinguishing "already consumed" from "never existed" would be an oracle) but means a green
+status proves nothing on its own. So the replay carries a **different** new password and the case
+asserts the original recovered password still authenticates and the replayed one does not. A refusal
+asserted only by status would pass on a product that accepted the replay and then failed for an
+unrelated reason.
 
-It also narrows a claim this verdict would otherwise make too broadly: **VI-AUTH-001's kill does not
-extend to recovery.** That case removes the *login* `consume_ceremony` CAS and the shared
-`ensure_pending` status check; removing both leaves `consume_recovery` untouched and fully armed. So
-"auth replay mutant killed" is true of registration, login, add-credential and reauthenticate, and
-unproven for recovery. Recorded with its next action named (a recovery-replay case in `smoke:passkey`
-asserting the refusal names the consumed state, not the attempt bound) rather than added inside a
-campaign that cites a `smoke:passkey` baseline.
+**The first draft of this finding asserted a table showing recovery defended by ONE layer, and it was
+false.** The table was built by searching for calls to `ensure_pending`, which is a search for one
+*implementation* of the guard rather than for the guard. The mutation falsified it in one run: with
+`consume_recovery`'s compare-and-set replaced by an unconditional `Ok(true)`, the replay was **still
+refused** and the probe stayed green. The second defence is at `routes/authenticators.rs:971` — the same
+status-and-expiry check `ensure_pending` performs, **inlined in the handler**. Recovery has the same
+two-layer structure as its four siblings; with both sites removed the replay is accepted and the new
+case goes red.
+
+**Absence of a call to a named helper is not absence of the guard.** That is the fourth
+inference-from-one-instance error this campaign has produced, and the others are recorded beside it:
+`FR-F13-005/006` read as coarse from an enum when a dedicated policy struct carries a field per
+sub-control; `FR-F23-007` read as an inert label when it is enforced at `routes/tools.rs:135`; a
+site-2 mutation anchor read as unique when it occurs three times, which produced **a Tier-0 mutant
+survivor that did not exist**; and this. Four for four. A pattern inferred from one instance is a
+hypothesis, and the cheapest thing to do with a hypothesis is run the mutation.
+
+Residual, recorded not fixed: recovery's route-level guard is **inlined**, so nothing enforces that
+every ceremony path has one — `ensure_pending` covers four kinds by construction, recovery by a
+hand-written check. A future path can lose it with `pnpm check` green. Folding it into `ensure_pending`,
+or adding the recovery-replay case to VI-AUTH-001 so the class covers all five ceremony kinds, is a
+refactor of an authentication path and outside this campaign's authority.
 
 **3. 15 P0 acceptance criteria are unproven at the runtime layer**. All six mutant classes the release
 gate names are now killed — see the mutation sample.
@@ -250,10 +266,12 @@ false UNPROVEN on a P0 criterion is as damaging as a false PASS.
 | **V04-005** | harness | MEDIUM | `smoke:p03` 17/17; the case now asserts the refusal where it actually bites (at the challenge, which is stricter) instead of crashing |
 | **V04-006** | harness | low | the Worker-bundle budget read its input from `/tmp`, so a full disk made it UNMEASURED for reasons unrelated to the product; input is now durable and the row **measures 2575.0 KiB gzip** |
 | **V04-007** | harness | MEDIUM | `billing-panel.test.ts` pinned four literal instants, three of which had expired; `pnpm check` had gone red with **no product change**. Fixtures now relative to the clock, **plus a control that fails if any instant is not in the future**. `pnpm check` exit 0 |
+| **V04-008** | **product** | **HIGH** | recorded, not implemented — the minimum client version control has **no lever**, so `client_version_too_old` is unreachable and a device may present any syntactically valid `app_version`. Fails **open**. `security::guarded_column_writers` enforces the class (**2/2 detected, exit 0**) |
+| **V04-009** | product | LOW | **closed** — recovery ceremony replay is now driven over HTTP by four stored-effect assertions; baseline **76/76 → 80/80**, and `evidence/v04-009-sensitivity.sh` proves the new case **DETECTED** with both defences removed. The finding's first draft claimed recovery was defended by one layer; the mutation falsified that in one run and the claim is retracted above |
 | **V04-001** | harness | — | evidence survives a disk-space recovery and a machine restart |
 | **V04-004** | process | — | recorded; bounds what this evidence can claim |
 
-**V04-002 is the finding that matters.** `apps/api/sentry-entry.mjs` passed `undefined` as the first
+**Two HIGH product findings, and V04-002 is the one that changed behaviour.** `apps/api/sentry-entry.mjs` passed `undefined` as the first
 argument to `new RustWorker(undefined, env)` on the queue path; workerd requires an Object, so the
 first queue message ever threw an uncaught `TypeError` and killed the isolate. Every visible stack frame
 was inside `@sentry/cloudflare`'s wrapper, so the first reading blamed the SDK — reading to the frame
