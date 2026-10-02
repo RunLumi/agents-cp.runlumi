@@ -53,16 +53,39 @@ RESULTS=()
 # costume of a finding. `settle_worker` polls until workerd is actually gone, because a live miniflare
 # RECREATES the persist directory it was using, so a fixed sleep either races it or tears down a
 # directory still in use.
+# V04 HARNESS FIX #5 -- SETTLE MUST KILL THE SUPERVISOR CHAIN, AND PROVE THE PORT IS FREE.
+#
+# Fix #2 killed workerd directly and it could never succeed. The process tree is
+#
+#     pnpm dev  ->  wrangler (node)  ->  workerd (x2)
+#
+# so killing workerd made WRANGLER respawn it, every gate inherited a live Worker, and the run's first
+# three smoke gates each burned 300s and died with UND_ERR_HEADERS_TIMEOUT. That is not a product
+# fault and not even a gate fault: a gate talking to a stale Worker on a held port is a statement
+# about the machine wearing the costume of a finding, which is the exact confusion this campaign
+# exists to prevent -- and this time it was SELF-INFLICTED, by a dev stack left running for an
+# earlier observability run.
+#
+# So: kill the supervisors before the children, and then do not proceed until the ports have no
+# listeners. Asserting "no process matches" is not enough; the observable is the port.
 settle_worker() {
-  local tries=0
-  while [ "$tries" -lt 30 ]; do
-    if ! pgrep -f workerd > /dev/null 2>&1; then return 0; fi
-    pkill -9 -f workerd 2> /dev/null
-    pkill -9 -f "wrangler dev" 2> /dev/null
+  pkill -9 -f "pnpm dev"      2> /dev/null
+  pkill -9 -f "wrangler"      2> /dev/null
+  pkill -9 -f vite            2> /dev/null
+  pkill -9 -f workerd         2> /dev/null
+  local tries=0 listeners
+  while [ "$tries" -lt 40 ]; do
+    listeners="$(lsof -nP -iTCP:8787 -iTCP:5173 -sTCP:LISTEN 2> /dev/null | grep -c LISTEN || true)"
+    if [ "$listeners" = "0" ] && ! pgrep -f workerd > /dev/null 2>&1; then return 0; fi
+    pkill -9 -f "pnpm dev"  2> /dev/null
+    pkill -9 -f wrangler    2> /dev/null
+    pkill -9 -f workerd     2> /dev/null
     tries=$((tries + 1))
     sleep 1
   done
-  printf 'WARN: workerd was still alive after %ss; the next gate may report a false exit 2\n' "$tries" >> "$LOG"
+  printf 'SETTLE FAILED: %s listener(s) still on 8787/5173 after %ss -- gates from here may be about\n' \
+    "$listeners" "$tries" >> "$LOG"
+  printf 'the machine, not the product. Fix the port before trusting anything downstream.\n' >> "$LOG"
   return 0
 }
 
