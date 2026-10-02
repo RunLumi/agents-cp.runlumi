@@ -1634,8 +1634,8 @@ async function probeRecoveryWithActiveSessions(authenticator) {
     `status=${replay.status} reason=${reasonOf(replay)}`,
   );
   expect(
-    "and the replay is refused as `recovery_invalid` -- the same undifferentiated answer a wrong code "
-      + "gets, so consuming a ceremony is not distinguishable from never having started one",
+    "and the replay is refused as `recovery_invalid` -- the same undifferentiated answer a wrong code " +
+      "gets, so consuming a ceremony is not distinguishable from never having started one",
     reasonOf(replay) === "recovery_invalid",
     `reason=${reasonOf(replay) ?? "none"}`,
   );
@@ -1653,8 +1653,8 @@ async function probeRecoveryWithActiveSessions(authenticator) {
     password: replayPassword,
   });
   expect(
-    "and the password carried by the replay does NOT authenticate -- the state assertion that a "
-      + "removed compare-and-set would fail, since accepting the replay would have set exactly this",
+    "and the password carried by the replay does NOT authenticate -- the state assertion that a " +
+      "removed compare-and-set would fail, since accepting the replay would have set exactly this",
     replayDidNotTake.status >= 400,
     `status=${replayDidNotTake.status}`,
   );
