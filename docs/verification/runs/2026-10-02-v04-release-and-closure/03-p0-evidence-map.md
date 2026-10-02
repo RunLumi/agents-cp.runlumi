@@ -185,8 +185,8 @@ that does not exist.
 | FR-F13-002 | Effective policy | `verify:tool-policy-deny` | R |
 | FR-F13-003 | **Default posture** | `verify:tool-policy-deny` (deny branch) | R |
 | FR-F13-004 | MCP | `verify:path-id-tenancy`, `verify:adoption-privacy` (MCP secret) | R |
-| FR-F13-005 | Browser use | no probe drives a browser-use grant end to end | **—** |
-| FR-F13-006 | Computer use | no probe drives a computer-use grant end to end | **—** |
+| FR-F13-005 | Browser use | `verify:tool-policy-deny` (**71/71**) — the settable controls driven over real HTTP with real reasons: `allowed_domains`, `blocked_domains`, `allow_download`, `allow_upload`, `allow_authenticated`, `allow_clipboard`, `external_submit`. Every denial carries `browser_action_denied`, and `evidence/v04-f13-sensitivity.sh` proves **2/2 detected**: making `allow_download` permissive reds exactly one assertion and leaves the computer family green. **`blocked_categories` is UNIMPLEMENTED** — consulted by no decision, rejected `422` by the API. **The surface is also unreachable in the product**: `capability_definitions` has no writer, so every browser call is refused `capability_not_defined` — **V04-010** | R (9 of 10 controls) |
+| FR-F13-006 | Computer use | `verify:tool-policy-deny` (**71/71**) — `allow_accessibility`, `allow_screen_capture`, `allow_keyboard_mouse`, `allow_shell_escalation` and `allowed_applications`, each denial carrying `computer_action_denied`, with a sensitivity proof for the family. **`blocked_applications` is UNIMPLEMENTED** and rejected `422`. **The surface is unreachable in the product** for the same reason — **V04-010** | R (5 of 6 controls) |
 | FR-F13-007 | Approval gates | `smoke:p05`, `verify:privilege-escalation` | R/H |
 | FR-F13-008 | Secret isolation | `verify:adoption-privacy`, `verify:secret-tenancy` | R |
 | FR-F13-009 | Network egress | `verify:provider-faults` BLOCKED; allowlist logic `S` | **—** |
@@ -292,8 +292,8 @@ classified by asking one question: **does a route exist that makes this reachabl
 | FR-F23-008 OpenAPI | **CAPABILITY ABSENT** | no document is generated or published |
 | FR-F23-010 rate-limit headers | **CAPABILITY ABSENT** | no response emits a rate-limit header; the only `Retry-After` in the tree is an *inbound* webhook consumer (`adapters/webhooks/`) |
 | FR-F04-007 explainability | COVERAGE — observed, **unasserted** | the reason is in the response body; nothing fails if it stops being there |
-| FR-F13-005 browser use | COVERAGE | `BrowserPolicy` (`modules/policy_p05.rs:43`) expresses **all six**: `allowed_domains`, `blocked_domains`, `blocked_categories`, `allow_download`, `allow_upload`, `allow_authenticated`, `allow_clipboard`, `external_submit` |
-| FR-F13-006 computer use | COVERAGE | `ComputerPolicy` (`policy_p05.rs:56`) expresses **all five**: `allow_accessibility`, `allow_screen_capture`, `allow_keyboard_mouse`, `allow_shell_escalation`, `allowed_applications`/`blocked_applications` |
+| FR-F13-005 browser use | **now EVIDENCED**, and proving it found a bigger defect | all six settable controls are enforced (`71/71`, `browser_action_denied`, sensitivity 2/2). `blocked_categories` is unimplemented and rejected `422`. **The surface is unreachable**: `capability_definitions` has no writer, so every browser call is refused `capability_not_defined` — **V04-010** |
+| FR-F13-006 computer use | **now EVIDENCED**, same defect | all five settable controls enforced (`computer_action_denied`). `blocked_applications` unimplemented. Unreachable for the same reason — **V04-010** |
 | FR-F23-007 deprecation | COVERAGE | enforced on a routed path: `ToolLifecycle::Deprecated => None` (`routes/tools.rs:135`), and `CatalogLifecycle::Deprecated.allows_new_routes()` is false |
 | FR-F21-006 timeouts (`S`) | COVERAGE | every adapter sets one; no probe measures an expiry |
 | FR-F22-010 design system (`S`) | COVERAGE | `pnpm lint` and a component inventory; no rendered comparison gate |
@@ -303,7 +303,9 @@ classified by asking one question: **does a route exist that makes this reachabl
 | FR-F12-008 provider reconciliation | **CONFLICT IN THE FROZEN CONTRACTS** | `docs/specs/README.md` marks **F12 as P0**; the requirement's own text (`f12`, line 92) opens "**P1** compare internal usage/cost with provider invoice/export *where API exists*". A P0 spec containing a self-labelled P1 requirement, conditional on an API no provider exposes. **Verification may not resolve this** — settling it means editing a frozen contract, which is the deliberate process. Recorded as a contract conflict and left unproven |
 
 **So of 15 unproven rows: 5 are missing features, 3 are blocked by a measured environmental cause, 1 is
-a conflict inside the frozen contracts, and 6 are missing probes.** The first group is the one that
+a conflict inside the frozen contracts, and 6 WERE missing probes — three of which are now **closed**:
+`FR-F04-007`, and both `FR-F13-005`/`FR-F13-006`, leaving **three** (`FR-F23-007`, `FR-F21-006`,
+`FR-F22-010`). The first group is the one that
 changes the release decision, and none of the five is a small addition.
 
 That sixth row is worth naming as a class on its own: **a `P0` spec can contain a requirement whose own

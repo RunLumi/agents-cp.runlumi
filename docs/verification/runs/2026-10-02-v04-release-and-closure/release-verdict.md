@@ -15,10 +15,10 @@ baseline — was **resolved during this campaign** and is recorded as such rathe
 | | count | of which |
 |---|---|---|
 | Tier-0 claims | 20 | **19 PASS, 1 BLOCKED** |
-| P0 acceptance criteria mapped | 210 | 195 with evidence · **15 unproven at the runtime layer** |
+| P0 acceptance criteria mapped | 210 | **198** with evidence · **12 unproven at the runtime layer** |
 | Runtime/adversarial gates run | 25 + 12 | 34 PASS · 1 BLOCKED (correctly reported) · 2 harness artefacts, re-run |
 | Mutants killed | **11** | **all 6** classes the release gate names |
-| Defects found | **9** | **2 HIGH product** (1 repaired, 1 recorded — `V04-008`), 1 product closed (`V04-009`), 5 harness, 1 process |
+| Defects found | **10** | **3 HIGH product** (1 repaired — `V04-002`; 2 recorded — `V04-008`, `V04-010`), 1 product closed (`V04-009`), 5 harness, 1 process |
 | Code changed | 9 files | 1 from the HIGH repair, 2 new check/probe modules, 6 harness repairs |
 | `pnpm check` | exit **0** | re-run after the last repair; 463 binds, clippy clean, WASM target builds |
 
@@ -151,7 +151,8 @@ real one, and it is the same shape as the `exit 2, no sheet` flakes `AGENTS.md` 
 carelessly scoping a harness's own bookkeeping deletes the signal that separates "the product failed"
 from "the harness is wrong about itself".
 
-**3b. Five P0 criteria are missing *features*, not missing proofs.** Every unproven row was classified
+**3b. Five P0 criteria are missing *features*, not missing proofs** — and a sixth surface, browser and
+computer-use policy, is missing its *catalogue* (**V04-010**, HIGH product, below). Every unproven row was classified
 by asking one question — *does a route exist that makes this reachable?* — because `FR-F19-008` had been
 annotated as a probe gap when it was a capability gap, and the two demand different work:
 
@@ -160,10 +161,10 @@ annotated as a probe gap when it was a capability gap, and the two demand differ
 | **capability absent** | `FR-F03-008` bulk operations · `FR-F05-006` security notifications · `FR-F19-008` min client version · `FR-F23-008` OpenAPI · `FR-F23-010` rate-limit headers |
 | blocked by V01-026 | `FR-F09-007` · `FR-F13-009` · `FR-F21-008` |
 | conflict in the frozen contracts | `FR-F12-008` |
-| **missing probes only** | `FR-F13-005` · `FR-F13-006` · `FR-F23-007` · `FR-F21-006` · `FR-F22-010` — and `FR-F04-007`, which was on this list and is now **closed** (asserted on the wire, `50/50`, and `evidence/v04-f04-007-sensitivity.sh` proves it **1/1 detected** against a constant reason) |
+| **missing probes only** | **three remain**: `FR-F23-007` · `FR-F21-006` · `FR-F22-010`. Three more were on this list and are now **closed** — `FR-F04-007` (asserted on the wire, `50/50`, **1/1 detected** against a constant reason) and both `FR-F13-005`/`FR-F13-006` (`71/71`, **2/2 detected**, and doing it found V04-010) |
 
-So **5 of 15 are unimplemented capabilities** and only **5 are missing probes** — a sixth,
-`FR-F04-007`, was closed this turn. `FR-F05-006` is a
+So **5 of 15 are unimplemented capabilities** and only **3 are missing probes** — `FR-F04-007` and both
+`FR-F13-005`/`FR-F13-006` were closed while this verdict was being written. `FR-F05-006` is a
 second instance of the V04-008 shape found by the same question: the `notifications` table exists and
 `notification_preferences` *is* written, but nothing ever inserts a notification. `FR-F23-010` is the
 other: no response emits a rate-limit header at all — the only `Retry-After` in the tree belongs to an
@@ -206,6 +207,36 @@ the problem rather than solve it — a new write surface would arrive with nothi
 `evidence/v04-008-sensitivity.sh` proves it (**2/2 detected, exit 0**) by making the lever appear and
 by renaming the guard in the product.
 
+**3e. Browser and computer-use policy cannot be reached at all (V04-010, HIGH, product).** Found by
+writing the probe `FR-F13-005`/`FR-F13-006` were asking for, rather than recording them as unproven.
+
+The eleven sub-controls the specs name **are implemented and correct** — `evaluate_browser_rules` and
+`evaluate_computer_rules` consult every one, and the probe drives them over real HTTP to `71/71` with
+the correct distinct reasons (`browser_action_denied`, `computer_action_denied`), proven by
+`evidence/v04-f13-sensitivity.sh` (**2/2 detected**: making `allow_download` permissive reds exactly one
+assertion and leaves the computer family green).
+
+**None of that code is reachable.** A browser or computer call requires the `browser`/`computer`
+capability to be present in `capability_definitions`, and that table has **no writer anywhere** — no
+`INSERT`/`UPDATE` in `apps/api/src`, no seed in any migration, no route — so every such call in
+managed-organization mode is refused `capability_not_defined` before any toggle is read. Compounding it,
+a tool can never be *marked* browser-capable either: `has_browser_capability` matches the bare key or
+`cap_`-stripped, while a catalog `CapabilityId` must be `cap_` + 32 lowercase hex, so that branch is
+structurally incapable of being true — the `is_run_source` shape from V01-047.
+
+**Measured, not inferred:** the first full run scored 51/68 with thirteen "denials" passing and *every
+one* refused with the identical reason. The positive control refused the sheet on four successive runs,
+each time correctly — `agent_tool_not_allowed`, `tool_risk_class_mismatch`, then the identical-reason
+tell, then `runtime_capability_unavailable` — and every fix went into the **fixture**, never into an
+assertion.
+
+It **fails closed**: nothing browser-shaped is ever permitted, so no policy is bypassed. It is a
+capability absence, and it is the third instance this campaign of a P0 row annotated "no probe" turning
+out to be a missing capability rather than a missing test. Recorded, not implemented: the smaller fix is
+named in the finding — `routes/tools.rs:2247` already projects the `capability_key` spelling, so relaxing
+`has_browser_capability` / `has_computer_capability` to match it would let an org-scoped row reach the
+evaluator with no new route.
+
 **3d. The recovery ceremony had no replay test — CLOSED this turn, and the finding's first draft was
 wrong (V04-009, LOW).** `smoke:passkey` drove replay for registration and for login; **recovery had no
 such case**, and recovery is the ceremony that changes an account password. That gap is now closed: four
@@ -243,8 +274,9 @@ hand-written check. A future path can lose it with `pnpm check` green. Folding i
 or adding the recovery-replay case to VI-AUTH-001 so the class covers all five ceremony kinds, is a
 refactor of an authentication path and outside this campaign's authority.
 
-**3. 15 P0 acceptance criteria are unproven at the runtime layer**. All six mutant classes the release
-gate names are now killed — see the mutation sample.
+**3. 12 P0 acceptance criteria are unproven at the runtime layer** — down from 15, because three rows
+were closed while this verdict was written. All six mutant classes the release gate names are killed —
+see the mutation sample.
 
 ## P0 acceptance criteria
 
@@ -269,11 +301,13 @@ false UNPROVEN on a P0 criterion is as damaging as a false PASS.
 | **V04-006** | harness | low | the Worker-bundle budget read its input from `/tmp`, so a full disk made it UNMEASURED for reasons unrelated to the product; input is now durable and the row **measures 2575.0 KiB gzip** |
 | **V04-007** | harness | MEDIUM | `billing-panel.test.ts` pinned four literal instants, three of which had expired; `pnpm check` had gone red with **no product change**. Fixtures now relative to the clock, **plus a control that fails if any instant is not in the future**. `pnpm check` exit 0 |
 | **V04-008** | **product** | **HIGH** | recorded, not implemented — the minimum client version control has **no lever**, so `client_version_too_old` is unreachable and a device may present any syntactically valid `app_version`. Fails **open**. `security::guarded_column_writers` enforces the class (**2/2 detected, exit 0**) |
+| **V04-010** | **product** | **HIGH** | recorded, not implemented — browser and computer-use policy is implemented, correct and **unreachable**: `capability_definitions` has no writer, so every such call is refused `capability_not_defined`. Fails **closed**. The eleven controls are now proven anyway (`71/71`, sensitivity **2/2 detected**), which is what established the unreachability |
 | **V04-009** | product | LOW | **closed** — recovery ceremony replay is now driven over HTTP by four stored-effect assertions; baseline **76/76 → 80/80**, and `evidence/v04-009-sensitivity.sh` proves the new case **DETECTED** with both defences removed. The finding's first draft claimed recovery was defended by one layer; the mutation falsified that in one run and the claim is retracted above |
 | **V04-001** | harness | — | evidence survives a disk-space recovery and a machine restart |
 | **V04-004** | process | — | recorded; bounds what this evidence can claim |
 
-**Two HIGH product findings, and V04-002 is the one that changed behaviour.** `apps/api/sentry-entry.mjs` passed `undefined` as the first
+**Three HIGH product findings. V04-002 is the one that changed behaviour; V04-008 and V04-010 are
+recorded rather than implemented, and both fail in the safe direction only by accident of design.** `apps/api/sentry-entry.mjs` passed `undefined` as the first
 argument to `new RustWorker(undefined, env)` on the queue path; workerd requires an Object, so the
 first queue message ever threw an uncaught `TypeError` and killed the isolate. Every visible stack frame
 was inside `@sentry/cloudflare`'s wrapper, so the first reading blamed the SDK — reading to the frame
@@ -432,29 +466,35 @@ does not exist for real users.
 That is the largest single unknown in this record, and it is not closable by more local work. Everything
 below is smaller.
 
-**Second: we do not know whether the five remaining missing probes would find anything — and we have
+**Second: we do not know whether the three remaining missing probes would find anything — and we have
 just learned that "unproven because untested" has twice meant "absent".**
-"unproven because untested" has twice meant "absent".**
 
 That question was open at the start of this section and it is now **answered**: all 15 unproven rows were
 classified by asking whether a route exists that makes the behaviour reachable. Five are missing
 features, three are blocked by a measured environmental cause, one is a conflict inside the frozen
-contracts, and six genuinely need only a probe — one of which (`FR-F04-007`) is now closed, leaving five.
+contracts, and six genuinely needed only a probe — **three of those are now closed**:
+`FR-F04-007`, and both `FR-F13-005` and `FR-F13-006`.
 
-So the residual unknown is sharper and narrower than "what is unproven". It is about those **five**:
+So the residual unknown is narrower still. It is about **three** rows:
 
-- `FR-F13-005` and `FR-F13-006` — the browser and computer-use policy controls. All eleven spec-named
-  sub-controls are expressible (`BrowserPolicy`, `ComputerPolicy`), which is a *good* sign and no
-  evidence at all that any of them is *enforced* on a real decision. A policy field that is parsed,
-  stored and never consulted looks exactly like one that is consulted.
 - `FR-F23-007` deprecation — enforced at `routes/tools.rs:135` for tools. Whether `CatalogLifecycle`
   deprecation is enforced on the catalog path is unproven.
-- `FR-F21-006` and `FR-F22-010` — a timeout is configured on every adapter and no probe has watched one
-  expire; the design system is verified by lint and inventory with no rendered comparison.
+- `FR-F21-006` — a timeout is configured on every adapter and no probe has watched one expire.
+- `FR-F22-010` — the design system is verified by lint and a component inventory, with no rendered
+  comparison against `DESIGN.md` or `docs/screens/**`.
 
-Every one of those five is cheap to probe, and that is exactly the problem: cheap means they will keep
-being deprioritised, and the two rows this campaign *did* classify turned out to be **absent
-capabilities** rather than untested ones. `FR-F19-008` was annotated "no probe asserts a too-old client
+**And the two closed rows are why the remaining three are worth closing.** `FR-F13-005`/`FR-F13-006`
+were annotated "no probe drives a browser-use grant end to end" — a statement about a **probe**. Writing
+that probe found **V04-010**: browser and computer-use policy cannot be reached at all, because
+`capability_definitions` has no writer anywhere, so every such call is refused `capability_not_defined`
+before any toggle is read. The eleven controls are implemented, correct, and unreachable; proving that
+needed four rounds of fixing the *fixture* rather than any assertion, and the probe's positive control
+refused a falsely-green sheet on each round.
+
+That is the third time a row annotated "no probe" turned out to be a missing capability rather than a
+missing test — after `FR-F19-008`, where nothing could arm the client-version guard. **"Unproven because
+untested" and "unproven because absent" are indistinguishable from inside a coverage table**, and every
+row this campaign has been willing to write a probe for has been worth more than the probe. `FR-F19-008` was annotated "no probe asserts a too-old client
 is refused" and the truth was that nothing can arm the guard at all. The inference behind that
 annotation was reasonable and wrong, which is the whole argument: **"unproven because untested" and
 "unproven because absent" are indistinguishable from inside a coverage table**, and this campaign now has
