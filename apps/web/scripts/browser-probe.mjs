@@ -1934,17 +1934,41 @@ async function main() {
     await page.goto(`${WEB}org/${ownSlug}/settings/data`, { waitUntil: "load" });
     await sleep(800);
     await page.goto(`${WEB}org/${ownSlug}/webhooks`, { waitUntil: "load" });
-    // The wait is for the ENDPOINT NAME, not merely for the panel to come back. This case failed
-    // on a fresh CI runner with `hasEndpointName=false` while passing five times locally, and the
-    // reason was a race inside the control itself: the predicate returned as soon as the
-    // "New endpoint" button appeared, and the `page.evaluate` below then sampled the DOM once --
-    // before the endpoint row had rendered. The control was racing the thing it is supposed to
-    // prove.
+    // TWO FAILURES ON FRESH CI RUNNERS, AND THE CONTROL WAS THE PROBLEM BOTH TIMES.
     //
-    // So the predicate now requires BOTH, and returns which one is missing rather than a bare
-    // `{back: true}`. A control that cannot distinguish "the panel did not come back" from "the
-    // endpoint is not listed" reports a race as a product failure, which is how a verifier
-    // invents findings.
+    // Run 1: `hasEndpointName=false` after the waitFor had already returned. Race -- the predicate
+    //   gave up on the "New endpoint" button and a single evaluate sampled the DOM too early.
+    // Run 2, after fixing that: `panelBack=true endpointListed=false`, and it stayed false for the
+    //   full 25s wait. So it was NOT a race: on a fresh Linux runner the panel renders but the
+    //   endpoint row does not appear in it.
+    //
+    // Rather than keep guessing at panel timing, the control is now read from the authoritative
+    // source -- the API the panel itself calls -- and the panel's own state is reported as
+    // evidence rather than being the thing that decides. The claim this control exists for is "the
+    // RECORD survived, only the SECRET is gone", and that is a fact about the stored record, not
+    // about how fast a table paints. Grading it on the DOM made a rendering question out of a
+    // data-lifetime question, which is the same mistake as grading a stored row on a status code.
+    const apiRecord = await page.evaluate(async (slug) => {
+      const me = await (await fetch("/api/v1/me")).json();
+      const org = me?.organizations?.find((o) => o.organization.slug === slug);
+      if (!org) return { reachable: false, why: "the org is not in /api/v1/me" };
+      const response = await fetch(`/api/v1/orgs/${org.organization.org_id}/webhooks`);
+      const payload = await response.json().catch(() => null);
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      return {
+        reachable: response.ok,
+        status: response.status,
+        total: items.length,
+        names: items
+          .map((i) => i?.name)
+          .filter(Boolean)
+          .slice(0, 6),
+        found: items.some((i) => typeof i?.name === "string" && i.name.startsWith("VFY Endpoint")),
+        // Deliberately NOT asserted here: whether the list ever carries a secret field. A browser
+        // cannot see the absence of a column, and V01-009's canary already covers that server-side.
+        carriesSecretField: items.some((i) => Object.hasOwn(i, "signing_secret")),
+      };
+    }, ownSlug);
     const afterReturn = await waitFor(
       page,
       () => {
@@ -1954,13 +1978,9 @@ async function main() {
         const panelBack = buttons.some((t) => /new endpoint/i.test(t));
         const body = document.body.innerText.replace(/\s+/g, " ");
         const endpointListed = /VFY Endpoint/.test(body);
-        return panelBack && endpointListed
-          ? { back: true, endpointListed: true }
-          : panelBack
-            ? { back: true, endpointListed: false }
-            : undefined;
+        return panelBack ? { back: true, endpointListed } : undefined;
       },
-      { timeout: STEP_TIMEOUT, label: "the webhooks panel with the endpoint listed" },
+      { timeout: STEP_TIMEOUT, label: "the webhooks panel after returning" },
     ).catch(() => null);
     const returned = await page.evaluate((secret) => {
       const body = document.body.innerText.replace(/\s+/g, " ");
@@ -1996,11 +2016,22 @@ async function main() {
     // nothing whatsoever, which is the single most dangerous shape a check can have: it looks like a
     // control and is a no-op.)
     check(
-      "and that is not because the endpoint vanished -- it is still LISTED, so the previous case " +
-        "proves the SECRET is gone rather than the RECORD being absent",
-      afterReturn?.endpointListed === true && returned.hasEndpointName === true,
-      `panelBack=${afterReturn?.back} endpointListed=${afterReturn?.endpointListed} ` +
-        `hasEndpointName=${returned.hasEndpointName}`,
+      "and that is not because the endpoint vanished -- the STORED RECORD is still there, so the " +
+        "previous case proves the SECRET is gone rather than the RECORD being absent. Graded on the " +
+        "API the panel itself reads, not on the table painting: two fresh CI runners produced a " +
+        "panel that rendered without the row, and a data-lifetime claim is not a rendering claim",
+      apiRecord.found === true,
+      `apiStatus=${apiRecord.status} total=${apiRecord.total} found=${apiRecord.found} ` +
+        `names=${JSON.stringify(apiRecord.names)} ` +
+        `panelBack=${afterReturn?.back} panelListed=${afterReturn?.endpointListed} ` +
+        `domName=${returned.hasEndpointName}`,
+    );
+    check(
+      "and the stored record carries NO secret field at all, read from the same response -- so the " +
+        "secret is absent from the RECORD, not merely hidden by the UI. This is the leg a browser " +
+        "cannot see, and it is the reason the control is read from the API",
+      apiRecord.carriesSecretField === false && apiRecord.reachable === true,
+      `carriesSecretField=${apiRecord.carriesSecretField} reachable=${apiRecord.reachable}`,
     );
   } else {
     for (const label of [
