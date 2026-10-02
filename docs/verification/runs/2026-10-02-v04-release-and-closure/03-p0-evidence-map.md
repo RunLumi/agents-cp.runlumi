@@ -90,7 +90,7 @@ that does not exist.
 | FR-F04-004 | Owner invariants | `verify:privilege-escalation` last-owner class | R |
 | FR-F04-005 | Project access | `verify:privilege-escalation`, `verify:path-id-tenancy` (grants) | R |
 | FR-F04-006 | Policy precedence | `verify:privilege-escalation` (policy-version class) | R |
-| FR-F04-007 | **Explainability** | `verify:tool-policy-deny` — the tool-decision response body carries `"reason":"org_tool_denied"` to a device-authorized caller, and `policy_allowed` when it permits, so the reason is machine-readable and discriminates. Non-disclosure half: `verify:path-id-tenancy` (198/198). **Caveat: observed, not asserted** — the reason appears in the gate's log, and no assertion fails if the product stops returning it, so a regression here would pass silently | R (unasserted) |
+| FR-F04-007 | **Explainability** | `verify:tool-policy-deny` (**50/50**) — the tool-decision response body carries a machine-readable reason to a device-authorized caller, and it **discriminates**: `org_tool_denied` on the deny leg, `policy_allowed` on the allow leg. Non-disclosure half: `verify:path-id-tenancy` (198/198). **Asserted, not merely observed** — the assertion is on the wire, graded against the leg, and `evidence/v04-f04-007-sensitivity.sh` proves it by making the route return a **constant** `policy_allowed` (**1/1 detected, exit 0**): a presence-only check would pass on that fault, so this one is not decorative | R |
 
 ## F05 — Sessions, Devices & Account Security (P0) · 6 FR
 
