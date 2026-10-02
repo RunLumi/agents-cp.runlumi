@@ -150,6 +150,32 @@ real one, and it is the same shape as the `exit 2, no sheet` flakes `AGENTS.md` 
 carelessly scoping a harness's own bookkeeping deletes the signal that separates "the product failed"
 from "the harness is wrong about itself".
 
+**3b. Five P0 criteria are missing *features*, not missing proofs.** Every unproven row was classified
+by asking one question — *does a route exist that makes this reachable?* — because `FR-F19-008` had been
+annotated as a probe gap when it was a capability gap, and the two demand different work:
+
+| | rows |
+|---|---|
+| **capability absent** | `FR-F03-008` bulk operations · `FR-F05-006` security notifications · `FR-F19-008` min client version · `FR-F23-008` OpenAPI · `FR-F23-010` rate-limit headers |
+| blocked by V01-026 | `FR-F09-007` · `FR-F13-009` · `FR-F21-008` |
+| conflict in the frozen contracts | `FR-F12-008` |
+| **missing probes only** | `FR-F04-007` · `FR-F13-005` · `FR-F13-006` · `FR-F23-007` · `FR-F21-006` · `FR-F22-010` |
+
+So **5 of 15 are unimplemented capabilities** and only **6 are missing probes**. `FR-F05-006` is a
+second instance of the V04-008 shape found by the same question: the `notifications` table exists and
+`notification_preferences` *is* written, but nothing ever inserts a notification. `FR-F23-010` is the
+other: no response emits a rate-limit header at all — the only `Retry-After` in the tree belongs to an
+**inbound** webhook consumer, which is a different requirement entirely.
+
+None of the five is a small addition, and `FR-F19-008` fails open.
+
+**3c. A `P0` spec containing a requirement whose own text says `P1`.** `docs/specs/README.md` marks F12
+as P0; `FR-F12-008`'s text opens *"P1 compare internal usage/cost with provider invoice/export **where
+API exists**"*. That is unreviewed drift in the frozen contracts, which the release gate lists as a hard
+blocker. This campaign **cannot** resolve it — settling it means editing a frozen contract, the one move
+delegated authority explicitly excludes. It is recorded so a human decides it deliberately rather than
+discovering it when a gate fails.
+
 **3a. A security control the platform cannot operate (V04-008, HIGH, product) — and this one is not
 a coverage gap.** `FR-F19-008` says an organization or the platform can require a minimum client
 version when a security fix demands it, with staged rollout and grace messaging. The device path
@@ -284,30 +310,41 @@ no migration, so rollback is a pure revert.
 
 ## What important thing do we still not know?
 
-**We do not know whether the other 14 unproven P0 rows are coverage gaps or capability gaps — and the
-distinction changes what the release requires.**
+**We do not know whether the six missing probes would find anything — and we have just learned that
+"unproven because untested" has twice meant "absent".**
 
-This campaign found V04-008 by doing something it had never done before: taking one `—` UNPROVEN row
-and asking *why* it has no evidence, rather than accepting the annotation. `FR-F19-008` was annotated
-"no probe asserts a too-old client is refused" — a statement about a **probe**. The truth was that the
-**capability** is absent: the guard exists, is correct, and has a tested comparator, and nothing in the
-repository can ever arm it. Those two readings look identical in a coverage table and they are not the
-same work: the first is "write a probe", the second is "build a routed write surface with authorization
-and audit". One is an afternoon; the other is a feature, and it fails **open** while it is missing.
+That question was open at the start of this section and it is now **answered**: all 15 unproven rows were
+classified by asking whether a route exists that makes the behaviour reachable. Five are missing
+features, three are blocked by a measured environmental cause, one is a conflict inside the frozen
+contracts, and six genuinely need only a probe.
 
-So the honest statement is not "15 criteria are unproven". It is: **one of them is a known absent
-security control, and the classification of the other 14 has never been attempted.** Seven of the eight
-capabilities this repository built and wired to nothing were found by *reading*, not by any gate —
-`fan_out_event_statement`, `provider_entitlement_projections`, the `'run'` usage writer, the staff
-grant-use surface, the quarantine levers, the idempotency purge, and now the client-version floor. Every
-one of them sat behind a `pnpm check` that was green throughout. A coverage table cannot distinguish
-that class from a missing probe, and this campaign only found the seventh instance by accident, while
-closing a different row.
+So the residual unknown is sharper and narrower than "what is unproven". It is about those **six**:
 
-That is the thing worth acting on, and it is cheap to act on: each remaining `—` row needs one
-question — *does a route exist that makes this reachable?* — answered before the release decision is
-final. A row that answers "yes, there is a route" needs a probe. A row that answers "no" is a missing
-feature and belongs in the backlog as one.
+- `FR-F13-005` and `FR-F13-006` — the browser and computer-use policy controls. All eleven spec-named
+  sub-controls are expressible (`BrowserPolicy`, `ComputerPolicy`), which is a *good* sign and no
+  evidence at all that any of them is *enforced* on a real decision. A policy field that is parsed,
+  stored and never consulted looks exactly like one that is consulted.
+- `FR-F23-007` deprecation — enforced at `routes/tools.rs:135` for tools. Whether `CatalogLifecycle`
+  deprecation is enforced on the catalog path is unproven.
+- `FR-F04-007` — the reason is in the response body, and nothing fails if it stops being there.
+- `FR-F21-006` and `FR-F22-010` — a timeout is configured on every adapter and no probe has watched one
+  expire; the design system is verified by lint and inventory with no rendered comparison.
+
+Every one of those six is cheap to probe, and that is exactly the problem: cheap means they will keep
+being deprioritised, and the two rows this campaign *did* classify turned out to be **absent
+capabilities** rather than untested ones. `FR-F19-008` was annotated "no probe asserts a too-old client
+is refused" and the truth was that nothing can arm the guard at all. The inference behind that
+annotation was reasonable and wrong, which is the whole argument: **"unproven because untested" and
+"unproven because absent" are indistinguishable from inside a coverage table**, and this campaign now has
+two measured instances of the second masquerading as the first.
+
+The generalisation is worth more than the six probes. Seven capabilities in this repository were built
+and wired to nothing, and every one sat behind a green `pnpm check`: `fan_out_event_statement`,
+`provider_entitlement_projections`, the `'run'` usage writer, the staff grant-use surface, the
+quarantine levers, the idempotency purge, and now the client-version floor. **Not one was found by a
+gate.** `security::repository_liveness` and `security::guarded_column_writers` now cover the function and
+column shapes of that class, and between them they catch the two forms that are mechanically checkable —
+but a capability that is *present* and merely unwired from a route is still only findable by reading.
 
 **We also do not know whether the jobs queue consumer actually processes an envelope.** Everything up to it
 now works — a message is published, delivered, and a consumer is invoked — and the envelope still sits
