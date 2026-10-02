@@ -18,13 +18,33 @@ import { DOWNGRADE_HONESTY_STATEMENT } from "./downgrade";
 
 const ORG_ID = fixture.entitlements.org_id;
 
+// V04-007 -- THE FIXTURE IS RELATIVE TO THE CLOCK, AND SAYS SO.
+//
+// These four instants were literal dates. `license-state.ts` compares each of them against
+// `input.now` (`graceEnded = grace !== null && grace <= now`), so the moment the wall clock passed
+// 2026-09-26 the fixture stopped describing the state the tests assert: the panel correctly stopped
+// rendering `license_grace_active`, and TWO assertions failed with a 2026-10-02 `pnpm check` that had
+// been green days earlier. Nothing in the product changed.
+//
+// This is the same class of defect this repository already paid for in `verify:budget-concurrency`,
+// whose fixtures used a literal expiry and read 27/27 at 23:59 and 23/25 at 00:36 with NO code change
+// -- except that one made nothing happen, and this one made the asserted thing stop happening.
+// `current_period_ends_at` (2026-10-01) had already expired a day before that run, so the file had
+// been decaying quietly for a week.
+//
+// The offsets preserve the ORIGINAL relationships exactly (policy fresh +15min, grace +1d, period end
+// +5.8d, offline validity +6.8d from a nominal "now" of 2026-09-25), so the fixture still means what
+// it meant when it was written -- it just means it on any day the suite is run.
+const NOW = Date.now();
+const inDays = (days: number) => new Date(NOW + days * 86_400_000).toISOString();
+
 const subscription = decodeSubscription({
   subscription_id: fixture.entitlements.subscription_id,
   org_id: ORG_ID,
   plan_key: "team",
   status: "grace",
-  grace_expires_at: "2026-09-26T16:00:00.000Z",
-  current_period_ends_at: "2026-10-01T12:00:00.000Z",
+  grace_expires_at: inDays(1),
+  current_period_ends_at: inDays(5.8),
   version: 4,
 });
 
@@ -32,8 +52,8 @@ const entitlements = decodeEntitlementProjection({
   org_id: ORG_ID,
   plan_key: "team",
   status: "grace",
-  policy_fresh_until: "2026-09-25T16:15:00.000Z",
-  offline_valid_until: "2026-10-02T12:00:00.000Z",
+  policy_fresh_until: inDays(15 / 96),
+  offline_valid_until: inDays(6.8),
   entitlements: [
     { key: "org.max_members", value: 25, source: "plan" },
     { key: "automations.max_active", value: 100, source: "plan" },
@@ -77,8 +97,8 @@ const overLimitEntitlements = decodeEntitlementProjection({
   org_id: ORG_ID,
   plan_key: "team",
   status: "grace",
-  policy_fresh_until: "2026-09-25T16:15:00.000Z",
-  offline_valid_until: "2026-10-02T12:00:00.000Z",
+  policy_fresh_until: inDays(15 / 96),
+  offline_valid_until: inDays(6.8),
   entitlements: [
     { key: "org.max_members", value: 25, source: "plan" },
     { key: "automations.max_active", value: 100, source: "plan" },
@@ -138,6 +158,35 @@ function renderText(): string {
 }
 
 describe("billing panel rendered output", () => {
+  /**
+   * THE FIXTURE CONTROL. Runs FIRST, so every assertion below is known to be about the state it claims.
+   *
+   * The panel decides grace-dependent copy by comparing fixture instants against the wall clock
+   * (`license-state.ts`: `graceEnded = grace <= now`). If every instant in this fixture is in the PAST,
+   * the panel renders the expired-grace copy, every grace assertion below fails for one reason, and
+   * nothing about the assertions themselves is being tested. That is precisely what happened with the
+   * literal dates this replaced: the file went red on 2026-09-26 with no code change, and the failure
+   * reads like a product regression.
+   *
+   * A fixture that makes nothing happen is the case where asking whether it happened is worth most --
+   * the same lesson `verify:budget-concurrency` paid for, from the opposite direction.
+   */
+  it("PRECONDITION: every instant in this fixture is in the FUTURE, or the assertions below are about the wrong state", () => {
+    const instants = {
+      grace_expires_at: subscription.grace_expires_at ?? null,
+      current_period_ends_at: subscription.current_period_ends_at ?? null,
+      policy_fresh_until: entitlements.policy_fresh_until ?? null,
+      offline_valid_until: entitlements.offline_valid_until ?? null,
+    };
+    const past = Object.entries(instants)
+      .filter(([, value]) => value === null || Date.parse(String(value)) <= Date.now())
+      .map(([key, value]) => `${key}=${String(value)}`);
+    expect(
+      past,
+      "fixture instants must be in the future; the panel compares them against the wall clock",
+    ).toEqual([]);
+  });
+
   /**
    * WHY this asserts ORDER and VISIBLE COPY, not just presence.
    *

@@ -6,9 +6,10 @@ Not because the product is broadly broken. Because the release gate's own rule i
 
 > Release is blocked if: any Tier-0 claim is FAIL, UNPROVEN, or BLOCKED …
 
-**One Tier-0 claim is BLOCKED, and two release-gate rows are UNPROVEN in this campaign.** Those are
-blockers by the repository's own definition, and the definition is the authority — not the size of
-what passed.
+**One Tier-0 claim is BLOCKED (T0-16, export/deletion), 13 P0 criteria are UNPROVEN, and the
+auth-replay mutant class was not reached.** Those are blockers by the repository's own definition, and
+the definition is the authority — not the size of what passed. One earlier blocker — the performance
+baseline — was **resolved during this campaign** and is recorded as such rather than quietly dropped.
 
 | | count | of which |
 |---|---|---|
@@ -16,7 +17,7 @@ what passed.
 | P0 acceptance criteria mapped | 210 | 197 with evidence · **13 UNPROVEN** |
 | Runtime/adversarial gates run | 25 + 12 | 34 PASS · 1 BLOCKED (correctly reported) · 2 harness artefacts, re-run |
 | Mutants killed | 10 | 5 of the 6 classes the release gate names |
-| Defects found and repaired | 5 | **1 HIGH product**, 3 harness, 1 process |
+| Defects found and repaired | 7 | **1 HIGH product**, 5 harness, 1 process |
 | Product code changed | 2 files | both from the HIGH repair |
 
 ## The candidate
@@ -82,16 +83,30 @@ data-governance rows ("private artifacts protected", "every data class dispositi
 **V04-002 removed a real crash from underneath this**, and that is what made the distinction
 measurable at all: before the repair, the jobs consumer could not even be constructed.
 
-**2. Performance is UNPROVEN against the production budget in this campaign.** `perf:budgets`
-reported **0 over budget, 2 UNMEASURED** — and it also printed, correctly and unasked:
+**2. Performance — RESOLVED in this campaign; originally UNPROVEN.** The runner started a dev stack
+and never a production `vite preview`, so the first run measured the **dev server** and the probe said
+so, unasked:
 
 > note: measuring the dev server. AGENTS.md states these budgets under 'Web production baseline', and a
 > dev-server number is not a production number.
 
-The runner started a dev stack and never a production `vite preview`, so initial JS/CSS, LCP, CLS and
-long-task were measured on the dev server. V02 measured these properly (cold LCP 0.22 s); **a release
-decision needs this campaign's own measurement**, and this campaign does not have one. The gate exiting
-1 rather than 0 is correct behaviour and is not counted as a defect.
+Re-measured against `vite preview` with `PROBE_WEB`:
+
+| budget | measured | limit | verdict |
+|---|---|---|---|
+| initial JS | 97.3 KiB gzip | 170 | **PASS** |
+| initial CSS | 8.6 KiB gzip | 35 | **PASS** |
+| largest route chunk | 38.8 KiB gzip | 80 | **PASS** |
+| Worker bundle | 2575.0 KiB gzip | none | **TRACKED** (now measured — see V04-006) |
+| 5 authenticated API routes | 8.2–22.0 ms p95 | 200 | **PASS** |
+| LCP (cold) | 0.16 s | 2.5 s | **PASS** |
+| CLS | 0.0 | 0.1 | **PASS** |
+| worst long task | 0.0 ms | 200 ms | **PASS** |
+| INP | — | 200 ms | **UNMEASURED** |
+
+**0 over budget. 1 UNMEASURED.** The gate exits 1 rather than 0 because it refuses to call INP a pass,
+which is correct behaviour and is not counted as a defect. Only INP remains, and it is genuinely
+unmeasurable on this stack: the collector runs and the click produces no event-timing entry.
 
 **3. 13 P0 acceptance criteria have no evidence at any layer**, and three of the six mutant classes the
 release gate names were not reached before the campaign stopped.
@@ -114,6 +129,8 @@ false UNPROVEN on a P0 criterion is as damaging as a false PASS.
 | **V04-002** | **product** | **HIGH** | `WorkerEntrypoint` errors **11 → 0**; outbox publish+consume lines **0 → 8 each**; the `p06_queue_routed` consumer diagnostics went from never appearing to appearing. The original crash is gone and the queue path can be constructed. *(Corrected from an earlier overclaim in this record: the eight `delivered` lines are the outbox consumer's own audit lines, and they prove the OUTBOX consumer ran — not that the jobs queue consumer delivered.)* |
 | **V04-003** | harness | MEDIUM | p06's BLOCKED report now executes and prints a real diagnostic — the first evidence that produced V04-002 |
 | **V04-005** | harness | MEDIUM | `smoke:p03` 17/17; the case now asserts the refusal where it actually bites (at the challenge, which is stricter) instead of crashing |
+| **V04-006** | harness | low | the Worker-bundle budget read its input from `/tmp`, so a full disk made it UNMEASURED for reasons unrelated to the product; input is now durable and the row **measures 2575.0 KiB gzip** |
+| **V04-007** | harness | MEDIUM | `billing-panel.test.ts` pinned four literal instants, three of which had expired; `pnpm check` had gone red with **no product change**. Fixtures now relative to the clock, **plus a control that fails if any instant is not in the future**. `pnpm check` exit 0 |
 | **V04-001** | harness | — | evidence survives a disk-space recovery and a machine restart |
 | **V04-004** | process | — | recorded; bounds what this evidence can claim |
 
@@ -153,7 +170,9 @@ the mutant.
 4. **8 of 12 browser states have no product-side sensitivity proof.** Four do. "All twelve covered"
    remains a statement about the probe, not the product.
 5. **INP UNMEASURED** and **first-visit LCP p75 UNPROVEN** — inherited, and neither is a pass.
-6. **The production performance baseline was not measured in this campaign** (blocker 2).
+6. **INP is UNMEASURED** and cannot be measured on this stack — the collector runs and the click
+   produces no event-timing entry. Every other budget is measured and passing against the production
+   preview (blocker 2 is resolved).
 
 ## External unknowns
 

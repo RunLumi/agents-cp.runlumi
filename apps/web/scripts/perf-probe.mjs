@@ -39,7 +39,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { launch, newPage, NO_CHROME_REASON } from "./cdp.mjs";
 
 // `apps/web/scripts/perf-probe.mjs` -> the repository root is `../../..`. The first version used
@@ -118,7 +118,19 @@ function measureWorkerBundle() {
   // `wrangler deploy --dry-run` prints the upload size. Re-running the build just for this is
   // expensive, so the number is read from the most recent build log if one exists, and reported as
   // UNMEASURED rather than guessed when it does not.
-  const candidates = ["/tmp/build.log", join(REPO, "apps/api/build.log")];
+  //
+  // V04-006 -- the candidate list put /tmp first, and /tmp is where this campaign's system volume ran
+  // out of space twice (V04-001). An instrument that reads its input from a directory a routine
+  // operation can reclaim will report UNMEASURED for reasons that have nothing to do with the product,
+  // which is the same defect as losing evidence: an input read from an unstable location is not an
+  // input. So PROBE_BUILD_LOG comes first, the durable sibling-of-the-repo log is the default, and
+  // /tmp is kept only as a last-resort fallback for anyone with an older habit.
+  const candidates = [
+    process.env.PROBE_BUILD_LOG,
+    join(dirname(REPO), "v04-logs/v04-build.log"),
+    join(REPO, "apps/api/build.log"),
+    "/tmp/build.log",
+  ].filter(Boolean);
   for (const path of candidates) {
     if (!existsSync(path)) continue;
     const match = [
