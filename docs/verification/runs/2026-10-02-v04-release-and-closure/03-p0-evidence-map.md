@@ -33,15 +33,27 @@ another row proves it.
 | FR-F01-010 | WebAuthn ceremony state | `smoke:passkey` (challenge/expiry/replay attacks) | R |
 | FR-F01-011 | WebAuthn verification | `smoke:passkey` (origin, RP ID, signature) | R |
 | FR-F01-012 | Identity linking | `smoke:passkey` identity-link conflict attack (declared KNOWN MISSED on one leg) | R |
-| FR-F01-013 | **Desktop sign-in** | device-code endpoints exist and are exercised by no probe | **—** |
+| FR-F01-013 | Desktop sign-in | `smoke:p02` — full device-code handoff: `start` (PKCE S256 challenge) → `approve` (204) → `exchange` (200) → **`exchange` again, refused `[401, 409]`** | R |
 | FR-F01-014 | Access tokens / sessions | `smoke:p02`, `smoke:browser` | R |
 | FR-F01-015 | Recovery | `smoke:p02` reset flow; sensitivity `A2` (pre-recovery session refused) | R |
 | FR-F01-016 | Reauthentication / step-up | `verify:privilege-escalation` (ownership-transfer class), sensitivity `M2` re-auth guard | R |
 | FR-F01-017 | Security events | `schema:p07`, `verify:adoption-privacy` (nothing reaches `security_events`), `verify:staff-credential` | R |
 
-**Gap named:** FR-F01-013 desktop sign-in is **UNPROVEN**. No probe drives `/auth/device-code`, and
-there is no desktop client in this repository to drive it with. It is a **consumer-side** criterion:
-it cannot be closed here at all (see "External unknowns").
+**CORRECTED (V04):** this map first graded FR-F01-013 desktop sign-in **UNPROVEN** on the claim that
+"no probe drives `/auth/device-code`". That was **false**, and the error is worth recording because it
+is the exact shape this campaign exists to prevent. `smoke:p02:245-270` drives the whole flow — start
+with a real PKCE S256 `code_challenge`, `approve` returning 204, `exchange` returning 200, and then
+**`exchange` again with the same one-time `device_code`, asserted to be refused `[401, 409]`**. That
+last assertion is a replay attack on a P0 identity criterion, and it is the runtime evidence for
+Tier-0 **T0-03** on the device-code path.
+
+**The lesson is about method, not about the criterion.** Asserting an *absence* requires reading the
+gate, not grepping for a string that might be spelled differently: the search looked for the route
+name and did not find it, while the probe had been exercising it all along. Every one of this map's
+fourteen `—` rows was then re-checked by searching the probes for the behaviour; this was the only
+one wrong, and the other thirteen held. But a false **UNPROVEN** on a P0 criterion is as damaging as a
+false PASS — it would either block a release that is actually ready, or send someone looking for a gap
+that does not exist.
 
 ## F02 — Organization & Tenant Lifecycle (P0) · 7 FR
 
@@ -66,7 +78,7 @@ it cannot be closed here at all (see "External unknowns").
 | FR-F03-005 | Member removal | `verify:mutating-tenancy`, path-id sensitivity `M1`/`M2` | R |
 | FR-F03-006 | Leave organization | `smoke:p03`; last-owner sensitivity `M1` | R |
 | FR-F03-007 | **Teams** | `smoke:p03`; V02 repaired a 37-vs-36 id defect that had made **every team write fail** | R |
-| FR-F03-008 | Bulk operations | no probe drives a bulk route | **—** |
+| FR-F03-008 | Bulk operations | **no bulk route exists in the router at all** (`app.rs` has no `bulk` path) — so there is nothing for a probe to drive | **—** |
 
 ## F04 — Authorization & Policy Engine (P0) · 7 FR
 
