@@ -66,13 +66,24 @@ settle_worker() {
   return 0
 }
 
+# V04 HARNESS FIX #7 -- SETTLE IS A PROPERTY OF THE GROUP, NOT OF EVERY GATE.
+#
+# This was the cause of the whole third failure, and it was mine: `run_gate` called `settle_worker`
+# before EVERY gate, and `settle_worker` kills `pnpm dev`. So the suite started the stack, logged
+# "stack up (vite=200 api=401)", and then destroyed it before running the first gate that needed it --
+# producing `ECONNREFUSED` at p02 while the log said the stack was up. Two contradictory statements
+# in one file, and the honest one was in a variable nobody read.
+#
+# So `run_gate` takes an explicit first argument: `shared` means "the group already settled, do not
+# touch the stack"; `solo` means this gate owns the machine and settles before itself. A runner that
+# can log a precondition as satisfied and then invalidate it is worse than one that never logs it.
 run_gate() {
-  local label="$1"
-  shift
+  local scope="$1" label="$2"
+  shift 2
   GATE=$((GATE + 1))
   local out="$LOGDIR/v04-sb${GATE}-$(printf '%s' "$label" | tr ' /:' '---').log"
   local start end code
-  settle_worker
+  [ "$scope" = "solo" ] && settle_worker
   start=$(date +%s)
   ( cd "$REPO" && "$@" ) > "$out" 2>&1
   code=$?
@@ -129,25 +140,26 @@ trap 'stop_stack; trap - EXIT; exit 130' INT TERM HUP
 # smoke:p08 is here rather than in the adversarial suite on purpose: it is the gate the release gate
 # itself flags as still reporting routes with NO handler-level evidence, so its count is a finding to
 # read, not a number to pass.
-run_gate "smoke:p08 tenancy"   pnpm smoke:p08
-run_gate "guard:probe"         pnpm guard:probe
-run_gate "schema:null-check"   pnpm schema:null-check
-run_gate "schema:p07"          pnpm schema:p07
+run_gate solo "smoke:p08 tenancy"   pnpm smoke:p08
+run_gate solo "guard:probe"         pnpm guard:probe
+run_gate solo "schema:null-check"   pnpm schema:null-check
+run_gate solo "schema:p07"          pnpm schema:p07
 
 # --- one stack, for the gates that declare they need it --------------------------------------------
 printf '\nstarting the dev stack for the gates that declare they need it\n' >> "$LOG"
+settle_worker
 if start_stack; then
   printf 'stack up (vite=200 api=401)\n' >> "$LOG"
-  run_gate "smoke:p02 identity"      pnpm smoke:p02
-  run_gate "smoke:p03 membership"    pnpm smoke:p03
-  run_gate "smoke:p04 authorization" pnpm smoke:p04
-  run_gate "smoke:p05 tools+runs"    pnpm smoke:p05
-  run_gate "smoke:p06 data"          pnpm smoke:p06
+  run_gate shared "smoke:p02 identity"      pnpm smoke:p02
+  run_gate shared "smoke:p03 membership"    pnpm smoke:p03
+  run_gate shared "smoke:p04 authorization" pnpm smoke:p04
+  run_gate shared "smoke:p05 tools+runs"    pnpm smoke:p05
+  run_gate shared "smoke:p06 data"          pnpm smoke:p06
 
   # Its Worker-bundle and API-latency budgets are UNMEASURED without a live Worker and it exits 2 when
   # they are -- which is the correct behaviour, and the reason the precondition is declared.
-  run_gate "perf:budgets"            pnpm perf:budgets
-  run_gate "smoke:browser"           pnpm smoke:browser
+  run_gate shared "perf:budgets"            pnpm perf:budgets
+  run_gate shared "smoke:browser"           pnpm smoke:browser
 else
   printf 'the stack never came up. Every gate that needs a Worker is UNPROVEN, not passed:\n' >> "$LOG"
   for g in "smoke:p02" "smoke:p03" "smoke:p04" "smoke:p05" "smoke:p06" "perf:budgets" "smoke:browser"; do
@@ -171,7 +183,7 @@ if [ -d "$REPO/../verify" ]; then
 else
   ( cd "$REPO" && git worktree add ../verify HEAD ) >> "$LOG" 2>&1
   if [ -d "$REPO/../verify" ]; then
-    run_gate "verify:mutation (sample)" \
+    run_gate solo "verify:mutation (sample)" \
       bash -c "cd '$REPO/../verify' && P09_SCRATCH='$REPO/target/mutation-scratch' pnpm verify:mutation --apply"
   else
     printf 'verify:mutation SKIPPED -- the worktree could not be created\n' >> "$LOG"
