@@ -287,6 +287,36 @@ cargo test --workspace
 cargo check --workspace --target wasm32-unknown-unknown
 ```
 
+## Production deployment
+
+Before deployment, hosting/CI changes, secret provisioning or production recovery,
+read `docs/release/cloudflare-deployment.md` and ADR 0010. The runbook contains
+resource identities, dated delivery evidence, exact commands and known limitations.
+
+- `apps/api/wrangler.jsonc` is authoritative. Always select `--env production`
+  explicitly for production operations; do not deploy the default/development
+  Worker or create duplicate production keys/resources.
+- Production is one Rust Worker plus built SPA at `agents-cp.runlumi.app`.
+  Preserve `/api` and `/api/*` Worker-first routing, the canonical WebAuthn RP/origin,
+  and private R2 exports. Build web before API using root `pnpm build`.
+- Normal delivery is PR quality → authorized merge → main quality → serialized
+  deploy → live smoke. Main pushes, including docs changes, trigger the workflow.
+  Verify exact head/main SHA and active version/message; skipped upload is not
+  deployment proof. Do not bypass quality, overwrite newer work or interrupt an
+  in-flight migration to accelerate delivery.
+- The Actions deployment token and Worker runtime secrets are different. Inspect
+  names only, preserve existing encryption/signing keys, and use approved secure
+  custody before provisioning. Missing runtime prerequisites remain fail-closed;
+  never set production to development or relax egress policy to make tests pass.
+- Migrations precede upload and are forward-only. Code rollback does not revert
+  data, queue state or secrets; verify compatibility first. No automatic resource
+  deletion or database restore as a deployment repair.
+- Preserve unrelated work in the shared checkout. Use a stable isolated worktree
+  and read back real state after interruption or external scratch cleanup.
+- Handoffs must separate local checks, hosted CI, live domain/Worker proof and
+  email/provider/export/restore evidence. A healthy homepage is not full release
+  certification. Update the runbook deliberately when deployment behavior changes.
+
 ## Runtime proofs
 
 `pnpm check` proves compilation, types, unit behaviour, and the schema. It does **not** prove that

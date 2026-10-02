@@ -72,6 +72,17 @@ Read `AGENTS.md` and `docs/adr/` before substantial work.
 
 The workspace lockfile is now present and CI requires it (`pnpm install --frozen-lockfile`). The current pinned pnpm also explicitly allows build scripts only for the exact esbuild/workerd versions needed for the web and Worker toolchains.
 
+## Production deployment
+
+The control plane is hosted at [agents-cp.runlumi.app](https://agents-cp.runlumi.app).
+The existing Rust Worker serves the API and the built SPA on one origin. Main
+commits deploy through GitHub Actions after quality passes; PRs do not deploy.
+
+Read the [Cloudflare deployment runbook](docs/release/cloudflare-deployment.md)
+for resource identities, prerequisites, CI credentials, manual recovery, rollback
+and the dated deployment evidence. Hosting is verified separately from email,
+provider execution, encryption/signing readiness and production-scale restore.
+
 ## License
 
 **Proprietary. All rights reserved. This repository is not open source.**
