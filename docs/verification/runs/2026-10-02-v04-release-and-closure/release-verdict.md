@@ -62,11 +62,25 @@ it. "The gate exists" is not evidence; the gate's own result is.
 
 ## The blockers, named
 
-**1. T0-16 BLOCKED — the export job never completes.** `smoke:p06` reports `27/27 cases hold, 1 leg
-blocked by the environment`. After V04-002 repaired the queue path, the outbox **delivers** and the
-jobs consumer **is invoked** (`p06_queue_routed:jobs` appears) — but the `export.run` envelope does not
-advance past `queued`. The R2 artifact is therefore never written, so the data-governance row of the
-release gate ("private artifacts protected", "every data class disposition") is **UNPROVEN**.
+**1. T0-16 BLOCKED — the export job never completes, and the cause is environmental.**
+`smoke:p06` reports `27/27 cases hold, 1 leg blocked by the environment`, with the envelope at
+`queued`/attempt 1 and the export row still `requested`.
+
+Measured carefully, because an earlier reading of this was wrong in both directions:
+
+- the **outbox** side genuinely works. `delivery_status: delivered` is written by
+  `modules/outbox/consumer.rs:108` calling `mark_delivered`, so it is set *after* the outbox consumer
+  has handed the event to a queue — not by the publisher. That part is a real consumer run.
+- the **jobs queue** consumer is what is absent. Its diagnostic (`p06_queue_routed:jobs`) did **not**
+  appear in the final run. It *did* appear in an earlier run of the same probe, so local delivery to
+  that consumer is **intermittent** rather than absent.
+
+That is the documented V01 condition — the local queue does not reliably deliver a published body — and
+it is why the R2 leg cannot be decided on this host. The R2 artifact is never written, so the
+data-governance rows ("private artifacts protected", "every data class disposition") are **UNPROVEN**.
+
+**V04-002 removed a real crash from underneath this**, and that is what made the distinction
+measurable at all: before the repair, the jobs consumer could not even be constructed.
 
 **2. Performance is UNPROVEN against the production budget in this campaign.** `perf:budgets`
 reported **0 over budget, 2 UNMEASURED** — and it also printed, correctly and unasked:
@@ -97,7 +111,7 @@ false UNPROVEN on a P0 criterion is as damaging as a false PASS.
 
 | finding | kind | severity | closed because |
 |---|---|---|---|
-| **V04-002** | **product** | **HIGH** | `WorkerEntrypoint` errors **11 → 0**, published **0 → 8**, delivered **0 → 8**, both queue consumers invoked. The original reproducer no longer reproduces; the queue now delivers what was impossible before. |
+| **V04-002** | **product** | **HIGH** | `WorkerEntrypoint` errors **11 → 0**; outbox publish+consume lines **0 → 8 each**; the `p06_queue_routed` consumer diagnostics went from never appearing to appearing. The original crash is gone and the queue path can be constructed. *(Corrected from an earlier overclaim in this record: the eight `delivered` lines are the outbox consumer's own audit lines, and they prove the OUTBOX consumer ran — not that the jobs queue consumer delivered.)* |
 | **V04-003** | harness | MEDIUM | p06's BLOCKED report now executes and prints a real diagnostic — the first evidence that produced V04-002 |
 | **V04-005** | harness | MEDIUM | `smoke:p03` 17/17; the case now asserts the refusal where it actually bites (at the challenge, which is stricter) instead of crashing |
 | **V04-001** | harness | — | evidence survives a disk-space recovery and a machine restart |

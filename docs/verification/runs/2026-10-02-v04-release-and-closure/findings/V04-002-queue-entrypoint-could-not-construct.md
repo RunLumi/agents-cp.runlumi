@@ -63,13 +63,19 @@ Same probe, same fixture, one-line change, three separate measurements:
 | | pre-fix | post-fix |
 |---|---|---|
 | `WorkerEntrypoint` errors in the Worker log | **11** | **0** |
-| `{"action":"published"}` events | 0 | **8** |
-| `{"action":"delivered"}` events | 0 | **8** |
-| queue consumers actually invoked (`p06_queue_routed:outbox` / `:jobs`) | 0 | **both** |
+| outbox consumer `{"action":"published"}` lines | 0 | **8** |
+| outbox consumer `{"action":"delivered"}` lines | 0 | **8** |
+| `p06_queue_routed:outbox` / `:jobs` consumer diagnostics | never appeared | appeared |
 
-This is the strongest available form of proof: the defect is gone, and the thing that was impossible
-before — a message being delivered — now happens, **8 out of 8**. A status code could not have shown
-this; a log count could.
+This is the strongest available form of proof available here: the defect is gone, and a **consumer now
+runs** where before the isolate died on the first message.
+
+**CORRECTED, because the first version of this claim was too strong.** The eight `delivered` lines are
+the **outbox** consumer's own audit lines — `delivery_status = 'delivered'` is written by
+`modules/outbox/consumer.rs:108` calling `mark_delivered` — so they prove the *outbox* consumer handed
+events to a queue. They do **not** prove that the **jobs** queue consumer delivered, and a later,
+cleaner run of the same probe did not print `p06_queue_routed:jobs` at all. Local delivery to that
+consumer is intermittent. A status code could not have shown any of this; a log count could.
 
 ## The repair
 
