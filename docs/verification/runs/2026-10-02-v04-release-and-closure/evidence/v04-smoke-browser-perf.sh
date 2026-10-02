@@ -25,7 +25,15 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 # scratch -- the mutation campaign needs ~2.4 GB per case and is explicitly told to stay off the
 # system volume for exactly this reason. So the logs go there: `target/` is gitignored, sits on the
 # repository volume, and is wiped by a rebuild rather than by a machine restart.
-LOGDIR="${V04_LOGDIR:-$REPO/target/v04-logs}"
+LOGDIR="${V04_LOGDIR:-$(dirname "$REPO")/v04-logs}"
+#
+# V04 HARNESS FIX #3 -- AND NOT UNDER target/ EITHER. The second re-run lost its logs because
+# something reclaimed the 28 GB that `target/` held after the system volume hit 98%: `target/` was
+# deleted, and with it `$REPO/target/v04-logs`. That is a plausible, benign action by another process
+# and it still destroyed the evidence of a gate that was running at the time -- so the log home is a
+# sibling of the repository on the SAME volume, outside the build directory, where neither a rebuild
+# nor a disk-space recovery can reach it.
+
 mkdir -p "$LOGDIR"
 LOG="$LOGDIR/v04-smoke-browser-perf.log"
 
