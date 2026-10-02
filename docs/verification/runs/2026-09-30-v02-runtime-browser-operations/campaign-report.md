@@ -1,7 +1,9 @@
 # V02 campaign report — runtime, browser, and operations verification
 
-**Run: 2026-09-30 · Recorded from real runs, not from intention · HEAD `9762ed1` · 32 commits since the
-V01 merge (`870f116`) · 21 files changed, +5168/−36**
+**Run: 2026-09-30–10-02 · Recorded from real runs, not from intention · HEAD `84e71ef` · 3 commits
+since the V01 merge (`870f116`): the V02 squash (`a1f5f4a`, PR #41, CI green) + V02-011 + V02-012 ·
+29 files changed, +6969/−40 · the pre-squash 33-commit narrative is preserved at tag
+`v02-campaign-history` (identical tree)**
 
 ## Environment, stated because a measurement without it is not a measurement
 
@@ -19,7 +21,7 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 
 | command | what it is | result |
 |---|---|---|
-| `pnpm smoke:browser` | the real-browser journey, extended from 42 → **87** checks | **87/87, exit 0**, stable ×3 |
+| `pnpm smoke:browser` | the real-browser journey, extended from 42 → **90** checks | **90/90, exit 0**, stable ×4 |
 | `pnpm perf:budgets` | measures the repository's stated budgets against the production build | 0 over budget, 1 honestly UNMEASURED |
 | `pnpm verify:observability` | one request id followed through the system + credential canaries | 26/0/2, or **28/0/0** with `OBS_LOG` |
 | `evidence/v02-001-focus-sensitivity.sh` | sensitivity proof, focus class | 0 detected, 2 declared KNOWN MISSED |
@@ -38,7 +40,7 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 | 3 | success | **PASS** | two organizations created through the UI, switcher populated, session live |
 | 4 | permission denied | **PASS** | V02-006 — announced `role=alert`, content region carries the refusal, recovery leg |
 | 5 | server error | **PASS** | V02-002 — `Fetch.failRequest` on `/api/v1/me` only; the document still loads and the app mounts |
-| 6 | retry/recovery | **PASS** | V02-002 recovery + V02-006 recovery-after-denial + V02-010 recovery-after-malformed |
+| 6 | retry/recovery | **PASS** | V02-002 recovery + V02-006 recovery-after-denial + V02-010 recovery-after-malformed + V02-012 recovery-after-disconnect |
 | 7 | keyboard navigation | **PASS** | V02-006 — a **real** `ArrowRight` through CDP, plus `Tab` reachability; the synthetic `KeyboardEvent` is gone |
 | 8 | visible focus | **PASS** (repaired) | V02-001 — was `boxShadow !== "none"`, which a resting shadow satisfies |
 | 9 | narrow layout | **PASS** | 5 checks at 390 px, including containment rather than document overflow |
@@ -65,7 +67,7 @@ V01 merge (`870f116`) · 21 files changed, +5168/−36**
 | 4 | 5xx | **BLOCKED** — same cause |
 | 5 | malformed response | **PASS** — V02-010; the one a status-code check cannot see |
 | 6 | queue / webhook retry | **PARTIAL** — replay proven; delivery-failure injection BLOCKED |
-| 7 | downstream disconnect | **NOT COVERED** — reachable in part via the same boundary |
+| 7 | downstream disconnect | **PASS, narrow** — V02-012: Response-stage abort, announced error (not a stuck loader) with retry + control. Narrow: session read, fast local body, no slow-stream cut. |
 
 ### Performance — measured against `AGENTS.md`
 
@@ -101,7 +103,7 @@ ref that still read awaiting-decision and `record_tool_result` accepted a result
 call (`http=200 stored=completed` pre-fix); and (2) a check-order existence oracle: the device
 check ran before the organization check, so a foreign-org device got 403 where a phantom run got
 404. Both repaired (status bound as `?9`; org check first), both sensitivity-proven (M1: 4 legs
-red; M2: 1 leg red), probe 48/48 stable ×4, `pnpm check` green. That is consistent with V01 having
+red; M2: 1 leg red), probe 48/48 stable ×5, `pnpm check` green. That is consistent with V01 having
 repaired the 54 defects it found: the remaining product defects were the ones no gate had ever
 driven, and this is the honest answer to "did the product have bugs" rather than an absence of
 looking.
