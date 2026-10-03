@@ -4,13 +4,14 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:
@@ -126,3 +127,56 @@ jobs:
         # per-condition timeouts plus this ceiling bound the step, so a hang is a
         # failure with a reason rather than a job that never finishes.
         timeout-minutes: 12
+
+  deploy:
+    name: Deploy production
+    needs: quality
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://agents-cp.runlumi.app
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 73fe06de8746378768229a64680dd62f
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require deployment credentials
+        run: test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Set CLOUDFLARE_API_TOKEN in Actions secrets"; exit 1; }
+      - name: Install pinned pnpm and Node.js 24
+        uses: pnpm/setup@v3
+        with:
+          runtime: node@24
+          require-lockfile: true
+          cache: true
+      - name: Install Rust and Worker WASM target
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+      - name: Install workers-rs build tool
+        run: cargo install --locked worker-build --version "^0.8"
+      - name: Build SPA and Worker
+        run: pnpm build
+      - name: Skip superseded main commits
+        id: head
+        run: |
+          current=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$current" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "A newer main commit exists; skipping this deployment."
+          fi
+      - name: Apply forward-only production migrations
+        if: steps.head.outputs.current == 'true'
+        run: pnpm --filter @runlumi/agents-cp-api exec wrangler d1 migrations apply DB --remote --env production
+      - name: Deploy Worker, assets and custom domain
+        if: steps.head.outputs.current == 'true'
+        run: pnpm --filter @runlumi/agents-cp-api exec wrangler deploy --env production --message "$GITHUB_SHA"
+      - name: Verify production routing and authentication boundary
+        if: steps.head.outputs.current == 'true'
+        run: node apps/api/scripts/smoke-production.mjs
