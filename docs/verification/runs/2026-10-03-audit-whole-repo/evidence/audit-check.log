@@ -1,0 +1,1428 @@
+$ pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm rust:check
+$ oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all -- --check
+Checking formatting...
+
+All matched files use the correct format.
+Finished in 152ms on 206 files using 10 threads.
+$ oxlint --type-aware apps/web/src apps/web/vite.config.ts
+
+  ! eslint(no-unused-vars): Variable 'codeId' is declared but never used. Unused variables should start with a '_'.
+    ,-[apps/web/src/features/auth/auth-screen.tsx:41:9]
+ 40 |   const passwordId = useId();
+ 41 |   const codeId = useId();
+    :         ^^^|^^
+    :            `-- 'codeId' is declared here
+ 42 |   const recoveryId = useId();
+    `----
+  help: Consider removing this declaration.
+
+Found 1 warning and 0 errors.
+Finished in 469ms on 152 files with 111 rules using 10 threads.
+$ pnpm --filter @runlumi/agents-cp-web typecheck
+$ tsc --noEmit
+$ pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09 && pnpm test:sentry-bridge && pnpm schema:null-check && pnpm guard:probe && pnpm verify:campaign-selftest && pnpm schema:bind-count
+$ vitest run
+
+ RUN  v5.0.0 /Volumes/SSD/agents-cp.runlumi/apps/web
+
+ ✓ src/features/identity/api.test.ts (30 tests) 30ms
+ ✓ src/features/adoption/render.test.tsx (30 tests) 98ms
+ ✓ src/lib/api.test.ts (12 tests) 32ms
+ ✓ src/features/identity/render.test.tsx (34 tests) 94ms
+ ✓ src/features/plugins/render.test.tsx (35 tests) 107ms
+ ✓ src/features/data-governance/panel-state.test.tsx (4 tests) 133ms
+ ✓ src/features/automations/automation-render.test.tsx (17 tests) 102ms
+ ✓ src/features/webhooks/render.test.tsx (14 tests) 147ms
+ ✓ src/features/plugins/api.test.ts (27 tests) 71ms
+ ✓ src/features/data-governance/render.test.tsx (38 tests) 292ms
+ ✓ src/features/data-governance/api.test.ts (42 tests) 56ms
+ ✓ src/features/automations/api.test.ts (22 tests) 83ms
+ ✓ src/features/automations/schedule-helpers.test.ts (21 tests) 70ms
+ ✓ src/features/notifications/api.test.ts (10 tests) 53ms
+ ✓ src/features/billing/api.test.ts (24 tests) 77ms
+ ✓ src/lib/api.p05.test.ts (3 tests) 33ms
+ ✓ src/features/data-governance/data-controls.test.tsx (13 tests) 100ms
+ ✓ src/features/webhooks/api.test.ts (15 tests) 55ms
+ ✓ src/features/tools/helpers.test.ts (8 tests) 53ms
+ ✓ src/features/usage/usage.test.ts (6 tests) 31ms
+ ✓ src/features/billing/billing-panel.test.ts (18 tests) 455ms
+ ✓ src/features/data-governance/contracts.test.ts (52 tests) 26ms
+ ✓ src/features/runs/run-helpers.test.ts (9 tests) 8ms
+ ✓ src/features/identity/tabs.test.tsx (9 tests) 21ms
+ ✓ src/features/billing/entitlements.test.ts (14 tests) 20ms
+ ✓ src/features/notifications/render.test.tsx (7 tests) 39ms
+ ✓ src/features/notifications/event-types.test.ts (17 tests) 11ms
+ ✓ src/features/identity/capabilities.test.ts (15 tests) 9ms
+ ✓ src/features/plugins/fixture-contract.test.ts (16 tests) 9ms
+ ✓ src/features/adoption/api.test.ts (24 tests) 7ms
+ ✓ src/features/data-governance/tabs.test.tsx (5 tests) 47ms
+ ✓ src/features/identity/one-time-secret.test.tsx (15 tests) 22ms
+ ✓ src/features/auth/auth-screen.test.tsx (10 tests) 37ms
+ ✓ src/features/webhooks/event-types.test.ts (17 tests) 15ms
+ ✓ src/features/billing/usage-rows.test.ts (10 tests) 8ms
+ ✓ src/features/identity/fixture-contract.test.ts (9 tests) 8ms
+ ✓ src/features/billing/license-state.test.ts (16 tests) 9ms
+ ✓ src/features/organizations/org-dashboard.test.ts (8 tests) 4ms
+ ✓ src/features/billing/downgrade.test.ts (16 tests) 7ms
+ ✓ src/lib/utils.test.ts (1 test) 7ms
+ ✓ src/features/automations/automation-helpers.test.ts (16 tests) 8ms
+ ✓ src/features/adoption/helpers.test.ts (24 tests) 8ms
+ ✓ src/features/plugins/contracts.test.ts (32 tests) 10ms
+ ✓ src/features/webhooks/endpoint-form.test.ts (12 tests) 8ms
+ ✓ src/features/webhooks/helpers.test.ts (11 tests) 7ms
+ ✓ src/features/notifications/helpers.test.ts (8 tests) 3ms
+ ✓ src/features/webhooks/one-time-secret.test.ts (5 tests) 3ms
+ ✓ src/features/organizations/section-routing.test.ts (16 tests) 4ms
+
+ Test Files  48 passed (48)
+      Tests  817 passed (817)
+   Start at  15:38:12
+   Duration  1.74s (transform 50%, tests 31%, import 17%, worker 2%)
+
+  Transform  transforming modules took 4.08s · 50% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+
+   Compiling lumi-agents-control-plane-api v0.1.0 (/Volumes/SSD/agents-cp.runlumi/apps/api)
+warning: variant `Unwritable` is never constructed
+   --> apps/api/src/security/guarded_column_writers.rs:103:9
+    |
+101 |     pub enum Status {
+    |              ------ variant in this enum
+102 |         /// The guard reads this table and no application code writes it. Asserted to stay unwritten.
+103 |         Unwritable,
+    |         ^^^^^^^^^^
+    |
+    = note: `Status` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `lumi-agents-control-plane-api` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.88s
+     Running unittests src/lib.rs (target/debug/deps/lumi_agents_control_plane_api-e9e13245c642a6a5)
+
+running 1037 tests
+test adapters::billing::provider::tests::future_dated_effective_instant_is_out_of_order_not_a_grace_extension ... ok
+test adapters::billing::provider::tests::cross_account_callbacks_are_refused_non_disclosingly ... ok
+test adapters::billing::provider::tests::a_portal_unavailable_reason_is_retryable_not_a_permanent_denial ... ok
+test adapters::billing::provider::tests::provider_availability_from_an_event_never_invents_a_healthy_account ... ok
+test adapters::billing::provider::tests::callback_signature_input_is_stable_and_the_comparison_is_constant_time ... ok
+test adapters::billing::provider::tests::portal_host_allowlist_is_exact_and_rejects_wildcards ... ok
+test adapters::billing::provider::tests::callback_shape_is_bounded_and_rejects_provider_identifiers_as_plans ... ok
+test adapters::billing::provider::tests::an_unconfigured_adapter_refuses_a_callback_naming_an_unknown_plan ... ok
+test adapters::billing::provider::tests::portal_session_is_allowlisted_https_and_never_carries_card_data ... ok
+test adapters::billing::provider::tests::return_path_must_be_relative_and_control_free ... ok
+test adapters::billing::provider::tests::replay_window_rejects_stale_and_future_dated_callbacks ... ok
+test adapters::billing::provider::tests::a_malformed_portal_host_is_refused_and_the_allowlist_is_the_only_source ... ok
+test adapters::billing::provider::tests::product_logic_sees_only_lumi_plan_keys ... ok
+test adapters::billing::provider::tests::unknown_or_unchanged_plan_requests_are_refused ... ok
+test adapters::billing::provider::tests::plan_change_and_cancellation_produce_ordered_lumi_events ... ok
+test adapters::billing::provider::tests::org_and_account_references_are_treated_as_opaque ... ok
+test adapters::billing::signing::tests::policy_freshness_is_fifteen_minutes_and_offline_validity_is_class_specific ... ok
+test adapters::billing::signing::tests::hex_encoding_is_lowercase_and_strict ... ok
+test adapters::billing::signing::tests::issued_claims_satisfy_every_frozen_verifier_check ... ok
+test adapters::billing::signing::tests::base64_round_trips_the_documented_key_lengths ... ok
+test adapters::billing::signing::tests::corrupt_key_windows_fail_closed ... ok
+test adapters::billing::signing::tests::rfc3339_utc_encoding_round_trips_through_the_domain_decoder ... ok
+test adapters::billing::signing::tests::unavailable_block_is_stable_and_carries_no_secret ... ok
+test adapters::crypto::tests::encrypted_envelope_debug_is_not_derived_from_plaintext ... ok
+test adapters::billing::signing::tests::signing_secret_rejects_malformed_material_and_never_prints_key_bytes ... ok
+test adapters::crypto::tests::key_validation_accepts_only_a_32_byte_hex_key ... ok
+test adapters::billing::signing::tests::rotation_keeps_one_issuer_and_a_bounded_verification_overlap ... ok
+test adapters::password::tests::fast_or_wrong_algorithm_hashes_are_rejected ... ok
+test adapters::billing::signing::tests::canonical_bytes_are_available_on_every_target_while_signing_is_not ... ok
+test adapters::billing::signing::tests::canonical_bytes_never_carry_a_provider_product_or_price_identifier ... ok
+test adapters::providers::tests::a_failed_dispatch_is_reported_with_its_endpoint_and_cause ... ok
+test adapters::billing::signing::tests::canonical_bytes_and_wire_object_describe_the_same_object ... ok
+test adapters::billing::signing::tests::canonical_bytes_sort_keys_and_omit_insignificant_whitespace ... ok
+test adapters::providers::tests::the_dispatch_failure_line_carries_no_authorization_material ... ok
+test adapters::r2::artifacts::tests::object_key_is_namespaced_and_opaque ... ok
+test adapters::r2::artifacts::tests::object_key_debug_does_not_print_the_opaque_segment ... ok
+test adapters::r2::artifacts::tests::object_key_rejects_traversal_and_foreign_namespaces ... ok
+test adapters::r2::artifacts::tests::hex_helpers_round_trip_and_reject_malformed_input ... ok
+test adapters::providers::tests::mock_fixture_streams_are_typed_and_deterministic ... ok
+test adapters::providers::tests::anthropic_stream_events_are_normalized_without_provider_text_leakage ... ok
+test adapters::r2::artifacts::tests::object_key_requires_a_csprng_segment ... ok
+test adapters::providers::tests::anthropic_stream_error_never_echoes_the_provider_message ... ok
+test adapters::r2::artifacts::tests::stream_descriptor_only_allows_structured_document_types ... ok
+test adapters::r2::artifacts::tests::put_input_debug_never_prints_the_artifact_body ... ok
+test adapters::providers::tests::endpoint_validation_rejects_private_and_unlisted_destinations ... ok
+test adapters::webauthn::tests::trusted_origin_validation_rejects_host_confusion ... ok
+test adapters::webhooks::delivery::tests::default_policy_matches_the_frozen_delivery_contract ... ok
+test adapters::webhooks::delivery::tests::bounded_retry_after_wins_and_unbounded_values_fall_back ... ok
+test adapters::webhooks::delivery::tests::auto_disable_is_opt_in_and_requires_ten_consecutive_terminal_failures ... ok
+test adapters::webhooks::delivery::tests::email_transport_errors_map_to_stable_retry_semantics ... ok
+test adapters::webhooks::delivery::tests::notification_message_debug_hides_the_recipient_and_body ... ok
+test adapters::webhooks::delivery::tests::out_of_range_rows_are_rejected_instead_of_clamped ... ok
+test adapters::webhooks::delivery::tests::policy_from_row_rejects_a_persisted_out_of_range_row ... ok
+test adapters::webhooks::delivery::tests::retryable_failures_walk_the_deterministic_backoff_then_dead_letter ... ok
+test adapters::webhooks::delivery::tests::success_never_schedules_another_attempt ... ok
+test adapters::webauthn::tests::normal_login_omits_allow_credentials ... ok
+test adapters::webauthn::tests::raw_id_substitution_is_rejected_before_crypto ... ok
+test adapters::webauthn::tests::registration_policy_is_discoverable_and_uv_required ... ok
+test adapters::webhooks::outbound::tests::a_hostname_that_changes_to_a_blocked_address_fails_closed ... ok
+test adapters::webhooks::delivery::tests::terminal_failures_dead_letter_without_another_attempt ... ok
+test adapters::webhooks::outbound::tests::an_ipv6_literal_is_range_checked_rather_than_treated_as_a_name ... ok
+test adapters::webhooks::outbound::tests::dns_json_parser_ignores_non_address_answers ... ok
+test adapters::webhooks::outbound::tests::body_hash_is_sha256_over_the_exact_stored_bytes ... ok
+test adapters::webhooks::outbound::tests::endpoint_validation_requires_https_443_or_8443_and_no_userinfo ... ok
+test adapters::webhooks::outbound::tests::private_link_local_cgnat_and_metadata_ranges_are_blocked ... ok
+test adapters::webhooks::outbound::tests::hmac_sha256_matches_rfc_4231_vectors ... ok
+test adapters::webhooks::outbound::tests::retry_after_is_honored_only_below_24_hours ... ok
+test adapters::webhooks::outbound::tests::outbound_request_debug_never_prints_the_body_or_signature ... ok
+test adapters::webhooks::outbound::tests::reserved_host_names_are_rejected_before_dns ... ok
+test adapters::webhooks::outbound::tests::secret_fingerprint_is_a_bounded_non_reversible_digest ... ok
+test adapters::webhooks::outbound::tests::signing_payload_is_timestamp_dot_event_dot_body ... ok
+test adapters::webhooks::outbound::tests::sha256_matches_fips_180_4_vectors ... ok
+test adapters::webhooks::outbound::tests::status_classification_matches_the_frozen_retry_semantics ... ok
+test adapters::webhooks::outbound::tests::the_rebuilt_url_is_canonical_rather_than_the_callers_spelling ... ok
+test adapters::webhooks::outbound::tests::unix_seconds_converts_rfc3339_utc_without_a_platform_clock ... ok
+test adapters::webhooks::outbound::tests::the_alternate_ipv4_spellings_are_folded_before_the_range_check ... ok
+test adapters::webhooks::outbound::tests::signature_reproduces_the_frozen_p06_fixture_vector ... ok
+test consumers::automations::tests::a_bad_schema_version_or_attempt_is_rejected_before_dispatch ... ok
+test consumers::automations::tests::a_terminal_job_row_is_a_duplicate_not_a_side_effect ... ok
+test consumers::automations::tests::a_prompt_shaped_payload_cannot_reach_a_job_envelope ... ok
+test consumers::automations::tests::a_store_failure_is_classified_so_a_refusal_is_not_retried_as_an_outage ... ok
+test consumers::automations::tests::an_enqueued_job_id_is_deterministic_per_generation ... ok
+test consumers::automations::tests::an_unbounded_payload_reference_is_rejected ... ok
+test consumers::automations::tests::the_dedupe_key_includes_the_generation_so_a_retry_is_a_new_logical_job ... ok
+test consumers::automations::tests::the_redacted_summary_carries_no_payload_content ... ok
+test consumers::automations::tests::exactly_the_three_automation_job_types_are_owned ... ok
+test consumers::data_jobs::tests::artifact_ttl_is_the_frozen_24_hour_baseline ... ok
+test consumers::data_jobs::tests::certificate_expiry_is_365_days_after_completion ... ok
+test consumers::data_jobs::tests::dedupe_key_is_derived_from_the_frozen_subject ... ok
+test consumers::data_jobs::tests::envelope_accepts_only_the_frozen_job_types_and_its_own_payload ... ok
+test consumers::data_jobs::tests::envelope_parse_is_bounded_and_never_decodes_an_unbounded_message ... ok
+test consumers::data_jobs::tests::certificate_reports_states_coverage_and_retained_classes ... ok
+test consumers::data_jobs::tests::envelope_rejects_a_malformed_tenant_scope ... ok
+test consumers::data_jobs::tests::envelope_subject_is_derived_from_the_job_type ... ok
+test consumers::data_jobs::tests::every_step_state_is_known_to_the_certificate_gate ... ok
+test consumers::data_jobs::tests::exported_event_names_are_the_frozen_p06_vocabulary ... ok
+test consumers::data_jobs::tests::fence_report_states_every_blocked_workflow ... ok
+test consumers::data_jobs::tests::frozen_manifest_refuses_a_category_the_scope_cannot_reach ... ok
+test consumers::data_jobs::tests::frozen_manifest_refuses_an_unknown_format_or_cutoff ... ok
+test consumers::data_jobs::tests::hold_scope_alias_is_the_scope_wide_variant ... ok
+test consumers::data_jobs::tests::object_segment_is_derived_from_the_content_digest ... ok
+test consumers::data_jobs::tests::governed_classes_covers_the_whole_frozen_registry ... ok
+test consumers::data_jobs::tests::retry_backoff_is_deterministic_and_bounded ... ok
+test consumers::data_jobs::tests::frozen_manifest_must_equal_its_stored_canonical_form ... ok
+test consumers::data_jobs::tests::stream_descriptor_maps_every_stored_content_type ... ok
+test consumers::data_jobs::tests::unix_second_conversion_round_trips ... ok
+test consumers::data_jobs::tests::retryable_and_permanent_failures_are_distinguished ... ok
+test consumers::outbox::tests::an_unknown_event_type_is_not_registered ... ok
+test consumers::outbox::tests::p04_event_registry_covers_every_emitted_event ... ok
+test consumers::outbox::tests::p06_event_registry_matches_the_frozen_contract ... ok
+test consumers::p05::tests::cross_tenant_payload_is_rejected_before_any_side_effect ... ok
+test consumers::p05::tests::event_id_mapping_is_stable_and_prefix_checked ... ok
+test consumers::p05::tests::registry_contains_every_frozen_p05_event_exactly_once ... ok
+test consumers::webhooks::tests::endpoint_policy_falls_back_to_the_frozen_default_for_a_bad_row ... ok
+test consumers::webhooks::tests::envelope_debug_never_prints_the_payload ... ok
+test consumers::p05::tests::device_actor_is_normalized_to_system_with_device_correlation ... ok
+test consumers::p05::tests::projection_keeps_correlation_and_run_but_drops_raw_content ... ok
+test consumers::p05::tests::denied_events_have_stable_reason_without_error_text ... ok
+test consumers::webhooks::tests::frozen_notification_job_envelopes_validate ... ok
+test consumers::p05::tests::anonymous_device_payload_is_recorded_as_a_system_actor ... ok
+test consumers::webhooks::tests::envelope_deserialization_rejects_unknown_fields ... ok
+test consumers::webhooks::tests::notification_message_is_metadata_only ... ok
+test consumers::webhooks::tests::frozen_webhook_job_envelopes_validate ... ok
+test consumers::webhooks::tests::notification_retry_policy_is_bounded ... ok
+test consumers::webhooks::tests::payload_references_must_carry_the_expected_prefix ... ok
+test consumers::webhooks::tests::only_terminal_delivery_states_emit_a_frozen_audit_event ... ok
+test consumers::webhooks::tests::malformed_and_unbounded_envelopes_are_rejected_before_dispatch ... ok
+test consumers::webhooks::tests::unknown_and_unowned_job_types_are_permanent_rejections ... ok
+test core::context::tests::debug_output_omits_actor_identifiers ... ok
+test core::egress::tests::a_name_is_never_mistaken_for_a_literal ... ok
+test core::egress::tests::every_blocked_range_is_refused_in_both_families ... ok
+test core::egress::tests::dns_name_syntax_is_ldh_labels_only ... ok
+test core::egress::tests::a_bracket_form_host_is_not_an_address_and_stripping_is_the_callers_job ... ok
+test core::context::tests::request_context_and_actor_serialize_with_contract_names ... ok
+test core::egress::tests::globally_routable_addresses_stay_usable ... ok
+test core::egress::tests::split_horizon_and_special_use_names_are_refused ... ok
+test core::error::tests::error_codes_serialize_as_stable_snake_case ... ok
+test core::error::tests::api_error_matches_frozen_envelope_and_status_map ... ok
+test core::error::tests::error_debug_does_not_print_detail_payload ... ok
+test core::event::tests::event_debug_does_not_print_payload ... ok
+test core::event::tests::event_envelope_matches_frozen_json_contract ... ok
+test core::event::tests::event_type_requires_lowercase_dotted_name_and_integer_version ... ok
+test core::idempotency::tests::a_genuine_store_failure_is_not_mistaken_for_a_guard ... ok
+test core::idempotency::tests::every_text_a_guard_sentinel_can_produce_is_recognised ... ok
+test core::idempotency::tests::idempotency_header_validation_follows_frozen_byte_bounds ... ok
+test core::idempotency::tests::an_empty_list_would_be_caught ... ok
+test core::idempotency::tests::record_shape_uses_digest_and_replayable_success_without_raw_key ... ok
+test core::idempotency::tests::scope_excludes_query_and_normalizes_method_by_contract ... ok
+test core::idempotency::tests::stored_result_accepts_only_2xx_status ... ok
+test core::idempotency::tests::the_abort_text_list_has_no_unreachable_entries ... ok
+test core::identifiers::tests::actor_ids_do_not_accept_controls_or_log_the_value ... ok
+test core::identifiers::tests::correlation_ids_are_bounded_visible_ascii ... ok
+test core::identifiers::tests::invalid_resource_ids_fail_in_construction_and_deserialization ... ok
+test core::identifiers::tests::p05_resource_ids_keep_their_domain_prefixes ... ok
+test core::identifiers::tests::resource_ids_are_opaque_and_serialize_as_strings ... ok
+test core::identifiers::tests::p07_resource_ids_keep_platform_org_and_credential_namespaces_apart ... ok
+test core::identifiers::tests::typed_resource_ids_enforce_their_frozen_prefixes ... ok
+test core::machine::tests::constant_time_eq_has_no_length_or_value_shortcut ... ok
+test core::machine::tests::debug_output_never_contains_the_secret ... ok
+test core::machine::tests::every_refusal_looks_identical_to_a_caller ... ok
+test core::machine::tests::key_material_needs_exactly_32_bytes_of_entropy ... ok
+test core::machine::tests::key_material_debug_never_contains_the_secret ... ok
+test core::machine::tests::key_material_round_trips_through_the_parser ... ok
+test core::machine::tests::parses_the_wire_form_and_exposes_only_the_prefix ... ok
+test core::machine::tests::rejects_a_human_session_bearer_shape ... ok
+test core::machine::tests::rejects_a_staff_credential_shape ... ok
+test core::machine::tests::rejects_wrong_lengths_and_alphabets ... ok
+test core::machine::tests::different_entropy_yields_different_credentials ... ok
+test core::machine::tests::the_fingerprint_identifies_the_whole_key_and_is_bounded ... ok
+test core::machine::tests::the_test_fixture_really_is_the_documented_shape ... ok
+test core::pagination::tests::page_requires_a_cursor_when_more_items_exist ... ok
+test core::pagination::tests::empty_cursor_is_a_typed_error_on_input_and_deserialization ... ok
+test core::machine::tests::the_stored_hash_is_of_the_secret_half ... ok
+test core::pagination::tests::page_uses_frozen_field_names_and_keeps_cursor_opaque ... ok
+test core::staff::tests::debug_output_never_contains_the_secret ... ok
+test core::staff::tests::a_machine_key_is_not_a_staff_credential ... ok
+test core::principal::tests::principal_debug_redacts_email_but_keeps_safe_display_name ... ok
+test core::staff::tests::a_staff_principal_debug_does_not_print_the_email ... ok
+test core::staff::tests::parses_the_wire_form_and_exposes_only_the_prefix ... ok
+test core::staff::tests::rejects_wrong_lengths_and_alphabets ... ok
+test core::staff::tests::the_test_fixture_really_is_the_documented_shape ... ok
+test core::timestamp::tests::timestamp_keeps_utc_rfc3339_wire_text ... ok
+test http::auth::tests::constant_time_comparison_has_no_length_or_value_shortcut ... ok
+test core::timestamp::tests::timestamps_validate_date_and_timezone ... ok
+test http::middleware::tests::duration_is_nonnegative_even_if_wall_clock_moves_backwards ... ok
+test http::middleware::tests::json_extractor_limit_matches_the_frozen_one_mib_contract ... ok
+test http::auth::tests::cookie_and_bearer_parsing_are_bounded ... ok
+test http::middleware::tests::logged_request_record_has_only_bounded_transport_dimensions ... ok
+test http::middleware::tests::normalizing_a_method_mismatch_preserves_the_allow_header ... ok
+test http::middleware::tests::router_layer_can_read_matched_path_before_calling_next ... ok
+test http::middleware::tests::server_generated_request_id_and_validated_correlation_context_reach_handlers ... ok
+test http::platform::tests::generated_host_ids_are_unique_and_match_the_contract ... ok
+test http::platform::tests::invalid_or_oversized_correlation_values_default_to_request_id ... ok
+test http::platform::tests::uuid_v4_is_compacted_into_the_frozen_request_id_shape ... ok
+test http::middleware::tests::route_and_method_failures_are_normalized_without_leaking_framework_text ... ok
+test jobs::automations::tests::a_claim_normalizes_pending_through_the_dispatch_edge ... ok
+test jobs::automations::tests::a_catch_up_rule_without_a_limit_is_rejected_at_the_boundary ... ok
+test http::middleware::tests::oversized_json_is_rejected_by_the_default_body_limit ... ok
+test jobs::automations::tests::a_manual_rule_never_produces_scheduled_instants ... ok
+test jobs::automations::tests::a_missed_slot_never_stays_pending ... ok
+test jobs::automations::tests::a_pre_start_expiry_requeues_but_a_post_start_expiry_is_ambiguous ... ok
+test jobs::automations::tests::a_queued_successor_past_its_bounded_age_is_skipped ... ok
+test jobs::automations::tests::a_due_slot_projects_to_one_dispatchable_occurrence ... ok
+test jobs::automations::tests::cancel_previous_keeps_the_successor_queued_behind_its_predecessor ... ok
+test jobs::automations::tests::an_ambiguous_predecessor_never_dispatches_under_any_policy ... ok
+test jobs::automations::tests::deterministic_ids_are_stable_and_distinct_per_slot ... ok
+test jobs::automations::tests::a_long_offline_window_is_bounded_and_coalesces_forward ... ok
+test jobs::automations::tests::catch_up_is_bounded_by_the_frozen_limit ... ok
+test jobs::automations::tests::dispatch_recheck_enforces_the_active_automation_entitlement ... ok
+test jobs::automations::tests::dispatch_recheck_fails_closed_for_a_missing_license_projection ... ok
+test jobs::automations::tests::dispatch_recheck_refuses_an_expired_grace_and_a_stale_policy ... ok
+test jobs::automations::tests::dispatch_recheck_refuses_membership_loss_and_org_state ... ok
+test jobs::automations::tests::occurrence_event_names_cover_every_dispatcher_moved_state_but_the_claim ... ok
+test jobs::automations::tests::predecessor_view_uses_the_predecessor_queued_age ... ok
+test jobs::automations::tests::no_predecessor_always_dispatches ... ok
+test jobs::automations::tests::queue_one_allows_at_most_one_open_successor ... ok
+test jobs::automations::tests::a_terminal_predecessor_always_allows_the_next_slot ... ok
+test jobs::automations::tests::retry_settings_round_trip_through_the_bounded_domain_policy ... ok
+test jobs::automations::tests::the_frozen_schedule_kinds_are_the_only_persisted_ones ... ok
+test jobs::automations::tests::the_attempt_budget_fails_an_exhausted_occurrence_instead_of_looping ... ok
+test http::middleware::tests::success_extractor_and_internal_responses_share_the_boundary_id ... ok
+test jobs::automations::tests::the_occurrence_payload_is_bounded_metadata_only ... ok
+test jobs::automations::tests::the_report_totals_are_additive ... ok
+test jobs::automations::tests::the_due_projection_never_leaks_an_idempotency_digest_or_bad_json ... ok
+test modules::authenticators::tests::synced_zero_counter_is_accepted_but_positive_regression_is_suspicious ... ok
+test modules::authenticators::tests::password_validation_allows_unicode_and_long_manager_values ... ok
+test modules::authenticators::tests::final_passkey_cannot_be_removed_without_password_fallback ... ok
+test modules::authenticators::tests::password_and_ceremony_debug_output_redacts_sensitive_state ... ok
+test modules::authorization::tests::owner_can_manage_and_unknown_permission_denies ... ok
+test modules::authorization::tests::p05_roles_keep_managed_control_permissions_separate ... ok
+test modules::authorization::tests::p06_exposes_no_entitlement_override_permission ... ok
+test modules::authorization::tests::p07_adds_no_permission_for_the_frozen_only_f06_surface ... ok
+test modules::authorization::tests::p06_roles_keep_durable_operations_separate ... ok
+test modules::authorization::tests::resource_from_another_org_cannot_be_authorized_by_membership ... ok
+test modules::authorization::tests::stale_removed_membership_and_cross_tenant_scope_deny ... ok
+test modules::authorization::tests::p07_roles_keep_credential_and_plugin_authority_separate ... ok
+test modules::authorization::tests::viewer_cannot_manage_members ... ok
+test modules::authorization::tests::unverified_mutation_and_suspended_org_are_denied ... ok
+test modules::automations::tests::a_fence_from_a_different_lease_is_rejected ... ok
+test modules::automations::tests::a_lease_lost_after_start_becomes_ambiguous ... ok
+test modules::automations::tests::a_lease_lost_decision_uses_the_durable_run_link_as_the_only_proof ... ok
+test modules::automations::tests::a_lease_lost_before_start_requeues_only_when_proven ... ok
+test modules::automations::tests::a_malformed_identity_key_is_rejected ... ok
+test modules::automations::tests::a_malformed_cron_is_rejected ... ok
+test modules::automations::tests::a_manual_identity_key_round_trips ... ok
+test modules::automations::tests::a_manual_key_never_collides_with_a_scheduled_key ... ok
+test modules::automations::tests::a_dst_missing_local_time_is_skipped_not_rolled ... ok
+test modules::automations::tests::a_matching_fence_is_current ... ok
+test modules::automations::tests::a_manual_schedule_never_produces_automatic_slots ... ok
+test modules::automations::tests::a_new_schedule_revision_is_a_different_logical_slot ... ok
+test modules::automations::tests::a_normal_occurrence_is_unconstrained_by_off_peak_policy ... ok
+test modules::automations::tests::a_missed_run_plan_never_reports_a_future_slot ... ok
+test modules::automations::tests::a_pending_occurrence_can_be_skipped_or_missed_directly ... ok
+test modules::automations::tests::a_missed_window_is_bounded_to_the_frozen_maximum ... ok
+test modules::automations::tests::a_pending_occurrence_is_not_settleable ... ok
+test modules::automations::tests::a_queued_successor_is_skipped_rather_than_blocking_forever ... ok
+test modules::automations::tests::a_regressed_cursor_is_refused_rather_than_guessed ... ok
+test modules::automations::tests::a_route_alias_outside_the_allow_list_is_refused ... ok
+test modules::automations::tests::a_schedule_rejects_an_oversized_expression_or_timezone ... ok
+test modules::automations::tests::a_stale_device_cannot_settle_a_superseded_attempt ... ok
+test modules::automations::tests::a_scheduled_slot_has_one_stable_identity_key ... ok
+test modules::automations::tests::a_server_policy_can_never_broaden_the_host_baseline ... ok
+test modules::automations::tests::a_started_occurrence_can_still_succeed_or_fail ... ok
+test modules::automations::tests::a_stale_or_future_fence_is_rejected ... ok
+test modules::automations::tests::a_terminal_occurrence_cannot_be_rewritten_into_success ... ok
+test modules::automations::tests::a_terminal_predecessor_frees_the_slot ... ok
+test modules::automations::tests::a_valid_cron_parses_and_canonicalizes_idempotently ... ok
+test modules::automations::tests::ambiguous_is_reconcilable_only_through_an_explicit_audited_resolution ... ok
+test modules::automations::tests::ambiguous_is_terminal_and_refuses_every_dispatch ... ok
+test modules::automations::tests::an_allowed_route_alias_passes ... ok
+test modules::automations::tests::an_ambiguous_occurrence_is_never_a_safe_overlap_predecessor ... ok
+test modules::automations::tests::an_ambiguous_occurrence_refuses_settlement ... ok
+test modules::automations::tests::an_audited_reconciliation_cannot_return_an_ambiguous_occurrence_to_dispatch ... ok
+test modules::automations::tests::an_identity_key_round_trips ... ok
+test modules::automations::tests::an_ineligible_ticket_is_refused ... ok
+test modules::automations::tests::an_off_peak_occurrence_without_a_policy_fails_closed ... ok
+test modules::automations::tests::an_oversized_route_alias_list_is_rejected ... ok
+test modules::automations::tests::an_out_of_range_interval_is_rejected ... ok
+test modules::automations::tests::an_interval_rule_produces_cadenced_slots ... ok
+test modules::automations::tests::an_unbounded_successor_age_is_clamped_so_a_slot_cannot_block_forever ... ok
+test modules::automations::tests::an_unsupported_policy_schema_version_is_rejected ... ok
+test modules::automations::tests::automation_mutation_is_refused_while_off_peak ... ok
+test modules::automations::tests::cancel_previous_keeps_the_successor_queued ... ok
+test modules::automations::tests::background_processes_are_refused_while_off_peak ... ok
+test modules::automations::tests::civil_date_arithmetic_round_trips ... ok
+test modules::automations::tests::every_domain_error_maps_to_a_frozen_stable_code ... ok
+test modules::automations::tests::execution_retry_settings_are_validated_against_the_frozen_bounds ... ok
+test modules::automations::tests::catch_up_requires_a_bounded_limit ... ok
+test modules::automations::tests::instants_are_returned_in_canonical_order ... ok
+test modules::automations::tests::leap_years_follow_the_gregorian_rule ... ok
+test modules::automations::tests::month_lengths_are_correct ... ok
+test modules::automations::tests::narrowing_is_idempotent ... ok
+test modules::automations::tests::provider_ticket_mode_has_no_clock_schedule ... ok
+test modules::automations::tests::recursive_off_peak_creation_is_refused ... ok
+test modules::automations::tests::skip_overlap_always_skips ... ok
+test modules::automations::tests::success_requires_a_durable_started_transition ... ok
+test modules::automations::tests::the_attempt_budget_is_bounded ... ok
+test modules::automations::tests::the_happy_path_reaches_succeeded ... ok
+test modules::automations::tests::the_transition_table_is_exactly_the_frozen_one ... ok
+test modules::budget::tests::default_hook_allows_unconfigured_development_work ... ok
+test modules::automations::tests::the_scheduler_declares_itself_dependency_free ... ok
+test modules::budget_p05::budget_p05_tests::active_period_and_soft_state_unavailable_are_not_authority_to_allow_hard_work ... ok
+test modules::budget::tests::token_estimate_is_bounded_and_does_not_overflow ... ok
+test modules::budget_p05::budget_p05_tests::all_applicable_budget_scopes_are_considered_and_most_restrictive_wins ... ok
+test modules::budget_p05::budget_p05_tests::all_hard_scope_snapshots_must_admit_one_reservation ... ok
+test modules::budget_p05::budget_p05_tests::late_commit_cannot_bypass_reservation_expiry ... ok
+test modules::automations::tests::or_mode_treats_a_full_day_field_as_unrestricted ... ok
+test modules::budget_p05::budget_p05_tests::ledger_expiry_releases_capacity_and_commit_accounts_actual_once ... ok
+test modules::automations::tests::the_three_missed_policies_produce_three_different_plans ... ok
+test modules::budget_p05::budget_p05_tests::ledger_rechecks_capacity_after_a_stale_preflight ... ok
+test modules::budget_p05::budget_p05_tests::ledger_reservation_replay_is_idempotent_but_identity_conflicts_fail ... ok
+test modules::budget_p05::budget_p05_tests::rate_counter_overflow_fails_closed ... ok
+test modules::budget_p05::budget_p05_tests::ledger_identity_is_tenant_scoped ... ok
+test modules::budget_p05::budget_p05_tests::rate_bucket_acquires_and_releases_concurrency_deterministically ... ok
+test modules::budget_p05::budget_p05_tests::rate_evaluation_does_not_apply_other_tenant_or_principal_scopes ... ok
+test modules::budget_p05::budget_p05_tests::rate_window_resets_request_and_token_counters_but_not_concurrency ... ok
+test modules::budget_p05::budget_p05_tests::request_token_and_concurrency_policies_stack_by_scope ... ok
+test modules::budget_p05::budget_p05_tests::reservation_amount_and_expiry_are_bounded ... ok
+test modules::budget_p05::budget_p05_tests::reservation_estimate_uses_integer_rounding_and_rejects_unbounded_totals ... ok
+test modules::budget_p05::budget_p05_tests::reservation_commit_release_and_expire_are_monotonic_and_idempotent ... ok
+test modules::budget_p05::budget_p05_tests::reservation_reconciliation_is_idempotent_and_rejects_conflicting_replay ... ok
+test modules::budget_p05::budget_p05_tests::scopes_are_exact_and_tenant_bound ... ok
+test modules::budget_p05::budget_p05_tests::soft_limit_notifies_but_hard_and_unavailable_are_closed ... ok
+test modules::budget_p05::budget_p05_tests::stacked_rate_scopes_use_independent_counter_projections ... ok
+test modules::budget_p05::budget_p05_tests::unavailable_hard_state_does_not_fail_local_only_work ... ok
+test modules::catalog::tests::capability_round_trips_through_wire_names ... ok
+test modules::catalog::tests::deprecated_models_remain_readable_but_not_newly_routable ... ok
+test modules::credentials::tests::fingerprint_mask_does_not_return_a_full_digest ... ok
+test modules::credentials::tests::modes_are_explicit_and_platform_is_not_a_tenant_scope ... ok
+test modules::data_governance::tests::a_class_rule_narrows_the_tenant_mode ... ok
+test modules::data_governance::tests::a_legal_hold_scope_can_be_narrowed_to_named_classes ... ok
+test modules::data_governance::tests::a_legal_hold_suspends_expiry_until_an_audited_release ... ok
+test modules::data_governance::tests::a_missing_retention_anchor_fails_closed ... ok
+test modules::data_governance::tests::a_manifest_refuses_classes_that_are_no_longer_exportable ... ok
+test modules::data_governance::tests::a_personal_deletion_can_be_cancelled_only_inside_its_grace_window ... ok
+test modules::data_governance::tests::a_personal_export_cannot_reach_tenant_or_platform_data ... ok
+test modules::data_governance::tests::a_personal_export_requires_reauthentication_and_a_typed_confirmation ... ok
+test modules::data_governance::tests::a_logging_mode_never_changes_an_event_audit_webhook_or_log_schema ... ok
+test modules::data_governance::tests::a_redacted_excerpt_requires_the_redacted_content_mode ... ok
+test modules::data_governance::tests::a_resume_requires_permission_and_an_audited_legal_hold_release ... ok
+test modules::data_governance::tests::a_retry_must_reuse_the_same_cutoff_and_category_manifest ... ok
+test modules::data_governance::tests::a_second_deletion_job_for_the_same_scope_conflicts ... ok
+test modules::data_governance::tests::a_secret_class_is_never_loggable_in_any_mode ... ok
+test modules::data_governance::tests::account_deletion_requires_leaving_or_transferring_owned_organizations ... ok
+test modules::data_governance::tests::a_skipped_step_always_says_why ... ok
+test modules::data_governance::tests::an_account_deletion_request_requires_typed_confirmation ... ok
+test modules::data_governance::tests::an_elapsed_full_content_window_reverts_to_metadata_only ... ok
+test modules::data_governance::tests::audit_and_billing_records_are_minimized_or_tombstoned_never_dropped ... ok
+test modules::data_governance::tests::baseline_values_match_the_frozen_gate ... ok
+test modules::data_governance::tests::class_keys_are_validated_snake_case ... ok
+test modules::data_governance::tests::deletion_steps_are_idempotent_and_need_an_explicit_resume ... ok
+test modules::data_governance::tests::empty_and_oversized_category_sets_are_rejected ... ok
+test modules::data_governance::tests::extension_within_the_legal_maximum_is_allowed_and_flagged ... ok
+test modules::data_governance::tests::every_registered_class_declares_all_six_attributes ... ok
+test modules::data_governance::tests::documented_non_exportable_classes ... ok
+test modules::data_governance::tests::export_categories_match_the_frozen_list ... ok
+test modules::data_governance::tests::full_content_requires_permission_and_a_bounded_audited_window ... ok
+test modules::data_governance::tests::deletion_reachable_classes_exclude_platform_and_external_scopes ... ok
+test modules::data_governance::tests::lifecycle_classes_have_no_expiry_and_no_ceiling ... ok
+test modules::data_governance::tests::legal_hold_construction_fails_closed ... ok
+test modules::data_governance::tests::metadata_only_is_the_default_everywhere ... ok
+test modules::data_governance::tests::only_a_ready_export_mints_a_download_grant ... ok
+test modules::data_governance::tests::policy_may_shorten_retention ... ok
+test modules::data_governance::tests::raw_content_credentials_and_secrets_are_rejected_in_every_mode ... ok
+test modules::data_governance::tests::policy_may_not_extend_past_the_legal_maximum_without_an_audited_override ... ok
+test modules::data_governance::tests::metadata_allowlist_is_well_formed_and_unique ... ok
+test modules::data_governance::tests::reference_traversal_names_the_systems_the_control_plane_does_not_have ... ok
+test modules::data_governance::tests::gate_classes_are_all_registered ... ok
+test modules::data_governance::tests::registry_wire_values_match_the_persistence_layer_enums ... ok
+test modules::data_governance::tests::registry_has_no_duplicate_or_underspecified_class_keys ... ok
+test modules::data_governance::tests::registry_defaults_use_the_frozen_baselines ... ok
+test modules::data_governance::tests::secret_material_is_never_exported_and_is_crypto_erased ... ok
+test modules::data_governance::tests::the_deletion_state_machine_matches_the_frozen_transitions ... ok
+test modules::data_governance::tests::the_export_state_machine_matches_the_frozen_transitions ... ok
+test modules::data_governance::tests::the_pending_deletion_cutoff_fences_every_delayed_workflow ... ok
+test modules::data_governance::tests::the_planner_never_claims_to_delete_data_lumi_does_not_own ... ok
+test modules::data_governance::tests::retention_durations_and_policies_are_bounded ... ok
+test modules::data_governance::tests::the_planner_parks_on_a_legal_hold_with_the_gate_reason ... ok
+test modules::data_governance::tests::the_planner_reports_legal_retention_instead_of_retrying_forever ... ok
+test modules::data_governance::tests::the_planner_walks_the_registry_in_declaration_order ... ok
+test modules::data_governance::tests::unknown_and_malformed_fields_fail_closed ... ok
+test modules::data_governance::tests::upstream_provider_data_is_never_claimed_as_lumi_deletable ... ok
+test modules::devices::tests::binding_scope_rejects_cross_org ... ok
+test modules::devices::tests::enrollment_input_accepts_well_formed_devices ... ok
+test modules::devices::tests::capability_reports_are_allowlisted_and_bounded ... ok
+test modules::devices::tests::enrollment_input_rejects_bad_fingerprints_names_and_keys ... ok
+test modules::devices::tests::statuses_round_trip ... ok
+test modules::data_governance::tests::the_frozen_personal_export_fixture_is_representable ... ok
+test modules::devices::tests::version_comparison_is_numeric_and_fails_closed ... ok
+test modules::devices::tests::workspace_identity_is_normalized_and_bounded ... ok
+test modules::entitlements::tests::a_cancelled_subscription_does_not_silently_reactivate ... ok
+test modules::entitlements::tests::a_provider_event_can_move_the_plan_pointer_atomically ... ok
+test modules::entitlements::tests::a_verified_claim_set_validates_and_its_wire_shape_is_stable ... ok
+test modules::entitlements::tests::a_stale_or_future_dated_provider_event_cannot_anchor_or_extend_grace ... ok
+test modules::entitlements::tests::active_with_provider_available_allows_every_capability_class ... ok
+test modules::data_governance::tests::the_frozen_data_policy_fixture_is_representable ... ok
+test modules::entitlements::tests::a_more_specific_scope_wins_within_the_same_source ... ok
+test modules::entitlements::tests::an_override_can_deny_and_its_expiry_falls_back_to_the_lower_source ... ok
+test modules::data_governance::tests::the_frozen_deletion_job_fixture_is_representable ... ok
+test modules::entitlements::tests::an_unregistered_key_is_refused_at_every_boundary ... ok
+test modules::entitlements::tests::applying_a_provider_event_is_atomic ... ok
+test modules::entitlements::tests::an_ungranted_limit_fails_closed_in_the_over_limit_projection ... ok
+test modules::entitlements::tests::baseline_grace_windows_may_only_be_narrowed ... ok
+test modules::entitlements::tests::billable_seats_come_from_authoritative_membership_rows ... ok
+test modules::entitlements::tests::baseline_registry_contains_every_frozen_key ... ok
+test modules::entitlements::tests::an_active_audit_or_legal_denial_cannot_be_erased_by_an_override ... ok
+test modules::entitlements::tests::cloud_managed_work_requires_current_policy_freshness ... ok
+test modules::entitlements::tests::cross_tenant_and_misfiled_grants_are_refused ... ok
+test modules::entitlements::tests::cross_tenant_membership_rows_are_refused_by_seat_accounting ... ok
+test modules::entitlements::tests::entering_grace_requires_an_expiry_and_leaving_it_clears_the_window ... ok
+test modules::entitlements::tests::entitlement_key_rejects_malformed_wire_input ... ok
+test modules::entitlements::tests::entitlement_keys_are_lowercase_dotted_and_bounded ... ok
+test modules::entitlements::tests::entitlement_scope_is_a_typed_tenant_scoped_value ... ok
+test modules::entitlements::tests::downgrade_over_limit_blocks_new_and_expansion_without_deleting ... ok
+test modules::entitlements::tests::entitlement_value_type_never_coerces ... ok
+test modules::entitlements::tests::entitlement_projection_values_match_the_frozen_wire_shape ... ok
+test modules::entitlements::tests::entitlement_values_are_typed_and_bounded ... ok
+test modules::entitlements::tests::entitlement_resolution_is_independent_of_input_order ... ok
+test modules::entitlements::tests::every_baseline_key_has_a_stable_wire_value_type ... ok
+test modules::entitlements::tests::expired_license_state_is_terminal_for_new_work ... ok
+test modules::entitlements::tests::error_codes_stay_inside_the_frozen_stable_surface ... ok
+test modules::entitlements::tests::grace_allows_local_until_offline_expiry_and_cloud_until_cloud_grace ... ok
+test modules::entitlements::tests::grace_begins_at_the_first_accepted_event_and_is_never_re_anchored ... ok
+test modules::entitlements::tests::grace_without_a_known_anchor_fails_closed_for_cloud_work ... ok
+test modules::entitlements::tests::entitlement_values_use_the_frozen_native_wire_shape ... ok
+test modules::entitlements::tests::grant_activity_window_is_honoured ... ok
+test modules::entitlements::tests::internal_overrides_require_an_expiry_and_a_reason ... ok
+test modules::entitlements::tests::license_reason_codes_are_drawn_from_the_frozen_error_list ... ok
+test modules::entitlements::tests::license_snapshot_claims_construction_is_validated ... ok
+test modules::entitlements::tests::license_state_and_capability_class_use_frozen_wire_vocabulary ... ok
+test modules::entitlements::tests::license_state_is_projected_from_subscription_status ... ok
+test modules::entitlements::tests::lumi_plan_keys_reject_every_provider_identifier_shape ... ok
+test modules::entitlements::tests::missing_values_fail_closed_for_protected_capabilities ... ok
+test modules::entitlements::tests::p06_identifiers_enforce_their_frozen_prefixes ... ok
+test modules::entitlements::tests::over_limit_projection_is_deterministic_and_wire_serializable ... ok
+test modules::entitlements::tests::over_limit_projection_reports_every_resource_above_its_new_limit ... ok
+test modules::entitlements::tests::past_due_allows_only_local_work_until_the_signed_offline_expiry ... ok
+test modules::entitlements::tests::plan_changes_move_an_immutable_pointer_without_rewriting_history ... ok
+test modules::entitlements::tests::payment_provider_identifiers_can_never_be_entitlement_keys ... ok
+test modules::entitlements::tests::provider_entitlement_projection_is_read_only_status ... ok
+test modules::entitlements::tests::provider_event_construction_is_validated ... ok
+test modules::entitlements::tests::provider_events_are_bound_to_one_adapter_account ... ok
+test modules::entitlements::tests::provider_events_are_idempotent_replays_and_ordering_enforced ... ok
+test modules::data_governance::tests::the_planner_is_bounded_and_rejects_contradictory_input ... ok
+test modules::entitlements::tests::precedence_is_platform_default_then_plan_then_subscription_then_override ... ok
+test modules::entitlements::tests::provider_account_state_cannot_change_lumi_entitlements_or_subscription_state ... ok
+test modules::entitlements::tests::provider_unreachable_leaves_local_work_untouched ... ok
+test modules::entitlements::tests::repeated_failed_polling_never_extends_grace ... ok
+test modules::entitlements::tests::seat_policy_rejects_duplicate_and_unbounded_state_lists ... ok
+test modules::entitlements::tests::resolution_is_stable_across_repeated_calls_and_ordered_by_key ... ok
+test modules::entitlements::tests::subscription_status_vocabulary_round_trips ... ok
+test modules::entitlements::tests::suspended_and_cancelled_stop_new_work_everywhere ... ok
+test modules::entitlements::tests::snapshot_validation_rejects_every_frozen_failure_mode ... ok
+test modules::entitlements::tests::timestamps_outside_the_supported_instant_range_fail_closed ... ok
+test modules::entitlements::tests::the_frozen_transition_table_is_exact ... ok
+test modules::entitlements::tests::timestamps_decode_to_whole_unix_seconds ... ok
+test modules::entitlements::tests::transient_billing_outage_denies_paid_inference_with_a_stable_reason ... ok
+test modules::identity::tests::display_device_and_pkce_inputs_are_bounded ... ok
+test modules::identity::tests::session_state_requires_unexpired_and_unrevoked ... ok
+test modules::inference::tests::adapter_error_display_never_contains_upstream_body ... ok
+test modules::identity::tests::email_normalization_is_stable_and_debug_redacts ... ok
+test modules::inference::tests::final_sse_event_without_blank_line_is_flushed_at_eof ... ok
+test modules::inference::tests::partial_sse_event_is_retained_until_complete ... ok
+test modules::inference::tests::provider_error_event_marks_stream_invalid_after_text ... ok
+test modules::machine_identity::service_tests::a_capability_set_is_order_and_duplicate_insensitive ... ok
+test modules::machine_identity::service_tests::a_human_only_capability_is_refused_with_its_own_code ... ok
+test modules::machine_identity::service_tests::a_non_array_or_non_string_capability_value_is_refused ... ok
+test modules::machine_identity::service_tests::a_stored_row_rebuilds_a_scope_that_denies_what_it_should ... ok
+test modules::machine_identity::service_tests::a_well_formed_capability_set_parses_and_round_trips ... ok
+test modules::machine_identity::service_tests::a_key_scope_may_not_exceed_its_service_account ... ok
+test modules::machine_identity::service_tests::an_absent_project_list_is_all_projects_and_an_empty_one_is_none ... ok
+test modules::machine_identity::service_tests::an_unknown_capability_is_refused_by_name ... ok
+test modules::machine_identity::service_tests::an_unreadable_stored_row_is_not_reported_as_a_caller_error ... ok
+test modules::machine_identity::service_tests::the_last_used_source_is_a_bounded_derived_hint ... ok
+test modules::machine_identity::tests::a_bare_star_dot_allowlist_entry_matches_nothing ... ok
+test modules::machine_identity::tests::a_capability_outside_the_scope_is_denied ... ok
+test modules::machine_identity::service_tests::every_service_error_has_a_stable_code ... ok
+test modules::machine_identity::tests::a_human_only_permission_reports_itself_even_when_the_scope_omits_it ... ok
+test modules::machine_identity::tests::a_key_cannot_act_on_another_organization ... ok
+test modules::machine_identity::tests::a_kill_switch_outranks_scope_but_not_a_dead_credential ... ok
+test modules::machine_identity::tests::a_model_alias_outside_the_scope_is_denied ... ok
+test modules::machine_identity::tests::a_network_allowlist_fails_closed_when_the_client_address_is_unknown ... ok
+test modules::machine_identity::tests::a_network_allowlist_matches_exact_entries_and_nothing_else ... ok
+test modules::machine_identity::tests::a_project_scoped_key_cannot_reach_another_project_in_the_same_org ... ok
+test modules::machine_identity::tests::a_project_scoped_key_reaches_its_own_project ... ok
+test modules::machine_identity::tests::a_revoked_key_is_denied_before_anything_else_is_consulted ... ok
+test modules::entitlements::tests::the_ledger_replay_window_is_bounded ... ok
+test modules::machine_identity::tests::a_suspended_account_denies_its_own_unexpired_key ... ok
+test modules::machine_identity::tests::a_wildcard_allowlist_entry_matches_on_a_label_boundary_only ... ok
+test modules::machine_identity::tests::an_absent_network_allowlist_ignores_a_missing_address ... ok
+test modules::machine_identity::tests::an_absent_project_list_denies_nothing ... ok
+test modules::machine_identity::tests::an_empty_project_list_denies_every_project ... ok
+test modules::machine_identity::tests::an_empty_scope_allows_nothing ... ok
+test modules::machine_identity::tests::an_active_key_with_the_capability_is_allowed ... ok
+test modules::machine_identity::tests::an_engaged_kill_switch_is_reported_distinctly_from_a_scope_denial ... ok
+test modules::machine_identity::tests::an_expired_key_is_denied ... ok
+test modules::machine_identity::tests::an_ordinary_permission_is_not_human_only ... ok
+test modules::machine_identity::tests::organization_state_stops_machine_work_exactly_when_it_stops_human_work ... ok
+test modules::memberships::tests::an_admin_cannot_create_an_owner ... ok
+test modules::machine_identity::tests::every_denial_reason_has_a_stable_code ... ok
+test modules::memberships::tests::an_admin_may_still_manage_roles_up_to_admin ... ok
+test modules::memberships::tests::a_non_admin_actor_is_refused_for_every_requested_role ... ok
+test modules::memberships::tests::an_admin_still_cannot_re_role_an_existing_owner ... ok
+test modules::memberships::tests::an_inactive_target_cannot_be_re_roleed_by_anyone ... ok
+test modules::machine_identity::tests::human_only_permissions_are_refused_even_when_the_scope_contains_them ... ok
+test modules::memberships::tests::an_owner_may_still_change_any_active_members_role_including_to_owner ... ok
+test modules::memberships::tests::last_owner_cannot_be_demoted_removed_or_leave ... ok
+test modules::memberships::tests::only_non_owner_roles_can_be_invited ... ok
+test modules::migration::tests::a_clean_preview_reports_every_candidate_as_importable ... ok
+test modules::migration::tests::a_degraded_client_never_obtains_managed_authority ... ok
+test modules::migration::tests::a_current_client_is_managed_and_a_degraded_client_is_local_only ... ok
+test modules::migration::tests::a_declined_step_is_not_reported_as_a_skipped_one ... ok
+test modules::migration::tests::a_local_credential_workspace_cannot_import_when_org_policy_forbids_byok ... ok
+test modules::migration::tests::a_local_only_user_is_never_told_they_have_an_adoption_problem ... ok
+test modules::migration::tests::a_healthy_managed_workspace_has_nothing_to_remediate ... ok
+test modules::migration::tests::a_local_workspace_reference_carries_no_path ... ok
+test modules::migration::tests::a_managed_stage_requires_a_complete_binding ... ok
+test modules::migration::tests::a_malformed_client_fingerprint_is_refused_rather_than_clamped ... ok
+test modules::migration::tests::a_managed_workspace_reports_each_distinct_problem_once_in_operator_order ... ok
+test modules::migration::tests::a_missing_model_capability_and_off_peak_are_both_reported ... ok
+test modules::migration::tests::a_required_tool_outside_org_policy_is_a_conflict_shown_before_import ... ok
+test modules::migration::tests::a_rollback_is_reachable_from_every_stage_and_never_from_stage_zero ... ok
+test modules::migration::tests::a_rollback_returns_the_local_credential_mode ... ok
+test modules::migration::tests::a_stage_can_never_be_reached_by_stepping_backwards ... ok
+test modules::migration::tests::a_value_below_the_supported_range_is_upgrade_required_not_silently_accepted ... ok
+test modules::migration::tests::a_workspace_advances_one_explicit_stage_at_a_time ... ok
+test modules::migration::tests::an_empty_preview_is_commit_ready_and_imports_nothing ... ok
+test modules::migration::tests::an_enrolled_but_unmanaged_workspace_is_only_told_about_its_client_and_policy ... ok
+test modules::migration::tests::an_import_never_crosses_the_active_automation_limit_and_never_trims ... ok
+test modules::migration::tests::an_inverted_stored_range_can_only_narrow_managed_access ... ok
+test modules::migration::tests::an_org_managed_credential_cannot_be_chosen_before_a_workspace_is_bound ... ok
+test modules::migration::tests::an_unbound_workspace_cannot_import ... ok
+test modules::migration::tests::an_unsupported_client_always_keeps_local_only_operation ... ok
+test modules::migration::tests::an_organization_without_automations_blocks_every_candidate ... ok
+test modules::migration::tests::every_domain_failure_has_a_stable_reason_string ... ok
+test modules::migration::tests::history_sync_is_refused_while_the_credential_is_still_local ... ok
+test modules::migration::tests::conflicts_for_one_candidate_are_deterministic ... ok
+test modules::migration::tests::no_stage_can_be_skipped ... ok
+test modules::migration::tests::an_oversized_or_malformed_import_is_refused ... ok
+test modules::migration::tests::history_sync_is_refused_until_the_platform_enables_it ... ok
+test modules::migration::tests::only_the_explicit_choice_copies_a_secret ... ok
+test modules::migration::tests::org_ownership_starts_at_the_explicit_binding_stage ... ok
+test modules::migration::tests::re_requesting_the_current_stage_is_unchanged_not_an_error ... ok
+test modules::migration::tests::telemetry_carries_stage_and_result_only ... ok
+test modules::migration::tests::telemetry_refuses_anything_that_could_carry_user_content ... ok
+test modules::migration::tests::the_compiled_baseline_matches_the_seeded_compatibility_row ... ok
+test modules::migration::tests::telemetry_is_bounded_and_uses_closed_vocabularies ... ok
+test modules::migration::tests::the_full_staged_adoption_path_is_walkable_end_to_end ... ok
+test modules::migration::tests::the_remediation_vocabularies_round_trip ... ok
+test modules::migration::tests::the_reported_ranges_match_the_frozen_constants ... ok
+test modules::migration::tests::the_stage_vocabulary_round_trips_and_is_totally_ordered ... ok
+test modules::organizations::tests::only_active_organizations_accept_ordinary_mutations ... ok
+test modules::organizations::tests::organization_names_and_slugs_are_bounded ... ok
+test modules::migration::tests::the_fixture_records_that_no_local_content_is_ever_uploaded ... ok
+test modules::outbox::consumer::tests::duplicate_delivery_is_acknowledged_without_reapplying_handler ... ok
+test modules::outbox::tests::delivery_status_terminal_states_are_explicit ... ok
+test modules::outbox::tests::failure_codes_are_bounded_and_machine_readable ... ok
+test modules::outbox::tests::outbox_record_debug_relies_on_redacted_event_debug ... ok
+test modules::migration::tests::the_frozen_p08_fixture_is_representable ... ok
+test modules::outbox::tests::retry_policy_is_bounded_jittered_and_finite ... ok
+test modules::outbox::tests::retry_policy_rejects_unbounded_or_invalid_configuration ... ok
+test modules::p04_domain_tests::adapter_error_taxonomy_never_exposes_upstream_body ... ok
+test modules::p04_domain_tests::catalog_capabilities_and_lifecycle_gate_new_routes ... ok
+test modules::p04_domain_tests::credential_resolution_rejects_revoked_cross_user_and_local_only_handles ... ok
+test modules::p04_domain_tests::explicit_policy_lists_are_allowlists_and_missing_entries_are_denied ... ok
+test modules::p04_domain_tests::fixed_strategy_selects_one_candidate ... ok
+test modules::p04_domain_tests::native_request_keeps_alias_and_scope_separate_from_provider_credentials ... ok
+test modules::p04_domain_tests::p04_permissions_extend_the_existing_matrix_without_handler_role_logic ... ok
+test modules::p04_domain_tests::retry_controller_does_not_retry_after_meaningful_output ... ok
+test modules::p04_domain_tests::retry_controller_allows_fallback_only_before_output_commit ... ok
+test modules::p04_domain_tests::selector_filters_capability_lifecycle_policy_and_health_before_ordering ... ok
+test modules::p04_domain_tests::selector_rejects_unsafe_or_empty_route_configs ... ok
+test modules::p04_domain_tests::weighted_strategy_uses_seed_for_primary_selection ... ok
+test modules::p04_domain_tests::weighted_selection_is_deterministic_for_the_same_seed ... ok
+test modules::p04_domain_tests::sse_decoder_handles_split_chunks_and_emits_typed_events ... ok
+test modules::p07_fixture_tests::a_reordering_of_the_same_declarations_is_not_a_capability_change ... ok
+test modules::p07_fixture_tests::the_api_key_scope_rebuilds_from_the_frozen_projection ... ok
+test modules::p07_fixture_tests::an_expired_or_lifted_switch_is_not_engaged_and_says_which ... ok
+test modules::p07_fixture_tests::the_expired_and_revoked_grants_are_two_different_denial_codes ... ok
+test modules::p07_fixture_tests::the_fixture_is_the_version_the_gate_names ... ok
+test modules::p07_fixture_tests::the_api_key_projection_has_no_field_a_raw_credential_could_use ... ok
+test modules::p07_fixture_tests::the_contracting_diff_matches_the_frozen_verdicts_and_is_not_an_expansion ... ok
+test modules::p07_fixture_tests::the_expanding_diff_matches_the_frozen_verdicts ... ok
+test modules::p07_fixture_tests::the_frozen_compatibility_range_and_digest_shape_are_usable ... ok
+test modules::p07_fixture_tests::the_pending_review_install_records_the_candidate_and_the_reason ... ok
+test modules::p07_fixture_tests::the_human_only_capability_in_the_fixture_is_the_one_the_gate_refuses ... ok
+test modules::p07_fixture_tests::the_organization_scoped_switch_is_the_answer_before_the_global_one ... ok
+test modules::p07_fixture_tests::the_frozen_flag_resolves_off_when_expired_and_stably_by_percentage ... ok
+test modules::p09_failure_tests::a_committed_stream_can_never_be_retried_or_recommitted ... ok
+test modules::p09_failure_tests::a_dead_letter_queue_redelivery_of_a_delivered_event_stays_delivered ... ok
+test modules::p09_failure_tests::a_concurrent_winner_scheduling_a_retry_makes_the_losing_copy_a_duplicate ... ok
+test modules::p09_failure_tests::a_dead_letter_queue_delivery_is_recorded_before_it_is_acknowledged ... ok
+test modules::p09_failure_tests::a_delayed_event_is_not_published_before_it_is_due ... ok
+test modules::p09_failure_tests::a_hold_left_behind_by_a_crash_stops_consuming_budget_at_its_expiry ... ok
+test modules::p09_failure_tests::a_disabled_tool_a_revoked_source_and_a_platform_deny_are_all_refused ... ok
+test modules::p09_failure_tests::a_job_envelope_and_a_business_event_cannot_be_read_as_each_other ... ok
+test modules::p09_failure_tests::a_lost_compare_and_set_is_never_silently_acknowledged ... ok
+test modules::p09_failure_tests::a_malformed_or_metadata_only_body_is_never_a_completion ... ok
+test modules::p07_fixture_tests::the_policy_fixture_conflicts_and_the_block_wins ... ok
+test modules::p09_failure_tests::a_permanent_handler_failure_dead_letters_on_the_first_attempt ... ok
+test modules::p09_failure_tests::a_revocation_cannot_be_laundered_by_a_permissive_scope_or_a_matching_target ... ok
+test modules::p09_failure_tests::a_redelivery_after_a_store_failure_converges_on_one_durable_transition ... ok
+test modules::p07_fixture_tests::the_service_account_carries_exactly_the_declared_capabilities ... ok
+test modules::p09_failure_tests::a_membership_the_store_could_not_read_never_authorizes ... ok
+test modules::p09_failure_tests::a_revoked_provider_credential_is_not_resolvable ... ok
+test modules::p07_fixture_tests::the_rotation_shape_is_an_overlap_not_a_replacement ... ok
+test modules::p09_failure_tests::a_revocation_leaves_no_approval_binding_to_replay ... ok
+test modules::p09_failure_tests::a_terminal_marker_split_across_chunks_still_completes ... ok
+test modules::p09_failure_tests::a_store_failure_after_a_successful_read_maps_to_service_unavailable ... ok
+test modules::p09_failure_tests::a_store_failure_on_the_terminal_write_is_never_acknowledged_as_delivered ... ok
+test modules::p09_failure_tests::a_stream_that_reaches_its_terminal_marker_is_a_completion ... ok
+test modules::p09_failure_tests::a_terminal_queue_job_row_cannot_be_reopened_by_a_replay ... ok
+test modules::p09_failure_tests::a_tool_bearing_request_has_no_retry_and_no_fallback_budget ... ok
+test modules::p09_failure_tests::a_truncated_stream_is_never_a_completion ... ok
+test modules::p09_failure_tests::a_unique_constraint_violation_maps_to_the_stable_conflict_code ... ok
+test modules::p09_failure_tests::an_r2_failure_never_carries_the_object_key_or_a_provider_string_into_a_worker_error ... ok
+test modules::p09_failure_tests::hard_budget_denial_is_fail_closed ... ok
+test modules::p09_failure_tests::only_transport_failures_are_retryable ... ok
+test modules::p09_failure_tests::provider_error_bodies_never_reach_a_client_or_a_log ... ok
+test modules::p09_failure_tests::r2_failures_split_into_policy_and_transport_and_neither_is_a_success ... ok
+test modules::p09_failure_tests::the_outbox_retry_budget_is_bounded_and_a_poison_event_ends_in_a_visible_dead_letter ... ok
+test modules::p09_failure_tests::the_retry_and_fallback_chain_is_bounded ... ok
+test modules::p09_failure_tests::the_outbox_retry_budget_is_bounded_and_finite ... ok
+test modules::plugins::tests::a_blocked_or_quarantined_version_cannot_execute_whatever_is_on_disk ... ok
+test modules::plugins::tests::a_hostname_ending_in_digits_is_not_treated_as_an_address ... ok
+test modules::plugins::tests::a_first_install_is_expanding_by_the_diff_but_not_by_the_gate ... ok
+test modules::plugins::tests::a_tool_needs_both_a_manifest_entry_and_a_registration ... ok
+test modules::plugins::tests::a_package_on_both_lists_is_reported_as_a_conflict_and_the_block_wins ... ok
+test modules::plugins::tests::a_pin_blocks_every_other_version_including_a_security_update ... ok
+test modules::plugins::tests::a_pure_contraction_is_not_an_expansion ... ok
+test modules::plugins::tests::a_subdomain_pattern_is_evaluated_by_its_suffix ... ok
+test modules::plugins::tests::adding_a_tool_is_an_expansion_even_while_network_shrinks ... ok
+test modules::plugins::tests::an_identical_manifest_is_no_change_at_all ... ok
+test modules::plugins::tests::an_official_publisher_survives_the_broader_publisher_mode ... ok
+test modules::plugins::tests::an_org_cannot_lift_a_platform_quarantine_by_its_own_policy ... ok
+test modules::plugins::tests::direct_mode_permits_an_expansion_but_it_is_still_an_expansion ... ok
+test modules::plugins::tests::every_denial_reason_has_a_stable_code ... ok
+test modules::plugins::tests::external_data_handling_unknown_and_declared_both_claim_the_capability ... ok
+test modules::plugins::tests::integrity_comparison_has_no_length_or_value_shortcut ... ok
+test modules::plugins::tests::managed_mode_refuses_an_expanding_update_instead_of_installing_it ... ok
+test modules::plugins::tests::manifest_lists_are_order_and_duplicate_insensitive ... ok
+test modules::plugins::tests::private_loopback_and_link_local_destinations_are_refused ... ok
+test modules::plugins::tests::publisher_mode_narrows_who_may_install ... ok
+test modules::plugins::tests::raising_browser_capability_is_an_expansion ... ok
+test modules::plugins::tests::process_spawn_appearing_is_an_expansion ... ok
+test modules::plugins::tests::widening_a_secret_handle_purpose_is_an_expansion ... ok
+test modules::plugins::tests::the_compatibility_range_is_inclusive_at_both_ends ... ok
+test modules::policy::tests::inactive_orgs_and_bad_min_versions_fail_compilation ... ok
+test modules::policy::tests::extension_sections_are_accepted_only_when_typed ... ok
+test modules::policy::tests::payload_has_typed_sections_and_placeholders ... ok
+test modules::p09_failure_tests::a_hard_budget_denial_is_wired_to_precede_the_only_upstream_dispatch ... ok
+test modules::policy::tests::snapshot_currency_requires_same_org_and_validity_window ... ok
+test modules::policy_p04::tests::malformed_or_unknown_models_section_does_not_widen_base_policy ... ok
+test modules::policy_p04::tests::opaque_p03_placeholder_does_not_widen_or_disable_base_policy ... ok
+test modules::policy_p04::tests::trusted_project_scope_is_read_only_from_the_snapshot_payload ... ok
+test modules::policy_p04::tests::p03_models_section_is_consumed_without_claiming_authority ... ok
+test modules::projects::tests::archived_projects_reject_new_work ... ok
+test modules::policy_p05::tests::malformed_sections_fail_closed ... ok
+test modules::policy_p05::tests::versioned_tool_policy_is_typed_and_schema_zero_is_not_allow ... ok
+test modules::projects::tests::project_names_are_trimmed_and_bounded ... ok
+test modules::projects::tests::versions_must_be_positive ... ok
+test modules::projects::tests::project_slugs_are_normalized_and_rejected_on_bad_shape ... ok
+test modules::projects::tests::visibility_and_environment_round_trip ... ok
+test modules::rollouts::tests::a_bulk_target_is_refused ... ok
+test modules::rollouts::tests::a_disabled_flag_is_off_even_inside_the_percentage ... ok
+test modules::rollouts::tests::a_flag_needs_a_bounded_key_a_bounded_percentage_and_an_expiry ... ok
+test modules::rollouts::tests::a_lifted_switch_reports_lifted_rather_than_engaged ... ok
+test modules::rollouts::tests::a_switch_aimed_at_another_organization_reports_not_engaged_not_expired ... ok
+test modules::rollouts::tests::a_switch_needs_exactly_one_target_a_reason_and_a_matching_scope ... ok
+test modules::rollouts::tests::a_switch_is_narrow_to_its_own_target_and_scope ... ok
+test modules::rollouts::tests::an_expired_flag_resolves_off_even_when_enabled_and_allowlisted ... ok
+test modules::rollouts::tests::an_expired_switch_stops_applying_and_is_reported_as_expired ... ok
+test modules::rollouts::tests::every_error_has_a_stable_code ... ok
+test modules::rollouts::tests::cohort_assignment_is_stable_for_an_organization_across_calls ... ok
+test modules::rollouts::tests::the_org_allowlist_wins_over_the_percentage ... ok
+test modules::routing::tests::invalid_duplicate_candidates_are_rejected ... ok
+test modules::routing::tests::model_capability_filter_is_not_bypassed_by_route_weight ... ok
+test modules::routing::tests::version_comparison_is_ascending ... ok
+test modules::rollouts::tests::the_cohort_hash_is_stable_and_spreads_organizations ... ok
+test modules::runs::runs_tests::exhaustive_run_transition_table_matches_the_contract ... ok
+test modules::runs::runs_tests::retry_creates_a_new_attempt_and_preserves_parent_history ... ok
+test modules::runs::runs_tests::cancellation_is_idempotent_and_does_not_mutate_other_terminal_history ... ok
+test modules::runs::runs_tests::run_event_sequences_are_strictly_increasing_and_bounded ... ok
+test modules::runs::runs_tests::run_transition_requires_matching_version_and_terminal_finished_at ... ok
+test modules::runs::runs_tests::session_transitions_are_monotonic_and_terminal ... ok
+test modules::runs::runs_tests::states_round_trip_through_the_frozen_wire_names ... ok
+test modules::staff::tests::a_customer_admin_role_has_no_expression_in_the_staff_permission_set ... ok
+test modules::staff::tests::a_grant_cannot_list_a_capability_its_issuer_does_not_hold ... ok
+test modules::staff::tests::a_grant_cannot_widen_the_role_of_its_holder ... ok
+test modules::staff::tests::a_grant_issued_to_someone_else_is_refused ... ok
+test modules::rollouts::tests::the_percentage_is_monotonic_so_a_ramp_never_removes_a_tenant ... ok
+test modules::staff::tests::a_grant_needs_a_reason_a_ticket_and_a_bounded_ttl ... ok
+test modules::staff::tests::a_platform_capability_needs_no_grant_and_customer_data_does ... ok
+test modules::staff::tests::a_suspended_staff_principal_is_refused_before_anything_else ... ok
+test modules::staff::tests::an_expired_revoked_or_mismatched_grant_is_refused_with_its_own_code ... ok
+test modules::staff::tests::effective_authority_is_the_intersection_of_role_and_grant ... ok
+test modules::staff::tests::every_staff_denial_reason_has_a_stable_code ... ok
+test modules::staff::tests::customer_data_without_a_grant_is_refused ... ok
+test modules::staff::tests::every_staff_permission_has_a_stable_code_and_round_trips ... ok
+test modules::teams::tests::team_manage_grants_are_explicit ... ok
+test modules::staff::tests::the_four_roles_match_the_frozen_matrix ... ok
+test modules::staff::tests::holding_a_grant_is_not_authority_to_act_under_it ... ok
+test modules::teams::tests::team_names_and_slugs_are_bounded ... ok
+test modules::tool_policy::tool_policy_tests::a_tool_is_browser_capable_through_its_catalogued_capability_id ... ok
+test modules::tool_policy::tool_policy_tests::identical_inputs_produce_identical_decisions ... ok
+test modules::tool_policy::tool_policy_tests::approval_binding_rejects_changed_arguments ... ok
+test modules::tool_policy::tool_policy_tests::computer_restrictions_require_both_capability_and_target_allowance ... ok
+test modules::tool_policy::tool_policy_tests::missing_or_malformed_policy_sections_fail_closed ... ok
+test modules::tool_policy::tool_policy_tests::platform_hard_deny_cannot_be_overridden_by_lower_layers ... ok
+test modules::tool_policy::tool_policy_tests::project_agent_and_runtime_constraints_are_intersections ... ok
+test modules::tool_policy::tool_policy_tests::argument_summaries_are_bounded_canonical_and_redacted ... ok
+test modules::tool_policy::tool_policy_tests::browser_restrictions_are_independent_of_any_prompt_claim ... ok
+test modules::tool_policy::tool_policy_tests::risk_class_floor_and_policy_approval_modes_are_deterministic ... ok
+test modules::tool_policy::tool_policy_tests::mcp_fingerprint_changes_cannot_inherit_an_old_approval ... ok
+test modules::tool_policy::tool_policy_tests::tool_call_input_rejects_client_supplied_decision_fields ... ok
+test modules::tool_policy::tool_policy_tests::unknown_privileged_tools_fail_closed_in_managed_mode ... ok
+test modules::usage::tests::pricing_recalculation_appends_and_never_mutates_history ... ok
+test modules::usage::tests::cost_record_rejects_negative_money_and_invalid_currency ... ok
+test modules::usage::tests::raw_event_debug_does_not_print_provider_content ... ok
+test modules::usage::tests::provider_usage_must_be_an_object_and_is_bounded_on_deserialization ... ok
+test modules::runs::runs_tests::run_event_payloads_are_bounded_redacted_and_debug_safe ... ok
+test modules::usage::tests::conflicting_reconciliation_returns_stable_reason ... ok
+test modules::usage::tests::reconciliation_is_idempotent_and_replays_without_a_second_cost_row ... ok
+test modules::usage::tests::reconciliation_never_accepts_another_tenant_projection ... ok
+test modules::usage::tests::reconciliation_pending_projection_is_idempotent_but_not_reapplied ... ok
+test modules::usage::tests::raw_usage_is_attributed_and_keeps_p04_shape ... ok
+test modules::usage::tests::source_and_reconciliation_values_have_stable_wire_names ... ok
+test repositories::audit::tests::append_validation_rejects_unbounded_or_unstable_values ... ok
+test repositories::audit::tests::audit_cursor_round_trips_and_rejects_tampering ... ok
+test modules::usage::tests::provider_only_reconciliation_does_not_fabricate_a_cost_record ... ok
+test repositories::audit::tests::metadata_drops_sensitive_fields_and_stays_bounded ... ok
+test repositories::audit::tests::query_requires_a_valid_tenant_and_page_limit ... ok
+test repositories::audit::tests::query_validates_run_correlation_and_time_filters ... ok
+test repositories::automations::tests::a_started_or_ambiguous_occurrence_can_never_be_claimed_again ... ok
+test repositories::automations::tests::a_corrupt_canonical_json_is_a_schedule_failure_not_a_panic ... ok
+test repositories::audit::tests::metadata_prioritizes_run_correlation_ids_when_truncating ... ok
+test repositories::automations::tests::claim_applies_both_frozen_edges ... ok
+test repositories::automations::tests::execution_retry_is_bounded_by_the_frozen_envelope ... ok
+test repositories::automations::tests::frozen_event_names_are_versioned_and_complete ... ok
+test repositories::automations::tests::lease_debug_never_prints_the_token_fingerprint ... ok
+test repositories::automations::tests::skip_and_missed_require_the_dispatch_edge_first ... ok
+test modules::usage::tests::rollup_normalization_uses_selected_cost_record_and_checks_overflow ... ok
+test modules::usage::tests::normalized_projection_accepts_run_only_usage ... ok
+test repositories::automations::tests::stored_schedule_revision_round_trips_through_canonical_json ... ok
+test repositories::automations::v01_011_statement_shape::every_insert_binds_one_value_per_column ... ok
+test repositories::automations::v01_011_statement_shape::the_automation_insert_binds_its_own_timestamps ... ok
+test repositories::automations::v01_011_statement_shape::no_placeholder_is_reused_across_columns ... ok
+test repositories::automations::v01_013_attempt_counter::the_transition_only_advances_the_counter_when_asked_to ... ok
+test repositories::billing::tests::a_hand_written_plan_grant_row_is_refused ... ok
+test repositories::billing::tests::an_unrecognized_membership_state_fails_closed_instead_of_defaulting ... ok
+test repositories::billing::tests::entitlement_values_must_match_the_registered_type ... ok
+test repositories::billing::tests::billable_seats_derive_from_authoritative_rows_and_refuse_cross_tenant ... ok
+test repositories::billing::tests::event_reasons_map_to_the_frozen_billing_event_names ... ok
+test repositories::billing::tests::an_unregistered_key_is_refused_rather_than_resolved ... ok
+test repositories::billing::tests::frozen_metadata_keys_cover_the_billing_event_payload ... ok
+test repositories::billing::tests::grant_rows_map_to_the_domain_type_and_require_expiry_for_overrides ... ok
+test repositories::billing::tests::provider_projection_status_is_normalized_and_never_a_provider_product ... ok
+test repositories::billing::tests::license_state_is_derived_from_the_commercial_status_and_provider_availability ... ok
+test repositories::billing::tests::scope_rows_map_to_the_three_frozen_scopes_and_reject_others ... ok
+test repositories::billing::tests::seat_policy_never_invents_a_custom_billable_set ... ok
+test repositories::billing::tests::stored_instants_must_be_frozen_utc_text ... ok
+test repositories::billing::tests::stored_signature_hex_is_strict_and_lowercase_only ... ok
+test repositories::budgets::tests::a_reservation_cannot_be_reused_for_another_request_or_run ... ok
+test repositories::budgets::tests::a_reservation_holds_budget_only_while_it_is_live ... ok
+test repositories::budgets::tests::an_exhausted_or_overdrawn_budget_reports_no_headroom ... ok
+test repositories::budgets::tests::every_budget_and_rate_query_binds_the_tenant_first ... ok
+test repositories::budgets::tests::headroom_subtracts_committed_spend_and_live_holds ... ok
+test repositories::budgets::tests::reservation_transitions_are_monotonic_and_idempotent ... ok
+test repositories::budgets::tests::reservation_writes_are_tenant_scoped_and_idempotent ... ok
+test repositories::data_governance::tests::a_deletion_envelope_row_carries_the_deletion_id_not_the_export_id ... ok
+test repositories::data_governance::tests::a_subject_type_that_is_not_a_data_job_is_refused_rather_than_published ... ok
+test repositories::data_governance::tests::an_export_envelope_row_becomes_a_message_the_consumer_accepts ... ok
+test repositories::data_governance::tests::canonical_manifest_is_order_independent ... ok
+test repositories::data_governance::tests::content_types_cover_every_export_format_and_nothing_else ... ok
+test repositories::data_governance::tests::every_database_row_executor_names_a_registered_class_and_one_bound_parameter ... ok
+test repositories::data_governance::tests::every_actionable_declared_class_is_either_executable_or_known_gap ... ok
+test repositories::data_governance::tests::every_registry_class_yields_exactly_one_seed_row ... ok
+test repositories::data_governance::tests::stored_states_fail_closed_on_unknown_values ... ok
+test repositories::data_governance::tests::the_dispatch_row_reads_the_columns_the_due_query_selects ... ok
+test repositories::machine_identity::tests::a_key_lookup_cannot_be_given_an_organization_by_the_caller ... ok
+test repositories::data_governance::tests::upstream_provider_data_has_no_executor_ever ... ok
+test repositories::machine_identity::tests::last_used_records_a_time_and_a_bounded_source_and_nothing_else ... ok
+test repositories::machine_identity::tests::the_credential_read_carries_account_state ... ok
+test repositories::machine_identity::tests::list_limits_are_clamped_to_a_bounded_page ... ok
+test repositories::machine_identity::tests::rotation_marks_the_prior_key_with_a_reason_in_the_same_shape ... ok
+test repositories::machine_identity::tests::the_frozen_bounds_are_the_ones_the_gate_names ... ok
+test repositories::machine_identity::tests::the_insert_binds_only_three_credential_columns ... ok
+test repositories::machine_identity::tests::the_key_writer_has_no_field_for_a_raw_key ... ok
+test repositories::platform_ops::tests::a_flag_read_fails_closed_on_an_unrecognised_cohort ... ok
+test repositories::platform_ops::tests::staff_capabilities_serialize_deterministically ... ok
+test repositories::platform_ops::tests::the_grant_read_is_scoped_by_staff_and_organization ... ok
+test repositories::platform_ops::tests::the_kill_switch_read_returns_narrow_and_broad_ordered_narrow_last ... ok
+test repositories::platform_ops::tests::the_staff_credential_read_takes_only_a_prefix ... ok
+test repositories::platform_ops::tests::the_staff_writer_has_no_field_for_a_raw_token ... ok
+test repositories::plugins::tests::a_pending_review_install_records_its_reason_in_the_same_write ... ok
+test repositories::plugins::tests::a_repeated_report_never_creates_a_second_install_row ... ok
+test repositories::plugins::tests::an_install_update_binds_the_expected_counter ... ok
+test repositories::plugins::tests::an_unrecognised_stored_enum_narrows_rather_than_widens ... ok
+test repositories::plugins::tests::default_deny_is_the_absence_of_a_registration_row ... ok
+test repositories::plugins::tests::every_tenant_read_binds_the_organization ... ok
+test repositories::plugins::tests::policy_conflicts_are_computed_from_the_domain_value ... ok
+test repositories::plugins::tests::the_quarantine_read_is_exact_version_and_ignores_a_lifted_row ... ok
+test repositories::sql_bool::tests::v01_030_boolean_columns_reject_everything_else ... ok
+test repositories::sql_bool::tests::v01_030_integer_columns_decode_as_booleans ... ok
+test repositories::sql_bool::tests::v01_030_an_endpoint_row_decodes_from_a_d1_row ... ok
+test repositories::usage::tests::cost_replay_comparison_is_value_based ... ok
+test repositories::usage::tests::both_source_selects_expose_the_same_column_shape ... ok
+test repositories::usage::tests::page_and_summary_filters_are_tenant_first ... ok
+test repositories::webhooks::tests::delivery_history_is_keyset_paginated_per_endpoint ... ok
+test repositories::webhooks::tests::delivery_states_round_trip_through_the_frozen_wire_names ... ok
+test repositories::usage::tests::usage_sources_are_disjoint_and_normalized ... ok
+test repositories::webhooks::tests::disabling_cancels_only_non_terminal_deliveries ... ok
+test repositories::webhooks::tests::fan_out_requires_exact_event_match_and_excludes_recursive_families ... ok
+test repositories::webhooks::tests::job_claim_is_a_cas_over_id_attempt_state_and_lease_version ... ok
+test repositories::webhooks::tests::job_type_vocabulary_matches_the_frozen_list_exactly ... ok
+test repositories::webhooks::tests::delivery_transitions_are_compare_and_set_on_state_and_version ... ok
+test repositories::webhooks::tests::notification_and_preference_vocabularies_are_frozen ... ok
+test repositories::webhooks::tests::notification_inbox_is_keyset_paginated_in_descending_order ... ok
+test repositories::webhooks::tests::notification_reads_are_scoped_to_the_authenticated_principal ... ok
+test repositories::webhooks::tests::only_event_delivery_job_types_are_owned_by_this_packet ... ok
+test repositories::webhooks::tests::preference_versions_are_asserted_before_the_upsert_commits ... ok
+test repositories::webhooks::tests::replay_creates_a_linked_successor_and_never_edits_the_original ... ok
+test repositories::webhooks::tests::records_never_debug_print_the_stored_body_or_secret_material ... ok
+test routes::agents::commit_outcome_tests::a_completed_record_replays_under_either_outcome ... ok
+test routes::agents::commit_outcome_tests::a_fingerprint_conflict_is_a_conflict_under_either_outcome ... ok
+test routes::agents::commit_outcome_tests::a_guard_abort_keeps_its_conflict_answer ... ok
+test routes::agents::commit_outcome_tests::a_store_fault_is_never_reported_as_a_request_still_in_progress ... ok
+test modules::usage::tests::redaction_removes_content_and_bounds_provider_metadata ... ok
+test routes::agents::commit_outcome_tests::no_outcome_answers_with_a_success_or_a_client_fault ... ok
+test routes::agents::v01_015_replay_bodyless_statuses::a_204_replays_with_no_body ... ok
+test routes::agents::v01_015_replay_bodyless_statuses::a_non_2xx_status_cannot_be_stored_at_all ... ok
+test routes::agents::v01_015_replay_bodyless_statuses::every_storable_status_that_forbids_a_body_replays_empty ... ok
+test routes::agents::v01_015_replay_bodyless_statuses::a_status_that_allows_a_body_still_replays_it ... ok
+test routes::approvals::tests::decisions_are_whitelisted_and_reasons_are_bounded ... ok
+test routes::approvals::tests::filters_stay_within_the_documented_bounds ... ok
+test routes::approvals::tests::only_pending_and_terminal_statuses_filter ... ok
+test routes::approvals::tests::a_pending_approval_past_its_window_projects_as_expired ... ok
+test routes::approvals::tests::the_projection_exposes_only_the_bounded_binding ... ok
+test routes::audit::tests::conflicting_aliases_are_rejected_without_echoing_values ... ok
+test routes::audit::tests::page_limit_is_bounded ... ok
+test routes::audit::tests::invalid_cursor_uses_the_frozen_bad_request_shape ... ok
+test routes::automations::tests::a_malformed_timezone_is_a_timezone_failure_not_a_generic_schedule_failure ... ok
+test routes::automations::tests::a_manual_rule_needs_no_zone_and_never_schedules ... ok
+test routes::automations::tests::a_corrupt_capability_list_degrades_to_an_empty_array ... ok
+test routes::automations::tests::a_missing_resource_is_the_non_disclosing_not_found_shape ... ok
+test repositories::automations::v01_013_attempt_counter::exactly_one_route_starts_an_attempt_and_it_is_the_claim ... ok
+test routes::automations::tests::a_named_zone_without_a_resolved_offset_is_refused_rather_than_assumed_utc ... ok
+test routes::automations::tests::a_one_time_rule_validates_its_instant ... ok
+test routes::automations::tests::a_presented_fence_must_be_positive_and_well_formed ... ok
+test routes::automations::tests::a_reason_code_is_bounded_and_never_free_form_text ... ok
+test routes::automations::tests::a_required_policy_version_must_be_positive ... ok
+test routes::automations::tests::a_valid_cron_rule_is_built_with_its_resolved_zone ... ok
+test routes::automations::tests::an_execution_policy_model_alias_is_validated ... ok
+test routes::automations::tests::an_interval_rule_with_selectors_is_decoded_through_the_domain ... ok
+test repositories::automations::v01_013_attempt_counter::every_non_starting_transition_declares_none ... ok
+test routes::automations::tests::an_off_peak_policy_can_narrow_but_never_broaden_the_host_baseline ... ok
+test routes::automations::tests::an_invalid_expression_surfaces_a_schedule_failure_without_echoing_it ... ok
+test routes::automations::tests::an_off_peak_schema_version_or_source_must_be_known ... ok
+test routes::automations::tests::an_out_of_range_offset_is_refused ... ok
+test routes::automations::tests::page_limits_are_clamped_to_the_frozen_bounds ... ok
+test routes::automations::tests::an_unknown_schedule_kind_is_a_schedule_failure ... ok
+test routes::automations::tests::permission_names_are_the_frozen_p06_strings ... ok
+test routes::authorization::v01_019_device_routes_must_authenticate::every_device_route_handler_takes_credentials ... ok
+test routes::automations::tests::the_execution_retry_request_is_bounded_by_the_frozen_envelope ... ok
+test routes::automations::tests::the_due_projection_contains_no_lease_token_or_fingerprint ... ok
+test routes::automations::tests::domain_codes_map_to_the_frozen_vocabulary ... ok
+test routes::automations::tests::the_queued_successor_bound_is_validated ... ok
+test routes::automations::tests::the_tool_policy_scope_is_one_of_the_three_frozen_values ... ok
+test routes::billing::tests::a_cross_account_provider_binding_returns_the_non_disclosing_shape ... ok
+test routes::automations::v01_011_regression::a_created_body_carries_the_schedule_rather_than_omitting_it ... ok
+test routes::billing::tests::a_provider_failure_never_exposes_provider_text ... ok
+test routes::automations::v01_011_regression::the_created_body_renders_the_same_schedule_a_later_read_would ... ok
+test routes::billing::tests::a_tenant_without_a_subscription_keeps_the_projection_the_dispatcher_uses ... ok
+test routes::billing::tests::an_unavailable_license_block_carries_a_stable_reason_only ... ok
+test routes::billing::tests::bounded_metadata_replaces_oversized_strings_rather_than_truncating_them ... ok
+test routes::billing::tests::canonical_instants_are_frozen_utc_text ... ok
+test routes::billing::tests::frozen_event_names_match_the_p06_contract ... ok
+test routes::billing::tests::stored_provider_metadata_drops_anything_off_the_allowlist ... ok
+test routes::billing::tests::the_dispatch_state_and_the_signed_state_are_the_same_vocabulary ... ok
+test routes::billing::tests::the_capability_matrix_keeps_local_work_alive_during_a_provider_outage ... ok
+test routes::budgets::tests::budget_denials_keep_the_frozen_p04_status_mapping ... ok
+test routes::budgets::tests::an_unreadable_budget_state_fails_closed ... ok
+test routes::budgets::tests::instants_normalize_to_comparable_millisecond_text ... ok
+test routes::budgets::tests::only_an_organization_scope_may_omit_its_scope_id ... ok
+test routes::data_governance::tests::account_deletion_exit_requires_leaving_or_transferring ... ok
+test routes::data_governance::tests::baseline_policy_is_the_frozen_wire_shape ... ok
+test routes::budgets::tests::reservation_failures_have_stable_reasons ... ok
+test routes::data_governance::tests::changed_keys_are_reported_for_the_frozen_event_payload ... ok
+test routes::data_governance::tests::categories_are_bounded_and_known ... ok
+test routes::data_governance::tests::deleted_artifact_is_not_advertised ... ok
+test routes::data_governance::tests::deletion_detail_includes_steps_and_the_certificate ... ok
+test routes::data_governance::tests::deletion_projection_reports_resumability_and_never_over_claims ... ok
+test routes::data_governance::tests::export_projection_never_exposes_a_key_or_a_url ... ok
+test routes::data_governance::tests::grant_and_grace_windows_are_bounded ... ok
+test routes::data_governance::tests::formats_are_bounded_and_known ... ok
+test routes::data_governance::tests::export_projection_reports_downloadable_only_when_ready ... ok
+test routes::data_governance::tests::legal_hold_placement_and_release_are_both_attributed ... ok
+test routes::data_governance::tests::only_ready_may_mint_a_download_grant ... ok
+test routes::data_governance::tests::organization_deletion_request_is_not_exposed_by_this_module ... ok
+test routes::data_governance::tests::policy_patch_accepts_the_two_persistable_logging_modes ... ok
+test routes::data_governance::tests::policy_patch_rejects_full_content_logging ... ok
+test routes::data_governance::tests::provider_retention_url_must_be_https ... ok
+test routes::data_governance::tests::reauth_purpose_is_an_existing_p02_purpose ... ok
+test routes::data_governance::tests::roles_map_onto_the_deletion_exit_rule ... ok
+test routes::data_governance::tests::stable_messages_cover_every_frozen_code_the_routes_can_return ... ok
+test routes::device_auth::tests::hex_digest_converts_to_pkce_base64url ... ok
+test routes::data_governance::tests::retention_overrides_are_refused_past_the_legal_maximum ... ok
+test routes::errors::tests::framework_statuses_map_to_frozen_api_codes_and_statuses ... ok
+test routes::errors::tests::handler_error_helper_uses_the_trusted_request_context_id ... ok
+test routes::errors::tests::boundary_rebinding_changes_only_a_mismatched_request_id ... ok
+test routes::foundation_checks::tests::canonical_body_is_stable_and_fingerprints_differing_json ... ok
+test routes::health::tests::health_shape_is_stable ... ok
+test routes::errors::tests::status_conversion_discards_framework_error_text ... ok
+test routes::inference::tests::non_stream_provider_error_is_not_a_successful_empty_response ... ok
+test routes::inference::tests::p05_managed_policy_scope_is_server_owned_and_exact ... ok
+test routes::inference::tests::p05_timestamp_projection_is_fixed_width_and_ordered ... ok
+test routes::inference::tests::p05_budget_snapshot_projection_keeps_scope_and_usage_authoritative ... ok
+test routes::inference::tests::stream_commitment_requires_meaningful_provider_output ... ok
+test routes::inference::v01_021_gateway_error_reasons::the_two_classes_do_not_overlap ... ok
+test routes::internal::tests::a_cursor_it_cannot_attribute_is_refused_rather_than_ignored ... ok
+test routes::internal::tests::a_flag_and_a_kill_switch_refusal_each_carry_their_own_code ... ok
+test routes::internal::tests::a_support_grant_cannot_be_a_wildcard_or_an_empty_set ... ok
+test routes::internal::tests::an_allowlist_entry_must_be_an_organization_and_never_a_wildcard ... ok
+test routes::inference::v01_021_gateway_error_reasons::the_org_scoped_route_lookup_no_longer_reports_an_outage ... ok
+test routes::internal::tests::the_kill_switch_projection_carries_both_engagement_and_lifting ... ok
+test routes::internal::tests::the_staff_error_statuses_and_codes_stay_distinct ... ok
+test routes::inference::v01_021_gateway_error_reasons::every_reason_this_file_raises_is_classified ... ok
+test routes::internal::tests::the_flag_projection_is_the_frozen_field_set ... ok
+test routes::machine_identity::tests::a_human_only_capability_is_refused_with_its_own_reason_not_a_generic_one ... ok
+test routes::machine_identity::tests::a_name_must_be_present_and_bounded ... ok
+test routes::machine_identity::tests::a_null_scope_column_stays_null_and_never_becomes_an_empty_list ... ok
+test routes::machine_identity::tests::a_scoped_id_list_refuses_anything_that_is_not_that_id_type ... ok
+test routes::machine_identity::tests::a_text_list_refuses_an_empty_or_over_long_entry ... ok
+test routes::machine_identity::tests::the_cursor_decoder_refuses_a_cursor_it_cannot_attribute ... ok
+test routes::machine_identity::tests::the_domain_error_status_distinguishes_a_conflict_from_a_bad_request ... ok
+test routes::machine_identity::tests::key_material_is_minted_or_nothing_is ... ok
+test routes::meta::tests::meta_shape_matches_the_frozen_contract ... ok
+test routes::machine_identity::tests::the_secret_projection_carries_it_once_with_a_notice ... ok
+test routes::machine_identity::tests::no_read_projection_can_carry_a_credential ... ok
+test routes::plugins::tests::a_package_projection_reports_officialness_as_a_boolean ... ok
+test routes::plugins::tests::a_malformed_manifest_is_refused_with_a_stable_reason ... ok
+test routes::internal::tests::the_grant_projection_is_the_frozen_field_set ... ok
+test routes::plugins::tests::a_public_destination_is_accepted_and_the_lists_come_back_normalized ... ok
+test routes::plugins::tests::every_denial_reason_is_a_distinct_stable_code ... ok
+test routes::plugins::tests::a_version_projection_carries_the_digest_and_nothing_private ... ok
+test routes::plugins::tests::a_manifest_missing_any_field_is_refused_rather_than_defaulted ... ok
+test routes::plugins::tests::a_private_or_loopback_destination_is_refused_at_report_time ... ok
+test routes::plugins::tests::the_audit_summary_and_the_stored_reason_describe_the_same_classes ... ok
+test routes::plugins::tests::the_install_projection_does_not_repeat_the_organizations_identity ... ok
+test routes::projects::tests::created_project_body_matches_the_row_it_would_read_back ... ok
+test routes::plugins::tests::the_policy_projection_reports_a_conflict_and_never_resolves_one ... ok
+test routes::projects::tests::the_project_insert_pins_the_values_the_create_body_assumes ... ok
+test routes::support::report_prefix_tests::the_bridge_is_installed_by_the_worker_entry ... ok
+test routes::plugins::tests::the_status_distinguishes_a_refusal_from_an_unacceptable_submission ... ok
+test routes::support::report_prefix_tests::the_rust_and_javascript_prefixes_are_the_same_string ... ok
+test routes::tools::tests::a_published_snapshot_section_can_only_narrow_the_document ... ok
+test routes::tools::tests::a_scoped_snapshot_rule_is_held_rather_than_approved_wider ... ok
+test routes::tools::tests::bounded_input_rejects_unbounded_or_sensitive_values ... ok
+test routes::tools::tests::cursors_are_opaque_and_round_trip_through_the_keyset ... ok
+test routes::tools::tests::only_run_states_that_can_execute_a_tool_may_request_a_decision ... ok
+test routes::plugins::tests::the_install_projection_carries_a_block_reason_when_there_is_one ... ok
+test routes::tools::tests::origin_validation_rejects_wildcards_and_ambiguous_shapes ... ok
+test routes::tools::tests::opaque_and_unsupported_policy_documents_fail_closed ... ok
+test routes::tools::tests::pages_bound_results_and_only_offer_a_cursor_when_more_exist ... ok
+test routes::tools::tests::stored_column_values_map_onto_domain_lifecycle_and_status ... ok
+test routes::plugins::tests::the_install_projection_is_exactly_the_frozen_field_set ... ok
+test routes::usage::v01_018_no_discarded_idempotency_key::the_statement_test_does_not_match_the_correct_form ... ok
+test routes::usage::tests::usage_rows_expose_source_and_reconciliation_state ... ok
+test routes::usage::tests::budget_state_failure_is_fail_closed_for_cloud_accounting ... ok
+test routes::usage::tests::an_inverted_or_unparsable_range_is_rejected ... ok
+test routes::webhooks::tests::delivery_and_version_bounds_match_the_frozen_schema ... ok
+test routes::webhooks::tests::mandatory_security_events_cannot_be_opted_out_of ... ok
+test routes::webhooks::tests::p06_permissions_map_to_the_central_role_bands ... ok
+test routes::usage::tests::reconciliation_conflicts_expose_a_stable_reason ... ok
+test routes::webhooks::tests::subscriptions_are_deduplicated_and_deterministically_ordered ... ok
+test routes::webhooks::tests::subscriptions_reject_the_recursive_delivery_and_endpoint_families ... ok
+test routes::webhooks::tests::frozen_p06_event_list_is_complete_and_contains_no_wildcard ... ok
+test routes::webhooks::tests::subscriptions_reject_wildcards_prefixes_and_unknown_names ... ok
+test routes::webhooks::tests::url_validation_surfaces_the_frozen_p06_reasons ... ok
+test security::guarded_column_writers::tests::a_comment_is_not_a_writer ... ok
+test security::guarded_column_writers::tests::a_test_module_is_not_a_writer ... ok
+test security::actor_type_correspondence::tests::the_staff_actor_type_is_named_in_the_ledger ... ok
+test security::release_docs::the_retention_map_names_exactly_the_declared_data_classes ... ok
+test security::release_docs::the_schema_map_names_every_migration_in_order ... ok
+test routes::usage::v01_018_no_discarded_idempotency_key::no_route_drops_the_idempotency_key_it_requires ... ok
+test core::machine::tests::sha256_matches_the_published_known_answers ... ok
+test security::secret_canary::a_device_enrollment_and_token_are_invisible_in_debug ... ok
+test security::secret_canary::a_lease_token_fingerprint_is_invisible_in_debug ... ok
+test security::secret_canary::a_license_signing_secret_is_invisible_in_debug ... ok
+test security::secret_canary::a_machine_credential_is_invisible_in_debug_and_display ... ok
+test security::secret_canary::a_passkey_credential_handle_is_invisible_in_debug ... ok
+test security::secret_canary::a_provider_upstream_body_is_never_echoed ... ok
+test security::secret_canary::a_recovery_code_hash_is_invisible_in_debug ... ok
+test security::secret_canary::a_staff_credential_is_invisible_in_debug_and_display ... ok
+test security::secret_canary::a_stored_api_key_never_reaches_debug_or_a_read_projection ... ok
+test security::secret_canary::a_stored_password_hash_is_invisible_in_debug ... ok
+test security::secret_canary::a_usage_payload_redacts_rather_than_retaining_a_canary ... ok
+test security::secret_canary::a_webauthn_ceremony_state_is_invisible_in_debug ... ok
+test security::secret_canary::a_webhook_secret_and_delivery_body_are_invisible_in_debug ... ok
+test security::secret_canary::an_api_error_detail_payload_is_invisible_in_debug ... ok
+test security::secret_canary::an_encrypted_provider_credential_is_invisible_in_debug ... ok
+test security::secret_canary::an_event_payload_and_a_queue_payload_are_invisible_in_debug ... ok
+test security::secret_canary::an_export_object_key_and_download_grant_are_invisible_in_debug ... ok
+test security::secret_canary::an_invitation_token_hash_is_invisible_in_debug ... ok
+test security::secret_canary::an_outbound_provider_request_is_not_printed_in_debug ... ok
+test security::secret_canary::audit_metadata_refuses_a_canary_under_every_sensitive_key ... ok
+test security::guarded_column_writers::tests::a_record_entry_imposes_no_writer_assertion ... ok
+test security::actor_type_correspondence::tests::every_written_actor_type_is_one_the_schema_accepts ... ok
+test security::guarded_column_writers::tests::an_unwritable_record_stays_unwritable ... ok
+test security::secret_canary::projections_never_read_a_secret_field ... ok
+test security::secret_canary::the_canary_detector_itself_detects ... ok
+test security::secret_canary::the_canary_set_is_wide_enough_to_mean_something ... ok
+test security::secret_canary::the_field_registry_still_catches_a_planted_name ... ok
+test security::secret_canary::the_log_record_schemas_stay_bounded ... ok
+test security::secret_canary::every_opaque_string_newtype_is_accounted_for ... ok
+test security::secret_canary::the_reviewed_debug_list_is_reviewed_not_rubber_stamped ... ok
+test security::secret_canary::derived_debug_never_reaches_a_secret ... ok
+test security::secret_canary::the_scanner_would_catch_a_planted_derive ... ok
+test security::secret_canary::the_reviewed_projection_list_has_rotted_nowhere ... ok
+test security::tenant_audit::an_expired_budget_hold_is_swept_to_a_terminal_state ... ok
+test security::tenant_audit::every_chain_bottoms_out_in_an_org_bound_statement ... ok
+test security::secret_canary::the_report_is_stable ... ok
+test security::secret_canary::production_code_has_no_unwrap_and_only_reviewed_log_sites ... ok
+test security::guarded_column_writers::tests::every_declared_dependency_is_still_described_by_live_code ... ok
+test security::tenant_audit::every_sql_statement_lives_in_a_named_constant ... ok
+test security::tenant_audit::platform_statements_live_behind_the_staff_boundary ... ok
+test security::tenant_audit::the_jobs_dead_letter_queue_is_consumed_before_the_outbox ... ok
+test security::tenant_audit::the_migration_scan_derives_the_tenant_owned_tables ... ok
+test security::tenant_audit::the_audit_covers_every_sql_owning_module ... ok
+test adapters::password::tests::dummy_hash_has_the_same_verification_cost ... ok
+test security::tenant_audit::the_audit_can_reject_a_mislabelled_statement ... ok
+test security::repository_liveness::tests::every_route_handler_is_routed_or_called_or_on_the_reviewed_list ... ok
+test security::repository_liveness::tests::every_repository_function_is_called_or_on_the_reviewed_list ... ok
+test repositories::bind_correspondence::tests::v01_004_no_two_id_lookup_binds_its_ids_transposed ... ok
+test security::tenant_audit::every_classification_is_true_of_the_statement_it_labels ... ok
+test security::tenant_audit::no_sql_statement_touching_a_tenant_owned_table_is_unclassified ... ok
+test adapters::password::tests::hashes_are_argon2id_with_owasp_baseline_and_verify ... ok
+
+test result: ok. 1037 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+     Running tests/egress_corpus.rs (target/debug/deps/egress_corpus-3eb61bb42ad6f6c3)
+
+running 11 tests
+test the_plugin_declaration_filter_refuses_every_blocked_destination ... ok
+test a_private_destination_is_refused_before_the_allowlist_is_consulted ... ok
+test an_empty_allowlist_refuses_every_provider_endpoint ... ok
+test a_name_that_resolves_inward_is_refused_at_resolution_not_at_registration ... ok
+test the_corpus_is_not_vacuous_because_legitimate_destinations_still_work ... ok
+test the_webhook_guard_refuses_every_blocked_destination ... ok
+test the_local_development_escape_hatch_is_scoped_to_development ... ok
+test userinfo_in_a_provider_endpoint_is_refused_as_credentials ... ok
+test the_provider_and_mcp_guard_refuses_every_blocked_destination ... ok
+test the_declaration_filter_gaps_are_refused_on_both_fetch_paths ... ok
+test no_outbound_request_is_constructed_without_redirects_disabled ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests lumi_agents_control_plane_api
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ node apps/api/scripts/p07-schema-invariants.mjs
+applied 24 migrations (last: 0024_p03_device_policy_version.sql)
+
+  PASS  control: a pending idempotency claim is accepted
+  PASS  control: a completed idempotency record is accepted
+  PASS  a duplicate idempotency key is refused
+  PASS  the same key for another organization is a different record
+  PASS  the same key for another principal is a different record
+  PASS  the same key on another method is a different record
+  PASS  a pending record carrying a response status is refused
+  PASS  a pending record carrying a response body is refused
+  PASS  a pending record with no claim token is refused
+  PASS  a completed record with NO status is refused (migration 0020: a CHECK cannot express this)
+  PASS  a pending record with no claim token is refused on INSERT (migration 0020)
+  PASS  a completed record with no status is refused
+  PASS  a completed record with a non-2xx status is refused
+  PASS  a completed record with a non-JSON body is refused
+  PASS  a completed record still holding its claim token is refused
+  PASS  an unknown state is refused
+  PASS  a lower-case method is refused
+  PASS  a relative path is refused
+  PASS  a malformed expiry is refused
+  PASS  an empty principal is refused
+  PASS  control: a well-formed pending outbox event is accepted
+  PASS  a duplicate event id is refused
+  PASS  an envelope naming a DIFFERENT event id than its row is refused
+  PASS  an envelope naming a DIFFERENT event type than its row is refused
+  PASS  a non-JSON envelope is refused
+  PASS  an unknown delivery status is refused
+  PASS  a negative attempt count is refused
+  PASS  a malformed occurred_at is refused
+  PASS  control: a plain readable capability is accepted
+  PASS  control: a second key with a fresh prefix is accepted
+  PASS  wildcard capability is refused on a service account
+  PASS  wildcard capability is refused on a key
+  PASS  duplicate service account name in one org is refused
+  PASS  human-only "org.ownership_transfer" is refused on a service account
+  PASS  human-only "org.ownership_transfer" is refused on a key
+  PASS  human-only "org.lifecycle" is refused on a service account
+  PASS  human-only "org.lifecycle" is refused on a key
+  PASS  human-only "org.leave" is refused on a service account
+  PASS  human-only "org.leave" is refused on a key
+  PASS  human-only "billing.manage" is refused on a service account
+  PASS  human-only "billing.manage" is refused on a key
+  PASS  human-only "data.delete" is refused on a service account
+  PASS  human-only "data.delete" is refused on a key
+  PASS  a non-string capability is refused
+  PASS  a nested object capability is refused
+  PASS  a non-array capabilities value is refused
+  PASS  invalid JSON is refused
+  PASS  a raw lumik_ key in secret_hash is refused
+  PASS  a short secret_hash is refused
+  PASS  a non-hex key_prefix is refused
+  PASS  a non-hex fingerprint is refused
+  PASS  a duplicate key_prefix is refused
+  PASS  a key whose org differs from its account's org is refused
+  PASS  a self-referencing rotation is refused
+  PASS  revoking a key without a reason is refused
+  PASS  revoking a key WITH a reason is accepted
+  PASS  reactivating a revoked key is refused
+  PASS  a revoked key's reason cannot be blanked afterwards
+  PASS  rotating a key without a reason is refused
+  PASS  a key may still be revoked while its account is suspended
+  PASS  a service account cannot be created in an organization that does not exist
+  PASS  control: a second valid publisher is accepted
+  PASS  control: a second publisher name is refused
+  PASS  a published version cannot be re-pointed at another package
+  PASS  a published version's manifest cannot be edited in place
+  PASS  a published version's digest cannot be swapped
+  PASS  a duplicate package/version is refused
+  PASS  a wildcard in a manifest is refused
+  PASS  an incomplete manifest is refused
+  PASS  a wildcard package in a policy is refused
+  PASS  a wildcard pin is refused
+  PASS  a pin list rather than a pin map is refused
+  PASS  control: an allow/block conflict is storable, because the gate reports it
+  PASS  a pending_review install without a reason is refused
+  PASS  a blocked install without a reason is refused
+  PASS  control: a blocked install WITH a reason is accepted
+  PASS  a second install row for one package in one org is refused
+  PASS  an install of a version nobody published is refused
+  PASS  control: the same package is blocked in one org and approved in another
+  PASS  one organization's block does not appear in another organization's policy
+  PASS  a blocked install in one org leaves another org's install runnable
+  PASS  a second install row for one package in ANOTHER org is also refused
+  PASS  a tool registration in one org is not visible as the other org's
+  PASS  a grant issued for another organization is not returned for this one
+  PASS  registering a tool the manifest does not declare is refused
+  PASS  control: registering a declared tool is accepted
+  PASS  the same tool cannot be registered twice for one org
+  PASS  a quarantine cannot be deleted
+  PASS  two active quarantines for one version are refused
+  PASS  lifting a quarantine without a reason is refused
+  PASS  a lifted quarantine cannot be re-engaged in place
+  PASS  a version may be quarantined again after the first was lifted
+  PASS  a lift WITH a reason is accepted
+  PASS  control: a valid staff principal is accepted
+  PASS  control: a valid support grant is accepted
+  PASS  two staff principals cannot share a credential prefix
+  PASS  two staff principals cannot share an email
+  PASS  a staff credential hash must be 64 lowercase hex
+  PASS  an unknown staff role is refused
+  PASS  a staff principal for an organization that does not exist is impossible
+  PASS  a grant with no reason is refused
+  PASS  control: a whitespace-only grant reason is storable; the domain layer trims it
+  PASS  a grant that expires before it was issued is refused
+  PASS  a grant with no expiry is refused
+  PASS  a grant capability wildcard is refused
+  PASS  a non-string grant capability is refused
+  PASS  revoking a grant without a reason is refused
+  PASS  a revoked grant's reason cannot be blanked afterwards
+  PASS  a revoked grant cannot be restored in place
+  PASS  a flag with no expiry is refused
+  PASS  a flag with a negative percentage is refused
+  PASS  a flag with a percentage over 100 is refused
+  PASS  a wildcard org allowlist is refused
+  PASS  a flag combining an org allowlist with a partial rollout is refused
+  PASS  control: an allowlist with a FULL rollout is accepted
+  PASS  an unknown cohort is refused
+  PASS  control: a valid global kill switch is accepted
+  PASS  control: a valid organization-scoped kill switch is accepted
+  PASS  an organization-scoped switch with no organization is refused
+  PASS  a global switch carrying an organization is refused
+  PASS  an unknown target class is refused
+  PASS  a switch born already expired is refused
+  PASS  lifting a switch without a reason is refused
+  PASS  a lifted switch cannot be re-engaged in place
+  PASS  control: lifting a switch WITH a reason is accepted
+
+125/125 invariants behave as declared
+$ node apps/api/scripts/p09-secret-canary.mjs
+  PASS  the web corpus is not empty, so the scans below mean something
+  PASS  the web bundle writes nothing to browser storage
+  PASS  the web bundle logs nothing to the console
+  PASS  the web bundle only READS cookies, and every reader is reviewed
+  PASS  no secret-shaped value is placed in a URL
+  PASS  only the reviewed one-time-secret files name a raw secret
+  PASS  no component holds a secret in React state outside the two reducers
+  PASS  no secret-shaped literal is committed outside the reviewed fixtures
+  PASS  the reviewed literals stay reviewed
+  PASS  no secret-named migration column carries a default value
+  PASS  the Rust half of the canary harness is registered in the crate
+  PASS  both halves are wired into pnpm test
+  PASS  the detector would catch a planted leak
+  PASS  the control case holds, so the detectors are not simply inverted
+  PASS  the committed-literal scan skips generated state but still catches a real one
+
+15/15 canaries held across 151 web and 177 api sources
+$ node --test apps/api/scripts/sentry-report-filter.test.mjs
+✔ an unmarked line is not a report (0.713334ms)
+✔ a non-string first argument is not a report (0.0625ms)
+✔ a marked line is a report, with the prefix stripped (0.37825ms)
+✔ the prefix alone still reports an empty message rather than being dropped (0.074625ms)
+✔ only the first argument is classified (0.063083ms)
+✔ the bridge reports a marked line exactly once, and still writes it (0.109834ms)
+✔ the bridge writes to the real console when no sink is injected (0.073375ms)
+✔ a reporting failure does not become a request failure (0.045417ms)
+✔ restoring puts the original console.error back (0.072333ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 47.190958
+$ node apps/api/scripts/p09-null-check-scan.mjs
+scanned 108 tables; 166 CHECK block(s) use BETWEEN; 1 raw candidate(s), 1 adjudicated, 0 open
+
+adjudicated (each is a decision with a written reason):
+  idempotency_records.response_status
+    CLOSED by migration 0020, triggers trg_idempotency_completed_requires_status and its _update twin. A CHECK cannot express this: the `completed` arm's `BETWEEN` is NULL and the pending arm's `IS NULL` is conjoined with other conditions, so no arm is a pure nullness test. A trigger is NULL-safe and additive, so the table was not rebuilt and rollback stays a Worker rollback. Proven by the p07 case `a completed record with NO status is refused`.
+
+no nullable column is compared with BETWEEN anywhere NULL would let the whole
+CHECK pass. `idempotency_records.response_status` was the only one; migration
+0020 closes it and a probe in p07-schema-invariants.mjs proves it.
+$ pnpm --filter @runlumi/agents-cp-api guard:probe
+$ node scripts/p02-guard-probe.mjs
+  PASS  the real migrations apply, so the probe is testing the real schema
+  PASS  the sentinel shape in this probe is the shape the repositories actually emit
+  PASS  a real sentinel aborts, and its text is one the recogniser knows
+  PASS  the sentinel inserts nothing, so the abort really did roll the batch back
+  PASS  the abort text is migration 0020's trigger, so the old regression cannot return
+  PASS  the pre-0020 abort text is also recognised, so a rollback stays correct
+  PASS  an UNIQUE violation on an unrelated table is NOT read as a guard
+  PASS  a NOT NULL violation on another idempotency_records column is NOT read as a guard
+  PASS  a FOREIGN KEY violation is NOT read as a guard
+  PASS  a real store failure is NOT read as a guard
+  PASS  the recognised-text list holds only measured entries
+  PASS  is_guard_abort actually reads the list this probe verifies
+  PASS  V01-023: the polarity matrix covers every guard! in the automations repository
+  PASS  V01-023: assert_run_link_absent_statement permits the first start and aborts a duplicate
+  PASS  is_guard_abort does not widen itself past the list
+
+15/15 guard cases hold across 2 recognised abort texts
+$ node apps/api/scripts/p09-mutation-campaign.mjs --self-test
+
+=== VERDICT-PARSER SELF-TEST -- no probe is run. Every count below is a canned
+=== fixture string, NOT a measurement. Do not read these lines as gate results.
+  PASS  passkey  clean=true               fixture: 55/55 checks passed
+  PASS  passkey  clean=false              fixture: 54/55 checks passed
+  PASS  passkey  no verdict (harness fault) fixture: null
+  PASS  p05      clean=true               fixture: P05 smoke: 185 checks passed; 0 failures
+  PASS  p05      clean=false              fixture: P05 smoke: 184 checks passed; 1 failures
+  PASS  p05      no verdict (harness fault) fixture: null
+  PASS  p08      clean=true               fixture: 45/45 P08 cross-tenant cases hold
+  PASS  p08      clean=false              fixture: 44/45 P08 cross-tenant cases hold
+  PASS  p08      no verdict (harness fault) fixture: null
+  PASS  guard    clean=true               fixture: 13/13 guard cases hold
+  PASS  guard    clean=false              fixture: 12/13 guard cases hold
+  PASS  guard    no verdict (harness fault) fixture: null
+
+12/12 verdict-parsing cases hold (parser only; no probe was executed)
+$ node apps/api/scripts/p09-bind-count-scan.mjs
+checked 467 prepare() call(s) against their SQL constants
+
+every prepare() call binds exactly as many values as its SQL has placeholders
+$ cargo clippy --workspace --all-targets -- -D warnings && cargo check --workspace --target wasm32-unknown-unknown
+    Checking lumi-agents-control-plane-api v0.1.0 (/Volumes/SSD/agents-cp.runlumi/apps/api)
+error: variant `Unwritable` is never constructed
+   --> apps/api/src/security/guarded_column_writers.rs:103:9
+    |
+101 |     pub enum Status {
+    |              ------ variant in this enum
+102 |         /// The guard reads this table and no application code writes it. Asserted to stay unwritten.
+103 |         Unwritable,
+    |         ^^^^^^^^^^
+    |
+    = note: `Status` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: this `if` statement can be collapsed
+    --> apps/api/src/routes/devices.rs:1890:5
+     |
+1890 | /     if let Some(value) = body.min_client_version.as_deref() {
+1891 | |         if parse_version(value).is_none() || value.is_empty() {
+1892 | |             return Err(validation_error(
+1893 | |                 &context,
+...    |
+1898 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+     = note: `-D clippy::collapsible-if` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+     |
+1890 ~     if let Some(value) = body.min_client_version.as_deref()
+1891 ~         && (parse_version(value).is_none() || value.is_empty()) {
+1892 |             return Err(validation_error(
+ ...
+1896 |             ));
+1897 ~         }
+     |
+
+error: could not compile `lumi-agents-control-plane-api` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `lumi-agents-control-plane-api` (lib test) due to 2 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+CHECK_EXIT=101

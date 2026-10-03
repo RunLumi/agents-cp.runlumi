@@ -1,0 +1,99 @@
+compdef:153: _comps: assignment to invalid subscript range
+accounts ready — owner org: v05-site-owner-mus671tv
+PASS  the auth screen is completable entirely from the keyboard (critical path walked)  — signed-in
+PASS  overview: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  overview: no error boundary
+PASS  overview: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  overview: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  projects: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  projects: no error boundary
+PASS  projects: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  projects: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  runs: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  runs: no error boundary
+PASS  runs: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  runs: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  members: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  members: no error boundary
+PASS  members: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  members: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  teams: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  teams: no error boundary
+PASS  teams: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  teams: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  tools: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  tools: no error boundary
+PASS  tools: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  tools: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  models: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  models: no error boundary
+PASS  models: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  models: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  usage: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  usage: no error boundary
+PASS  usage: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  usage: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  automations: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  automations: no error boundary
+PASS  automations: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  automations: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  devices: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  devices: no error boundary
+PASS  devices: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  devices: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  adoption: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  adoption: no error boundary
+PASS  adoption: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  adoption: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  policy: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  policy: no error boundary
+PASS  policy: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  policy: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  settings: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings: no error boundary
+PASS  settings: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  settings/billing: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings/billing: no error boundary
+PASS  settings/billing: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings/billing: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  settings/data: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings/data: no error boundary
+PASS  settings/data: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings/data: no horizontal page scroll at 390px  — scrollWidth=843 innerWidth=843
+PASS  settings/webhooks: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings/webhooks: no error boundary
+PASS  settings/webhooks: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings/webhooks: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  settings/security: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings/security: no error boundary
+PASS  settings/security: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings/security: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  settings/identity: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings/identity: no error boundary
+PASS  settings/identity: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings/identity: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  settings/plugins: renders its panel  — text[0..60]="Agents\nActive organization\nV05 Site Org owner\nNew organizati"
+PASS  settings/plugins: no error boundary
+PASS  settings/plugins: Tab reaches an interactive element with a visible focus indicator  — {"tag":"SELECT","visible":true,"text":"V05 Site Org owner"}
+PASS  settings/plugins: no horizontal page scroll at 390px  — scrollWidth=390 innerWidth=390
+PASS  usage: a network-level failure renders the section's error state  — "Agents\nActive organization\nV05 Site Org owner\nNew organization\nv05-site-owner-mus671tv@example.test\nSign out\n\nWORKSPACE\n\nOverview\nProjects\nAgents & runs\nMembers"
+PASS  usage: the section recovers once the network is restored  — "Agents\nActive organization\nV05 Site Org owner\nNew organization\nv05-site-owner-mu"
+PASS  models: a network-level failure renders the section's error state  — "Agents\nActive organization\nV05 Site Org owner\nNew organization\nv05-site-owner-mus671tv@example.test\nSign out\n\nWORKSPACE\n\nOverview\nProjects\nAgents & runs\nMembers"
+PASS  models: the section recovers once the network is restored  — "Agents\nActive organization\nV05 Site Org owner\nNew organization\nv05-site-owner-mu"
+PASS  identity: a service account can be created from the UI  — {"step":"account-created","created":true,"stillEmpty":false,"text":"t.\n\norg.manage\norg.read\nA service account is created by, and attributable to, a human principal. A machine c
+PASS  identity: creating an API key shows the secret exactly once  — {"step":"key-created","secretShown":true,"fullSecret":"[shown — redacted]","text":"shown once and cannot be retrieved again. Store it now.\n\nSend it as Authorization: Bearer 0230ce8b4dbb… from your C
+PASS  identity: after acknowledgement the secret is gone from the page  — full secret absent (prefix may remain)
+PASS  identity: revoke asks for confirmation before acting  — {"revokeAsk":{"asked":true},"confirm":"d survives.\n\nAnything using it — a CI pipeline, a scheduled job, an integration — will start failing. Rotate first if you need an overlap.\n\nWhy are you revok
+PASS  identity: Escape cancels the destructive confirmation and the key survives  — "Agents\nActive organization\nV05 Site Org owner\nNew organization\nv05-site-owner-mus671tv@example.test\nSign out\n\nWORKSPACE\n\nOverview\nProjects\nAgents & runs\nMembers"
+PASS  permission: the browser session switches to the foreign account  — login=200 shell="Agents\nActive organization\nV05 Site Org foreign\nNew organization\nv05-site-foreign-mus671tv@example.test\nSign out\n\nWORKSP"
+PASS  foreign viewer at overview: the owner organization's data does not render
+PASS  foreign viewer at members: the owner organization's data does not render
+PASS  foreign viewer at usage: the owner organization's data does not render
+PASS  foreign viewer at settings/billing: the owner organization's data does not render
+PASS  foreign viewer: the browser session stays the foreign account's own (no silent org switch)
+PASS  no uncaught page exceptions across the whole sweep
+
+V05 whole-site sweep: ALL CHECKS PASSED
+screenshots: docs/verification/runs/2026-10-03-audit-whole-repo/evidence/shots
+EXIT=0
