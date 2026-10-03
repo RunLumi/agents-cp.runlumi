@@ -1,0 +1,21 @@
+# Response headers for the static asset responses of the production SPA
+# (apps/web is deployed as a Cloudflare Workers asset bundle; the `_headers`
+# file is applied by the platform to every asset response, while `/api/*`
+# responses come from the Worker itself and already carry their own).
+#
+# The application ships no inline <script> (Vite emits external module
+# scripts) and self-hosts its fonts and icons, so the CSP below needs no
+# remote source. `style-src 'unsafe-inline'` stays because React writes
+# inline style attributes; no inline <style> or remote stylesheet is used.
+# `connect-src 'self'` is the same-origin control plane API.
+#
+# See docs/adr/0010-worker-static-assets-production.md for the asset
+# deployment shape.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Cross-Origin-Opener-Policy: same-origin
