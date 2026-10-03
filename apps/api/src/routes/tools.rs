@@ -2176,7 +2176,10 @@ fn tool_catalog(
         // evaluator's injected bare key resolve to the same definition — which
         // is what lets the browser/computer matchers recognize a tool that
         // carries the platform capability (V04-010).
-        for identifier in [capability.capability_id.clone(), capability.capability_key.clone()] {
+        for identifier in [
+            capability.capability_id.clone(),
+            capability.capability_key.clone(),
+        ] {
             catalog.capability_definitions.insert(
                 identifier.clone(),
                 CapabilityDefinition {
@@ -2298,7 +2301,12 @@ fn runtime_capabilities(
     // key keep working through the same strip.
     let catalogue_keys: BTreeMap<&str, &str> = capabilities
         .iter()
-        .map(|record| (record.capability_id.as_str(), record.capability_key.as_str()))
+        .map(|record| {
+            (
+                record.capability_id.as_str(),
+                record.capability_key.as_str(),
+            )
+        })
         .collect();
     let identifier_covered = |identifier: &str, reported: &BTreeSet<String>| -> bool {
         if reported.contains(identifier) {
