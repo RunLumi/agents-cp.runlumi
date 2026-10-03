@@ -343,7 +343,12 @@ await runProbe(LABEL, async (probe) => {
       typeof id === "string" && id.length > 0,
       `status=${created.status} body=${probe.brief(created.payload, 160)}`,
     );
-    return { id, name, fingerprint: fp };
+    return {
+      id,
+      name,
+      fingerprint: fp,
+      capabilityId: capabilityIds?.[0] ?? null,
+    };
   };
   const allowedTool = await makeTool("v02-allowed-tool");
   const deniedTool = await makeTool("v02-denied-tool");
@@ -353,12 +358,55 @@ await runProbe(LABEL, async (probe) => {
   // browser/computer phase measured, and why its positive control failed while its fourteen denials
   // passed on an empty allowlist. That is the vacuity the positive control exists to catch.
   //
-  // They carry NO capability id, because one cannot be set: a `CapabilityId` must be `cap_` + 32
-  // lowercase hex (core/identifiers.rs), so the `has_browser_capability` branch of the decision path
-  // is unreachable for a catalog tool and `risk_class` is the only working way to make a call
-  // browser- or computer-shaped. Recorded as V04-010.
-  const browserTool = await makeTool("v02-browser-tool", [], "browser");
-  const computerTool = await makeTool("v02-computer-tool", [], "computer");
+  // The capability catalogue. It USED to be a precondition fixture, and the fact that it had to be
+  // one was the finding (V04-010): `capability_definitions` had NO WRITER anywhere -- no INSERT or
+  // UPDATE in apps/api/src, no seed in any migration, no route -- so every browser/computer call in
+  // managed mode was refused `capability_not_defined` before any policy toggle was read, and the
+  // positive control (the one leg that can register an allow) is what exposed it.
+  //
+  // Migration 0023_p05_capability_catalogue_seed is the writer now: two platform-wide rows
+  // (org_id NULL) with the evaluator's own required keys (`browser`, `computer`). This phase asserts
+  // they exist and drives the tools through their REAL capability ids, so the catalog-resolved
+  // matcher (`has_browser_capability` via the row's risk class) is exercised end to end rather than
+  // assumed.
+  const seeded = await d1(
+    "SELECT capability_id, capability_key, risk_class FROM capability_definitions WHERE org_id IS NULL ORDER BY capability_key",
+    "V02 the platform capability catalogue",
+  );
+  probe.expect(
+    "the platform catalogue carries the browser and computer rows migration 0023 seeds, so the " +
+      "browser and computer RULES are reachable rather than refused `capability_not_defined` " +
+      "(V04-010 closed)",
+    (seeded ?? []).length === 2 &&
+      (seeded ?? []).map((r) => r.capability_key).join(",") === "browser,computer" &&
+      (seeded ?? []).every((r) => r.risk_class === r.capability_key),
+    `rows=${(seeded ?? []).length} keys=${(seeded ?? []).map((r) => r.capability_key).join(",") || "none"}`,
+  );
+  const platformCapabilityId = (key) =>
+    (seeded ?? []).find((row) => row.capability_key === key)?.capability_id ?? null;
+
+  // They carry the PLATFORM capability rows seeded by migration 0023, by their real ids: a
+  // `CapabilityId` must be `cap_` + 32 lowercase hex (core/identifiers.rs), which is exactly why no
+  // spelling match on a tool's capability set could ever recognize a browser-capable tool (V04-010's
+  // second half). With the catalogue-resolved matcher the tool's id resolves to the row's risk class,
+  // and both ways of being browser-shaped -- the tool's capability AND the call's risk class -- are
+  // exercised below.
+  const browserTool = await makeTool(
+    "v02-browser-tool",
+    [platformCapabilityId("browser")].filter(Boolean),
+    "browser",
+  );
+  const computerTool = await makeTool(
+    "v02-computer-tool",
+    [platformCapabilityId("computer")].filter(Boolean),
+    "computer",
+  );
+  probe.expect(
+    "the browser and computer tools registered WITH the platform capability ids, so the " +
+      "catalogue-resolved matcher is what recognizes them",
+    typeof browserTool.capabilityId === "string" && typeof computerTool.capabilityId === "string",
+    `browser=${browserTool.capabilityId ?? "none"} computer=${computerTool.capabilityId ?? "none"}`,
+  );
 
   if (typeof allowedTool.id !== "string" || typeof deniedTool.id !== "string") return;
 
@@ -858,13 +906,16 @@ await runProbe(LABEL, async (probe) => {
   const ALLOWED_APP = "com.example.allowed-app";
   probe.expect(
     "the BROWSER and COMPUTER tools exist and are listed in the agent's `allowed_tool_ids`. They " +
-      "carry NO capability id, because one cannot be set: a `CapabilityId` must be `cap_` + 32 " +
-      'lowercase hex, so `has_browser_capability` -- which matches `capability == "browser"` or ' +
-      "`cap_` stripped to `browser` -- can never be true for a catalog tool. `risk_class` is " +
-      "therefore the ONLY working way to make a call browser- or computer-shaped (V04-010), and this " +
-      "phase uses it",
-    typeof browserTool.id === "string" && typeof computerTool.id === "string",
-    `browser=${browserTool.id ?? "none"} computer=${computerTool.id ?? "none"}`,
+      "carry the PLATFORM capability rows (migration 0023) by their real ids: before the repair " +
+      "they could carry NO capability id a spelling matcher could recognize, because a " +
+      "`CapabilityId` must be `cap_` + 32 lowercase hex and the old `has_browser_capability` " +
+      "matched only bare or legacy spellings -- so `risk_class` was the ONLY working way to make a " +
+      "call browser- or computer-shaped (V04-010). Both shapes are exercised now: the tools carry " +
+      "the ids AND the calls claim the browser/computer risk class",
+    typeof browserTool.id === "string" &&
+      typeof computerTool.id === "string" &&
+      typeof browserTool.capabilityId === "string",
+    `browser=${browserTool.id ?? "none"}/${browserTool.capabilityId ?? "none"} computer=${computerTool.id ?? "none"}/${computerTool.capabilityId ?? "none"}`,
   );
 
   const bcPolicy = await putToolPolicy([], policyVersion + 1, {
@@ -929,7 +980,11 @@ await runProbe(LABEL, async (probe) => {
         tool_call_id: toolCallId(`bc-${tag}`),
         tool_id: tool.id,
         tool_fingerprint: tool.fingerprint,
-        capability_ids: [],
+        // The call must claim exactly the tool's registered capability set
+        // (`definition.capability_ids != call.capability_ids` is refused
+        // `tool_capability_mismatch`), so a browser tool carrying the platform
+        // capability row claims that id here.
+        capability_ids: tool.capabilityId ? [tool.capabilityId] : [],
         risk_class: riskClass,
         arguments_summary: `action=${tag};target=v02`,
         [key]: action,
@@ -938,72 +993,6 @@ await runProbe(LABEL, async (probe) => {
     );
 
   const decisionOf = (result) => result?.payload?.decision ?? null;
-
-  // The capability catalogue. THIS IS A PRECONDITION FIXTURE, and the fact that it has to be one is
-  // the finding (V04-010).
-  //
-  // `evaluate_browser_rules` / `evaluate_computer_rules` are reached only after
-  // `capabilities_are_catalogued` passes. Because a tool can never carry the `browser` capability —
-  // `has_browser_capability` matches `capability == "browser"` or `cap_` stripped to `browser`, and a
-  // `CapabilityId` must be `cap_` + 32 lowercase hex — every browser-shaped call REQUIRES the `browser`
-  // capability to be present in `capability_definitions` instead.
-  //
-  // That table has NO WRITER: no INSERT or UPDATE anywhere in `apps/api/src`, no seed in any
-  // migration, and no route. So `capabilities_are_catalogued` is always false and every
-  // browser/computer call in managed mode is refused `capability_not_defined` before any toggle is
-  // read. The first run of this phase measured exactly that: fourteen "denials" passed while every one
-  // of them was refused with the SAME reason, and the positive control -- which is the leg that can
-  // register an allow -- is what exposed it.
-  //
-  // So the rows are seeded here directly, which proves two things at once: the enforcement code is
-  // correct and reachable, and the ONLY thing missing in the product is the writer.
-  const capsBefore = await d1(
-    "SELECT capability_key FROM capability_definitions",
-    "V02 the capability catalogue before seeding",
-  );
-  probe.expect(
-    "`capability_definitions` is EMPTY, and no application code can populate it -- there is no " +
-      "INSERT or UPDATE anywhere in apps/api/src, no seed in any migration, and no route. Every " +
-      "browser/computer call in managed mode is therefore refused `capability_not_defined` before " +
-      "any policy toggle is read, which makes FR-F13-005/006's eleven controls unreachable rather " +
-      "than merely untested (V04-010). The two rows below are seeded as a PRECONDITION FIXTURE",
-    (capsBefore ?? []).length === 0,
-    `rows=${(capsBefore ?? []).length} keys=${(capsBefore ?? []).map((r) => r.capability_key).join(",") || "none"}`,
-  );
-  // The CHECK is `length = 36 AND substr(1,4) = 'cap_'`, so the 32 characters after the prefix are
-  // free-form. Both rows must differ, though -- a first run seeded two rows with the SAME
-  // `capability_id` derived from the nonce alone and the second died on the PRIMARY KEY.
-  const capabilityId = (key) =>
-    `cap_${(probe.nonce.replace(/[^a-z0-9]/g, "").slice(0, 24) + key.replace(/[^a-z0-9]/g, ""))
-      .padEnd(32, "0")
-      .slice(0, 32)}`;
-  for (const [key, riskClass] of [
-    ["browser", "browser"],
-    ["computer", "computer"],
-  ]) {
-    // `org_id` NULL = platform-wide, which is what `CAPABILITIES_FOR_ORG_SQL` selects alongside the
-    // org's own. The evaluator projects BOTH `capability_id` and `capability_key`, so the bare key is
-    // what satisfies `capabilities_are_catalogued`.
-    await d1(
-      `INSERT INTO capability_definitions
-         (capability_id, org_id, capability_key, display_name, risk_class, metadata_json, version,
-          created_at, updated_at)
-       VALUES ('${capabilityId(key)}', NULL,
-               '${key}', 'V02 ${key}', '${riskClass}', '{}', 1,
-               '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
-      `V02 seed the ${key} capability`,
-    );
-  }
-  const capsAfter = await d1(
-    "SELECT capability_key FROM capability_definitions ORDER BY capability_key",
-    "V02 the capability catalogue after seeding",
-  );
-  probe.expect(
-    "seeded exactly the two capability rows the evaluator requires, so this phase can reach the " +
-      "browser and computer RULES rather than being refused at the capability check",
-    (capsAfter ?? []).length === 2,
-    `rows=${(capsAfter ?? []).length} keys=${(capsAfter ?? []).map((r) => r.capability_key).join(",")}`,
-  );
 
   // --- the POSITIVE CONTROL --------------------------------------------------------------
   const visitAllowed = await decideAction(

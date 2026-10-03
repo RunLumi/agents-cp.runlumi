@@ -752,6 +752,26 @@ const MECHANICAL: &[(&str, Class)] = &[
         "repositories/ai.rs::ASSERT_POLICY_ABSENT_SQL",
         Class::OrgBound,
     ),
+    // 2026-10-03 audit pass: the device-policy lever (V04-008 repair). The
+    // read, the guarded upsert, and both batch guard sentinels are bound on
+    // `org_id`; the upsert additionally compare-and-sets on the row's
+    // `version`, so a stale admin write matches zero rows.
+    (
+        "repositories/devices.rs::FIND_DEVICE_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::UPSERT_DEVICE_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::ASSERT_DEVICE_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::ASSERT_DEVICE_POLICY_ABSENT_SQL",
+        Class::OrgBound,
+    ),
     ("repositories/ai.rs::PUBLISH_ROUTE_SQL", Class::OrgBound),
     (
         "repositories/ai.rs::UPDATE_ROUTE_LIFECYCLE_SQL",

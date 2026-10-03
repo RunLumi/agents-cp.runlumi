@@ -334,6 +334,112 @@ const run = async () => {
   assert.notEqual(result.payload.org_id, orgB);
   check("9b. policy audience bound to enrolling org", true);
 
+  // 9c-9j. F19-008 / V04-008: the minimum-client-version LEVER, end to end.
+  // The comparator, the policy read and the refusal have existed since P03;
+  // what was missing until the 2026-10-03 audit pass was any way to ARM the
+  // control. The attribution design: the SAME token exchange that succeeded in
+  // case 4 (no floor armed) is refused once a floor above the device's
+  // app_version is set, and succeeds again once the floor is cleared — so the
+  // refusal is the floor's, not the route breaking.
+  result = await request(alice.jar, "GET", `/api/v1/orgs/${orgId}/device-policy`, undefined, csrf);
+  assert.equal(result.status, 200);
+  assert.equal(result.payload.min_client_version, null);
+  assert.equal(result.payload.version, 0);
+  check("9c. fresh org reports no device-policy floor", true);
+
+  result = await request(
+    alice.jar,
+    "PUT",
+    `/api/v1/orgs/${orgId}/device-policy`,
+    { min_client_version: "99.0.0", version: 0 },
+    { ...csrf, "Idempotency-Key": `device-policy-arm-${slug}` },
+  );
+  assert.equal(result.status, 200, `arming the floor failed: ${JSON.stringify(result.payload)}`);
+  assert.equal(result.payload.version, 1);
+  check("9d. admin arms a floor above the device's app_version", true);
+
+  result = await request(alice.jar, "GET", `/api/v1/orgs/${orgId}/device-policy`);
+  assert.equal(result.payload.min_client_version, "99.0.0");
+  check("9e. the armed floor reads back", true);
+
+  // The token-nonce endpoint authenticates the DEVICE (its token from case 4),
+  // not an anonymous caller.
+  const floorNonce = await request(
+    new CookieJar(),
+    "GET",
+    "/api/v1/devices/token/nonce",
+    undefined,
+    deviceHeaders,
+  );
+  assert.equal(floorNonce.status, 200, `nonce refused: ${floorNonce.status}`);
+  result = await request(new CookieJar(), "POST", "/api/v1/devices/token", {
+    device_id: deviceId,
+    signature: device.sign(floorNonce.payload.nonce),
+    nonce: floorNonce.payload.nonce,
+    app_version: device.appVersion,
+  });
+  assert.equal(
+    result.status,
+    403,
+    `expected the floor to refuse: ${JSON.stringify(result.payload)}`,
+  );
+  assert.equal(result.payload.error.details.reason, "client_version_too_old");
+  check("9f. a device below the floor is refused at token exchange", true);
+
+  result = await request(
+    alice.jar,
+    "PUT",
+    `/api/v1/orgs/${orgId}/device-policy`,
+    { min_client_version: null, version: 1 },
+    { ...csrf, "Idempotency-Key": `device-policy-clear-${slug}` },
+  );
+  assert.equal(result.status, 200, `clearing the floor failed: ${JSON.stringify(result.payload)}`);
+  assert.equal(result.payload.min_client_version, null);
+  check("9g. the floor can be cleared (staged removal is one request)", true);
+
+  const clearedNonce = await request(
+    new CookieJar(),
+    "GET",
+    "/api/v1/devices/token/nonce",
+    undefined,
+    deviceHeaders,
+  );
+  assert.equal(clearedNonce.status, 200);
+  result = await request(new CookieJar(), "POST", "/api/v1/devices/token", {
+    device_id: deviceId,
+    signature: device.sign(clearedNonce.payload.nonce),
+    nonce: clearedNonce.payload.nonce,
+    app_version: device.appVersion,
+  });
+  assert.equal(
+    result.status,
+    200,
+    `expected the exchange to succeed after clearing: ${JSON.stringify(result.payload)}`,
+  );
+  check("9h. the same exchange succeeds once the floor is cleared", true);
+
+  result = await request(
+    alice.jar,
+    "PUT",
+    `/api/v1/orgs/${orgId}/device-policy`,
+    { min_client_version: "1.0.0", version: 0 },
+    { ...csrf, "Idempotency-Key": `device-policy-stale-${slug}` },
+  );
+  assert.equal(result.status, 409);
+  assert.equal(result.payload.error.details.reason, "version_conflict");
+  check("9i. a stale concurrent write is refused by the version guard", true);
+
+  result = await request(
+    alice.jar,
+    "PUT",
+    `/api/v1/orgs/${orgId}/device-policy`,
+    { min_client_version: "not-a-version", version: 1 },
+    { ...csrf, "Idempotency-Key": `device-policy-bad-${slug}` },
+  );
+  assert.equal(result.status, 422);
+  assert.equal(result.payload.error.details.reason, "min_client_version_invalid");
+  check("9j. a floor the comparator would fail closed on is refused at the boundary", true);
+
   // 10. Revocation blocks refresh, heartbeat, and policy fetch.
   result = await request(
     alice.jar,

@@ -1,0 +1,489 @@
+compdef:153: _comps: assignment to invalid subscript range
+$ pnpm --filter @runlumi/agents-cp-api verify:privilege-escalation
+$ node scripts/v01-privilege-escalation-probe.mjs
+
+  PASS  fresh D1 applies the full migration ledger  — 24 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:62253
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-7oyJ8n/92d32b4ad09b7060447e1ca2752961fa1ed79653-index_bg.wasm is 984s newer than src/routes/devices.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_2ef699b17a98446e838edc4547abeb28
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_4ced83fe71424ddaa28be9f3182a3298
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_699133f6c94c40b0b17681865d723a18
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_1f4b8aebcfefa5b0e3ba3b631c58262a
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_194fa729803fd8897b8fe4f5761d31b0
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  signup Abel  — status=201
+  PASS  verify Abel  — status=200
+  PASS  login start Abel  — status=202
+  PASS  login complete Abel  — status=200
+  PASS  user Abel has an opaque ID  — usr_de68506d07114bc59bee9a33a1633d73
+  PASS  invite a admin  — status=201
+  PASS  accept the admin invitation  — status=200
+  PASS  the attacker is stored as a plain active member, not an outsider and not an admin  — {"role":"member","status":"active","email":"mallory-mus5s01c994z@example.com"}
+  PASS  a plain member can read its own organization, so the attacker's session works  — status=200
+  PASS  the second attacker is stored as an admin, who passes the route's permission check and is still bound by the domain  — abel role=admin
+  PASS  id extraction note: three routes name their resource id differently (project `id`, service_account `id`, budget `budget_id`), which is why a missing id is reported with the body that produced it rather than as `undefined`  — recorded
+  PASS  Org A has a real project to attack  — project_id=prj_4cfc389883484702880f33bd7886d9c7
+  PASS  Org A has a real budget to attack  — budget_id=bud_1de660436a64494caf6bc35907dc2941
+  PASS  Org A has a real service account to attack  — service_account_id=svc_3642201727a7422180841dae7e291b03
+  PASS  Org B has a real service account for the credential-id class  — foreign=svc_948a7a07f22749f6b6007f72257b2cb1
+  PASS  the attacker's own membership_id is known, so self-promotion can be aimed precisely  — membership_id=mem_13f0ef1171cb441392776e46e45d4541
+  PASS  the admin's own membership_id is known, so admin self-promotion can be aimed precisely  — membership_id=mem_be13dc1a5b8144189e085fb66468cd29
+  PASS  no client-supplied field is honoured: every escalation attempt left the stored state with less authority than the client asked for  — 19 attacks, 19 refused, 0 accepted but inert, 0 escalated
+  PASS  no escalation attempt is answered with a 5xx, which would be a store fault dressed as a refusal  — none
+  PASS  every attack was actually completed, so a clean sheet is a clean sheet  — 19/19
+  PASS  every refused attack was refused by an authorization or validation decision, not because the route is absent  — no 404/405/501 among the refusals
+  PASS  the attacker is still a plain member after the whole campaign  — role=member
+
+19 privilege-escalation attacks across 7 classes: org x3, role x8, budget x2, capability x2, model x2, credential x1, policy-version x1
+  refused 19, accepted-but-inert 0, escalated 0
+  status distribution: 403 x14  422 x5
+  PASS  create Solo Org  — status=201
+  PASS  Solo Org organization ID  — org_959bcb30ededa44a5d01145ecf7f8012
+  PASS  create Duo Org  — status=201
+  PASS  Duo Org organization ID  — org_068d7580d1d98bac4d159e53100a9e2e
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  the duo fixture has exactly one Bob membership to promote  — [{"membership_id":"mem_3dbdfd29020348ab89f8417f22394a1d","version":1}]
+  PASS  the fixture can promote a member to owner at all, so C3's later success is a fact about the last-owner rule and not about a route that refuses every role change  — status=200 body={"membership_id":"mem_3dbdfd29020348ab89f8417f22394a1d","org_id":"org_068d7580d1d98bac4d159e53100a9e2e","user_id":"usr_699133f6c94c40b0b17681865d723a18","role":"owner","status":"active","version":2,"i
+  PASS  C1 the solo organization has EXACTLY ONE active owner before any attack, so 'the last owner' is the last owner -- otherwise all three attacks are refused for an unrelated reason and pass while proving nothing  — owners=[{"email":"alice-mus5s01c994z@example.com","role":"owner","status":"active"}]
+  PASS  C2 the duo organization has EXACTLY TWO active owners, so the control below removes a real second owner  — owners=[{"email":"alice-mus5s01c994z@example.com","role":"owner","status":"active"},{"email":"bob-mus5s01c994z@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership row in the solo organization is readable and active, so there is a row for the attacks to try to end  — [{"membership_id":"mem_0ff99a9fbf9f2d0227bbf29c4f1659b4","role":"owner","status":"active"}]
+  PASS  the last owner cannot demote their own organization (FR-F02-005)  — status=409 body={"error":{"code":"conflict","message":"The last active owner cannot be demoted.","request_id":"req_fcad1be9db4840a3b7bc6537950d5567","details":{"reason":"last_owner_required"}}}
+  PASS  the organization still has at least one active owner after the last owner tried to demote  — owners after=[{"email":"alice-mus5s01c994z@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership is UNCHANGED after she tried to demote -- the refusal was transactional, not a status with a half-applied write behind it  — before role=owner/active  after=[{"role":"owner","status":"active"}]
+  PASS  the last owner cannot remove their own organization (FR-F02-005)  — status=409 body={"error":{"code":"conflict","message":"The last active owner cannot be removed.","request_id":"req_faa64341e09b432c88a5d5f9a89ee566","details":{"reason":"last_owner_required"}}}
+  PASS  the organization still has at least one active owner after the last owner tried to remove  — owners after=[{"email":"alice-mus5s01c994z@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership is UNCHANGED after she tried to remove -- the refusal was transactional, not a status with a half-applied write behind it  — before role=owner/active  after=[{"role":"owner","status":"active"}]
+  PASS  the last owner cannot leave their own organization (FR-F02-005)  — status=409 body={"error":{"code":"conflict","message":"Transfer ownership before leaving this organization.","request_id":"req_4a7afbb3fb404595966614bd60c8e631","details":{"reason":"last_owner_required"}}}
+  PASS  the organization still has at least one active owner after the last owner tried to leave  — owners after=[{"email":"alice-mus5s01c994z@example.com","role":"owner","status":"active"}]
+  PASS  Alice's own membership is UNCHANGED after she tried to leave -- the refusal was transactional, not a status with a half-applied write behind it  — before role=owner/active  after=[{"role":"owner","status":"active"}]
+  PASS  C3 with a second active owner present, the SAME demotion SUCCEEDS -- so the three refusals above are about the last-owner rule and not about a route that refuses every role change  — status=200 body={"membership_id":"mem_eb43deea9c609ff2db7952769717ba23","org_id":"org_068d7580d1d98bac4d159e53100a9e2e","user_id":"usr_2ef699b17a98446e838edc4547abeb28","role":"member","status":"active","version":2,"
+  PASS  C3 the duo organization is left with exactly one active owner, so the demotion really did remove an owner and the count moved  — owners after=[{"email":"bob-mus5s01c994z@example.com","role":"owner","status":"active"}]
+  PASS  the transfer fixtures exist: an admin and a plain member in org A, and an owner in org B whose membership id is the cross-tenant target  — abelA={"membership_id":"mem_be13dc1a5b8144189e085fb66468cd29","role":"admin","status":"active"} malloryA={"membership_id":"mem_13f0ef1171cb441392776e46e45d4541","role":"member","status":"active"} bobB={"membership_id":"mem_be5720ee469f9fbbc115a94e4909b6d2","role":"owner","status":"active"}
+
+V01 privilege-escalation harness failure: ownership-transfer: POST /api/v1/account/reauth transport failure: fetch failed
+
+--- Worker log (tail) ---
+nContextId: 156972641,
+    timestamp: 1791017857311,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] GET /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a 200 OK (8ms)
+{"event":"http_request","request_id":"req_cb574ecd8bd64ae48d0c3a9668abafca","correlation_id":"req_cb574ecd8bd64ae48d0c3a9668abafca","method":"POST","route":"/api/v1/orgs/{org_id}/projects","status":201,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017859135,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/projects 201 Created (11ms)
+{"event":"http_request","request_id":"req_f068a974e7314d7785323633ca3b9779","correlation_id":"req_f068a974e7314d7785323633ca3b9779","method":"POST","route":"/api/v1/orgs/{org_id}/budgets","status":201,"duration_ms":10}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017859150,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/budgets 201 Created (12ms)
+{"event":"http_request","request_id":"req_9c3638598dea44bfb370fb5e61ddf0af","correlation_id":"req_9c3638598dea44bfb370fb5e61ddf0af","method":"POST","route":"/api/v1/orgs/{org_id}/service-accounts","status":200,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017859160,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/service-accounts 200 OK (9ms)
+{"event":"http_request","request_id":"req_eeb33b2d8141465e993a5c2204530eda","correlation_id":"req_eeb33b2d8141465e993a5c2204530eda","method":"POST","route":"/api/v1/orgs/{org_id}/service-accounts","status":200,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017859168,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_194fa729803fd8897b8fe4f5761d31b0/service-accounts 200 OK (6ms)
+{"event":"http_request","request_id":"req_d77045ea7e5f411e9a3e3a7a2c666f13","correlation_id":"req_d77045ea7e5f411e9a3e3a7a2c666f13","method":"PATCH","route":"/api/v1/orgs/{org_id}","status":403,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017860140,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a 403 Forbidden (8ms)
+{"event":"http_request","request_id":"req_ff35affc0c3b4b8e8a170ead18206000","correlation_id":"req_ff35affc0c3b4b8e8a170ead18206000","method":"PUT","route":"/api/v1/orgs/{org_id}/policy/tools","status":422,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017861045,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PUT /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/policy/tools 422 Unprocessable Entity (5ms)
+{"event":"http_request","request_id":"req_4006cfadf0b145b3992c7fad53b5fb17","correlation_id":"req_4006cfadf0b145b3992c7fad53b5fb17","method":"POST","route":"/api/v1/orgs/{org_id}/projects","status":422,"duration_ms":1}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017861943,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/projects 422 Unprocessable Entity (2ms)
+{"event":"http_request","request_id":"req_2bbb78d1f4084839b4417d57d485fe8e","correlation_id":"req_2bbb78d1f4084839b4417d57d485fe8e","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017862877,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/invitations 403 Forbidden (5ms)
+{"event":"http_request","request_id":"req_a2f7f2eec7b14bfe9bb8190304f20256","correlation_id":"req_a2f7f2eec7b14bfe9bb8190304f20256","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017863789,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/invitations 403 Forbidden (7ms)
+{"event":"http_request","request_id":"req_d942b53e15694095885ba25859bebe62","correlation_id":"req_d942b53e15694095885ba25859bebe62","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":403,"duration_ms":4}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017864719,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/members/mem_13f0ef1171cb441392776e46e45d4541 403 Forbidden (7ms)
+{"event":"http_request","request_id":"req_2e9b27964d7040b39233bfd7d1459a7a","correlation_id":"req_2e9b27964d7040b39233bfd7d1459a7a","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017865621,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/members/mem_13f0ef1171cb441392776e46e45d4541 403 Forbidden (6ms)
+[InspectorProxyWorker] SEND TO RUNTIME {"method":"Runtime.getIsolateId","id":100000002}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE { id: 100000002, result: { id: '93d832f6a93db6ba' } }
+{"event":"http_request","request_id":"req_97675f3e7f2a475cabddc09cf691275e","correlation_id":"req_97675f3e7f2a475cabddc09cf691275e","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":422,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017866554,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/invitations 422 Unprocessable Entity (6ms)
+{"event":"http_request","request_id":"req_6d84a501e5d1489faa6cf29886b3402a","correlation_id":"req_6d84a501e5d1489faa6cf29886b3402a","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":403,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017867463,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/members/mem_13f0ef1171cb441392776e46e45d4541 403 Forbidden (6ms)
+{"event":"http_request","request_id":"req_e923c6250c9d497eadac4ea53fc2cefa","correlation_id":"req_e923c6250c9d497eadac4ea53fc2cefa","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017868407,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/members/mem_be13dc1a5b8144189e085fb66468cd29 403 Forbidden (6ms)
+{"event":"http_request","request_id":"req_c5a49b9de8724691aa9c7b75d59ebf35","correlation_id":"req_c5a49b9de8724691aa9c7b75d59ebf35","method":"POST","route":"/api/v1/orgs/{org_id}/ownership-transfer","status":422,"duration_ms":1}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017869334,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/ownership-transfer 422 Unprocessable Entity (4ms)
+{"event":"http_request","request_id":"req_74b66aa85f0b47a087303a959d18b128","correlation_id":"req_74b66aa85f0b47a087303a959d18b128","method":"PATCH","route":"/api/v1/orgs/{org_id}/budgets/{budget_id}","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017871147,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/budgets/bud_1de660436a64494caf6bc35907dc2941 403 Forbidden (6ms)
+{"event":"http_request","request_id":"req_f4d7aa5bf2ec4fe38e211af55da0bdc9","correlation_id":"req_f4d7aa5bf2ec4fe38e211af55da0bdc9","method":"POST","route":"/api/v1/orgs/{org_id}/budgets","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017872074,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/budgets 403 Forbidden (6ms)
+{"event":"http_request","request_id":"req_2407815b833f476889c2f5b61d012f11","correlation_id":"req_2407815b833f476889c2f5b61d012f11","method":"POST","route":"/api/v1/orgs/{org_id}/service-accounts","status":403,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017872996,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/service-accounts 403 Forbidden (5ms)
+{"event":"http_request","request_id":"req_ef6766f4dfd14908b98853598dfeb980","correlation_id":"req_ef6766f4dfd14908b98853598dfeb980","method":"PATCH","route":"/api/v1/orgs/{org_id}/service-accounts/{service_account_id}","status":403,"duration_ms":4}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017873905,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/service-accounts/svc_3642201727a7422180841dae7e291b03 403 Forbidden (6ms)
+{"event":"http_request","request_id":"req_24b7245cb9a6417caedbb1426a37e464","correlation_id":"req_24b7245cb9a6417caedbb1426a37e464","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":403,"duration_ms":4}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017874802,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/routes 403 Forbidden (5ms)
+{"event":"http_request","request_id":"req_e3217f3c45da422192403d34bde6dee5","correlation_id":"req_e3217f3c45da422192403d34bde6dee5","method":"POST","route":"/api/v1/orgs/{org_id}/catalog/models","status":403,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017875750,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/catalog/models 403 Forbidden (7ms)
+[InspectorProxyWorker] SEND TO RUNTIME {"method":"Runtime.getIsolateId","id":100000003}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE { id: 100000003, result: { id: '93d832f6a93db6ba' } }
+{"event":"http_request","request_id":"req_08db2ae6b8bd482ba2c0d522de5543a6","correlation_id":"req_08db2ae6b8bd482ba2c0d522de5543a6","method":"PATCH","route":"/api/v1/orgs/{org_id}/service-accounts/{service_account_id}","status":403,"duration_ms":2}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017876681,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/service-accounts/svc_948a7a07f22749f6b6007f72257b2cb1 403 Forbidden (5ms)
+{"event":"http_request","request_id":"req_1472f56bab04407fb86ef482ff733367","correlation_id":"req_1472f56bab04407fb86ef482ff733367","method":"PUT","route":"/api/v1/orgs/{org_id}/policy/tools","status":422,"duration_ms":0}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017877585,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PUT /api/v1/orgs/org_1f4b8aebcfefa5b0e3ba3b631c58262a/policy/tools 422 Unprocessable Entity (4ms)
+{"event":"http_request","request_id":"req_f0b7c80154784d9a8247df1e17086fb3","correlation_id":"req_f0b7c80154784d9a8247df1e17086fb3","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017879422,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs 201 Created (7ms)
+{"event":"http_request","request_id":"req_25b53dab84944f7b8a05329b979b803a","correlation_id":"req_25b53dab84944f7b8a05329b979b803a","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017879430,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs 201 Created (7ms)
+{"event":"http_request","request_id":"req_105f7882bd8e41d4ae8e29f4c3175acb","correlation_id":"req_105f7882bd8e41d4ae8e29f4c3175acb","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":201,"duration_ms":5}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017879439,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_068d7580d1d98bac4d159e53100a9e2e/invitations 201 Created (8ms)
+{"event":"http_request","request_id":"req_ddf4897fc5a84fc79a2978d3a2515e64","correlation_id":"req_ddf4897fc5a84fc79a2978d3a2515e64","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017879445,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/invitations/inv_ca11a36973f5385277ab0759c6f3c9ed/accept 200 OK (5ms)
+{"event":"http_request","request_id":"req_c1789f7b4a154ab589bb154fab92c065","correlation_id":"req_c1789f7b4a154ab589bb154fab92c065","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":200,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017880413,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_068d7580d1d98bac4d159e53100a9e2e/members/mem_3dbdfd29020348ab89f8417f22394a1d 200 OK (8ms)
+{"event":"http_request","request_id":"req_fcad1be9db4840a3b7bc6537950d5567","correlation_id":"req_fcad1be9db4840a3b7bc6537950d5567","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":409,"duration_ms":4}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017884042,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_959bcb30ededa44a5d01145ecf7f8012/members/mem_0ff99a9fbf9f2d0227bbf29c4f1659b4 409 Conflict (7ms)
+{"event":"http_request","request_id":"req_faa64341e09b432c88a5d5f9a89ee566","correlation_id":"req_faa64341e09b432c88a5d5f9a89ee566","method":"DELETE","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":409,"duration_ms":6}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017885855,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] DELETE /api/v1/orgs/org_959bcb30ededa44a5d01145ecf7f8012/members/mem_0ff99a9fbf9f2d0227bbf29c4f1659b4 409 Conflict (8ms)
+[InspectorProxyWorker] SEND TO RUNTIME {"method":"Runtime.getIsolateId","id":100000004}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE { id: 100000004, result: { id: '93d832f6a93db6ba' } }
+{"event":"http_request","request_id":"req_4a7afbb3fb404595966614bd60c8e631","correlation_id":"req_4a7afbb3fb404595966614bd60c8e631","method":"POST","route":"/api/v1/orgs/{org_id}/leave","status":409,"duration_ms":3}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017887706,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_959bcb30ededa44a5d01145ecf7f8012/leave 409 Conflict (6ms)
+{"event":"http_request","request_id":"req_5de5eefb4e084a2e9359fcce56c58f4d","correlation_id":"req_5de5eefb4e084a2e9359fcce56c58f4d","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":200,"duration_ms":4}
+[InspectorProxyWorker] RUNTIME INCOMING MESSAGE {
+  method: 'Runtime.consoleAPICalled',
+  params: {
+    type: 'log',
+    args: [ [Object] ],
+    executionContextId: 156972641,
+    timestamp: 1791017890399,
+    stackTrace: { callFrames: [Array] }
+  }
+}
+[wrangler-ProxyWorker:info] PATCH /api/v1/orgs/org_068d7580d1d98bac4d159e53100a9e2e/members/mem_eb43deea9c609ff2db7952769717ba23 200 OK (7ms)
+
+
+V01 privilege-escalation DID NOT COMPLETE. 69 assertion(s) passed and 0 failed before it died; every case after the failure above was NEVER RUN, and the totals below do not include them.
+
+69/69 cases reached before the failure
+[ELIFECYCLE] Command failed with exit code 2.
+Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+
+  × "pnpm recursive run" failed in /Volumes/SSD/agents-cp.runlumi/apps/api
+
+[ELIFECYCLE] Command failed with exit code 1.
+EXIT=1

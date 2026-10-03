@@ -27,6 +27,7 @@
 //! `routes::approvals` can reuse them without a shared-file edit; they should
 //! move to `routes::support` when the coordinator wires the P05 modules.
 
+use std::collections::BTreeMap;
 use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
@@ -1672,12 +1673,12 @@ pub async fn create_tool_decision(
         organization_policy,
         project_policy,
         agent: agent_policy(agent.as_ref()),
-        runtime: runtime_capabilities(&device, catalog.as_ref(), &capability_ids),
+        runtime: runtime_capabilities(&device, catalog.as_ref(), &capability_ids, &capabilities),
         catalog: tool_catalog(
             &context,
             catalog.as_ref(),
             registration.as_ref(),
-            &capability_definitions(&capabilities),
+            &capabilities,
         )?,
         call: ToolCall {
             tool_call_id: tool_call_id.clone(),
@@ -2163,17 +2164,31 @@ fn tool_catalog(
     context: &RequestContext,
     tool: Option<&ToolDefinitionRecord>,
     registration: Option<&McpRegistrationRecord>,
-    capability_definitions: &BTreeSet<String>,
+    capabilities: &[CapabilityDefinitionRecord],
 ) -> Result<ToolCatalog, ApiError> {
     let mut catalog = ToolCatalog::default();
-    for capability_id in capability_definitions {
-        catalog.capability_definitions.insert(
-            capability_id.clone(),
-            CapabilityDefinition {
-                capability_id: capability_id.clone(),
-                lifecycle: CapabilityLifecycle::Active,
-            },
-        );
+    for capability in capabilities {
+        let Some(risk_class) = RiskClass::parse(&capability.risk_class) else {
+            return Err(service_unavailable(context));
+        };
+        // Both spellings of the row project as identifiers of the same class,
+        // so a lookup by the tool's `cap_` reference and a lookup by the
+        // evaluator's injected bare key resolve to the same definition — which
+        // is what lets the browser/computer matchers recognize a tool that
+        // carries the platform capability (V04-010).
+        for identifier in [
+            capability.capability_id.clone(),
+            capability.capability_key.clone(),
+        ] {
+            catalog.capability_definitions.insert(
+                identifier.clone(),
+                CapabilityDefinition {
+                    capability_id: identifier,
+                    risk_class,
+                    lifecycle: CapabilityLifecycle::Active,
+                },
+            );
+        }
     }
     if let Some(registration) = registration {
         let Some(source) = mcp_source(&registration.source) else {
@@ -2234,22 +2249,6 @@ fn tool_catalog(
     Ok(catalog)
 }
 
-/// Capability identity visible to the evaluator.
-///
-/// The catalog row carries both an opaque `cap_` identifier and a stable
-/// `capability_key`. The evaluator injects the bare key (`browser`,
-/// `computer`) for a browser- or computer-shaped call, so both spellings are
-/// projected as identifiers of the same class. A key that collides with another
-/// row's identifier is already the same class, so the set stays unambiguous.
-fn capability_definitions(capabilities: &[CapabilityDefinitionRecord]) -> BTreeSet<String> {
-    let mut resolved = BTreeSet::new();
-    for capability in capabilities {
-        resolved.insert(capability.capability_id.clone());
-        resolved.insert(capability.capability_key.clone());
-    }
-    resolved
-}
-
 /// Agent-level intersection constraint. The agent's declared runtime
 /// requirements are enforced by the execution host, not by the control-plane
 /// tool gate, so only the tool allow-list is projected here.
@@ -2274,6 +2273,7 @@ fn runtime_capabilities(
     device: &DeviceRecord,
     tool: Option<&ToolDefinitionRecord>,
     requested: &BTreeSet<String>,
+    capabilities: &[CapabilityDefinitionRecord],
 ) -> RuntimeCapabilities {
     let Some(raw) = device.capabilities.as_deref() else {
         return RuntimeCapabilities::default();
@@ -2293,17 +2293,41 @@ fn runtime_capabilities(
             reported.insert(key.to_owned());
         }
     }
-    // Mirror the requested identifiers that the device's toggles cover.
-    for identifier in requested {
+    // A capability identifier is covered when the device's toggles cover the
+    // row it names. The catalogue is the only honest resolver here: a catalog
+    // `CapabilityId` is `cap_` + opaque hex, so stripping the prefix cannot
+    // recover the key a device toggle names (the V04-010 spelling-match shape,
+    // one layer below the evaluator). Legacy spellings whose suffix IS a bare
+    // key keep working through the same strip.
+    let catalogue_keys: BTreeMap<&str, &str> = capabilities
+        .iter()
+        .map(|record| {
+            (
+                record.capability_id.as_str(),
+                record.capability_key.as_str(),
+            )
+        })
+        .collect();
+    let identifier_covered = |identifier: &str, reported: &BTreeSet<String>| -> bool {
+        if reported.contains(identifier) {
+            return true;
+        }
         let base = identifier.strip_prefix("cap_").unwrap_or(identifier);
         if reported.contains(base) {
+            return true;
+        }
+        catalogue_keys
+            .get(identifier)
+            .is_some_and(|key| reported.contains(*key))
+    };
+    for identifier in requested {
+        if identifier_covered(identifier, &reported) {
             reported.insert(identifier.clone());
         }
     }
     if let Some(tool) = tool {
         for identifier in string_list(&tool.capability_ids_json) {
-            let base = identifier.strip_prefix("cap_").unwrap_or(&identifier);
-            if reported.contains(base) {
+            if identifier_covered(&identifier, &reported) {
                 reported.insert(identifier);
             }
         }

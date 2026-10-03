@@ -510,9 +510,18 @@ impl PlatformToolPolicy {
 /// A capability definition is catalog metadata. The runtime report is checked
 /// separately; this prevents a runtime from silently enabling a disabled or
 /// newly unknown managed capability.
+///
+/// `risk_class` carries the catalogue row's class so a tool capability
+/// reference can be resolved to what it IS, not merely that it exists: the
+/// browser/computer matchers below must recognize a tool that carries the
+/// platform `browser`/`computer` capability by its catalog id — a `CapabilityId`
+/// is `cap_` + opaque hex, so no spelling match on the tool's set alone can
+/// identify it (the V04-010 shape: a live call behind a condition that can
+/// never hold).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapabilityDefinition {
     pub capability_id: String,
+    pub risk_class: RiskClass,
     pub lifecycle: CapabilityLifecycle,
 }
 
@@ -1212,10 +1221,13 @@ pub fn evaluate(input: &PolicyEvaluationInput) -> ToolPolicyDecision {
 
     let mut required_capabilities = definition.capability_ids.clone();
     required_capabilities.extend(input.agent.required_capability_ids.iter().cloned());
-    if input.call.browser_action.is_some() && !has_browser_capability(&definition.capability_ids) {
+    if input.call.browser_action.is_some()
+        && !has_browser_capability(&definition.capability_ids, &input.catalog)
+    {
         required_capabilities.insert(BROWSER_CAPABILITY_ID.to_owned());
     }
-    if input.call.computer_action.is_some() && !has_computer_capability(&definition.capability_ids)
+    if input.call.computer_action.is_some()
+        && !has_computer_capability(&definition.capability_ids, &input.catalog)
     {
         required_capabilities.insert(COMPUTER_CAPABILITY_ID.to_owned());
     }
@@ -1597,7 +1609,7 @@ fn evaluate_browser_rules(
 ) -> Option<Result<ApprovalMode, DecisionReasonCode>> {
     let definition = input.catalog.tool(&input.call.tool_id);
     let browser_capability =
-        definition.is_some_and(|tool| has_browser_capability(&tool.capability_ids));
+        definition.is_some_and(|tool| has_browser_capability(&tool.capability_ids, &input.catalog));
     let browser_shaped = input.call.risk_class == RiskClass::Browser || browser_capability;
     if input.call.browser_action.is_none() {
         return browser_shaped.then_some(Err(DecisionReasonCode::BrowserActionDenied));
@@ -1648,8 +1660,8 @@ fn evaluate_computer_rules(
     input: &PolicyEvaluationInput,
 ) -> Option<Result<ApprovalMode, DecisionReasonCode>> {
     let definition = input.catalog.tool(&input.call.tool_id);
-    let computer_capability =
-        definition.is_some_and(|tool| has_computer_capability(&tool.capability_ids));
+    let computer_capability = definition
+        .is_some_and(|tool| has_computer_capability(&tool.capability_ids, &input.catalog));
     let computer_shaped = input.call.risk_class == RiskClass::Computer || computer_capability;
     if input.call.computer_action.is_none() {
         return computer_shaped.then_some(Err(DecisionReasonCode::ComputerActionDenied));
@@ -1711,22 +1723,47 @@ fn effective_computer_policy(input: &PolicyEvaluationInput) -> ComputerPolicy {
     effective
 }
 
-fn has_browser_capability(capabilities: &BTreeSet<String>) -> bool {
-    has_capability(capabilities, BROWSER_CAPABILITY_ID)
-        || capabilities.contains("browser_use")
-        || capabilities.contains("cap_browser_use")
-}
-
-fn has_computer_capability(capabilities: &BTreeSet<String>) -> bool {
-    has_capability(capabilities, COMPUTER_CAPABILITY_ID)
-        || capabilities.contains("computer_use")
-        || capabilities.contains("cap_computer_use")
-}
-
-fn has_capability(capabilities: &BTreeSet<String>, expected: &str) -> bool {
+/// Whether the tool's capability references include a catalogued capability of
+/// the given risk class, or one of the evaluator's own bare-key spellings.
+///
+/// The catalogue lookup is the load-bearing half: a tool references capability
+/// rows by their catalog `capability_id` (`cap_` + opaque hex, the only form
+/// `capability_ids_value` accepts), and "browser-capable" is a property of the
+/// ROW the id names — its `risk_class` — which no spelling match on the id can
+/// recover. The bare-key alternatives keep the evaluator's injected keys and
+/// the pre-catalogue fixture spellings recognized; they cannot make a tool
+/// capable on their own because `capability_ids_value` never admits them.
+fn has_capability_of_class(
+    capabilities: &BTreeSet<String>,
+    catalog: &ToolCatalog,
+    class: RiskClass,
+    bare_keys: &[&str],
+) -> bool {
     capabilities.iter().any(|capability| {
-        capability == expected || capability.strip_prefix("cap_") == Some(expected)
+        bare_keys.contains(&capability.as_str())
+            || catalog
+                .capability_definitions
+                .get(capability)
+                .is_some_and(|definition| definition.risk_class == class)
     })
+}
+
+fn has_browser_capability(capabilities: &BTreeSet<String>, catalog: &ToolCatalog) -> bool {
+    has_capability_of_class(
+        capabilities,
+        catalog,
+        RiskClass::Browser,
+        &["browser", "browser_use", "cap_browser_use"],
+    )
+}
+
+fn has_computer_capability(capabilities: &BTreeSet<String>, catalog: &ToolCatalog) -> bool {
+    has_capability_of_class(
+        capabilities,
+        catalog,
+        RiskClass::Computer,
+        &["computer", "computer_use", "cap_computer_use"],
+    )
 }
 
 fn valid_metadata_id(value: &str, max_len: usize) -> bool {

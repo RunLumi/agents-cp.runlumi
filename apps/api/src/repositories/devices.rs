@@ -11,8 +11,57 @@ use crate::{
     core::Timestamp,
 };
 
-const INSERT_ENROLLMENT_SQL: &str = r#"
-INSERT INTO device_enrollments (
+/// One organization's device-policy row (F19-008). `min_client_version` is
+/// `None` while no floor is armed; `version` carries the optimistic-concurrency
+/// counter the admin write surface guards on (migration 0024).
+#[derive(Debug, Deserialize)]
+pub struct DevicePolicyRecord {
+    pub org_id: String,
+    pub min_client_version: Option<String>,
+    pub version: i64,
+    pub updated_at: String,
+}
+
+const FIND_DEVICE_POLICY_SQL: &str = r#"
+SELECT org_id, min_client_version, version, updated_at
+FROM org_device_policy_settings
+WHERE org_id = ?1
+LIMIT 1
+"#;
+
+const UPSERT_DEVICE_POLICY_SQL: &str = r#"
+INSERT INTO org_device_policy_settings (org_id, min_client_version, version, updated_at)
+VALUES (?1, ?2, ?3 + 1, ?4)
+ON CONFLICT(org_id) DO UPDATE SET
+    min_client_version = excluded.min_client_version,
+    version = ?3 + 1,
+    updated_at = excluded.updated_at
+WHERE org_device_policy_settings.version = ?3
+"#;
+
+const ASSERT_DEVICE_POLICY_VERSION_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE NOT EXISTS (
+    SELECT 1 FROM org_device_policy_settings WHERE org_id = ?1 AND version = ?2
+)
+"#;
+
+const ASSERT_DEVICE_POLICY_ABSENT_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE EXISTS (
+    SELECT 1 FROM org_device_policy_settings WHERE org_id = ?1
+)
+"#;
+
+const INSERT_ENROLLMENT_SQL: &str = r#"INSERT INTO device_enrollments (
     enrollment_id, org_id, code_hash, public_key, key_fingerprint,
     device_name, platform, app_version, status, challenge, expires_at, created_at, updated_at
 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9, ?10, ?11, ?11)
@@ -610,5 +659,78 @@ impl<'a> DeviceRepository<'a> {
         )?;
         let result = statement.run().await?;
         Ok(D1Adapter::changes(&result)? > 0)
+    }
+
+    /// The organization's device-policy row, `None` when no floor has ever
+    /// been armed. The columns beyond `org_id` exist only after migration
+    /// 0024, which also introduced `version`.
+    pub async fn find_device_policy(
+        &self,
+        org_id: &str,
+    ) -> worker::Result<Option<DevicePolicyRecord>> {
+        let statement = self
+            .database
+            .prepare(FIND_DEVICE_POLICY_SQL, &[BindValue::Text(org_id)])?;
+        statement.first::<DevicePolicyRecord>(None).await
+    }
+
+    /// Arm (or clear, with `None`) the organization's minimum client version,
+    /// guarded by the row's optimistic `version`. The upsert computes the new
+    /// version as `?3 + 1` on both paths — the caller passes the row's current
+    /// version, or 0 when creating — and the `WHERE` on the conflict arm makes
+    /// a stale concurrent write match zero rows. A zero-row conflict update
+    /// does not abort a D1 batch by itself (the V01-042 shape), so the caller
+    /// pairs this statement with `assert_device_policy_version_statement` and
+    /// grades the stored `changes()`.
+    pub fn upsert_device_policy_statement(
+        &self,
+        org_id: &str,
+        min_client_version: Option<&str>,
+        expected_version: i64,
+        now: &Timestamp,
+    ) -> worker::Result<D1PreparedStatement> {
+        let version_bind = match min_client_version {
+            Some(value) => BindValue::Text(value),
+            // Clearing the floor stores NULL, which the read maps to "no floor".
+            None => BindValue::Null,
+        };
+        self.database.prepare(
+            UPSERT_DEVICE_POLICY_SQL,
+            &[
+                BindValue::Text(org_id),
+                version_bind,
+                BindValue::Integer(expected_version as i32),
+                BindValue::Text(now.as_str()),
+            ],
+        )
+    }
+
+    /// Guard sentinel: aborts the batch when the stored row's version is not
+    /// the one the caller based its write on. Same shape as the org policy
+    /// guard in `repositories/ai.rs` — a no-op INSERT whose NULLs violate the
+    /// idempotency ledger's own constraints exactly when the guard fails.
+    pub fn assert_device_policy_version_statement(
+        &self,
+        org_id: &str,
+        expected_version: i64,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            ASSERT_DEVICE_POLICY_VERSION_SQL,
+            &[
+                BindValue::Text(org_id),
+                BindValue::Integer(expected_version as i32),
+            ],
+        )
+    }
+
+    /// Guard sentinel for the create path: aborts the batch when a row
+    /// already exists, so two concurrent "first" writes cannot both claim
+    /// version 1.
+    pub fn assert_device_policy_absent_statement(
+        &self,
+        org_id: &str,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database
+            .prepare(ASSERT_DEVICE_POLICY_ABSENT_SQL, &[BindValue::Text(org_id)])
     }
 }

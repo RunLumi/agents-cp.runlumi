@@ -93,6 +93,14 @@ P1 compare internal usage/cost with provider invoice/export where API exists.
 
 Discrepancy is surfaced, not silently overwritten.
 
+> Classification note (2026-10-03 audit pass, resolving V04's frozen-contract
+> drift finding): this requirement is **P1 by its own text**, inside the F12
+> area whose overall priority in `docs/specs/README.md` is P0. The drift was
+> that no record said so — a P0-area row read as a P0 obligation and was
+> carried as an unproven release blocker. The requirement's own priority
+> statement is authoritative for FR-F12-008; the area row governs the rest of
+> F12. No requirement text is changed by this note.
+
 ## Web UX
 
 - current spend/usage;

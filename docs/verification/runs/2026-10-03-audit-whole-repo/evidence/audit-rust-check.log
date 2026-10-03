@@ -1,0 +1,6 @@
+$ cargo clippy --workspace --all-targets -- -D warnings && cargo check --workspace --target wasm32-unknown-unknown
+    Checking lumi-agents-control-plane-api v0.1.0 (/Volumes/SSD/agents-cp.runlumi/apps/api)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.35s
+    Checking lumi-agents-control-plane-api v0.1.0 (/Volumes/SSD/agents-cp.runlumi/apps/api)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.89s
+RUST_EXIT=0
