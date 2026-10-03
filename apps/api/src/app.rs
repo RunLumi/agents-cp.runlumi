@@ -253,6 +253,13 @@ pub fn router(env: Env) -> Router {
             "/api/v1/orgs/{org_id}/devices/{device_id}",
             get(devices::get_device).delete(devices::revoke_device),
         )
+        // F19-008 / V04-008: the lever that arms (or clears) the org's minimum
+        // client version. GET for the device-policy UI, PUT behind DevicesManage
+        // for the org admins responding to a client-side security fix.
+        .route(
+            "/api/v1/orgs/{org_id}/device-policy",
+            get(devices::get_device_policy).put(devices::update_device_policy),
+        )
         .route(
             "/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve",
             post(devices::approve_enrollment),

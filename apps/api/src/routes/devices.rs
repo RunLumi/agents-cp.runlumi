@@ -29,7 +29,7 @@ use crate::{
         authorization::Permission,
         devices::{
             self, DEVICE_TOKEN_TTL_SECONDS, DeviceStatus, ENROLLMENT_TTL_SECONDS, EnrollmentStatus,
-            validate_capability_report, validate_enrollment_input, version_at_least,
+            validate_capability_report, validate_enrollment_input, parse_version, version_at_least,
         },
         policy::{self, PolicyInputs},
     },
@@ -1793,5 +1793,212 @@ pub async fn revoke_device(
         ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
             Ok(StatusCode::NO_CONTENT.into_response())
         }
+    }
+}
+
+// --- F19-008: the lever for the minimum-client-version control ----------------
+//
+// The comparator (`modules/devices.rs::version_at_least`), the policy read and
+// the refusal at token exchange have existed since P03, but nothing could write
+// `org_device_policy_settings.min_client_version` — the whole-repo mention list
+// was the CREATE TABLE in migration 0007 and that SELECT (V04-008). The control
+// existed on paper and could not be armed: fail-open, inert, the lever for
+// responding to a client-side security fix missing entirely. These routes are
+// the lever, deliberately behind `DevicesManage` — the same authority that
+// approves enrollments arms the floor — with the staged-rollout messaging the
+// spec names remaining a client concern: the floor REFUSES, it does not brick,
+// and clearing it (`null`) is one request.
+
+const DEVICE_POLICY_PATH: &str = "/api/v1/orgs/{org_id}/device-policy";
+
+#[derive(Debug, Deserialize)]
+pub struct DevicePolicyRequest {
+    /// The new floor, or `null` to clear it. A value the comparator would fail
+    /// closed on is refused here rather than stored, because storing it would
+    /// refuse EVERY device (a bricked fleet by configuration).
+    pub min_client_version: Option<String>,
+    /// Optimistic concurrency: the row's current version, or 0 when arming a
+    /// floor for the first time.
+    pub version: i64,
+}
+
+fn device_policy_body(
+    min_client_version: Option<&str>,
+    version: i64,
+    updated_at: Option<&str>,
+) -> Value {
+    json!({
+        "min_client_version": min_client_version.map(Value::from).unwrap_or(Value::Null),
+        "version": version,
+        "updated_at": updated_at.map(Value::from).unwrap_or(Value::Null),
+    })
+}
+
+#[worker::send]
+pub async fn get_device_policy(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path(org_id): Path<String>,
+) -> Result<Response<Body>, ApiError> {
+    authorize_org(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        Permission::DevicesRead,
+        Some("device-policy"),
+        None,
+    )
+    .await?;
+    let database = database(&state, &context)?;
+    let record = DeviceRepository::new(database)
+        .find_device_policy(&org_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?;
+    let body = match &record {
+        Some(row) => device_policy_body(
+            row.min_client_version.as_deref(),
+            row.version,
+            Some(row.updated_at.as_str()),
+        ),
+        None => device_policy_body(None, 0, None),
+    };
+    Ok((StatusCode::OK, Json(body)).into_response())
+}
+
+#[worker::send]
+pub async fn update_device_policy(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path(org_id): Path<String>,
+    Json(body): Json<DevicePolicyRequest>,
+) -> Result<Response<Body>, ApiError> {
+    let access = authorize_org(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        Permission::DevicesManage,
+        Some("device-policy"),
+        None,
+    )
+    .await?;
+    require_csrf(&headers, &access.session, &context).await?;
+    let key = idempotency_key(&headers, &context)?;
+    if let Some(value) = body.min_client_version.as_deref() {
+        if parse_version(value).is_none() || value.is_empty() {
+            return Err(validation_error(
+                &context,
+                "min_client_version_invalid",
+                "Enter a version like 1.2.0, or clear the floor.",
+            ));
+        }
+    }
+    let database = database(&state, &context)?;
+    let repository = DeviceRepository::new(database);
+    let mutation = prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        org_id.as_str(),
+        &key,
+        "PUT",
+        DEVICE_POLICY_PATH,
+        &json!({"min_client_version": body.min_client_version, "version": body.version}),
+    )
+    .await?;
+    let claim = match mutation {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+    // The current row decides which guard the batch carries: a stale version on
+    // an existing row, or a concurrent "first" write, aborts the whole batch.
+    let current = repository
+        .find_device_policy(&org_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?;
+    let (expected_version, guard) = match &current {
+        Some(row) => {
+            if body.version != row.version {
+                return Err(domain_error(
+                    &context,
+                    ApiErrorCode::Conflict,
+                    "version_conflict",
+                    "The device policy changed. Refresh and try again.",
+                ));
+            }
+            (
+                row.version,
+                repository
+                    .assert_device_policy_version_statement(&org_id, row.version)
+                    .map_err(|_| service_unavailable(&context))?,
+            )
+        }
+        None => {
+            if body.version != 0 {
+                return Err(domain_error(
+                    &context,
+                    ApiErrorCode::Conflict,
+                    "version_conflict",
+                    "The device policy changed. Refresh and try again.",
+                ));
+            }
+            (
+                0,
+                repository
+                    .assert_device_policy_absent_statement(&org_id)
+                    .map_err(|_| service_unavailable(&context))?,
+            )
+        }
+    };
+    let upsert = repository
+        .upsert_device_policy_statement(
+            &org_id,
+            body.min_client_version.as_deref(),
+            expected_version,
+            &context.received_at,
+        )
+        .map_err(|error| database_error(&context, error))?;
+    let event_id = generated_id("sec");
+    let audit = security_event_statement(
+        database,
+        &context,
+        Some(&access.principal),
+        None,
+        Some(org_id.as_str()),
+        SecurityEventId::new(event_id),
+        "device_policy.updated.v1",
+        "device_policy",
+        Some(&org_id),
+        "success",
+        &json!({
+            "min_client_version": body.min_client_version,
+            "version": expected_version + 1,
+        }),
+    )?;
+    let next_version = expected_version + 1;
+    let updated_at = context.received_at.as_str().to_owned();
+    let success_body = device_policy_body(
+        body.min_client_version.as_deref(),
+        next_version,
+        Some(updated_at.as_str()),
+    );
+    let success =
+        StoredSuccess::new(200, success_body.clone()).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, vec![guard, upsert], audit)
+        .await?
+    {
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+        ScopedMutationCommit::Committed => {
+            Ok((StatusCode::OK, Json(success_body)).into_response())
+        }
+        ScopedMutationCommit::Guarded => Err(domain_error(
+            &context,
+            ApiErrorCode::Conflict,
+            "version_conflict",
+            "The device policy changed. Refresh and try again.",
+        )),
     }
 }

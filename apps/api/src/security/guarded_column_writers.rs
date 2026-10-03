@@ -13,13 +13,16 @@
 //! | comparator | `modules/devices.rs:203` `version_at_least` | present, five unit tests |
 //! | policy read | `routes/devices.rs:386` `latest_min_client_version` | present |
 //! | the refusal | `routes/devices.rs:822` → `client_version_too_old` | present |
-//! | **the thing that arms it** | `org_device_policy_settings.min_client_version` | **never written** |
+//! | **the thing that arms it** | `org_device_policy_settings.min_client_version` | **REPAIRED 2026-10-03** — `PUT/GET /api/v1/orgs/{org_id}/device-policy` (DevicesManage), floor validated against the comparator's own parser, optimistic version from migration 0024 |
 //!
-//! The whole-repo mention list for that table is two lines: the `CREATE TABLE` in migration 0007, and
+//! The whole-repo mention list for that table was two lines: the `CREATE TABLE` in migration 0007, and
 //! the `SELECT` at `devices.rs:386`. No `INSERT`, no `UPDATE`, no `DELETE`, no seed. So
-//! `latest_min_client_version` returns `None` for every organization, `if let Some(minimum)` at
-//! `devices.rs:822` is never taken, and `version_at_least` at `devices.rs:823` is a call that can never
-//! execute.
+//! `latest_min_client_version` returned `None` for every organization, `if let Some(minimum)` at
+//! `devices.rs:822` was never taken, and `version_at_least` at `devices.rs:823` was a call that could
+//! never execute. That was the defect the check was written for; the routed write surface (the
+//! campaign that repaired it is recorded in
+//! `docs/verification/runs/2026-10-03-v05-whole-site-and-release-security/`) closed it, and the entry
+//! below stays as a `Record` so the guard's arming column remains on the books.
 //!
 //! That last shape is the one to be careful about. AGENTS.md names it for `is_run_source` (V01-047): a
 //! **liveness check can be satisfied by a call that can never execute.** `version_at_least` *is*
@@ -123,17 +126,18 @@ mod tests {
         table: "org_device_policy_settings",
         column: "min_client_version",
         guard: "latest_min_client_version",
-        status: Status::Unwritable,
-        reason: "V04-008 / FR-F19-008. The whole-repo mention list is two lines: the CREATE TABLE in \
-                 migration 0007 and the SELECT at routes/devices.rs:386. No INSERT, UPDATE, DELETE or \
-                 seed anywhere. `if let Some(minimum)` at devices.rs:822 is therefore never taken and \
-                 `version_at_least` at devices.rs:823 cannot execute, so `client_version_too_old` is \
-                 unreachable and a device may present any syntactically valid app_version. Fails OPEN: \
-                 this is the lever for forcing a client upgrade after a security fix. Deliberately \
-                 recorded and not implemented -- adding a routed write surface to a device \
-                 authorization boundary during a release campaign would broaden the problem rather \
-                 than solve it. No spec or ADR names this column or a route that arms it, so it is not \
-                 another system's responsibility.",
+        status: Status::Record,
+        reason: "V04-008 / FR-F19-008, REPAIRED in the 2026-10-03 audit pass. The whole-repo mention \
+                 list used to be two lines: the CREATE TABLE in migration 0007 and the SELECT at \
+                 routes/devices.rs:386 -- no writer anywhere, so `client_version_too_old` was \
+                 unreachable and a device could present any syntactically valid app_version. The \
+                 lever now exists: `PUT/GET /api/v1/orgs/{org_id}/device-policy` \
+                 (routes/devices.rs, DevicesManage), with the floor validated against the \
+                 comparator's own parser (`parse_version`, so a minimum that would fail closed for \
+                 EVERY device is refused at the boundary), optimistic `version` from migration 0024, \
+                 an audit event, and idempotent replay. Kept on the list as a record: the guard and \
+                 its arming column stay observable, and a future entry for a DIFFERENT unwritable \
+                 arming dependency must not silently inherit this one's history.",
     }];
 
     /// A table application code definitely writes, used as the detector's positive control.

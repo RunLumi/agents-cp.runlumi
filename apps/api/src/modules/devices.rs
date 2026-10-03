@@ -197,22 +197,28 @@ pub fn validate_capability_report(raw: &str) -> Result<String, CoreError> {
     serde_json::to_string(&value).map_err(|_| CoreError::InvalidCapabilityReport)
 }
 
+/// Parse a dot-separated numeric version, up to four components, missing
+/// components zero. Shared by the F19-008 comparator and the admin write
+/// surface that arms the floor: a minimum the parser rejects would make
+/// `version_at_least` fail closed for EVERY device, so the write surface must
+/// refuse it at the boundary rather than store a bricking value.
+pub fn parse_version(text: &str) -> Option<[u64; 4]> {
+    let mut parts = [0u64; 4];
+    for (index, segment) in text.split('.').enumerate() {
+        if index >= 4 || segment.is_empty() {
+            return None;
+        }
+        let value: u64 = segment.parse().ok()?;
+        parts[index] = value;
+    }
+    Some(parts)
+}
+
 /// Deterministic minimum-version comparison (F19-008): dot-separated numeric
 /// components, up to four, missing components are zero. A version that does
 /// not parse never satisfies the minimum (fail closed for managed operations).
 pub fn version_at_least(current: &str, minimum: &str) -> bool {
-    let parse = |text: &str| -> Option<[u64; 4]> {
-        let mut parts = [0u64; 4];
-        for (index, segment) in text.split('.').enumerate() {
-            if index >= 4 || segment.is_empty() {
-                return None;
-            }
-            let value: u64 = segment.parse().ok()?;
-            parts[index] = value;
-        }
-        Some(parts)
-    };
-    match (parse(current), parse(minimum)) {
+    match (parse_version(current), parse_version(minimum)) {
         (Some(current), Some(minimum)) => current >= minimum,
         _ => false,
     }

@@ -154,6 +154,11 @@ const COVERED = [
   "/api/v1/orgs/{org_id}/service-accounts",
   "/api/v1/orgs/{org_id}/webhooks",
   "/api/v1/orgs/{org_id}/billing/portal-session",
+  // 2026-10-03 audit pass: the device-policy lever (V04-008 repair). The GET
+  // reads the org's device-policy row, so a missing org_id predicate would leak
+  // another org's floor; the PUT is graded by verify:mutating-tenancy-style
+  // stored-state assertions in smoke:p03.
+  "/api/v1/orgs/{org_id}/device-policy",
 ];
 /** Routes p08 or verify:filter-tenancy already drive, so this probe does not duplicate them. */
 const PROVEN_ELSEWHERE = new Set([
