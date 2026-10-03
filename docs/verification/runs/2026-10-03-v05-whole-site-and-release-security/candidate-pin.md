@@ -10,6 +10,7 @@ Pinned before any evidence was taken, per the release gate's "Pin the candidate"
 | **node / pnpm / cargo** | v24.20.0 (`~/.nvm/versions/node/v24.20.0`) / 12.5.1 (`~/.lumi-tools/bin/pnpm`) / 1.93.0 (`~/.cargo/bin/cargo` shim) |
 | **browser** | Google Chrome 154.0.8037.93 |
 | **Worker runtime** | `wrangler dev` (wrangler 4.137.0, workerd 1.20260921.1) on a local D1 |
+| **build** | `pnpm check` exit 0 and `pnpm build` exit 0 (vite production build + Worker `--dry-run`) on the repaired tree |
 | **migration head** | `0022_p07_staff_actor_type.sql` — 22 migration files |
 | **contract version** | `/api/v1/meta` → `p01-cg-v1` (measured on the live deployment) |
 | **desktop client** | none exists in this repository (V04 External unknowns carried) |
