@@ -134,3 +134,19 @@ button {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* State feedback without moving operational records or approval controls. */
+@media (prefers-reduced-motion: no-preference) {
+  button:not(:disabled),
+  a[role="button"],
+  input,
+  select,
+  textarea {
+    transition-property: background-color, border-color, color, opacity;
+    transition-duration: 180ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  button:not(:disabled):active {
+    opacity: 0.88;
+  }
+}
