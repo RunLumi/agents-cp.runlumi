@@ -549,6 +549,53 @@ Honor `prefers-reduced-motion`.
 
 ---
 
+
+
+### 13.1 Parallax and purposeful alternatives
+
+Updated 2026-10-03. This is a design contract for future changes, not evidence that effects are shipped. Existing brand, material, content, safety, and platform rules remain authoritative.
+
+**Design decision:** earn visual impact through composition and a small number of useful motion moments. Prefer micro-interactions and a bounded scroll-driven sequence over large moving backgrounds. Keep reading, prices, evidence, and primary actions stable.
+
+**Evidence boundary:** scroll-driven animation describes how progress is controlled, not guaranteed performance; parallax can itself be scroll-driven. Rendering cost depends on properties, assets, implementation, and device. WebGL/Three.js is not inherently lighter than simple parallax, and large movement can be uncomfortable with either technique. The limits below are project design choices, not universal research thresholds.
+
+**Control-plane scope:** this guide contains landing-page treatments; their narrative motion does not apply to operational screens. Device policy, permissions, approvals, budgets, audit, run status, and tenant context remain stable and legible. No animated counters or simulated live runs. The existing HTML/CSS navigation layer remains independent of canvas/WebGL.
+
+| Option | Appropriate use | Limits and static equivalent |
+| --- | --- | --- |
+| Traditional parallax | An optional depth cue in one explanatory marketing composition, where existing surface rules permit it. | Relative travel <=12px; never move essential text or controls. Disable on narrow viewports, coarse pointers, and reduced motion. No full-screen camera travel or fixed-background dependency. |
+| Scroll-driven animations | Connect stages of a workflow or reveal an illustrative artifact as its section enters view. | Prefer transform/opacity: travel <=16px, scale 0.98–1.02. Keep content visible by default. Rotation, SVG morphing, and animated masks need explanatory value and profiling; they are not defaults. |
+| Immersive 3D / WebGL | An optional explorable object when depth helps the visitor understand something a static view cannot. | Prefer HTML/SVG or modest CSS perspective first. Load 3D only for a justified, measured use; provide a complete static equivalent and accessible controls. Existing prohibitions on decorative 3D remain in force. |
+| Kinetic / variable typography | Brief emphasis on one short marketing phrase. | Use only axes supported by the existing font. Keep body, prices, metrics, evidence, primary headlines, and CTA labels stable. No per-letter motion, shifting wraps, clipped diacritics, or continuous font-weight animation. |
+| Sticky reveal / pinning | Hold an illustration alongside naturally scrolling explanatory steps. | Prefer CSS sticky; at most one narrative section. Release at its container boundary and use normal flow on short/narrow viewports. No wheel/touch interception, artificial scroll runway, or cards covering readable content. |
+| Micro-interactions | Focus, press, disclosure, selected state, validation, and actual request outcomes. | Reuse existing timing tokens and <=1px control lift. Supply equivalent touch/keyboard feedback. No hover-only information, cursor chasing, or decorative loops. |
+
+#### Implementation rules
+
+- Start with complete semantic HTML and visible static content. Add CSS scroll/view timelines behind feature detection; unsupported browsers keep that baseline. A timed entrance is distinct from progress tied directly to scroll position. Do not add a library solely for a reveal.
+- Prefer transform and opacity. Avoid animating layout dimensions, large blurs, or shadows while scrolling. Profile exceptions; avoid repeated layout reads/writes in scroll handlers and blanket `will-change` promotion.
+- With `prefers-reduced-motion: reduce`, remove parallax, scroll-scrubbed movement, tilt, kinetic text, and animated pinning. Show the final static state, preserve immediate state feedback, and respond to preference changes during the visit. Native surfaces honor native accessibility settings.
+- Cursor tilt is optional only on fine pointers with hover. Preserve touch scrolling, keyboard focus, text selection, find, anchor destinations, and browser back/forward scroll restoration. Never require animation, dragging, or canvas to reach an action.
+- Any justified WebGL scene loads after essential content, caps resolution, stops rendering offscreen/in hidden tabs, releases resources, and falls back after context loss. No idle rendering loop; essential copy and controls stay outside canvas.
+- Use one principal narrative scroll moment per page. Keep the hero understandable immediately; motion cannot simulate a live capability, customer result, completed task, or unobserved progress.
+
+#### Acceptance when implementing motion
+
+Compare the static and enhanced versions on the same device/network. Record asset cost, loading, interaction responsiveness, layout shifts, and a scroll trace. Simplify or remove an effect if it introduces visible stutter, delays content/action access, or shifts layout; desktop smoothness alone is insufficient evidence.
+
+Inspect supported locales at 320/375/768/1440px, short viewports, long labels and Vietnamese diacritics. Test touch, keyboard, reduced motion, no JS where supported, unsupported timelines, CTA anchors, and success/failure states. For application shells, also verify the actual scrolling pane, virtualized lists, selection, and focus survive updates. Record which browsers/devices were actually tested; documentation-only changes do not prove runtime performance.
+
+#### Sources
+
+Reviewed 2026-10-03. Technical references support implementation; trend material is inspiration, not comparative performance evidence.
+
+- [MDN: CSS scroll-driven animations](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Scroll-driven_animations) — scroll/view progress timelines.
+- [web.dev: High-performance CSS animations](https://web.dev/articles/animations-guide) — rendering costs and profiling.
+- [MDN: prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/prefers-reduced-motion) — user motion preferences.
+- [MDN: WebGL best practices](https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices) — device limits and resource costs.
+- [Figma: Web design trends](https://www.figma.com/resource-library/web-design-trends/) — inspiration for typography, motion, and immersive elements.
+
+
 # 14. Copy
 
 Lumi speaks like:
