@@ -688,3 +688,7 @@ Before merging a visual change:
 The target feeling:
 
 > Calm enough to trust. Ambitious enough to redraw how a company works.
+
+## Motion implementation amendment — 2026-10-03
+
+Operational controls receive 180ms color/border feedback and a pressed opacity state; no record, approval, auth geometry, or business state is animated. Reduced motion disables transitions. Browser/runtime validation remains required; this entry does not certify deployment.
