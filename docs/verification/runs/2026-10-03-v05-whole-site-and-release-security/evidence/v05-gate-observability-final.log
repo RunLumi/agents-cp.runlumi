@@ -1,0 +1,79 @@
+$ pnpm --filter @runlumi/agents-cp-api verify:observability
+$ node scripts/v02-observability-correlation-probe.mjs
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+  V02 observability -- one request id followed through the system
+
+  PASS        C0 PRECONDITION: the response names its own request id, so there is an id to follow
+              request_id=req_140453f7a60849e59999aa4449b7e64a status=200
+  PASS        C1 LEG 'domain action': the policy row EXISTS and the write committed
+              rows=1
+  PASS        C1 LEG 'auth/policy': the stored policy carries the value that was written
+              managed_route_enabled=1 credential_mode="platform_only"
+  PASS        C1 LEG 'audit/security event': a security_events row carries THIS request's id
+              rows=1 actions=["model_policy.updated.v1"]
+  PASS        C1: the security event names the operation, so the row is about this and not a coincidence
+              actions=["model_policy.updated.v1"] resource_types=["policy"]
+  PASS        C1: and it is attributed to a principal -- ADR 0007's requirement that a customer-visible action is attributable, which V01-038 found unsatisfiable for a staff actor
+              actor_types=["user"]
+  PASS        C1 LEG 'external dispatch/queue': an outbox_events row carries this request's id (or its correlation id)
+              rows=1 types=["model_policy.updated.v1"]
+  PASS        C1: and the outbox row is attributed to the same organization, so the id is not being reused across tenants
+              org=org_65dbe8b546a056c1be2486204586cf2b rows=["org_65dbe8b546a056c1be2486204586cf2b"]
+  PASS        C1 LEG 'usage/cost': NO usage row was written for an operation that costs nothing -- asserted as an absence, and an absence is only meaningful because the instrument is proven live by the legs above
+              rows=0
+  PASS        C1 LEG 'request'/'response': the middleware logged an http_request line carrying this id
+              {"event":"http_request","request_id":"req_140453f7a60849e59999aa4449b7e64a","correlation_id":"req_140453f7a60849e59999aa4449b7e64a","method":"PUT","ro (from v05-observability-worker.log)
+  PASS        C1: and the log line records the STATUS, so the log is evidence about the response rather than only about the request
+              {"event":"http_request","request_id":"req_140453f7a60849e59999aa4449b7e64a","correlation_id":"req_140453f7a60849e59999aa4449b7e64a","method":"PUT","route":"/api/v1/orgs/{org_id}/po
+  PASS        C2 canary: the password does NOT appear anywhere in security_events
+              password searched across 741 bytes of security_events
+  PASS        C2 canary: the session cookie does NOT appear anywhere in security_events
+              session searched across 741 bytes of security_events
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in security_events
+              csrf searched across 741 bytes of security_events
+  PASS        C2 canary: the password does NOT appear anywhere in outbox_events
+              password searched across 1012 bytes of outbox_events
+  PASS        C2 canary: the session cookie does NOT appear anywhere in outbox_events
+              session searched across 1012 bytes of outbox_events
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in outbox_events
+              csrf searched across 1012 bytes of outbox_events
+  PASS        C2 canary: the password does NOT appear anywhere in org_model_policies
+              password searched across 307 bytes of org_model_policies
+  PASS        C2 canary: the session cookie does NOT appear anywhere in org_model_policies
+              session searched across 307 bytes of org_model_policies
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in org_model_policies
+              csrf searched across 307 bytes of org_model_policies
+  PASS        C2 canary: the password does NOT appear anywhere in idempotency_records
+              password searched across 813 bytes of idempotency_records
+  PASS        C2 canary: the session cookie does NOT appear anywhere in idempotency_records
+              session searched across 813 bytes of idempotency_records
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in idempotency_records
+              csrf searched across 813 bytes of idempotency_records
+  PASS        C2 canary: the PASSWORD does not appear anywhere in users, sessions, security_events, outbox_events or idempotency_records
+              searched 9369 bytes of stored records
+  PASS        C2 POSITIVE CONTROL: the same search FINDS this request's own id in the records it was correlated against -- so 'the password was not found' is a measurement and not an absent instrument
+              request_id=req_140453f7a60849e59999aa4449b7e64a searched across 9369 bytes
+  PASS        C2 POSITIVE CONTROL: and FINDS this organization's id, so the search reads identity columns rather than only opaque blobs
+              org_id=org_65dbe8b546a056c1be2486204586cf2b
+  PASS        C2 NEGATIVE CONTROL: a canary that shares its PREFIX with the real password but differs in its last four characters is still not found -- so the search matches the whole literal and not a prefix, and the twelve passes above are not an artefact of a loose match
+              prefix searched: v02-observability-canary-Passw…
+  PASS        C2 canary: nor does the account's email outside the users row, so a stored record is not carrying the sign-in identity where it has no business to
+              email=obs-mury2xt9@v02.invalid
+
+  28 pass, 0 fail, 0 unmeasured.
+  A leg that could not be read is UNMEASURED, not passing.
+

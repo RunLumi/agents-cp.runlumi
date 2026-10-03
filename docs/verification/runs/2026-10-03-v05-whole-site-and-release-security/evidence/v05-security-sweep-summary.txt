@@ -1,0 +1,41 @@
+V05 §2 security sweep — started 2026-10-03T04:22:36Z
+candidate tree: 8aaca08 (+ working tree repairs)
+
+bind-count                   exit=0   expected=0   PASS 0s
+migrate-fresh                exit=0   expected=0   PASS 6s
+p08-invariants               exit=0   expected=0   PASS 0s
+guard-probe                  exit=0   expected=0   PASS 2s
+smoke-local                  exit=0   expected=0   PASS 58s
+smoke-p02                    exit=1   expected=0   FAIL 0s
+smoke-p03                    exit=1   expected=0   FAIL 0s
+smoke-p04                    exit=1   expected=0   FAIL 1s
+smoke-p05                    exit=0   expected=0   PASS 36s
+collection-tenancy           exit=0   expected=0   PASS 19s
+path-id-tenancy              exit=0   expected=0   PASS 136s
+filter-tenancy               exit=0   expected=0   PASS 25s
+mutating-tenancy             exit=0   expected=0   PASS 53s
+privilege-esc                exit=0   expected=0   PASS 78s
+smoke-p08                    exit=0   expected=0   PASS 18s
+secret-tenancy               exit=0   expected=0   PASS 28s
+observability                exit=1   expected=0   FAIL 0s
+adoption-privacy             exit=0   expected=0   PASS 40s
+budget-hardceiling           exit=0   expected=0   PASS 40s
+budget-concurrency           exit=0   expected=0   PASS 25s
+inference-failure            exit=0   expected=0   PASS 37s
+usage-attribution            exit=0   expected=0   PASS 41s
+idempotency                  exit=0   expected=0   PASS 38s
+device-idempotency           exit=0   expected=0   PASS 41s
+revoked-device               exit=0   expected=0   PASS 23s
+invitation-race              exit=0   expected=0   PASS 21s
+staff-credential             exit=0   expected=0   PASS 39s
+tool-policy-deny             exit=0   expected=0   PASS 51s
+attempt-exhaustion           exit=0   expected=0   PASS 77s
+lease-contention             exit=0   expected=0   PASS 68s
+webhook-fanout               exit=0   expected=0   PASS 52s
+restore-rehearsal            exit=0   expected=0   PASS 12s
+migration-prior              exit=0   expected=0   PASS 86s
+smoke-p06                    exit=2   expected=2   PASS 144s
+provider-faults              exit=2   expected=2   PASS 18s
+campaign-preflight           exit=0   expected=0   PASS 0s
+
+sweep finished 2026-10-03T04:44:29Z

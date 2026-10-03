@@ -1,0 +1,82 @@
+$ pnpm --filter @runlumi/agents-cp-api smoke:local
+$ node scripts/smoke-local.mjs
+The HTTP request/correlation ID did not propagate through the D1 outbox envelope.
+Worker log tail:
+
+ ⛅️ wrangler 4.137.0 (update available 4.147.0)
+───────────────────────────────────────────────
+[custom build] Running: worker-build --release
+[custom build] [INFO]: 🎯  Checking for the Wasm target...
+[custom build] 
+[custom build] [INFO]: 🌀  Compiling to Wasm...
+[custom build] 
+[custom build]     Finished `release` profile [optimized] target(s) in 0.45s
+[custom build] 
+[custom build] [INFO]: Optimizing wasm binaries with `wasm-opt`...
+[custom build] 
+
+Production-config Worker log tail:
+[custom build] 
+[custom build]   index.js  37.1kb
+[custom build] 
+[custom build] ⚡ Done in 12ms
+[custom build] 
+Your Worker has access to the following bindings:
+Binding                                                          Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs)                                Queue                        local
+env.DB (lumi-agents-control-plane)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                          Worker Version Metadata      local
+env.ENVIRONMENT ("production")                                   Environment Variable         local
+env.WEBAUTHN_RP_ID ("agents-cp.runlumi.app")                     Environment Variable         local
+env.WEBAUTHN_RP_NAME ("Lumi Agents")                             Environment Variable         local
+env.WEBAUTHN_ORIGINS ("https://agents-cp.runlumi.app")           Environment Variable         local
+env.EMAIL_FROM ("agents@runlumi.app")                            Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs")                         Environment Variable         local
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mScheduled Workers are not automatically triggered during local development.[0m
+
+  To manually trigger a scheduled event, run:
+    curl "http://localhost:8788/cdn-cgi/local/scheduled"
+  For more details, see [4mhttps://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers-locally[0m
+
+
+⎔ Starting local server...
+⎔ Connection status updated
+Your Worker has access to the following bindings:
+Binding                                                          Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs)                                Queue                        local
+env.DB (lumi-agents-control-plane)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                          Worker Version Metadata      local
+env.ENVIRONMENT ("production")                                   Environment Variable         local
+env.WEBAUTHN_RP_ID ("agents-cp.runlumi.app")                     Environment Variable         local
+env.WEBAUTHN_RP_NAME ("Lumi Agents")                             Environment Variable         local
+env.WEBAUTHN_ORIGINS ("https://agents-cp.runlumi.app")           Environment Variable         local
+env.EMAIL_FROM ("agents@runlumi.app")                            Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs")                         Environment Variable         local
+
+[wrangler:info] Ready on http://localhost:8788
+{"event":"http_request","request_id":"req_dad94a46170e433d919e0f182a16c117","correlation_id":"req_dad94a46170e433d919e0f182a16c117","method":"GET","route":"/api/health","status":200,"duration_ms":0}
+[wrangler:info] GET /api/health 200 OK (399ms)
+{"event":"http_request","request_id":"req_d3596b09ef4742d4b8da7971bf777e9a","correlation_id":"req_d3596b09ef4742d4b8da7971bf777e9a","method":"POST","route":"unmatched","status":404,"duration_ms":2}
+[wrangler:info] POST /api/v1/_internal/foundation-checks 404 Not Found (9ms)
+
+Web log tail:
+
+  VITE v8.1.0  ready in 427 ms
+
+  ➜  Local:   http://127.0.0.1:5173/
+
+[ELIFECYCLE] Command failed with exit code 1.
+Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+
+  × "pnpm recursive run" failed in /Volumes/SSD/agents-cp.runlumi/apps/api
+
+[ELIFECYCLE] Command failed with exit code 1.

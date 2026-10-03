@@ -1,0 +1,71 @@
+
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:58826
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-g2uIbC/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 1898s newer than src/routes/authenticators.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_a47f7804c3aa4a4c8b2cda5661f6825f
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_65d0f29aacec50bc4d5ef311e1d320d0
+  PASS  CONTROL: the organization's slug is known, so a device can be enrolled against it  — slug=v01-attempt-murwh3d839g9
+  PASS  CONTROL: a real project  — status=201
+  PASS  CONTROL: a real agent on it  — status=201
+  PASS  CONTROL: enrollment begins for V01 attempt device  — status=201
+  PASS  CONTROL: the V01 attempt device enrollment is approved  — status=201
+  PASS  CONTROL: the V01 attempt device enrollment releases a proof challenge  — status=200
+  PASS  CONTROL: the V01 attempt device enrollment completes with a real device proof  — status=201
+  PASS  CONTROL: the probe's organization holds automations.max_active, without which no occurrence in this probe can be claimed  — grant rows found=1 -- without it every claim below answers 403 and the attempt-exhaustion arc measures a route that refuses, not a counter
+  PASS  CONTROL: an automation exists  — status=201 body={"agent_definition_id":"agd_5c524cebb84c424db2e6ac9e7b5e0972","automation_id":"aut_257d314738fa425a947456c81e1d9249","created_at":"2026-10-03T04:37:10.267Z","created_by_user_id":"usr_a47f7804c3aa4a4c8b2cda5661f6825f","description":null,"exe
+  PASS  CONTROL: the STORED automation carries max_start_attempts = 1, so a second start must be refused  — stored max_start_attempts=1 lease_ttl_seconds=30 heartbeat_interval_seconds=10
+  PASS  CONTROL: run_now produced an occurrence  — status=201 body={"attempt":0,"automation_id":"aut_257d314738fa425a947456c81e1d9249","created_at":"2026-10-03T04:37:14.443Z","kind":"manual","occurrence_id":"occ_da74c5ca22029e25c1c959bde42f9387","org_id":"org_65d0f29aacec50bc4d5ef311e1d320d0","project_id":
+  PASS  CONTROL: the occurrence is claimable BEFORE any claim, so the refusals after it are refusals of a claimed occurrence  — state=pending attempt=0
+
+  first claim: http=201 response_attempt=1 occurrence_attempt 0 -> 1 started_at=null active_leases=1
+  PASS  CONTROL: the first claim succeeds and takes exactly one active lease, so the refusals after it are real refusals  — status=201 active_leases=1
+  PASS  V01-013: the occurrence's attempt counter ADVANCES on a successful claim, so a second start is attempt 2 (it does not - TRANSITION_OCCURRENCE_SQL has no attempt in its SET list)  — occurrence attempt 0 -> 1 while the response said 1; max_start_attempts is 1, so this column alone decides the bound
+  PASS  CONTROL: a LEASED-but-not-started occurrence has NO started_at, which is what distinguishes a lease taken and never used from one that started and stalled  — started_at=null on a leased occurrence -- a non-null value here would mean the claim and the start had been collapsed into one transition
+  PASS  CONTROL: run_now created an occurrence for the two-phase-start case  — status=201 body={"attempt":0,"automation_id":"aut_257d314738fa425a947456c81e1d9249","created_at":"2026-10-03T04:37:19.776Z","kind":"manual","occurrence_id":"occ_b89595f2b72e67415c9c0e8c70ee4ab3","org_id":"org_65d0f29
+
+  two-phase: claim -> 201 state=leased attempt=1 started_at=null run_id=null
+  PASS  the claim allocated the attempt: the occurrence's own attempt column now records it, and that is the counter `max_start_attempts` reads  — occurrence attempt=1 while the response said 1 -- these used to agree only by accident, because the column was written by nothing
+  two-phase: start -> 201 state=started attempt=1 started_at=2026-10-03T04:37:21.003Z run_id=run_f46f2bc7ca3f4a3a921b02675e2dfc8f
+  second claim while leased: http=409 reason=automation_invalid_state occurrence_attempt=1 active_leases=1
+  PASS  a second claim while the first lease is still active is refused, and adds no second active lease  — status=409 active_leases=1
+  PASS  the refused second claim did not advance the attempt counter either  — occurrence attempt 1 -> 1 on a refused claim
+
+  waiting out the 30s lease TTL and the sweep that expires it (the schema's floor for lease_ttl_seconds)...
+  after the wait: active_leases=0 states=[lse_b3244897:expired:attempt=1]
+  PASS  the first lease is no longer active before the final claim, so a refusal there is attributable to the attempt bound and not to a live lease  — leases: [{"lease_id":"lse_b3244897a5354842b97d654f0461d65c","attempt":1,"state":"expired"}]
+  PASS  after the sweep expired the lease, the slot is resolved: with max_start_attempts = 1 and attempt = 1 the bound is EXHAUSTED, so the sweep must make the slot terminal with a reason naming exhaustion  — state=failed attempt=1 reason_code=lease_expired_retry_exhausted -- before the repair this read state=pending attempt=0 reason=null, i.e. the sweep believed an attempt remained and handed the slot back, which is how a spent slot looked unspent
+  PASS  the exhaustion was reached by COUNTING the recorded attempt, so the counter the bound reads is the one the sweep used  — occurrence attempt=1; the sweep's own reason is lease_expired_retry_exhausted
+  third claim after expiry: http=409 reason=automation_invalid_state response_attempt=n/a occurrence_attempt 1 -> 1 active_leases=0
+    body={"error":{"code":"conflict","message":"The automation is not in a state that allows this operation.","request_id":"req_fb99725e3d2c4da98129ef07e5a81f56","details":{"reason":"automation_invalid_state"}}}
+  PASS  V01-013: with max_start_attempts = 1, an occurrence whose lease EXPIRED cannot be started a second time, and the refusal is a 4xx naming a reason (it is neither: the attempt column never advances, so the bound is never reached, AND the refusal is not a stable 4xx)  — the third claim answered 409 with body {"error":{"code":"conflict","message":"The automation is not in a state that allows this operation.","request_id":"req_fb99725e3d2c4da98129ef07e5a81f56","details":{"reason":"automation_invalid_state"}}} and left 0 active lease(s); a 503 tells a device that lost its lease that the control-plane store is down rather than that its attempt is spent, and a second start of an occurrence bound to one attempt would mean the same scheduled slot running its work twice
+  PASS  the occurrence's attempt counter sits at 1, the number the refused second start would have used  — occurrence attempt=1 (0 means the counter is dead and every claim is attempt 1)
+  PASS  a refused final claim takes no lease, so the attempt bound and lease exclusivity do not disagree  — active_leases=0 after a 409 claim
+  PASS  CONTROL: run_now created an occurrence for the obs-001-attack case  — status=201 body={"attempt":0,"automation_id":"aut_257d314738fa425a947456c81e1d9249","created_at":"2026-10-03T04:37:53.942Z","kind":"manual","occurrence_id":"occ_766ce3cf482002920629b75ad6e4ea22","org_id":"org_65d0f29
+  PASS  CONTROL: the entitlement is REVOKED for the attack, so a refusal is attributable to it  — live grants=0 -- without this the attack and its control are the same case twice, and "no run was created" would be vacuous
+
+  OBS-001 attack: claim -> 403 state=pending attempt=0 active_leases=0 run_id=null
+  PASS  OBS-001: the claim is REFUSED when the organization cannot dispatch, so the attempt is never spent on impossible work  — claim status=403 code=permission_denied reason=entitlement_not_granted body={"error":{"code":"permission_denied","message":"The organization entitlement does not allow automations.","request_id":"req_b464c7597d78492e879c39596a8829d0","details":{"reason":"entitlement_not_grant -- before the repair this answered 201 and consumed the occurrence's whole retry budget
+  PASS  OBS-001: the refused claim allocated NO attempt  — attempt=0 state=pending -- the counter is the automation's entire retry budget, and this assertion is what makes the refusal a repair rather than a different error
+  PASS  OBS-001: the refused claim took NO lease, so there is nothing to hold and nothing to expire  — active_leases=0 -- a lease granted on a claim that cannot start is work the product will refuse to honour, and it blocks the occurrence until its TTL expires
+  PASS  OBS-001: the occurrence is left claimable, not half-claimed  — state=pending -- an occurrence stuck in a non-claimable state after a refused claim would be a worse defect than the one being fixed
+  OBS-001 attack: start with no lease -> 422 code=validation_failed reason=n/a
+  PASS  OBS-001: with no lease the start cannot even be well-formed, so the claim is the only source of a lease and a run is unreachable without one  — start status=422 code=validation_failed reason=n/a state=pending -- the lease id, version, fence and token all come from the claim, and the claim was refused, so this is a request the caller cannot complete rather than a policy decision. That is the stronger of the two facts and the one worth reading
+  PASS  OBS-001: no run exists, and the occurrence never spent an attempt trying  — run_id=null attempt=0 state=pending
+  PASS  CONTROL: the entitlement is RESTORED, so the attack and the control differ only in that  — live grants=1 -- if the restore did not land, the control below would be measuring an unentitled organization again and would report the same refusal as the attack
+  PASS  CONTROL: the entitlement grant is present and readable, so a successful start below is attributable to the grant  — grants found=1 -- without this, "the start creates no run" in the attack above would be exactly what a successful start looks like
+  PASS  CONTROL: run_now created an occurrence for the obs-001-control case  — status=201 body={"attempt":0,"automation_id":"aut_257d314738fa425a947456c81e1d9249","created_at":"2026-10-03T04:38:04.834Z","kind":"manual","occurrence_id":"occ_119c0f30a7748180b1f82c08931675ed","org_id":"org_65d0f29
+  OBS-001 control: claim body = {"attempt":1,"expires_at":"2026-10-03T04:38:34.871Z","lease_fence":1,"lease_id":"lse_26a7e2ade0624923970d22aa9660f921","lease_token":"bdf66201e4569c4c2253544f7c05ce16396f128e96359cc2714a8b596020e47c","lease_version":1,"occurrence_id":"occ_119c0f30a7748180b1f82c08931675ed","state":"leased"}
+  OBS-001 control: presented lease_version=1 lease_fence=1 fingerprint=sha256:7836d1016e4a3d1ce4104e26e46d3780ea741d288ed7a81be9d71c207b5bcf1b
+  OBS-001 control: stored lease=[{"lease_id":"lse_26a7e2ade0624923970d22aa9660f921","state":"active","attempt":1,"lease_version":1,"lease_fence":1,"lease_token_fingerprint":"sha256:7836d1016e4a3d1ce4104e26e46d3780ea741d288ed7a81be9d71c207b5bcf1b"}]
+  OBS-001 control: claim -> 201, start -> 201 state=started attempt=1 run_id=run_cd441b67eabc495ba8b70b9c2af0b9d2 run_links=1
+  PASS  CONTROL: on the SAME organization once entitled, claim then start SUCCEEDS and a run exists -- so the attack measured the entitlement, not the harness  — claim=201 start=201 body={"agent_session_id":"rse_f4619854971542e2b61559a0e3e9b8f2","attempt":1,"expires_at":"2026-10-03T04:38:34.871Z","lease_fence":1,"lease_id":"lse_26a7e2ade0624923970d22aa9660f921","lease_version":1,"occu run_id=run_cd441b67eabc495ba8b70b9c2af0b9d2 run_links=1
+  PASS  V01-013: the START transition records started_at, now that a start actually succeeds  — started_at=2026-10-03T04:38:06.094Z state=started -- this case was a named SKIP for the whole life of the probe because no organization here was entitled
+  PASS  V01-013: the START transition does NOT advance the attempt counter  — attempt=1 -- the claim allocated it; a start that also incremented would consume the whole budget on a single attempt
+  distinct occurrence attempt values: [{"attempt":0,"n":1},{"attempt":1,"n":3}] (a single value is itself the finding: no occurrence can ever record a second start)
+
+49/49 V01 attempt-exhaustion cases hold

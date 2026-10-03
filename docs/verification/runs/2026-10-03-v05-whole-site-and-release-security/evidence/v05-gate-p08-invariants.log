@@ -1,0 +1,21 @@
+$ bash scripts/p08-invariants.sh
+P08 structural invariants
+  refused  org_managed with no project or device
+  accepted stage 0 for a local workspace                        -> local_unmanaged/local_unmanaged/local_credential
+  refused  UPDATE into org_managed with no project
+  refused  history_sync with a local credential
+  refused  workspace key containing an absolute path
+  accepted the explicit binding stage                           -> workspace_bound/org_managed
+  refused  the same local workspace adopted twice
+  accepted the rollback                                         -> local_unmanaged/workspace_bound/reversions=1/v2
+  accepted the first open remediation                           -> client_outdated/upgrade_client
+  refused  a second open remediation for the same state and code
+  refused  a resolved remediation with no resolution time
+  refused  an open remediation that claims a resolver
+  accepted a re-remediation after the first was resolved        -> 1 open
+  accepted a stage/result report with a vocabulary reason       -> workspace_bound/declined/consent_required
+  refused  a telemetry reason that is free text
+  refused  a telemetry reason containing a path
+  ok      adoption_stage_events has no content-shaped column (adoption_event_id org_id adoption_state_id device_id actor_user_id stage result reason_code client_protocol_major policy_schema_version client_app_version occurred_at created_at )
+
+passed: 17  failed: 0

@@ -1,0 +1,28 @@
+$ pnpm --filter @runlumi/agents-cp-api verify:webhook-fanout
+$ node scripts/v01-webhook-fanout-probe.mjs
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:60025
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-0GSoNz/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 2061s newer than src/routes/authenticators.rs
+  PASS  signup V01 Webhook Subscriber  — status=201
+  PASS  verify V01 Webhook Subscriber  — status=200
+  PASS  login start V01 Webhook Subscriber  — status=202
+  PASS  login complete V01 Webhook Subscriber  — status=200
+  PASS  user V01 Webhook Subscriber has an opaque ID  — usr_bab1c3b8dea64fabb28613a517f57bc4
+  PASS  create Webhook Org  — status=201
+  PASS  Webhook Org organization ID  — org_3eef7ee20e291f7dff56d61ddf4bf131
+  PASS  W0 CONTROL: every event type this probe subscribes to is a STRING LITERAL in the outbox registry, read from the source -- an unregistered type would be rejected on the way out, and the silence below would be the registry's decision rather than a missing fan-out  — registered=["agent_definition.created.v1","automation.definition.created.v1"] wanted=["agent_definition.created.v1","automation.definition.created.v1"]
+  PASS  W1: an endpoint with SUBSCRIBED EVENT TYPES is created, and the stored row keeps the subscription -- a fan-out that cannot see a subscriber proves nothing  — status=201 id=whe_27126728c3ce40eeaa926d9055b6f6d2 body={"endpoint":{"auto_disable_enabled":false,"auto_disable_threshold":10,"base_delay_seconds":30,"consecutive_terminal_failures":0,"created_at":"2026-10-03T04:39:53.157Z","d
+  PASS  W1: and the SUBSCRIPTION is persisted, not merely accepted -- the fan-out's own comment says the exact-match check lives in SQL, so the subscription has to be in the database for that check to have anything to read  — row={"endpoint_id":"whe_27126728c3ce40eeaa926d9055b6f6d2","subscribed_event_types_json":"[\"agent_definition.created.v1\",\"automation.definition.created.v1\"]","enabled":1,"url":"https://webhoo
+  PASS  W2 CONTROL: `test_webhook` DOES create a delivery row -- so the delivery path, the state machine and the history all work, and anything the assertions below find is about the ABSENCE OF A TRIGGER rather than a broken mechanism  — status=202 deliveryRows=1 body={"delivery_id":"whd_d757e45e7efb4c3fad50805883c018ce","endpoint_id":"whe_27126728c3ce40eeaa926d9055b6f6d2","event_id":"evt_e20b15791e394914aa1df1e86be
+  PASS  W2 CONTROL: and the row carries a REAL delivery state -- the code's own comment says the state advances `pending -> queued` in the same batch as the job, so a row without a state is not a delivery  — states=[{"state":"queued","n":1}]
+  PASS  W3: an ordinary business action SUCCEEDS and returns a resource -- the claim is that the event goes nowhere, not that the request is refused, and a refusal would be a different finding  — status=201 id=agd_aecf871a6065472cabb64f5ea9ba65c3 body={"allowed_tool_ids":[],"created_at":"2026-10-03T04:40:00.775Z","default_model_alias":null,"description":null,"id":"agd_aecf871a6065472cabb64f5ea9ba65c
+  PASS  W4 CONTROL: the business event WAS emitted to the outbox -- so the silence below is not an event that was never produced, which would be a different (and much smaller) finding  — outboxEvents before=3 after=4
+    outbox event types seen: [{"event_type":"agent_definition.created.v1"},{"event_type":"webhook.test.v1"},{"event_type":"webhook.endpoint_created.v1"},{"event_type":"organization.created.v1"}]  contains-agent=true
+  PASS  W5: a SUBSCRIBED endpoint receives NO delivery for a business event it subscribed to -- the delivery count is unchanged from the control, read from D1 because a `2xx` that ignored the event would be indistinguishable from one that delivered it  — deliveries before=1 after=1 outboxEvents=3->4
+    deliveries and their events: [{"delivery_id":"whd_d757e45e7efb4c3fad50805883c018ce","state":"queued","version":2,"event_type":null}]
+  PASS  W7: the OWNER can rotate their own webhook signing secret -- a 503 here makes the entire outbound webhook path unusable, since the secret cannot be reissued  — status=200 idempotencyRows=1 body={"endpoint_id":"whe_27126728c3ce40eeaa926d9055b6f6d2","secret":"447164b80ca4c286abab22c02801430ec2cfd8716eee4c82d280fcddf90448d5","secret_version_id":"whs_620d97ccb9cc48e
+  PASS  W7: and a successful rotation DOES take an idempotency claim -- so a `503` with no record is diagnostic (the failure is before the claim) and a `503` WITH one is a different fault  — status=200 idempotencyRows=1
+    replay of the CONTROL delivery -> 201 {"body_hash":"sha256:97c68d51533eb9ab2be1b24cabf8e97867205cd95fb864323ed66049d984e8ae","delivery_id":"whd_04392f8be842474fad128371
+  PASS  W6: replaying the control's delivery WORKS, so the operator's remedy for a missed event is reachable -- which is what makes the absence below 'no event is ever fanned out' rather than 'the recovery path is broken'  — status=201 body={"body_hash":"sha256:97c68d51533eb9ab2be1b24cabf8e97867205cd95fb864323ed66049d984e8ae","delivery_id":"whd_04392f8be842474fad12837184d2471e","event_id"
+
+21/21 V01 webhook fan-out cases hold

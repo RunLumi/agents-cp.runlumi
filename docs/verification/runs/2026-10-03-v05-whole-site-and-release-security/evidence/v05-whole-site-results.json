@@ -1,0 +1,119 @@
+{
+  "failures": 0,
+  "sections": [
+    {
+      "name": "overview",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "projects",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "runs",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "members",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "teams",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "tools",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "models",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "usage",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "automations",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "devices",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "adoption",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "policy",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings/billing",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings/data",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings/webhooks",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings/security",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings/identity",
+      "rendered": true,
+      "boundary": true
+    },
+    {
+      "name": "settings/plugins",
+      "rendered": true,
+      "boundary": true
+    }
+  ],
+  "foreignLeak": [
+    {
+      "sectionPath": "overview",
+      "leaked": false
+    },
+    {
+      "sectionPath": "members",
+      "leaked": false
+    },
+    {
+      "sectionPath": "usage",
+      "leaked": false
+    },
+    {
+      "sectionPath": "settings/billing",
+      "leaked": false
+    }
+  ],
+  "pageErrors": []
+}

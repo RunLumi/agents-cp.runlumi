@@ -1,0 +1,39 @@
+
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:61242
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-BncyMb/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 2197s newer than src/routes/authenticators.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_9de85200a32e458bae6592e82d869ead
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_74297a7ebf5e45e58f577d9347c7967f
+  PASS  signup Carol  — status=201
+  PASS  verify Carol  — status=200
+  PASS  login start Carol  — status=202
+  PASS  login complete Carol  — status=200
+  PASS  user Carol has an opaque ID  — usr_edd629ef2a3d486592b8da356a1d2b9e
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_ef04c9122a1eab7e38c0473ca0a993b3
+  PASS  create Carol Org  — status=201
+  PASS  Carol Org organization ID  — org_0261dd5506b1263fcba4390fe20fa402
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  request an organization export  — status=201
+  PASS  the export job has an opaque ID  — exp_73736fdcb205441495a0854ca0d55726
+  PASS  the export is created in the `requested` state, not pre-declared as ready  — state=requested
+
+BLOCKED: the export was created and durably enqueued, but the local queue
+simulator did not hand the job to the consumer in a form it could read, so the
+R2 leg of VI-DATA-001 cannot be decided here.
+  envelope  [{"job_type":"export.run","state":"queued","attempt":1}]
+  outbox    [{"event_type":"export.requested.v1","delivery_status":"delivered"}]
+  the export job reaches a terminal state did not reach the expected state within 120000ms; last rows: [{"state":"requested","attempt":0,"failure_code":null}]
+Everything above this point -- the request, the durable rows, the CSRF and
+permission checks -- is real evidence and is unaffected.
+
+27/27 P06 data-governance cases hold, 1 leg blocked by the environment

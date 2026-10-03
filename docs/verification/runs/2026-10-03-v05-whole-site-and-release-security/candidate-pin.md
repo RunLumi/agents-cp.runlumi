@@ -52,3 +52,32 @@ pin time).
   loop working.
 - Shared-checkout discipline applies (V04-004): commit by explicit path list; never
   stash/checkout/rebase the shared tree.
+
+---
+
+## Re-pin — `aa05674` (voided by this campaign's own §1 repairs, exactly as the rule predicts)
+
+V05-001/V05-002's repairs changed product files (`routes/authenticators.rs`, `apps/api/wrangler.jsonc`),
+so the `8aaca08` pin is void in the direction that matters: the repairs are the point of the loop.
+**Re-pinned to `aa05674`.**
+
+**What was re-run against `aa05674`'s tree** (identical working-tree content to what the repairs
+were measured on — the commit captured the tree, it did not change it):
+
+| proof | result |
+|---|---|
+| `pnpm check` | **exit 0** — format, lint, typecheck, web tests, `cargo test --workspace`, schema/null/bind scans, guard probe, clippy clean, wasm target builds |
+| `smoke:passkey` under the production pairing (`P02_PASSKEY_FORWARD_VARS=1`) | **91/91, exit 0** (`evidence/v05-passkey-final-tree.log`) |
+| `evidence/v05-webauthn-config.sh` | **7/7, exit 0** — production-env Worker issues ceremonies for the deployed rp.id; the no-adapter state answers `passkeys_not_configured` while health stays 200 and the password route answers a normal 401 |
+| `security::repository_liveness` + `security::guarded_column_writers` | **2/2 + 5/5, exit 0** (`evidence/v05-standing-checks.log`) |
+
+**What is running against the same tree content and reported as it lands:** the §2 security sweep
+(`evidence/v05-security-sweep.sh`, 35 gates). It was **started before the commit** — its header says
+"candidate tree: `8aaca08` (+ working tree repairs)" — and the commit moved no byte of the tree it
+measures, so its results are evidence about `aa05674`'s product. Anything the sweep itself repairs
+would void this pin again, which is the rule working again.
+
+**What is carried, not re-measured, from V04** (product tree identical to `1d3ec1e`): the eleven
+Tier-0 mutant kills across all six release-gate classes, and the sensitivity proofs for the gates
+this sweep re-runs. The one class §1 touched — `consume_ceremony`, the auth-replay mutant's target —
+is unchanged by the repairs (they touch the error mapping and the config, not the guard).

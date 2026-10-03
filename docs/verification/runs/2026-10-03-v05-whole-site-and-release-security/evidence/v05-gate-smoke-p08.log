@@ -1,0 +1,174 @@
+
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:53898
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-4fX9GJ/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 1457s newer than src/routes/authenticators.rs
+  PASS  every route this probe claims to test is still in the router  — 18 tested routes, all present
+  PASS  every route credited to another gate is still in the router  — 41 credited routes, all present
+  PASS  the unproven set is computed from the router, so a new route cannot be forgotten  — 105 org-scoped routes: 18 tested here, 41 proven elsewhere, 56 with no handler-level evidence
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_2c6b780e1609477aac745bfd2ea80107
+  PASS  signup Carol  — status=201
+  PASS  verify Carol  — status=200
+  PASS  login start Carol  — status=202
+  PASS  login complete Carol  — status=200
+  PASS  user Carol has an opaque ID  — usr_68957c3402484524ad08132dfd0d6222
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_1e6e8c3c49e0402d957b6b702fa6409d
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_aa2832b76f84dec3e0ec6b005d90935e
+  PASS  create Carol Org  — status=201
+  PASS  Carol Org organization ID  — org_bc5d9d876819cc71054791228b3c5787
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  ai_catalog /catalog — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  ai_catalog /credentials — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  ai_catalog /routes — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  audit /audit — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  automations /automations — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  SKIP  billing /billing/subscription — unproven, the member's own call did not succeed  — member=404/resource_not_found
+  SKIP  billing /entitlements — unproven, the member's own call did not succeed  — member=422/entitlement_not_granted
+  PASS  billing /entitlements/provider — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  data_governance /data-policy — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  data_governance /deletions — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  data_governance /exports — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  machine_identity /api-keys — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  machine_identity /service-accounts — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  migration /adoption/bindings — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  migration /adoption/remediations — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  plugins /plugins — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  webhooks /notification-preferences — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  webhooks /webhooks — refused to both outsiders as 404 resource_not_found  — member=200 plain-member=404 other-owner=404
+  PASS  project /projects/{id} — a real org A id is invisible under org B  — owner=200 non-member=404/resource_not_found other-owner=404/not_found
+  PASS  project /projects/{id}/access — a real org A id is invisible under org B  — owner=200 non-member=404/resource_not_found other-owner=404/not_found
+  PASS  project /projects/{id}/bindings — a real org A id is invisible under org B  — owner=200 non-member=404/resource_not_found other-owner=404/not_found
+  PASS  service account /service-accounts/{id} — a real org A id is invisible under org B  — owner=200 non-member=404/resource_not_found other-owner=404/resource_not_found
+  SKIP  team /teams/{id}/members — unproven, the owner's own call did not succeed  — owner=405/null
+
+cross-tenant: 20/23 routes proven, 0 leak(s), 3 unproven among those
+
+not proven among the tested routes:
+  - /api/v1/orgs/{org_id}/billing/subscription — the member's own call was 404/resource_not_found, so there is nothing to leak and nothing to distinguish
+  - /api/v1/orgs/{org_id}/entitlements — the member's own call was 422/entitlement_not_granted, so there is nothing to leak and nothing to distinguish
+  - /api/v1/orgs/{org_id}/teams/{team_id}/members — the owner's own call was 405/null
+
+org-scoped routes with NO handler-level cross-tenant evidence: 52 of 105
+
+unproven org-scoped routes, by shape:
+   36  one path id
+         /api/v1/orgs/{org_id}/adoption/bindings/{adoption_state_id}
+         /api/v1/orgs/{org_id}/adoption/bindings/{adoption_state_id}/rollback
+         /api/v1/orgs/{org_id}/adoption/remediations/{remediation_id}/resolve
+         /api/v1/orgs/{org_id}/approvals/{approval_id}
+         /api/v1/orgs/{org_id}/approvals/{approval_id}/resolve
+         /api/v1/orgs/{org_id}/budgets/{budget_id}
+         /api/v1/orgs/{org_id}/catalog/models/{model_id}
+         /api/v1/orgs/{org_id}/catalog/providers/{provider_id}
+         /api/v1/orgs/{org_id}/deletions/{deletion_id}
+         /api/v1/orgs/{org_id}/deletions/{deletion_id}/resume
+         /api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve
+         /api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/deny
+         /api/v1/orgs/{org_id}/exports/{export_id}
+         /api/v1/orgs/{org_id}/exports/{export_id}/download
+         /api/v1/orgs/{org_id}/mcp/{mcp_id}
+         /api/v1/orgs/{org_id}/plugins/{package_id}
+         /api/v1/orgs/{org_id}/plugins/{package_id}/approve
+         /api/v1/orgs/{org_id}/plugins/{package_id}/block
+         /api/v1/orgs/{org_id}/plugins/{package_id}/install
+         /api/v1/orgs/{org_id}/plugins/{package_id}/pin
+         /api/v1/orgs/{org_id}/plugins/{package_id}/unblock
+         /api/v1/orgs/{org_id}/routes/{route_id}
+         /api/v1/orgs/{org_id}/routes/{route_id}/history
+         /api/v1/orgs/{org_id}/routes/{route_id}/publish
+         /api/v1/orgs/{org_id}/routes/{route_id}/rollback
+         /api/v1/orgs/{org_id}/runs/{run_id}/artifacts
+         /api/v1/orgs/{org_id}/runs/{run_id}/events
+         /api/v1/orgs/{org_id}/runs/{run_id}/retry
+         /api/v1/orgs/{org_id}/sessions/{session_id}
+         /api/v1/orgs/{org_id}/sessions/{session_id}/close
+         /api/v1/orgs/{org_id}/tools/{tool_id}
+         /api/v1/orgs/{org_id}/webhooks/deliveries/{delivery_id}/replay
+         /api/v1/orgs/{org_id}/webhooks/{endpoint_id}
+         /api/v1/orgs/{org_id}/webhooks/{endpoint_id}/deliveries
+         /api/v1/orgs/{org_id}/webhooks/{endpoint_id}/rotate-secret
+         /api/v1/orgs/{org_id}/webhooks/{endpoint_id}/test
+   12  collection (no path id)
+         /api/v1/orgs/{org_id}/adoption/automation-imports/preview
+         /api/v1/orgs/{org_id}/adoption/telemetry
+         /api/v1/orgs/{org_id}/billing/cancel
+         /api/v1/orgs/{org_id}/billing/change
+         /api/v1/orgs/{org_id}/billing/portal-session
+         /api/v1/orgs/{org_id}/budgets
+         /api/v1/orgs/{org_id}/leave
+         /api/v1/orgs/{org_id}/members
+         /api/v1/orgs/{org_id}/ownership-transfer
+         /api/v1/orgs/{org_id}/projects
+         /api/v1/orgs/{org_id}/resume
+         /api/v1/orgs/{org_id}/usage
+    4  two path ids (nested)
+         /api/v1/orgs/{org_id}/plugins/{package_id}/versions/{version}/permission-diff
+         /api/v1/orgs/{org_id}/projects/{project_id}/access/{grant_id}
+         /api/v1/orgs/{org_id}/projects/{project_id}/bindings/{binding_id}
+         /api/v1/orgs/{org_id}/teams/{team_id}/members/{member_id}
+  40 take a resource id, so they need a real resource to substitute
+  12 are mutating or id-less actions this probe does not drive
+  they are:
+    /api/v1/orgs/{org_id}/adoption/automation-imports/preview
+    /api/v1/orgs/{org_id}/adoption/bindings/{adoption_state_id}
+    /api/v1/orgs/{org_id}/adoption/bindings/{adoption_state_id}/rollback
+    /api/v1/orgs/{org_id}/adoption/remediations/{remediation_id}/resolve
+    /api/v1/orgs/{org_id}/adoption/telemetry
+    /api/v1/orgs/{org_id}/approvals/{approval_id}
+    /api/v1/orgs/{org_id}/approvals/{approval_id}/resolve
+    /api/v1/orgs/{org_id}/billing/cancel
+    /api/v1/orgs/{org_id}/billing/change
+    /api/v1/orgs/{org_id}/billing/portal-session
+    /api/v1/orgs/{org_id}/budgets
+    /api/v1/orgs/{org_id}/budgets/{budget_id}
+    /api/v1/orgs/{org_id}/catalog/models/{model_id}
+    /api/v1/orgs/{org_id}/catalog/providers/{provider_id}
+    /api/v1/orgs/{org_id}/deletions/{deletion_id}
+    /api/v1/orgs/{org_id}/deletions/{deletion_id}/resume
+    /api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve
+    /api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/deny
+    /api/v1/orgs/{org_id}/exports/{export_id}
+    /api/v1/orgs/{org_id}/exports/{export_id}/download
+    /api/v1/orgs/{org_id}/leave
+    /api/v1/orgs/{org_id}/mcp/{mcp_id}
+    /api/v1/orgs/{org_id}/members
+    /api/v1/orgs/{org_id}/ownership-transfer
+    /api/v1/orgs/{org_id}/plugins/{package_id}
+    /api/v1/orgs/{org_id}/plugins/{package_id}/approve
+    /api/v1/orgs/{org_id}/plugins/{package_id}/block
+    /api/v1/orgs/{org_id}/plugins/{package_id}/install
+    /api/v1/orgs/{org_id}/plugins/{package_id}/pin
+    /api/v1/orgs/{org_id}/plugins/{package_id}/unblock
+    /api/v1/orgs/{org_id}/plugins/{package_id}/versions/{version}/permission-diff
+    /api/v1/orgs/{org_id}/projects
+    /api/v1/orgs/{org_id}/projects/{project_id}/access/{grant_id}
+    /api/v1/orgs/{org_id}/projects/{project_id}/bindings/{binding_id}
+    /api/v1/orgs/{org_id}/resume
+    /api/v1/orgs/{org_id}/routes/{route_id}
+    /api/v1/orgs/{org_id}/routes/{route_id}/history
+    /api/v1/orgs/{org_id}/routes/{route_id}/publish
+    /api/v1/orgs/{org_id}/routes/{route_id}/rollback
+    /api/v1/orgs/{org_id}/runs/{run_id}/artifacts
+    /api/v1/orgs/{org_id}/runs/{run_id}/events
+    /api/v1/orgs/{org_id}/runs/{run_id}/retry
+    /api/v1/orgs/{org_id}/sessions/{session_id}
+    /api/v1/orgs/{org_id}/sessions/{session_id}/close
+    /api/v1/orgs/{org_id}/teams/{team_id}/members/{member_id}
+    /api/v1/orgs/{org_id}/tools/{tool_id}
+    /api/v1/orgs/{org_id}/usage
+    /api/v1/orgs/{org_id}/webhooks/deliveries/{delivery_id}/replay
+    /api/v1/orgs/{org_id}/webhooks/{endpoint_id}
+    /api/v1/orgs/{org_id}/webhooks/{endpoint_id}/deliveries
+    /api/v1/orgs/{org_id}/webhooks/{endpoint_id}/rotate-secret
+    /api/v1/orgs/{org_id}/webhooks/{endpoint_id}/test
+
+47/47 P08 cross-tenant cases hold, 3 skipped
