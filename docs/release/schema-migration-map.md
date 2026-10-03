@@ -163,6 +163,8 @@ explicitly so the gap cannot reopen unnoticed.
 | `0020_p09_idempotency_null_safety.sql` | 0 | 0 | 4 | **P09. No new tables** — four triggers that close a NULL hole in `0001`'s idempotency CHECK. See below; it was the only migration in the repository that added constraints to an existing table rather than creating a new one, until `0021` below. |
 | `0021_p02_team_id_check_correction.sql` | 0 (2 rebuilt) | 2 (recreated) | 0 | **P02 correction.** Rebuilds `teams` and `team_members` with their primary-key CHECK corrected. See below. |
 | `0022_p07_staff_actor_type.sql` | 0 (1 rebuilt) | 4 (recreated) | 2 (recreated) | **P07 correction.** Rebuilds `security_events` with `actor_type` extended to name `staff`, the third actor kind from ADR 0007. Net zero for tables, indexes, and triggers — measured, not assumed: the four indexes and two immutability triggers are recreated verbatim, and losing them would have been a worse defect than the one repaired. See below. |
+| `0023_p05_capability_catalogue_seed.sql` | 0 | 0 | 0 | **P05 / V04-010 repair.** No new tables — seeds two platform-wide `capability_definitions` rows (`browser`, `computer`; org_id NULL) so the tool-policy evaluator's capability check can pass and the FR-F13-005/006 controls are reachable. `INSERT OR IGNORE`, deterministic ids. |
+| `0024_p03_device_policy_version.sql` | 0 | 0 | 0 | **P03 / V04-008 repair.** No new tables — `ALTER TABLE org_device_policy_settings ADD COLUMN version` for the optimistic concurrency of the new `PUT /api/v1/orgs/{org_id}/device-policy` lever. SQLite supports `ADD COLUMN` with a constant DEFAULT; the table was previously unwritten. |
 
 ## `0022` — `security_events.actor_type` gains `staff`
 

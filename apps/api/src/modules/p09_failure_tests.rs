@@ -1947,6 +1947,7 @@ fn mcp_tool_input(policy_status: McpPolicyStatus) -> PolicyEvaluationInput {
                 MCP_CAPABILITY.to_owned(),
                 CapabilityDefinition {
                     capability_id: MCP_CAPABILITY.to_owned(),
+                    risk_class: RiskClass::Network,
                     lifecycle: CapabilityLifecycle::Active,
                 },
             )]),

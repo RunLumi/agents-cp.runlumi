@@ -12,6 +12,11 @@ fn capability_catalog(capability_ids: &[&str]) -> BTreeMap<String, CapabilityDef
                 (*capability_id).to_owned(),
                 CapabilityDefinition {
                     capability_id: (*capability_id).to_owned(),
+                    // Test ids are bare keys (e.g. "browser"), so the class
+                    // parses straight from the id; anything else is inert for
+                    // the browser/computer matchers, which is what the old
+                    // fixture expressed.
+                    risk_class: RiskClass::parse(capability_id).unwrap_or(RiskClass::Network),
                     lifecycle: CapabilityLifecycle::Active,
                 },
             )
@@ -514,5 +519,128 @@ fn approval_binding_rejects_changed_arguments() {
     assert_eq!(
         evaluate(&changed_risk).reason.code,
         DecisionReasonCode::ToolRiskClassMismatch
+    );
+}
+
+#[test]
+fn a_tool_is_browser_capable_through_its_catalogued_capability_id() {
+    // V04-010. The platform catalogue seeds `browser` with an opaque `cap_` id
+    // (migration 0023), and a tool references the row by that id — the only
+    // form `capability_ids_value` accepts. "Browser-capable" is a property of
+    // the ROW the id names, so no spelling match on the id can recover it: the
+    // old matcher compared spellings, matched nothing a real tool could carry,
+    // and every browser-shaped call was refused `capability_not_defined` in
+    // managed mode before any policy toggle was read. The matcher now resolves
+    // the id through the catalogue.
+    const PLATFORM_BROWSER_ID: &str = "cap_62726f77736572000000000000000000";
+
+    let definition = tool(
+        "tool_generic_browser",
+        RiskClass::ExternalSideEffect,
+        &[PLATFORM_BROWSER_ID],
+        "fp-generic-browser",
+    );
+    let mut browser_call = call(
+        "tool_generic_browser",
+        RiskClass::ExternalSideEffect,
+        "fp-generic-browser",
+    );
+    browser_call.capability_ids.insert(PLATFORM_BROWSER_ID.to_owned());
+    browser_call.browser_action = Some(BrowserAction::Visit {
+        domain: "example.test".to_owned(),
+    });
+    let mut input = base_input(definition, browser_call, policy_for("tool_generic_browser"));
+    // The catalogue as the platform row really is: keyed by BOTH spellings,
+    // the class carried by the row. The helper's spelling-keyed fixture is
+    // replaced, not extended, so the id lookup is the only path that can
+    // recognize this tool.
+    input.catalog.capability_definitions = BTreeMap::from([
+        (
+            PLATFORM_BROWSER_ID.to_owned(),
+            CapabilityDefinition {
+                capability_id: PLATFORM_BROWSER_ID.to_owned(),
+                risk_class: RiskClass::Browser,
+                lifecycle: CapabilityLifecycle::Active,
+            },
+        ),
+        (
+            "browser".to_owned(),
+            CapabilityDefinition {
+                capability_id: PLATFORM_BROWSER_ID.to_owned(),
+                risk_class: RiskClass::Browser,
+                lifecycle: CapabilityLifecycle::Active,
+            },
+        ),
+    ]);
+    input
+        .organization_policy
+        .as_mut()
+        .expect("org policy fixture")
+        .browser
+        .allowed_domains
+        .insert("example.test".to_owned());
+
+    // The call is evaluated by the browser rules and GRANTED — the approval
+    // mode carries the call's own risk-class floor (external side effects need
+    // per-use approval), which is the rules' answer, not a capability refusal.
+    let decision = evaluate(&input);
+    assert!(
+        matches!(
+            decision.decision,
+            ToolDecision::Allow
+                | ToolDecision::RequireSessionApproval
+                | ToolDecision::RequirePerUseApproval
+        ),
+        "a browser call from a tool carrying the platform browser capability id must reach the rules and be granted: got {:?} ({})",
+        decision.decision,
+        decision.reason.code.as_str()
+    );
+    assert_ne!(
+        decision.reason.code,
+        DecisionReasonCode::CapabilityNotDefined,
+        "the platform capability id must resolve through the catalogue"
+    );
+
+    // The negative control, and it is the V04-010 refusal itself: with the
+    // browser capability absent from the catalogue — the WHOLE pre-0023 world,
+    // which is why every browser call in managed mode was refused before any
+    // policy toggle was read — the same call is refused
+    // `capability_not_defined`. After the seed this case is only reachable for
+    // a capability that genuinely is not defined.
+    let other_definition = tool(
+        "tool_generic_other",
+        RiskClass::ExternalSideEffect,
+        &[PLATFORM_BROWSER_ID],
+        "fp-generic-other",
+    );
+    let mut other_call = call(
+        "tool_generic_other",
+        RiskClass::ExternalSideEffect,
+        "fp-generic-other",
+    );
+    other_call.capability_ids.insert(PLATFORM_BROWSER_ID.to_owned());
+    other_call.browser_action = Some(BrowserAction::Visit {
+        domain: "example.test".to_owned(),
+    });
+    let mut other = base_input(other_definition, other_call, policy_for("tool_generic_other"));
+    other.catalog.capability_definitions = BTreeMap::from([(
+        PLATFORM_BROWSER_ID.to_owned(),
+        CapabilityDefinition {
+            capability_id: PLATFORM_BROWSER_ID.to_owned(),
+            risk_class: RiskClass::Network,
+            lifecycle: CapabilityLifecycle::Active,
+        },
+    )]);
+    other
+        .organization_policy
+        .as_mut()
+        .expect("org policy fixture")
+        .browser
+        .allowed_domains
+        .insert("example.test".to_owned());
+    assert_eq!(
+        evaluate(&other).reason.code,
+        DecisionReasonCode::CapabilityNotDefined,
+        "an uncatalogued required capability is refused before the rules run"
     );
 }
