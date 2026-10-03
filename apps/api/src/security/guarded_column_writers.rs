@@ -100,6 +100,10 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub enum Status {
         /// The guard reads this table and no application code writes it. Asserted to stay unwritten.
+        /// Deliberately kept though today's list carries no entry with it: the next arming
+        /// dependency that is found unwritten is recorded here and asserted, and removing the
+        /// variant would make that recording a refactor instead of a decision.
+        #[expect(dead_code)]
         Unwritable,
         /// A historical record: the table has since become written, or the guard moved, or the capability
         /// was deliberately deferred with a stated reason. No writer assertion.

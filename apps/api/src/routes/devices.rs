@@ -1887,14 +1887,14 @@ pub async fn update_device_policy(
     .await?;
     require_csrf(&headers, &access.session, &context).await?;
     let key = idempotency_key(&headers, &context)?;
-    if let Some(value) = body.min_client_version.as_deref() {
-        if parse_version(value).is_none() || value.is_empty() {
-            return Err(validation_error(
-                &context,
-                "min_client_version_invalid",
-                "Enter a version like 1.2.0, or clear the floor.",
-            ));
-        }
+    if let Some(value) = body.min_client_version.as_deref()
+        && (value.is_empty() || parse_version(value).is_none())
+    {
+        return Err(validation_error(
+            &context,
+            "min_client_version_invalid",
+            "Enter a version like 1.2.0, or clear the floor.",
+        ));
     }
     let database = database(&state, &context)?;
     let repository = DeviceRepository::new(database);
