@@ -1221,7 +1221,8 @@ pub fn evaluate(input: &PolicyEvaluationInput) -> ToolPolicyDecision {
 
     let mut required_capabilities = definition.capability_ids.clone();
     required_capabilities.extend(input.agent.required_capability_ids.iter().cloned());
-    if input.call.browser_action.is_some() && !has_browser_capability(&definition.capability_ids, &input.catalog)
+    if input.call.browser_action.is_some()
+        && !has_browser_capability(&definition.capability_ids, &input.catalog)
     {
         required_capabilities.insert(BROWSER_CAPABILITY_ID.to_owned());
     }

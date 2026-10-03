@@ -994,7 +994,6 @@ await runProbe(LABEL, async (probe) => {
 
   const decisionOf = (result) => result?.payload?.decision ?? null;
 
-
   // --- the POSITIVE CONTROL --------------------------------------------------------------
   const visitAllowed = await decideAction(
     browserTool,

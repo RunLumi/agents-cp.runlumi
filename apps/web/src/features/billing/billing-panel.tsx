@@ -251,10 +251,7 @@ export function BillingPanel({
   // (`docs/screens/lumi_plan_entitlements.webp`) designs exactly this: a plan
   // surface stating the connection is missing, with the provider portal as the
   // way to change it.
-  if (
-    state.subscription.status === "not_connected" &&
-    state.entitlements.status !== "ready"
-  ) {
+  if (state.subscription.status === "not_connected" && state.entitlements.status !== "ready") {
     return (
       <section aria-label="Billing and entitlements" className="space-y-5">
         <PanelHeading stale={stale || state.refreshing} onRefresh={() => void load()} />

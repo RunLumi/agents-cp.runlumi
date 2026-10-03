@@ -545,7 +545,9 @@ fn a_tool_is_browser_capable_through_its_catalogued_capability_id() {
         RiskClass::ExternalSideEffect,
         "fp-generic-browser",
     );
-    browser_call.capability_ids.insert(PLATFORM_BROWSER_ID.to_owned());
+    browser_call
+        .capability_ids
+        .insert(PLATFORM_BROWSER_ID.to_owned());
     browser_call.browser_action = Some(BrowserAction::Visit {
         domain: "example.test".to_owned(),
     });
@@ -618,11 +620,17 @@ fn a_tool_is_browser_capable_through_its_catalogued_capability_id() {
         RiskClass::ExternalSideEffect,
         "fp-generic-other",
     );
-    other_call.capability_ids.insert(PLATFORM_BROWSER_ID.to_owned());
+    other_call
+        .capability_ids
+        .insert(PLATFORM_BROWSER_ID.to_owned());
     other_call.browser_action = Some(BrowserAction::Visit {
         domain: "example.test".to_owned(),
     });
-    let mut other = base_input(other_definition, other_call, policy_for("tool_generic_other"));
+    let mut other = base_input(
+        other_definition,
+        other_call,
+        policy_for("tool_generic_other"),
+    );
     other.catalog.capability_definitions = BTreeMap::from([(
         PLATFORM_BROWSER_ID.to_owned(),
         CapabilityDefinition {

@@ -341,13 +341,7 @@ const run = async () => {
   // case 4 (no floor armed) is refused once a floor above the device's
   // app_version is set, and succeeds again once the floor is cleared — so the
   // refusal is the floor's, not the route breaking.
-  result = await request(
-    alice.jar,
-    "GET",
-    `/api/v1/orgs/${orgId}/device-policy`,
-    undefined,
-    csrf,
-  );
+  result = await request(alice.jar, "GET", `/api/v1/orgs/${orgId}/device-policy`, undefined, csrf);
   assert.equal(result.status, 200);
   assert.equal(result.payload.min_client_version, null);
   assert.equal(result.payload.version, 0);
@@ -384,7 +378,11 @@ const run = async () => {
     nonce: floorNonce.payload.nonce,
     app_version: device.appVersion,
   });
-  assert.equal(result.status, 403, `expected the floor to refuse: ${JSON.stringify(result.payload)}`);
+  assert.equal(
+    result.status,
+    403,
+    `expected the floor to refuse: ${JSON.stringify(result.payload)}`,
+  );
   assert.equal(result.payload.error.details.reason, "client_version_too_old");
   check("9f. a device below the floor is refused at token exchange", true);
 
@@ -413,7 +411,11 @@ const run = async () => {
     nonce: clearedNonce.payload.nonce,
     app_version: device.appVersion,
   });
-  assert.equal(result.status, 200, `expected the exchange to succeed after clearing: ${JSON.stringify(result.payload)}`);
+  assert.equal(
+    result.status,
+    200,
+    `expected the exchange to succeed after clearing: ${JSON.stringify(result.payload)}`,
+  );
   check("9h. the same exchange succeeds once the floor is cleared", true);
 
   result = await request(

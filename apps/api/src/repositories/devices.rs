@@ -730,9 +730,7 @@ impl<'a> DeviceRepository<'a> {
         &self,
         org_id: &str,
     ) -> worker::Result<D1PreparedStatement> {
-        self.database.prepare(
-            ASSERT_DEVICE_POLICY_ABSENT_SQL,
-            &[BindValue::Text(org_id)],
-        )
+        self.database
+            .prepare(ASSERT_DEVICE_POLICY_ABSENT_SQL, &[BindValue::Text(org_id)])
     }
 }

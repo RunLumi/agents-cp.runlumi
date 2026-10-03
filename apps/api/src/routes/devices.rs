@@ -29,7 +29,7 @@ use crate::{
         authorization::Permission,
         devices::{
             self, DEVICE_TOKEN_TTL_SECONDS, DeviceStatus, ENROLLMENT_TTL_SECONDS, EnrollmentStatus,
-            validate_capability_report, validate_enrollment_input, parse_version, version_at_least,
+            parse_version, validate_capability_report, validate_enrollment_input, version_at_least,
         },
         policy::{self, PolicyInputs},
     },
@@ -1987,13 +1987,18 @@ pub async fn update_device_policy(
     );
     let success =
         StoredSuccess::new(200, success_body.clone()).map_err(|_| service_unavailable(&context))?;
-    match commit_scoped_mutation(database, &context, claim, success, vec![guard, upsert], audit)
-        .await?
+    match commit_scoped_mutation(
+        database,
+        &context,
+        claim,
+        success,
+        vec![guard, upsert],
+        audit,
+    )
+    .await?
     {
         ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
-        ScopedMutationCommit::Committed => {
-            Ok((StatusCode::OK, Json(success_body)).into_response())
-        }
+        ScopedMutationCommit::Committed => Ok((StatusCode::OK, Json(success_body)).into_response()),
         ScopedMutationCommit::Guarded => Err(domain_error(
             &context,
             ApiErrorCode::Conflict,
