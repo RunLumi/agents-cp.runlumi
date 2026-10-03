@@ -39,7 +39,7 @@ rm -rf "$REPO/apps/api/.wrangler/state"
   echo "FATAL: migrations failed"
   exit 2
 }
-(cd "$REPO/apps/api" && "$WRANGLER" dev --env development --local --port 8787 \
+(cd "$REPO/apps/api" && exec "$WRANGLER" dev --env development --local --port 8787 \
   --show-interactive-dev-session=false >> "$WORKER_LOG" 2>&1) &
 WORKER_PID=$!
 for _ in $(seq 1 120); do

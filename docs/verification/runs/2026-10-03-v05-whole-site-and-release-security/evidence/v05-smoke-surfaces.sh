@@ -39,7 +39,7 @@ PERSIST="$(mktemp -d /tmp/v05-smoke-8787.XXXXXX)"
   echo "FATAL: migrations failed for the smoke worker"
   exit 2
 }
-(cd "$REPO/apps/api" && "$WRANGLER" dev --env development --local --port 8787 \
+(cd "$REPO/apps/api" && exec "$WRANGLER" dev --env development --local --port 8787 \
   --persist-to "$PERSIST" --show-interactive-dev-session=false > "$EVIDENCE/v05-smoke-worker.log" 2>&1) &
 WORKER_PID=$!
 for _ in $(seq 1 120); do

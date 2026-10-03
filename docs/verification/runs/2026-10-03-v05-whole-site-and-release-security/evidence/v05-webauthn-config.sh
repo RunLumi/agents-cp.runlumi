@@ -85,7 +85,12 @@ free_port() {
 
 start_worker() { # $1 persist dir, $2 port, remaining args passed to wrangler
   local persist="$1" port="$2"; shift 2
-  (cd "$API" && "$WRANGLER" dev --local --port "$port" --persist-to "$persist" \
+  # `exec` makes the subshell's PID wrangler's own, so the trap's kill actually
+  # reaches it. Without exec, killing the subshell orphans `wrangler dev` (and
+  # its workerd), which keeps its stdout handle on this run's log and its port
+  # held — measured during this campaign when an orphan logged parse errors
+  # into a committed evidence file hours after its run "finished".
+  (cd "$API" && exec "$WRANGLER" dev --local --port "$port" --persist-to "$persist" \
     --show-interactive-dev-session=false "$@" >> "$RUN_LOG" 2>&1) &
   PIDS+=($!)
 }

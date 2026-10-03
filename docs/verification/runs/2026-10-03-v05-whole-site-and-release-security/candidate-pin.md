@@ -82,3 +82,30 @@ would void this pin again, which is the rule working again.
 Tier-0 mutant kills across all six release-gate classes, and the sensitivity proofs for the gates
 this sweep re-runs. The one class §1 touched — `consume_ceremony`, the auth-replay mutant's target —
 is unchanged by the repairs (they touch the error mapping and the config, not the guard).
+
+---
+
+## Merge addendum — branch `v05-release-security`, merge commit `2fce974`
+
+To open the release PR, `origin/main` was merged into the campaign branch, so the tree under
+judgement now also carries the deployment line's changes since `795d403`:
+`.github/workflows/checks.yml`, `AGENTS.md`, `README.md`, `apps/api/scripts/smoke-production.mjs`,
+`apps/api/wrangler.jsonc` (production-only fields: `account_id`, custom-domain route, SPA assets,
+`database_id`; the duplicate early `env.production` block removed), `apps/web/scripts/browser-probe.mjs`
+(the org-switch loop is time-bounded instead of sample-counted — V04 documented exactly this
+supersession for T0-19), `package.json` (build order), deployment docs/ADRs/handoffs.
+
+Effect on the measurements in this record, stated plainly:
+
+- **No measured surface changed.** The only product file both lines touched is `wrangler.jsonc`, and
+  the merge resolved to the deployed structure with **byte-identical `WEBAUTHN_*`/`EMAIL_FROM`
+  values** (this campaign took them from the deployment line in the first place). The local gates
+  all run `--env development`, which the merge did not touch; the production-env legs consumed
+  exactly the vars, which are unchanged.
+- `smoke:browser` 91/91 and the whole-site sweep ran on the pre-merge `browser-probe.mjs` (the
+  journey assertions are the same; the deployment line's change is a patience increase in one wait
+  loop). The probe's own §4 record says which tool produced which number, per the pin discipline.
+- The config script's worker cleanup orphaned `wrangler dev` (subshell killed, wrangler not) — fixed
+  in all three committed scripts with `exec`, after an orphan logged parse errors into a committed
+  evidence log during the merge's conflict window. The log was restored to the passing run's
+  content; the appended noise is described here rather than kept.
