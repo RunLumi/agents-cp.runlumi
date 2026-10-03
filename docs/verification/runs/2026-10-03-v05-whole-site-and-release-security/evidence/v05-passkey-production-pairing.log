@@ -1,0 +1,97 @@
+compdef:153: _comps: assignment to invalid subscript range
+P02 passkey ceremony probe — relying party "agents-cp.runlumi.app", origin "https://agents-cp.runlumi.app"
+
+PASS  the CBOR encoder produces a 3-key map whose authData round-trips — first byte=0xa3 length=122
+PASS  clientDataJSON carries exactly the fields WebAuthn requires — {"type":"webauthn.get","challenge":"abc","origin":"https://agents-cp.runlumi.app","crossOrigin":false}
+PASS  fresh D1 applies every migration
+PASS  development Worker is healthy — http://127.0.0.1:57544
+PASS  registration ceremony start returns server-generated options — status=201 {"ceremony_id":"cer_e918b5d3bf554dcdafad54989cb96054","expires_at":"2026-10-03T04:08:27.247Z","public_key":{"attestation":"none","authenticatorSelection":{"requireResidentKey":true,"residentKey":"required","userVerification":"required"},"ch
+PASS  the ceremony is server-issued and challenge-bound — ceremony=cer_e918b5d3… challenge=string
+PASS  registration requires user verification and a discoverable credential (F01-004) — {"requireResidentKey":true,"residentKey":"required","userVerification":"required"}
+PASS  registration does not force a platform authenticator (F01-004) — undefined
+PASS  registration asks for no attestation (F01-004 default policy) — none
+PASS  a challenge the server never issued is refused — status=401 reason=ceremony_challenge_mismatch
+PASS  an origin outside the configured allowlist is refused — status=401 reason=ceremony_origin_mismatch
+PASS  authenticator data bound to another relying party is refused — status=401 reason=ceremony_rp_id_mismatch
+PASS  missing required user verification is refused — status=401 reason=user_verification_required
+PASS  a raw_id that does not match the credential id is refused — status=401 reason=passkey_invalid
+PASS  a response with no attested credential data is refused — status=401 reason=passkey_invalid
+PASS  a correct registration completes and establishes a session — status=200 {"user":{"created_at":"2026-10-03T04:03:27.332Z","display_name":"Passkey Smoke","email":"passkey-1791000207241@example.test","email_verified":false,"id":"usr_76f97c2f1ad8476bb06125988e98d8f1"},"verification":{"challenge_id":"idn_d48538b801c
+PASS  registration establishes a real session cookie
+PASS  the created account is returned unverified, so a verification step is required — false
+PASS  a verification challenge is issued with the account — "idn_d48538b801ce40a699545c775bb735c3"
+PASS  a consumed registration ceremony cannot be replayed — status=401 reason=ceremony_invalid
+PASS  an already-registered authenticator cannot be enrolled again — status=409 reason=credential_conflict
+PASS  discoverable login ceremony start returns server-generated options — status=201 {"ceremony_id":"cer_0608345cf3414939885583384b001c0d","expires_at":"2026-10-03T04:08:27.374Z","public_key":{"challenge":"<redacted>","rpId":"agents-cp.runlumi.app","timeout":60000,"userVerification":"required"}}
+PASS  a discoverable login omits allowCredentials (F01-005)
+PASS  login requires user verification — required
+PASS  an assertion with a corrupted signature is refused — status=401 reason=passkey_signature_invalid
+PASS  an assertion over a challenge the server never issued is refused — status=401 reason=ceremony_challenge_mismatch
+PASS  an assertion from an unlisted origin is refused — status=401 reason=ceremony_origin_mismatch
+PASS  an assertion bound to another relying party is refused — status=401 reason=ceremony_rp_id_mismatch
+PASS  an assertion naming an unknown credential is refused — status=401 reason=ceremony_invalid
+PASS  an assertion claiming a different user handle is refused — status=401 reason=ceremony_invalid
+PASS  an assertion missing required user verification is refused — status=401 reason=user_verification_required
+PASS  a correct assertion signs in with no email and no password — status=200 {"user":{"created_at":"2026-10-03T04:03:27.332Z","display_name":"Passkey Smoke","email":"passkey-1791000207241@example.test","email_verified":false,"id":"usr_76f97c2f1ad8476bb06125988e98d8f1"}}
+PASS  passkey sign-in establishes a real session
+PASS  the passkey session resolves /api/v1/me for its own account — status=200 reason=null
+PASS  a consumed login ceremony cannot be replayed with a fresh sign counter — status=401 reason=ceremony_invalid
+PASS  the replay is refused as a consumed ceremony, not as a stale counter — reason=ceremony_invalid -- if this is passkey_counter_regression the probe is measuring the credential's counter rather than the ceremony's consumed state, and the ceremony invariant is UNPROVEN
+PASS  the passkey session is listed in the account session inventory — sessions=2
+PASS  the session can be revoked — status=204 reason=null
+PASS  a revoked session can no longer authenticate — status=401
+PASS  the add/reauth replay probe starts from a fresh signup ceremony — status=201 reason=null
+PASS  CONTROL: the fresh identity completes signup, so refusals below are about ceremony state — status=200 reason=null
+PASS  a passkey step-up ceremony starts for a session holding a passkey — status=201 reason=null
+PASS  CONTROL: the step-up completes and mints a usable grant — status=200 reason=null
+PASS  a consumed REAUTHENTICATE ceremony cannot be replayed — status=401 reason=ceremony_invalid
+PASS  CONTROL: the step-up grant starts a passkey-add ceremony — status=201 reason=null
+PASS  CONTROL: the second passkey completes registration — status=201 reason=null
+PASS  CONTROL: the added credential is in the inventory, so the add really happened — items=2
+PASS  a consumed PASSKEY-ADD ceremony cannot be replayed — status=401 reason=ceremony_invalid -- credential_conflict would mean the replay reached the duplicate-credential check, i.e. the consumed-state guard did not refuse it
+PASS  an assertion repeating the stored sign counter is refused as a counter regression — status=401 reason=passkey_counter_regression
+PASS  CONTROL: an assertion advancing the counter by one signs in, so the refusal above was the counter — status=200 reason=null
+PASS  the registered passkey appears in the account's credential inventory — items=1
+PASS  the lockout guard answers before the grant is examined, and names itself — status=409 reason=last_login_method_required
+PASS  the only login method cannot be revoked, so an account cannot lock itself out — status=409 reason=last_login_method_required
+PASS  the lockout refusal names the reason a user can act on — reason=last_login_method_required
+PASS  a password can be configured with a reauth grant — status=204 reason=null
+PASS  a fabricated reauth grant is refused once the lockout guard no longer applies — status=403 reason=reauthentication_required
+PASS  a credential can be revoked once another login method exists — status=204 reason=null
+PASS  a REVOKED credential cannot authenticate, even with a valid signature — status=401 reason=ceremony_invalid
+PASS  the refusal is not a signature failure, so it is the revocation that refused it — reason=ceremony_invalid -- passkey_signature_invalid would mean the probe built a bad assertion and proved nothing about revocation
+PASS  the passkey session resolves an identity to start from — status=200
+PASS  identity-asserting headers do not change who the session is — asked as usr_0000000000000000000000000000dead, resolved as usr_76f97c2f1ad8476bb06125988e98d8f1 (real usr_76f97c2f1ad8476bb06125988e98d8f1)
+PASS  no identity-asserting header widens the session's organizations — before=0 after=0
+PASS  a client-asserted organization the session does not belong to is refused — status=404 reason=not_found
+PASS  the organization context mismatch is named, not reported as a bare denial — reason=not_found
+PASS  an expired ceremony is refused with a stable reason — status=401 reason=ceremony_invalid
+PASS  a signup ceremony starts, so there is a kind to misuse — status=201 ceremony=cer_0e22d13240c944c083879a78240dd95c reason=null
+PASS  CONTROL: a signup ceremony completes with a registration payload, so the flow and the payload are both sound — status=200 reason=null
+PASS  a login ceremony starts, so a login ceremony id exists to misuse — status=201 ceremony=cer_86801924d9754c0b8e12577a71fbbd89
+PASS  a LOGIN ceremony id is refused at the SIGNUP endpoint, so a sign-in token cannot create an account — status=401 reason=ceremony_invalid
+PASS  the refused wrong-kind signup added no credential, so a registration token cannot enrol a passkey — passkey_credentials 4 -> 4
+PASS  a SIGNUP ceremony id is refused at the LOGIN endpoint, so a registration token cannot authenticate a session — status=401 reason=ceremony_invalid
+PASS  the second identity is verified, so it is a real account and not a pending shell — signup=200 verify=200 reason=null
+PASS  a second verified identity exists to be attacked — status=200 id=usr_fc7dc3e58c7f48ed982e746d9ccb677d
+PASS  the link attacker has a session — id=usr_76f97c2f1ad8476bb06125988e98d8f1
+PASS  a link attempt with no valid challenge is refused — status=403 reason=identity_conflict
+PASS  a reauth grant for purpose `identity_link` cannot be minted, so the EMAIL-conflict guard is unreachable and its claim is UNPROVEN rather than proven — status=422 reason=purpose_invalid
+PASS  the victim's session still resolves to the victim after the link attempt — resolved as usr_fc7dc3e58c7f48ed982e746d9ccb677d (real usr_fc7dc3e58c7f48ed982e746d9ccb677d)
+PASS  no identity was attached to the victim by the attacker's link attempt — 1 -> 1
+PASS  the recovery subject signs up — id=usr_3e7d91ae54be4187ae52f8bac97776b1
+PASS  a second session is established before the recovery, so there is something to terminate — status=200
+PASS  a recovery can be started for the account — status=202 reason=null
+PASS  the recovery challenge and code are available to finish the ceremony — challenge=rec_8b52d2a00985489395dbaa64ef416d10 code=present body={"challenge_id":"rec_8b52d2a00985489395dbaa64ef416d10","expires_at":"2026-10-03T04:18:37.731Z","development_code":"f3fd6b66b9a5956957eb3116159d913c81b6b3e041f23979f4d7c39ed4507c31"}
+PASS  the recovery completes and the password is replaced — status=204 reason=null sent={"challenge_id":"rec_8b52d2a00985489395dbaa64ef416d10","code":"<redacted>","password":"recovered-password-long-enough-2"} body=null
+PASS  a consumed recovery ceremony cannot be replayed with the same challenge and code — status=401 reason=recovery_invalid
+PASS  and the replay is refused as `recovery_invalid` -- the same undifferentiated answer a wrong code gets, so consuming a ceremony is not distinguishable from never having started one — reason=recovery_invalid
+PASS  and the password set by the ORIGINAL recovery still authenticates, so the replay changed nothing — status=200
+PASS  and the password carried by the replay does NOT authenticate -- the state assertion that a removed compare-and-set would fail, since accepting the replay would have set exactly this — status=401
+PASS  a session established before the recovery no longer authenticates afterwards — status=401 resolved=nobody
+PASS  the pre-recovery password no longer authenticates — status=401
+PASS  the new password does authenticate, so the recovery took effect — status=200
+PASS  the Worker is still serving after the ceremony probes — status=200
+
+91/91 checks passed
+GREEN_EXIT=0

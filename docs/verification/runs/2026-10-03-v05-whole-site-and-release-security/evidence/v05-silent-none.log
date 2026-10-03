@@ -1,0 +1,18 @@
+== V05 silent-None leg: candidate wrangler.jsonc production env (NO WEBAUTHN vars), 2026-10-03T03:56:25Z ==
+│ 0021_p02_team_id_check_correction.sql  │ ✅     │
+├────────────────────────────────────────┼────────┤
+│ 0022_p07_staff_actor_type.sql          │ ✅     │
+└────────────────────────────────────────┴────────┘
+--- GET /api/health ---
+{"status":"ok","service":"lumi-agents-control-plane-api"}
+--- GET /api/v1/meta ---
+{"api_version":"v1","contract_version":"p01-cg-v1","service":"lumi-agents-control-plane-api"}
+--- POST /api/v1/auth/passkey/login/start ---
+{"error":{"code":"service_unavailable","message":"The identity store is unavailable.","request_id":"req_77ecd55ddde24b3dbe79427ad2f0dd51","details":{}}}
+HTTP 503
+--- POST /api/v1/auth/passkey/signup/start ---
+{"error":{"code":"service_unavailable","message":"The identity store is unavailable.","request_id":"req_3628a48c3dc844ceb206379471980e65","details":{}}}
+HTTP 503
+--- POST /api/v1/auth/password/login (non-passkey route still fine?) ---
+{"error":{"code":"authentication_required","message":"The email or password could not be verified.","request_id":"req_6c8a9cb0397a4bf593708881446e7f90","details":{"reason":"password_login_failed"}}}
+HTTP 401

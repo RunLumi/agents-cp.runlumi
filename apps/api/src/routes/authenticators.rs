@@ -1667,7 +1667,7 @@ fn webauthn_adapter<'a>(
     state
         .webauthn
         .as_ref()
-        .ok_or_else(|| service_unavailable(context))
+        .ok_or_else(|| webauthn_unavailable(context))
 }
 
 fn verifier_credentials(
@@ -1941,6 +1941,22 @@ fn service_unavailable(context: &RequestContext) -> ApiError {
         ApiErrorCode::ServiceUnavailable,
         "The identity store is unavailable.",
     )
+}
+
+/// The answer a passkey route gives when the Worker has no WebAuthn adapter at
+/// all — the state a non-development deployment reaches when `WEBAUTHN_RP_ID` /
+/// `WEBAUTHN_ORIGINS` are missing or malformed (`app::router` passes them
+/// through as `Option`). It must not share `service_unavailable`'s wording:
+/// "The identity store is unavailable." describes a D1 outage, and a deployment
+/// that has silently forgotten passkeys must be distinguishable from one whose
+/// store is down — by an operator reading the response, not by reading config.
+fn webauthn_unavailable(context: &RequestContext) -> ApiError {
+    errors::api_error(
+        context,
+        ApiErrorCode::ServiceUnavailable,
+        "Passkeys are not configured on this deployment.",
+    )
+    .with_detail("reason", json!("passkeys_not_configured"))
 }
 
 fn generated_id(prefix: &str) -> String {
