@@ -1,0 +1,24 @@
+$ pnpm --filter @runlumi/agents-cp-api smoke:p02
+$ node scripts/p02-smoke.mjs
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+[TypeError: fetch failed] {
+  [cause]: Error: connect ECONNREFUSED 127.0.0.1:8787
+      at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16) {
+    errno: -61,
+    code: 'ECONNREFUSED',
+    syscall: 'connect',
+    address: '127.0.0.1',
+    port: 8787
+  }
+}
+
+Node.js v24.20.0
+[ELIFECYCLE] Command failed with exit code 1.
+Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+
+  × "pnpm recursive run" failed in /Volumes/SSD/agents-cp.runlumi/apps/api
+
+[ELIFECYCLE] Command failed with exit code 1.

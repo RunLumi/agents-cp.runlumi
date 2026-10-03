@@ -1,0 +1,8 @@
+$ pnpm --filter @runlumi/agents-cp-api smoke:local
+$ node scripts/smoke-local.mjs
+P01 local smoke passed: Vite proxy → Rust Worker → D1 → outbox → Queue consumer → D1 status.
+Request ID: req_34318a71e017431db789fa953d004826; event ID: evt_0e6268b9412343819711908f2dc05983; ID propagation, duplicate replay, and body-mismatch conflict verified.
+Local D1 preserved distinct principal/org scopes and ignored an exact duplicate scope insert.
+Local D1 rolled back the outbox insert when the idempotency claim guard failed.
+Local Worker reclaimed an expired idempotency key and preserved an active claim.
+Production-config Worker returned a stable 404 for the development-only foundation route.

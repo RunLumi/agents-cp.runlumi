@@ -1,0 +1,19 @@
+$ pnpm --filter @runlumi/agents-cp-api guard:probe
+$ node scripts/p02-guard-probe.mjs
+  PASS  the real migrations apply, so the probe is testing the real schema
+  PASS  the sentinel shape in this probe is the shape the repositories actually emit
+  PASS  a real sentinel aborts, and its text is one the recogniser knows
+  PASS  the sentinel inserts nothing, so the abort really did roll the batch back
+  PASS  the abort text is migration 0020's trigger, so the old regression cannot return
+  PASS  the pre-0020 abort text is also recognised, so a rollback stays correct
+  PASS  an UNIQUE violation on an unrelated table is NOT read as a guard
+  PASS  a NOT NULL violation on another idempotency_records column is NOT read as a guard
+  PASS  a FOREIGN KEY violation is NOT read as a guard
+  PASS  a real store failure is NOT read as a guard
+  PASS  the recognised-text list holds only measured entries
+  PASS  is_guard_abort actually reads the list this probe verifies
+  PASS  V01-023: the polarity matrix covers every guard! in the automations repository
+  PASS  V01-023: assert_run_link_absent_statement permits the first start and aborts a duplicate
+  PASS  is_guard_abort does not widen itself past the list
+
+15/15 guard cases hold across 2 recognised abort texts

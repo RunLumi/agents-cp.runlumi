@@ -1,0 +1,20 @@
+$ pnpm --filter @runlumi/agents-cp-api verify:observability
+$ node scripts/v02-observability-correlation-probe.mjs
+
+  observability probe could not complete: fetch failed
+
+
+  V02 observability -- one request id followed through the system
+
+  UNMEASURED  the probe completed
+              fetch failed
+
+  0 pass, 0 fail, 1 unmeasured.
+  A leg that could not be read is UNMEASURED, not passing.
+
+[ELIFECYCLE] Command failed with exit code 2.
+Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+
+  × "pnpm recursive run" failed in /Volumes/SSD/agents-cp.runlumi/apps/api
+
+[ELIFECYCLE] Command failed with exit code 1.

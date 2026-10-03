@@ -12,6 +12,7 @@
 //! - `actor_type_correspondence` — can the code write an `actor_type` the schema would refuse?
 //! - `repository_liveness` — can the code reach every repository capability it declares?
 pub(crate) mod actor_type_correspondence;
+pub(crate) mod guarded_column_writers;
 pub(crate) mod release_docs;
 pub(crate) mod repository_liveness;
 pub(crate) mod secret_canary;

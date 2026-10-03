@@ -1,0 +1,50 @@
+
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:52685
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-vTNq6I/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 1325s newer than src/routes/authenticators.rs
+  PASS  signup Alice  — status=201
+  PASS  verify Alice  — status=200
+  PASS  login start Alice  — status=202
+  PASS  login complete Alice  — status=200
+  PASS  user Alice has an opaque ID  — usr_627c03e2ed5340c4b534dc3098904cab
+  PASS  signup Bob  — status=201
+  PASS  verify Bob  — status=200
+  PASS  login start Bob  — status=202
+  PASS  login complete Bob  — status=200
+  PASS  user Bob has an opaque ID  — usr_406b42e3a7a14def9970fd7343424a34
+  PASS  signup Mallory  — status=201
+  PASS  verify Mallory  — status=200
+  PASS  login start Mallory  — status=202
+  PASS  login complete Mallory  — status=200
+  PASS  user Mallory has an opaque ID  — usr_ce5e74bdca99447bbea5da5c2b23c41f
+  PASS  create Alice Org  — status=201
+  PASS  Alice Org organization ID  — org_7fa6a27234d45faa836b8b872a0d9c63
+  PASS  create Bob Org  — status=201
+  PASS  Bob Org organization ID  — org_8907f43881ab885fcbd2c5950f3c32d2
+  PASS  invite a member  — status=201
+  PASS  accept the member invitation  — status=200
+  PASS  Org A has a real project  — status=201 id=prj_62959a640a32494cb33d49529919dc91
+  PASS  the project's default_model_route holds a real value before the patch, so the preservation claim below is not vacuous  — default_model_route=v01-fixture-route
+  PASS  Org A has a real service account  — status=200 id=svc_cceb81fccdd14808944a6ac5f8b34b17
+  PASS  Org A has a real budget  — status=201 id=bud_9881434590df4189828d217e882f5a67
+  PASS  Org A's membership ids are known  — members=2
+  PASS  no cross-tenant or intra-tenant mutation changed the targeted row: every write was either refused or inert  — 11 mutations, all left the state untouched
+  PASS  no mutation was answered with a 5xx, which would be a store fault wearing the costume of a refusal  — none
+  PASS  no cross-tenant or member mutation was accepted at all, so the refusals are refusals rather than clamps  — none accepted
+  PASS  a cross-tenant refusal does not vary between a resource that exists and one that does not, so the status is not an existence oracle  — absent id -> 404 resource_not_found; present id -> 404 resource_not_found
+  PASS  CONTROL: Org A's own owner can rename its own project, so the project route and the body are both sound  — status=200
+  PASS  the control's write is visible in the state, so a state comparison can tell the difference  — [{"name":"Renamed By Alice"}]
+  PASS  a rename leaves default_model_route alone: PatchProjectRequest has no model-route field, so patching a name must not clear the route  — before=v01-fixture-route after=v01-fixture-route
+  PASS  a rename writes a timestamp into updated_at, not the project's own id  — updated_at=2026-10-03T04:28:07.805Z
+  PASS  a successful patch bumps the optimistic version, which is the proof the WHERE clause matched  — version 1 -> 2
+  PASS  a PATCH carrying a stale version is refused with a conflict, so a second editor cannot silently overwrite the first  — status=409 version sent=1 current=2
+  PASS  the stale write changed nothing: the name is still the control's and the version did not advance  — name=Renamed By Alice version=2
+  PASS  the same write with the CURRENT version succeeds, so the conflict above was about the version and not about the route  — status=200
+  PASS  the attacker holds no access grant on the org's project  — grants=0
+  PASS  Org A still has exactly one owner and one admin-free membership set  — [{"email":"alice-murw4t9o1d1f@example.com","role":"owner"},{"email":"mallory-murw4t9o1d1f@example.com","role":"member"}]
+
+11 mutating cross-tenant and intra-tenant attacks across 5 classes
+  status distribution: 403 x5  404 x5  422 x1
+  state changed by: 0 of 11
+
+43/43 V01 mutating-tenancy cases hold

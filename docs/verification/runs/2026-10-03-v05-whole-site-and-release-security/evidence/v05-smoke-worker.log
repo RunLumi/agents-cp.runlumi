@@ -1,0 +1,427 @@
+
+ ⛅️ wrangler 4.137.0 (update available 4.147.0)
+───────────────────────────────────────────────
+[custom build] Running: worker-build --release
+[custom build] [INFO]: 🎯  Checking for the Wasm target...
+[custom build] 
+[custom build] [INFO]: 🌀  Compiling to Wasm...
+[custom build] 
+[custom build]     Finished `release` profile [optimized] target(s) in 0.16s
+[custom build] 
+[custom build] [INFO]: Optimizing wasm binaries with `wasm-opt`...
+[custom build] 
+[custom build] [INFO]: ✨  Done in 11.26s
+[custom build] [INFO]: 📦   Your wasm pkg is ready to publish at /Volumes/SSD/agents-cp.runlumi/apps/api/build/.tmp.
+[custom build] 
+[custom build] 
+[custom build]   index.js  37.1kb
+[custom build] 
+[custom build] ⚡ Done in 14ms
+[custom build] 
+Your Worker has access to the following bindings:
+Binding                                                                      Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                Queue                        local
+env.DB (lumi-agents-control-plane-development)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                                      Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                              Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                         Environment Variable         local
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mScheduled Workers are not automatically triggered during local development.[0m
+
+  To manually trigger a scheduled event, run:
+    curl "http://localhost:8787/cdn-cgi/local/scheduled"
+  For more details, see [4mhttps://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers-locally[0m
+
+
+⎔ Starting local server...
+⎔ Connection status updated
+Your Worker has access to the following bindings:
+Binding                                                                      Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                Queue                        local
+env.DB (lumi-agents-control-plane-development)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                                      Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                              Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                         Environment Variable         local
+
+[wrangler:info] Ready on http://localhost:8787
+{"event":"http_request","request_id":"req_d214989a4aa04e0181ecfa3baed30e3c","correlation_id":"req_d214989a4aa04e0181ecfa3baed30e3c","method":"GET","route":"/api/health","status":200,"duration_ms":0}
+[wrangler:info] GET /api/health 200 OK (505ms)
+{"event":"http_request","request_id":"req_5b372aaa5e234cf896fbb05542bb6fe6","correlation_id":"req_5b372aaa5e234cf896fbb05542bb6fe6","method":"GET","route":"/api/health","status":200,"duration_ms":0}
+[wrangler:info] GET /api/health 200 OK (8ms)
+{"event":"http_request","request_id":"req_f861fff2cf85442a8b54139c1c6330dd","correlation_id":"req_f861fff2cf85442a8b54139c1c6330dd","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":35}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (40ms)
+{"event":"http_request","request_id":"req_f304835a8d724914ae577344ea34ec02","correlation_id":"req_f304835a8d724914ae577344ea34ec02","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":13}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (30ms)
+{"event":"http_request","request_id":"req_53a92bd1641b4e2faa5e9dac7e1dc976","correlation_id":"req_53a92bd1641b4e2faa5e9dac7e1dc976","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":8}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (13ms)
+{"event":"http_request","request_id":"req_7744fc300cf84ae9995fa640396d1095","correlation_id":"req_7744fc300cf84ae9995fa640396d1095","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":7}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (13ms)
+{"event":"http_request","request_id":"req_f4b133d0b6ad41b79d5530ba92cd4465","correlation_id":"req_f4b133d0b6ad41b79d5530ba92cd4465","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":6}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (9ms)
+{"event":"http_request","request_id":"req_e29d3d8865b5416b9ca49302233c84c7","correlation_id":"req_e29d3d8865b5416b9ca49302233c84c7","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (8ms)
+{"event":"http_request","request_id":"req_39d9a78e28894372aac79e2d5ed39852","correlation_id":"req_39d9a78e28894372aac79e2d5ed39852","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (11ms)
+{"event":"http_request","request_id":"req_307669f1e6934016bc070dbd4012fecd","correlation_id":"req_307669f1e6934016bc070dbd4012fecd","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (9ms)
+{"event":"http_request","request_id":"req_07d5d7c463684743a1d5bfc2dfd21c5d","correlation_id":"req_07d5d7c463684743a1d5bfc2dfd21c5d","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs 201 Created (13ms)
+{"event":"http_request","request_id":"req_caf68eba24d54174a136208b62f8a55c","correlation_id":"req_caf68eba24d54174a136208b62f8a55c","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":409,"duration_ms":6}
+[wrangler:info] PATCH /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/members/mem_2b491261c8cf5f25a3877c48099b55d7 409 Conflict (10ms)
+{"event":"http_request","request_id":"req_c083ffb2c4a6461fa341d5ff75049ea8","correlation_id":"req_c083ffb2c4a6461fa341d5ff75049ea8","method":"POST","route":"/api/v1/orgs","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/orgs 200 OK (10ms)
+{"event":"http_request","request_id":"req_56fa8b2af0384ff29841b604a9c86502","correlation_id":"req_56fa8b2af0384ff29841b604a9c86502","method":"POST","route":"/api/v1/account/reauth","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/account/reauth 201 Created (8ms)
+{"event":"http_request","request_id":"req_72d28b81eada4d3a8bcf4e70473188fc","correlation_id":"req_72d28b81eada4d3a8bcf4e70473188fc","method":"POST","route":"/api/v1/orgs/{org_id}/suspend","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/suspend 200 OK (7ms)
+{"event":"http_request","request_id":"req_7b719faf78b4431289a8e017443e72ed","correlation_id":"req_7b719faf78b4431289a8e017443e72ed","method":"GET","route":"/api/v1/orgs/{org_id}/members","status":403,"duration_ms":3}
+[wrangler:info] GET /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/members 403 Forbidden (6ms)
+{"event":"http_request","request_id":"req_5e1f6bb01da14dbbbef33104960aec30","correlation_id":"req_5e1f6bb01da14dbbbef33104960aec30","method":"POST","route":"/api/v1/account/reauth","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/account/reauth 201 Created (9ms)
+{"event":"http_request","request_id":"req_e14e786e105344a3a4ecd63a7593c398","correlation_id":"req_e14e786e105344a3a4ecd63a7593c398","method":"POST","route":"/api/v1/orgs/{org_id}/resume","status":200,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/resume 200 OK (11ms)
+{"event":"http_request","request_id":"req_e48940a3bc6841e7bd8f7b4a7312ed7f","correlation_id":"req_e48940a3bc6841e7bd8f7b4a7312ed7f","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/invitations 201 Created (10ms)
+{"event":"http_request","request_id":"req_84d097b198884911922076677e9da0ea","correlation_id":"req_84d097b198884911922076677e9da0ea","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/invitations/inv_6b9d98f453072de153461a31eab98135/accept 200 OK (10ms)
+{"event":"http_request","request_id":"req_0e113c1dfbf74a11877bb3f3a9399fc7","correlation_id":"req_0e113c1dfbf74a11877bb3f3a9399fc7","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":3}
+[wrangler:info] POST /api/v1/invitations/inv_6b9d98f453072de153461a31eab98135/accept 200 OK (7ms)
+{"event":"http_request","request_id":"req_6d35b1daa87e456999f97564ee10475e","correlation_id":"req_6d35b1daa87e456999f97564ee10475e","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/orgs 201 Created (7ms)
+{"event":"http_request","request_id":"req_295aab55d9ce476980ef148be07398fb","correlation_id":"req_295aab55d9ce476980ef148be07398fb","method":"GET","route":"/api/v1/orgs/{org_id}","status":404,"duration_ms":2}
+[wrangler:info] GET /api/v1/orgs/org_95db8ef53acee0c5ee2f4f0f5ad3e813 404 Not Found (6ms)
+{"event":"http_request","request_id":"req_03edb891beba452e93c3da753bc97f5f","correlation_id":"req_03edb891beba452e93c3da753bc97f5f","method":"GET","route":"/api/v1/orgs/{org_id}/members","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/members 200 OK (6ms)
+{"event":"http_request","request_id":"req_ebb9101df2d5430d8a4fb6c36652ff6b","correlation_id":"req_ebb9101df2d5430d8a4fb6c36652ff6b","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":403,"duration_ms":2}
+[wrangler:info] PATCH /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/members/mem_6cc9d0817d094ce5bb9260a8819fddf1 403 Forbidden (5ms)
+{"event":"http_request","request_id":"req_53318addf419436aa6f170c9c0383337","correlation_id":"req_53318addf419436aa6f170c9c0383337","method":"POST","route":"/api/v1/account/reauth","status":201,"duration_ms":2}
+[wrangler:info] POST /api/v1/account/reauth 201 Created (5ms)
+{"event":"http_request","request_id":"req_71e85b53236149279e5377123c88129a","correlation_id":"req_71e85b53236149279e5377123c88129a","method":"POST","route":"/api/v1/me/identities/link/start","status":409,"duration_ms":4}
+[wrangler:info] POST /api/v1/me/identities/link/start 409 Conflict (7ms)
+{"event":"http_request","request_id":"req_fcf86c86b2894d82812be9d05e07ec76","correlation_id":"req_fcf86c86b2894d82812be9d05e07ec76","method":"POST","route":"/api/v1/me/identities/link/start","status":202,"duration_ms":4}
+[wrangler:info] POST /api/v1/me/identities/link/start 202 Accepted (6ms)
+{"event":"http_request","request_id":"req_5b189744e23e4dcfb72b15e0cc50b16a","correlation_id":"req_5b189744e23e4dcfb72b15e0cc50b16a","method":"POST","route":"/api/v1/me/identities/link","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/me/identities/link 201 Created (8ms)
+{"event":"http_request","request_id":"req_ac8719ef7df846d6bc42e4d961876591","correlation_id":"req_ac8719ef7df846d6bc42e4d961876591","method":"POST","route":"/api/v1/auth/device-code","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/auth/device-code 201 Created (6ms)
+{"event":"http_request","request_id":"req_0327174ebd5a4fc58e02e3a3e4ce96d2","correlation_id":"req_0327174ebd5a4fc58e02e3a3e4ce96d2","method":"POST","route":"/api/v1/auth/device-code/approve","status":204,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/device-code/approve 204 No Content (10ms)
+{"event":"http_request","request_id":"req_be5e6f41cb2a47b89aa858ed3677de0a","correlation_id":"req_be5e6f41cb2a47b89aa858ed3677de0a","method":"POST","route":"/api/v1/auth/device-code/exchange","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/auth/device-code/exchange 200 OK (7ms)
+{"event":"http_request","request_id":"req_faee13ce3c5544fc95f0aa8813dfa578","correlation_id":"req_faee13ce3c5544fc95f0aa8813dfa578","method":"POST","route":"/api/v1/auth/device-code/exchange","status":401,"duration_ms":2}
+[wrangler:info] POST /api/v1/auth/device-code/exchange 401 Unauthorized (5ms)
+{"event":"http_request","request_id":"req_253e4ae52145417fa106438169b9a13f","correlation_id":"req_253e4ae52145417fa106438169b9a13f","method":"GET","route":"/api/v1/orgs/{org_id}/audit","status":403,"duration_ms":5}
+[wrangler:info] GET /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/audit 403 Forbidden (8ms)
+{"event":"http_request","request_id":"req_ea01d8f620584cc6866e495b844ca748","correlation_id":"req_ea01d8f620584cc6866e495b844ca748","method":"DELETE","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":204,"duration_ms":7}
+[wrangler:info] DELETE /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/members/mem_6cc9d0817d094ce5bb9260a8819fddf1 204 No Content (9ms)
+{"event":"http_request","request_id":"req_1107a191d302455e8106f88ec964c7e9","correlation_id":"req_1107a191d302455e8106f88ec964c7e9","method":"GET","route":"/api/v1/orgs/{org_id}","status":401,"duration_ms":1}
+[wrangler:info] GET /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe 401 Unauthorized (4ms)
+{"event":"http_request","request_id":"req_38e627e1a0b34440be6b9ba6e4a07489","correlation_id":"req_38e627e1a0b34440be6b9ba6e4a07489","method":"GET","route":"/api/v1/orgs/{org_id}/audit","status":200,"duration_ms":5}
+[wrangler:info] GET /api/v1/orgs/org_8f8ce5a1f5ca4bcf96efe913a64e92fe/audit 200 OK (9ms)
+{"event":"http_request","request_id":"req_a91a19649a6d4856a4392b2917fa0091","correlation_id":"req_a91a19649a6d4856a4392b2917fa0091","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (8ms)
+{"event":"http_request","request_id":"req_4e9f3deb7b4f4d60a3080df3fab4df9a","correlation_id":"req_4e9f3deb7b4f4d60a3080df3fab4df9a","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (8ms)
+{"event":"http_request","request_id":"req_eb8aa07b08264424856999b00df6da87","correlation_id":"req_eb8aa07b08264424856999b00df6da87","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs 201 Created (10ms)
+{"event":"http_request","request_id":"req_4497e5667d31413196fea21c8d8c06a4","correlation_id":"req_4497e5667d31413196fea21c8d8c06a4","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs/org_d56e4a48e8deb61691e1fd24147e602a/invitations 201 Created (11ms)
+{"event":"http_request","request_id":"req_6d72d1487e10444883bfd0daf8ed5919","correlation_id":"req_6d72d1487e10444883bfd0daf8ed5919","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/invitations/inv_c8821efe55fc8f0841c4cc085679edd3/accept 200 OK (6ms)
+{"event":"http_request","request_id":"req_613560f068f54d8ebc568aa490ae711d","correlation_id":"req_613560f068f54d8ebc568aa490ae711d","method":"POST","route":"/api/v1/orgs/{org_id}/leave","status":204,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_d56e4a48e8deb61691e1fd24147e602a/leave 204 No Content (9ms)
+{"event":"http_request","request_id":"req_3db058dc9f854794ab5402d93c65163b","correlation_id":"req_3db058dc9f854794ab5402d93c65163b","method":"GET","route":"/api/v1/orgs/{org_id}","status":401,"duration_ms":0}
+[wrangler:info] GET /api/v1/orgs/org_d56e4a48e8deb61691e1fd24147e602a 401 Unauthorized (3ms)
+{"event":"http_request","request_id":"req_1e3b94d3eea34de0b2a9e1aeec8aa3c2","correlation_id":"req_1e3b94d3eea34de0b2a9e1aeec8aa3c2","method":"GET","route":"/api/v1/orgs/{org_id}/members","status":200,"duration_ms":5}
+[wrangler:info] GET /api/v1/orgs/org_d56e4a48e8deb61691e1fd24147e602a/members 200 OK (7ms)
+{"event":"http_request","request_id":"req_63711dc39e9f428983f6fe82756361e7","correlation_id":"req_63711dc39e9f428983f6fe82756361e7","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":4}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (6ms)
+{"event":"http_request","request_id":"req_46c1758c13564786959a1a4855c85b2b","correlation_id":"req_46c1758c13564786959a1a4855c85b2b","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (6ms)
+{"event":"http_request","request_id":"req_64662dbdec034b0b8ce8de4c2fceaa32","correlation_id":"req_64662dbdec034b0b8ce8de4c2fceaa32","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/orgs 201 Created (7ms)
+{"event":"http_request","request_id":"req_2357906477aa4074bdee0c48f9a97a7e","correlation_id":"req_2357906477aa4074bdee0c48f9a97a7e","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":201,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs/org_5dc3e12d1da12d148db5fecede4821bd/invitations 201 Created (9ms)
+{"event":"http_request","request_id":"req_211ca5028d7648b4b68c3ac96cd4468a","correlation_id":"req_211ca5028d7648b4b68c3ac96cd4468a","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":6}
+[wrangler:info] POST /api/v1/invitations/inv_b1104a86717d8d0bc9161be4851e4d37/accept 200 OK (8ms)
+{"event":"http_request","request_id":"req_273f6b867b214075acb804456c59a351","correlation_id":"req_273f6b867b214075acb804456c59a351","method":"POST","route":"/api/v1/account/reauth","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/account/reauth 201 Created (7ms)
+{"event":"http_request","request_id":"req_d30bf49d2ea34306b591f60b84977e8e","correlation_id":"req_d30bf49d2ea34306b591f60b84977e8e","method":"POST","route":"/api/v1/orgs/{org_id}/ownership-transfer","status":200,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs/org_5dc3e12d1da12d148db5fecede4821bd/ownership-transfer 200 OK (10ms)
+{"event":"http_request","request_id":"req_6737ecddd28245e7a4e0029b783f0837","correlation_id":"req_6737ecddd28245e7a4e0029b783f0837","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":200,"duration_ms":4}
+[wrangler:info] PATCH /api/v1/orgs/org_5dc3e12d1da12d148db5fecede4821bd/members/mem_950cfa79751f155709420db6c00ce696 200 OK (8ms)
+{"event":"http_request","request_id":"req_0534166df31143e9a8af0e1a9459b403","correlation_id":"req_0534166df31143e9a8af0e1a9459b403","method":"PATCH","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":409,"duration_ms":3}
+[wrangler:info] PATCH /api/v1/orgs/org_5dc3e12d1da12d148db5fecede4821bd/members/mem_78c2b0af63ff4e1b876f0df86b21f1cd 409 Conflict (14ms)
+{"event":"http_request","request_id":"req_2ac8308e50b64e8da70483997a5f74f7","correlation_id":"req_2ac8308e50b64e8da70483997a5f74f7","method":"POST","route":"/api/v1/account/sessions/revoke-all","status":204,"duration_ms":3}
+[wrangler:info] POST /api/v1/account/sessions/revoke-all 204 No Content (7ms)
+{"event":"http_request","request_id":"req_1a1ff1168267473fbcb2de5a178ccf4a","correlation_id":"req_1a1ff1168267473fbcb2de5a178ccf4a","method":"GET","route":"/api/v1/account/sessions","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/account/sessions 200 OK (6ms)
+{"event":"http_request","request_id":"req_67fa4e2b17074816aefdd76ae1326c5f","correlation_id":"req_67fa4e2b17074816aefdd76ae1326c5f","method":"DELETE","route":"/api/v1/account/sessions/{session_id}","status":204,"duration_ms":5}
+[wrangler:info] DELETE /api/v1/account/sessions/ses_e83084e64dce48e09a9967e3e9cc73dd 204 No Content (8ms)
+{"event":"http_request","request_id":"req_0e768ad8241841499e61222e1cfc8f46","correlation_id":"req_0e768ad8241841499e61222e1cfc8f46","method":"POST","route":"/api/v1/auth/refresh","status":401,"duration_ms":1}
+[wrangler:info] POST /api/v1/auth/refresh 401 Unauthorized (5ms)
+{"event":"http_request","request_id":"req_455cc50243154ae8bd9f2ce52bc9bbf9","correlation_id":"req_455cc50243154ae8bd9f2ce52bc9bbf9","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (8ms)
+{"event":"http_request","request_id":"req_d51c26a58e4e45d193a1d4adfce20e1c","correlation_id":"req_d51c26a58e4e45d193a1d4adfce20e1c","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (6ms)
+{"event":"http_request","request_id":"req_e807f6ea49034153a08fce86a8615293","correlation_id":"req_e807f6ea49034153a08fce86a8615293","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":6}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (9ms)
+{"event":"http_request","request_id":"req_26aedc8f3c944b25991a6a2915235f7b","correlation_id":"req_26aedc8f3c944b25991a6a2915235f7b","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (8ms)
+{"event":"http_request","request_id":"req_ccf49244c15542d49a4f6a49d94e6016","correlation_id":"req_ccf49244c15542d49a4f6a49d94e6016","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs 201 Created (11ms)
+{"event":"http_request","request_id":"req_29e9e1441b5a44cbadd20fc68d979922","correlation_id":"req_29e9e1441b5a44cbadd20fc68d979922","method":"POST","route":"/api/v1/devices/enrollments","status":201,"duration_ms":6}
+[wrangler:info] POST /api/v1/devices/enrollments 201 Created (11ms)
+{"event":"http_request","request_id":"req_95747e73c17245319a5f992d9dabdf60","correlation_id":"req_95747e73c17245319a5f992d9dabdf60","method":"GET","route":"/api/v1/devices/enrollments/{enrollment_id}","status":200,"duration_ms":2}
+[wrangler:info] GET /api/v1/devices/enrollments/enr_3a626356c26347edb751ec6384c97a1c 200 OK (5ms)
+{"event":"http_request","request_id":"req_9c1442e00fbf4a0a935eea6330ad7157","correlation_id":"req_9c1442e00fbf4a0a935eea6330ad7157","method":"POST","route":"/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve","status":201,"duration_ms":10}
+[wrangler:info] POST /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/devices/enrollments/enr_3a626356c26347edb751ec6384c97a1c/approve 201 Created (13ms)
+{"event":"http_request","request_id":"req_8dfb94e304d847a8a324eb595b700eae","correlation_id":"req_8dfb94e304d847a8a324eb595b700eae","method":"GET","route":"/api/v1/devices/enrollments/{enrollment_id}","status":200,"duration_ms":1}
+[wrangler:info] GET /api/v1/devices/enrollments/enr_3a626356c26347edb751ec6384c97a1c 200 OK (6ms)
+{"event":"http_request","request_id":"req_b40b2623ef3e46a0b0f339ab7511a2f6","correlation_id":"req_b40b2623ef3e46a0b0f339ab7511a2f6","method":"POST","route":"/api/v1/devices/enrollments/{enrollment_id}/complete","status":403,"duration_ms":6}
+[wrangler:info] POST /api/v1/devices/enrollments/enr_3a626356c26347edb751ec6384c97a1c/complete 403 Forbidden (9ms)
+{"event":"http_request","request_id":"req_97db334138c9457abae276dd7137a8cb","correlation_id":"req_97db334138c9457abae276dd7137a8cb","method":"POST","route":"/api/v1/devices/enrollments/{enrollment_id}/complete","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/devices/enrollments/enr_3a626356c26347edb751ec6384c97a1c/complete 201 Created (12ms)
+{"event":"http_request","request_id":"req_a905c91a72064649871308b75b4dc897","correlation_id":"req_a905c91a72064649871308b75b4dc897","method":"POST","route":"/api/v1/devices/enrollments/{enrollment_id}/complete","status":403,"duration_ms":1}
+[wrangler:info] POST /api/v1/devices/enrollments/enr_3a626356c26347edb751ec6384c97a1c/complete 403 Forbidden (3ms)
+{"event":"http_request","request_id":"req_c29535a066034c2fa70d30713d5ce4ae","correlation_id":"req_c29535a066034c2fa70d30713d5ce4ae","method":"POST","route":"/api/v1/devices/heartbeat","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/devices/heartbeat 200 OK (7ms)
+{"event":"http_request","request_id":"req_cf72ab16d8294636827fd536cc06c6f0","correlation_id":"req_cf72ab16d8294636827fd536cc06c6f0","method":"POST","route":"/api/v1/orgs/{org_id}/projects","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/projects 201 Created (9ms)
+{"event":"http_request","request_id":"req_2481930df796474da565b445b26ed298","correlation_id":"req_2481930df796474da565b445b26ed298","method":"POST","route":"/api/v1/devices/bindings","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/devices/bindings 201 Created (11ms)
+{"event":"http_request","request_id":"req_852deeba338447c58a03b31302a9db22","correlation_id":"req_852deeba338447c58a03b31302a9db22","method":"POST","route":"/api/v1/devices/bindings","status":409,"duration_ms":2}
+[wrangler:info] POST /api/v1/devices/bindings 409 Conflict (5ms)
+{"event":"http_request","request_id":"req_773a66ce67b7492c88fc7dd3f7d00488","correlation_id":"req_773a66ce67b7492c88fc7dd3f7d00488","method":"GET","route":"/api/v1/orgs/{org_id}/devices","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/devices 200 OK (6ms)
+{"event":"http_request","request_id":"req_dbb369ff52e842528b002cbbf6a7a5bf","correlation_id":"req_dbb369ff52e842528b002cbbf6a7a5bf","method":"GET","route":"/api/v1/orgs/{org_id}/projects/{project_id}/bindings","status":200,"duration_ms":5}
+[wrangler:info] GET /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/projects/prj_34e71ef70af4454ebaebb5e1e1b56fdc/bindings 200 OK (8ms)
+{"event":"http_request","request_id":"req_8763e23f20124fe5a1d8ec406f905153","correlation_id":"req_8763e23f20124fe5a1d8ec406f905153","method":"GET","route":"/api/v1/devices/policy","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/devices/policy 200 OK (5ms)
+{"event":"http_request","request_id":"req_8699c7f241124b8e8537756923d3f137","correlation_id":"req_8699c7f241124b8e8537756923d3f137","method":"POST","route":"/api/v1/devices/policy/ack","status":204,"duration_ms":5}
+[wrangler:info] POST /api/v1/devices/policy/ack 204 No Content (6ms)
+{"event":"http_request","request_id":"req_39889ddee20d4d34a0f67a7cb9077cd3","correlation_id":"req_39889ddee20d4d34a0f67a7cb9077cd3","method":"GET","route":"/api/v1/orgs/{org_id}/policy","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/policy 200 OK (7ms)
+{"event":"http_request","request_id":"req_f26573821c5c498e8ab00a5da967fc04","correlation_id":"req_f26573821c5c498e8ab00a5da967fc04","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs 201 Created (8ms)
+{"event":"http_request","request_id":"req_15097afaf7d34997ac56c0ba252e0897","correlation_id":"req_15097afaf7d34997ac56c0ba252e0897","method":"GET","route":"/api/v1/devices/policy","status":200,"duration_ms":1}
+[wrangler:info] GET /api/v1/devices/policy 200 OK (5ms)
+{"event":"http_request","request_id":"req_fbdba2ea1307485582325d62de115fe9","correlation_id":"req_fbdba2ea1307485582325d62de115fe9","method":"DELETE","route":"/api/v1/orgs/{org_id}/devices/{device_id}","status":204,"duration_ms":7}
+[wrangler:info] DELETE /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/devices/dvc_0492a3eb6eee454a926529837628b51c 204 No Content (10ms)
+{"event":"http_request","request_id":"req_3133e105e8794b12af4db70a2242f22f","correlation_id":"req_3133e105e8794b12af4db70a2242f22f","method":"POST","route":"/api/v1/devices/heartbeat","status":401,"duration_ms":1}
+[wrangler:info] POST /api/v1/devices/heartbeat 401 Unauthorized (4ms)
+{"event":"http_request","request_id":"req_a98be4e89b6b4ccfad3a2ddc7328b008","correlation_id":"req_a98be4e89b6b4ccfad3a2ddc7328b008","method":"GET","route":"/api/v1/devices/policy","status":401,"duration_ms":1}
+[wrangler:info] GET /api/v1/devices/policy 401 Unauthorized (5ms)
+{"event":"http_request","request_id":"req_0013eaf58a2f4dc195c6ee1f9b74b428","correlation_id":"req_0013eaf58a2f4dc195c6ee1f9b74b428","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (6ms)
+{"event":"http_request","request_id":"req_d769a6b3575c4c60b586483be13bb95b","correlation_id":"req_d769a6b3575c4c60b586483be13bb95b","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (5ms)
+{"event":"http_request","request_id":"req_b1610d2a3733407f96267d78244e8df0","correlation_id":"req_b1610d2a3733407f96267d78244e8df0","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (6ms)
+{"event":"http_request","request_id":"req_770690ccfe3f4d41a203a14dec6cad4c","correlation_id":"req_770690ccfe3f4d41a203a14dec6cad4c","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":6}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (8ms)
+{"event":"http_request","request_id":"req_03db72d50b20422ebd202367cf7870aa","correlation_id":"req_03db72d50b20422ebd202367cf7870aa","method":"POST","route":"/api/v1/orgs/{org_id}/invitations","status":201,"duration_ms":6}
+[wrangler:info] POST /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/invitations 201 Created (9ms)
+{"event":"http_request","request_id":"req_58d91cb6321a4c86b8d5c45494b6f2fb","correlation_id":"req_58d91cb6321a4c86b8d5c45494b6f2fb","method":"POST","route":"/api/v1/invitations/{invitation_id}/accept","status":200,"duration_ms":10}
+[wrangler:info] POST /api/v1/invitations/inv_773fad27d4be7b1e2fdeee93ed678461/accept 200 OK (13ms)
+{"event":"http_request","request_id":"req_8cb9d55d9aa843c38cd18c56f6b9b749","correlation_id":"req_8cb9d55d9aa843c38cd18c56f6b9b749","method":"POST","route":"/api/v1/devices/enrollments","status":201,"duration_ms":1}
+[wrangler:info] POST /api/v1/devices/enrollments 201 Created (5ms)
+{"event":"http_request","request_id":"req_9a69b6f773944056b345d2cc4fcb387f","correlation_id":"req_9a69b6f773944056b345d2cc4fcb387f","method":"POST","route":"/api/v1/orgs/{org_id}/devices/enrollments/{enrollment_id}/approve","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/devices/enrollments/enr_bb1b844eff584b2cbc3d1377dd1fcbec/approve 201 Created (8ms)
+{"event":"http_request","request_id":"req_78de4753854a4b009364b9bc9a3a19da","correlation_id":"req_78de4753854a4b009364b9bc9a3a19da","method":"GET","route":"/api/v1/orgs/{org_id}/members","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/members 200 OK (7ms)
+{"event":"http_request","request_id":"req_f216e96cc4d34ea8b0efff84d435e262","correlation_id":"req_f216e96cc4d34ea8b0efff84d435e262","method":"DELETE","route":"/api/v1/orgs/{org_id}/members/{member_id}","status":204,"duration_ms":6}
+[wrangler:info] DELETE /api/v1/orgs/org_64b3633b8c86ebc36e3a10cadfcdb941/members/mem_0dd5ff02c37b429cafd497d6347ce627 204 No Content (9ms)
+{"event":"http_request","request_id":"req_13edbc76ee384bc0b374a31569fca7f8","correlation_id":"req_13edbc76ee384bc0b374a31569fca7f8","method":"GET","route":"/api/v1/devices/token/nonce","status":401,"duration_ms":0}
+[wrangler:info] GET /api/v1/devices/token/nonce 401 Unauthorized (2ms)
+{"event":"http_request","request_id":"req_55d13b5e15c546359629fe98605016ed","correlation_id":"req_55d13b5e15c546359629fe98605016ed","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (9ms)
+{"event":"http_request","request_id":"req_def0790307984a16a30167ca5b949991","correlation_id":"req_def0790307984a16a30167ca5b949991","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":4}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (8ms)
+{"event":"http_request","request_id":"req_fbdc6cda685146728de279d2edcdcf5c","correlation_id":"req_fbdc6cda685146728de279d2edcdcf5c","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":6}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (9ms)
+{"event":"http_request","request_id":"req_49dd4f04eb8f4e0a8441b9cf024196ee","correlation_id":"req_49dd4f04eb8f4e0a8441b9cf024196ee","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (10ms)
+{"event":"http_request","request_id":"req_08134715535942db9796cbbe7c107aed","correlation_id":"req_08134715535942db9796cbbe7c107aed","method":"POST","route":"/api/v1/auth/signup","status":201,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/signup 201 Created (8ms)
+{"event":"http_request","request_id":"req_ee24ea83148a48428a66a82f3697c30a","correlation_id":"req_ee24ea83148a48428a66a82f3697c30a","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":3}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (5ms)
+{"event":"http_request","request_id":"req_5eed435281a748968c0f2c9eb6e5017f","correlation_id":"req_5eed435281a748968c0f2c9eb6e5017f","method":"POST","route":"/api/v1/auth/login/start","status":202,"duration_ms":2}
+[wrangler:info] POST /api/v1/auth/login/start 202 Accepted (5ms)
+{"event":"http_request","request_id":"req_4b695539a7d044b5a9f2113ad4c2dc24","correlation_id":"req_4b695539a7d044b5a9f2113ad4c2dc24","method":"POST","route":"/api/v1/auth/login/complete","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/login/complete 200 OK (7ms)
+{"event":"http_request","request_id":"req_7581df275ece4480bc4bfb41c935b447","correlation_id":"req_7581df275ece4480bc4bfb41c935b447","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":4}
+[wrangler:info] POST /api/v1/orgs 201 Created (7ms)
+{"event":"http_request","request_id":"req_aedf7cb4ad6f4923bd87d6b10813db92","correlation_id":"req_aedf7cb4ad6f4923bd87d6b10813db92","method":"GET","route":"/api/v1/orgs/{org_id}/catalog","status":200,"duration_ms":8}
+[wrangler:info] GET /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog 200 OK (11ms)
+{"event":"http_request","request_id":"req_9635abe6e9304df688610d6d3f2c1cb6","correlation_id":"req_9635abe6e9304df688610d6d3f2c1cb6","method":"POST","route":"/api/v1/orgs/{org_id}/catalog/providers","status":403,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/providers 403 Forbidden (9ms)
+{"event":"http_request","request_id":"req_260f6dfade4c446281d8a764f9c8b687","correlation_id":"req_260f6dfade4c446281d8a764f9c8b687","method":"POST","route":"/api/v1/orgs/{org_id}/catalog/providers","status":201,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/providers 201 Created (11ms)
+{"event":"http_request","request_id":"req_6a0de46cf70942a398121d8c340ebc01","correlation_id":"req_6a0de46cf70942a398121d8c340ebc01","method":"POST","route":"/api/v1/orgs/{org_id}/catalog/providers","status":201,"duration_ms":2}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/providers 201 Created (5ms)
+{"event":"http_request","request_id":"req_290626e28c354d0b9a0a279b9ad41182","correlation_id":"req_290626e28c354d0b9a0a279b9ad41182","method":"POST","route":"/api/v1/orgs/{org_id}/catalog/models","status":201,"duration_ms":11}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/models 201 Created (15ms)
+{"event":"http_request","request_id":"req_7c4882ce89764a99ba5edb98038a8040","correlation_id":"req_7c4882ce89764a99ba5edb98038a8040","method":"PATCH","route":"/api/v1/orgs/{org_id}/catalog/models/{model_id}","status":200,"duration_ms":7}
+[wrangler:info] PATCH /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/models/mdl_ef15b683c276a5295c448037d0753ace 200 OK (9ms)
+{"event":"http_request","request_id":"req_42e17217b9344800a5abb70dfede736d","correlation_id":"req_42e17217b9344800a5abb70dfede736d","method":"PATCH","route":"/api/v1/orgs/{org_id}/catalog/models/{model_id}","status":200,"duration_ms":3}
+[wrangler:info] PATCH /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/models/mdl_ef15b683c276a5295c448037d0753ace 200 OK (6ms)
+{"event":"http_request","request_id":"req_88281351b4b84934b71267280bfb6686","correlation_id":"req_88281351b4b84934b71267280bfb6686","method":"PATCH","route":"/api/v1/orgs/{org_id}/catalog/models/{model_id}","status":409,"duration_ms":3}
+[wrangler:info] PATCH /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/catalog/models/mdl_ef15b683c276a5295c448037d0753ace 409 Conflict (5ms)
+{"event":"http_request","request_id":"req_d4e4b34a9d154ff8a9cfa9ab10d040c6","correlation_id":"req_d4e4b34a9d154ff8a9cfa9ab10d040c6","method":"POST","route":"/api/v1/orgs/{org_id}/credentials","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials 201 Created (12ms)
+{"event":"http_request","request_id":"req_56582a54cb0c4aad8a7a7f25d714d7f9","correlation_id":"req_56582a54cb0c4aad8a7a7f25d714d7f9","method":"POST","route":"/api/v1/orgs/{org_id}/credentials","status":201,"duration_ms":9}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials 201 Created (10ms)
+{"event":"http_request","request_id":"req_b5b13cc0c70843878fd08f9a4e6a61b0","correlation_id":"req_b5b13cc0c70843878fd08f9a4e6a61b0","method":"POST","route":"/api/v1/orgs/{org_id}/credentials","status":201,"duration_ms":9}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials 201 Created (12ms)
+{"event":"http_request","request_id":"req_8fb7ed18554d4428b3f198cb83b45509","correlation_id":"req_8fb7ed18554d4428b3f198cb83b45509","method":"POST","route":"/api/v1/orgs/{org_id}/credentials","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials 201 Created (8ms)
+{"event":"http_request","request_id":"req_ab93fece938b4fe0814c49128e223137","correlation_id":"req_ab93fece938b4fe0814c49128e223137","method":"GET","route":"/api/v1/orgs/{org_id}/credentials","status":200,"duration_ms":3}
+[wrangler:info] GET /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials 200 OK (5ms)
+{"event":"http_request","request_id":"req_0313bbebc32e4f38b4efcede71335a19","correlation_id":"req_0313bbebc32e4f38b4efcede71335a19","method":"POST","route":"/api/v1/orgs/{org_id}/credentials","status":201,"duration_ms":6}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials 201 Created (10ms)
+{"event":"http_request","request_id":"req_a531cb92374f4213acdef23bfa2e9f39","correlation_id":"req_a531cb92374f4213acdef23bfa2e9f39","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":201,"duration_ms":14}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes 201 Created (16ms)
+{"event":"http_request","request_id":"req_2d678e69aad5420fa5bfd05d2a2ab34c","correlation_id":"req_2d678e69aad5420fa5bfd05d2a2ab34c","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":201,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes 201 Created (8ms)
+{"event":"http_request","request_id":"req_1e2a09af3ac9431a9e512a3def447556","correlation_id":"req_1e2a09af3ac9431a9e512a3def447556","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":409,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes 409 Conflict (9ms)
+{"event":"http_request","request_id":"req_9f331d5e1c7c449c82ae303753b69b1b","correlation_id":"req_9f331d5e1c7c449c82ae303753b69b1b","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":200,"duration_ms":12}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/publish 200 OK (15ms)
+{"event":"http_request","request_id":"req_d0c1bbd43c62498fa0376ae7e9b617ae","correlation_id":"req_d0c1bbd43c62498fa0376ae7e9b617ae","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":200,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/publish 200 OK (11ms)
+{"event":"http_request","request_id":"req_c4bd238037b0423fa2d472fca505f30c","correlation_id":"req_c4bd238037b0423fa2d472fca505f30c","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":409,"duration_ms":6}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/publish 409 Conflict (9ms)
+{"event":"http_request","request_id":"req_d5d30b52e33a4f63863904b93a854654","correlation_id":"req_d5d30b52e33a4f63863904b93a854654","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":409,"duration_ms":6}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/publish 409 Conflict (10ms)
+{"event":"http_request","request_id":"req_4abf4548f17a474db3d317eb7f6ff2a6","correlation_id":"req_4abf4548f17a474db3d317eb7f6ff2a6","method":"POST","route":"/api/v1/inference/responses","status":200,"duration_ms":65}
+[wrangler:info] POST /api/v1/inference/responses 200 OK (76ms)
+{"event":"http_request","request_id":"req_dfa3045b8e44426fa12402f71c6ca5cd","correlation_id":"req_dfa3045b8e44426fa12402f71c6ca5cd","method":"POST","route":"/api/v1/inference/chat/completions","status":200,"duration_ms":17}
+[wrangler:info] POST /api/v1/inference/chat/completions 200 OK (21ms)
+{"event":"http_request","request_id":"req_2a41c79462844afdb3599b5c40ddb7af","correlation_id":"req_2a41c79462844afdb3599b5c40ddb7af","method":"POST","route":"/api/v1/inference/chat/completions","status":422,"duration_ms":1}
+[wrangler:info] POST /api/v1/inference/chat/completions 422 Unprocessable Entity (4ms)
+{"event":"http_request","request_id":"req_63de7f11f3be41a68c758c5a3dba2327","correlation_id":"req_63de7f11f3be41a68c758c5a3dba2327","method":"POST","route":"/api/v1/inference/chat/completions","status":422,"duration_ms":1}
+[wrangler:info] POST /api/v1/inference/chat/completions 422 Unprocessable Entity (5ms)
+{"event":"http_request","request_id":"req_721af5cc4d7a46c58b4d969234becbfc","correlation_id":"req_721af5cc4d7a46c58b4d969234becbfc","method":"GET","route":"/api/v1/orgs/{org_id}/usage","status":200,"duration_ms":9}
+[wrangler:info] GET /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/usage 200 OK (11ms)
+{"event":"http_request","request_id":"req_75285b6fb29f49c184d7de35a9e7e90b","correlation_id":"req_75285b6fb29f49c184d7de35a9e7e90b","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":201,"duration_ms":9}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes 201 Created (14ms)
+{"event":"http_request","request_id":"req_47b9dfc075174cc1a9a77393ed0510f2","correlation_id":"req_47b9dfc075174cc1a9a77393ed0510f2","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":200,"duration_ms":10}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_405fe137a76bdf96699f375fc404084d/publish 200 OK (13ms)
+{"event":"http_request","request_id":"req_ba779318b08444a4a893d7bde445c63b","correlation_id":"req_ba779318b08444a4a893d7bde445c63b","method":"POST","route":"/api/v1/inference/responses","status":200,"duration_ms":11}
+[wrangler:info] POST /api/v1/inference/responses 200 OK (16ms)
+{"event":"http_request","request_id":"req_0bbdeccc372e456196313dfb2c0cee4d","correlation_id":"req_0bbdeccc372e456196313dfb2c0cee4d","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":201,"duration_ms":10}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes 201 Created (12ms)
+{"event":"http_request","request_id":"req_d91479d8f3e742638abdfe80a4204273","correlation_id":"req_d91479d8f3e742638abdfe80a4204273","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":200,"duration_ms":15}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_bfe1adeff8f229c8c52079718dbb3c70/publish 200 OK (17ms)
+{"event":"http_request","request_id":"req_fca67542bdc646d9a070912091a5698b","correlation_id":"req_fca67542bdc646d9a070912091a5698b","method":"POST","route":"/api/v1/inference/responses","status":503,"duration_ms":1015}
+[wrangler:info] POST /api/v1/inference/responses 503 Service Unavailable (1018ms)
+{"event":"http_request","request_id":"req_b8bbc8424a1b41da8dac94fd23e7a104","correlation_id":"req_b8bbc8424a1b41da8dac94fd23e7a104","method":"POST","route":"/api/v1/inference/responses","status":503,"duration_ms":7}
+[wrangler:info] POST /api/v1/inference/responses 503 Service Unavailable (9ms)
+{"event":"http_request","request_id":"req_818180a74af142d7a2a23a91630bf545","correlation_id":"req_818180a74af142d7a2a23a91630bf545","method":"POST","route":"/api/v1/orgs/{org_id}/routes","status":201,"duration_ms":8}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes 201 Created (12ms)
+{"event":"http_request","request_id":"req_8a0dc87976c949ea9107de1d08832411","correlation_id":"req_8a0dc87976c949ea9107de1d08832411","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":200,"duration_ms":10}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_1e7e9e2ca56ac27bcb193db6b4d8aa7f/publish 200 OK (13ms)
+{"event":"http_request","request_id":"req_e91838578fb94014abd640614dc17ca6","correlation_id":"req_e91838578fb94014abd640614dc17ca6","method":"POST","route":"/api/v1/orgs/{org_id}/credentials/{credential_id}/revoke","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials/cred_c59a4fcaa9f2c5a8d0b73b11dff47060/revoke 200 OK (8ms)
+{"event":"http_request","request_id":"req_5e63412d6f01439c8e1b2aba79e8113f","correlation_id":"req_5e63412d6f01439c8e1b2aba79e8113f","method":"POST","route":"/api/v1/orgs/{org_id}/credentials/{credential_id}/revoke","status":200,"duration_ms":2}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/credentials/cred_c59a4fcaa9f2c5a8d0b73b11dff47060/revoke 200 OK (5ms)
+{"event":"http_request","request_id":"req_a3a4bbd3c5ab4a058dbd0c54146a1401","correlation_id":"req_a3a4bbd3c5ab4a058dbd0c54146a1401","method":"POST","route":"/api/v1/inference/responses","status":403,"duration_ms":8}
+[wrangler:info] POST /api/v1/inference/responses 403 Forbidden (13ms)
+{"event":"http_request","request_id":"req_4b009f9201cc45399fefd217afc743fa","correlation_id":"req_4b009f9201cc45399fefd217afc743fa","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/publish","status":200,"duration_ms":9}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/publish 200 OK (11ms)
+{"event":"http_request","request_id":"req_b73c2eed558643c1b0c1ca7c83f5233a","correlation_id":"req_b73c2eed558643c1b0c1ca7c83f5233a","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/rollback","status":200,"duration_ms":7}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/rollback 200 OK (10ms)
+{"event":"http_request","request_id":"req_950b02cb4d3a4eaaba4a8410cd51bf8e","correlation_id":"req_950b02cb4d3a4eaaba4a8410cd51bf8e","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/rollback","status":200,"duration_ms":3}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/rollback 200 OK (6ms)
+{"event":"http_request","request_id":"req_71928adb1b334d6185d70d4773a4426d","correlation_id":"req_71928adb1b334d6185d70d4773a4426d","method":"POST","route":"/api/v1/orgs/{org_id}/routes/{route_id}/rollback","status":409,"duration_ms":4}
+[wrangler:info] POST /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/rollback 409 Conflict (7ms)
+{"event":"http_request","request_id":"req_212ddf0a40164e7db53a9dae362ec92c","correlation_id":"req_212ddf0a40164e7db53a9dae362ec92c","method":"GET","route":"/api/v1/orgs/{org_id}/routes/{route_id}/history","status":200,"duration_ms":4}
+[wrangler:info] GET /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/routes/rte_8ac6510dcafe3af133146f8ae28269c1/history 200 OK (7ms)
+{"event":"http_request","request_id":"req_34e615744bf042d49a59872adb88a91a","correlation_id":"req_34e615744bf042d49a59872adb88a91a","method":"GET","route":"/api/v1/orgs/{org_id}/policy","status":200,"duration_ms":6}
+[wrangler:info] GET /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/policy 200 OK (9ms)
+{"event":"http_request","request_id":"req_8fa7314b820849449ddd09a4ec2b97bc","correlation_id":"req_8fa7314b820849449ddd09a4ec2b97bc","method":"PUT","route":"/api/v1/orgs/{org_id}/policy","status":200,"duration_ms":7}
+[wrangler:info] PUT /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/policy 200 OK (9ms)
+{"event":"http_request","request_id":"req_454ea49efd3041769a18999cd942e974","correlation_id":"req_454ea49efd3041769a18999cd942e974","method":"PUT","route":"/api/v1/orgs/{org_id}/policy","status":200,"duration_ms":3}
+[wrangler:info] PUT /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/policy 200 OK (5ms)
+{"event":"http_request","request_id":"req_80fc1ea8785f4de5a890bf56c90f49fe","correlation_id":"req_80fc1ea8785f4de5a890bf56c90f49fe","method":"PUT","route":"/api/v1/orgs/{org_id}/policy","status":409,"duration_ms":4}
+[wrangler:info] PUT /api/v1/orgs/org_a20ff8b676c7116776497f9bf8be4a1c/policy 409 Conflict (6ms)
+{"event":"http_request","request_id":"req_2088d2f58a5f42c195cb8ce7d543fc2f","correlation_id":"req_2088d2f58a5f42c195cb8ce7d543fc2f","method":"GET","route":"/api/v1/inference/routes/{alias}","status":404,"duration_ms":4}
+[wrangler:info] GET /api/v1/inference/routes/coding-default 404 Not Found (6ms)
+{"event":"http_request","request_id":"req_14c2eb78f1a94920a1d68ee2695a54c5","correlation_id":"req_14c2eb78f1a94920a1d68ee2695a54c5","method":"POST","route":"/api/v1/inference/responses","status":404,"duration_ms":2}
+[wrangler:info] POST /api/v1/inference/responses 404 Not Found (4ms)
+{"event":"http_request","request_id":"req_c3279a880e9b4da6b405958686e48a6b","correlation_id":"req_c3279a880e9b4da6b405958686e48a6b","method":"POST","route":"/api/v1/inference/responses","status":403,"duration_ms":5}
+[wrangler:info] POST /api/v1/inference/responses 403 Forbidden (8ms)
+{"event":"http_request","request_id":"req_b81a7005111042f799d50458e965cc70","correlation_id":"req_b81a7005111042f799d50458e965cc70","method":"GET","route":"/api/health","status":200,"duration_ms":0}
+[wrangler:info] GET /api/health 200 OK (8ms)
+{"event":"http_request","request_id":"req_3fdbcb22a9da47628a6f04b70a82bb03","correlation_id":"req_3fdbcb22a9da47628a6f04b70a82bb03","method":"GET","route":"/api/health","status":200,"duration_ms":0}
+[wrangler:info] GET /api/health 200 OK (8ms)
+{"event":"http_request","request_id":"req_92862c78a70345d7b7b80b0af1c7972c","correlation_id":"req_92862c78a70345d7b7b80b0af1c7972c","method":"GET","route":"/api/v1/meta","status":200,"duration_ms":0}
+[wrangler:info] GET /api/v1/meta 200 OK (4ms)
+{"action":"published","attempt_count":0,"component":"outbox","correlation_id":"req_4724cf570ce8460c9029f88779d011e7","error_code":null,"event_id":"evt_19e2e6b35ad348898f1cc14c26d22de3","event_type":"foundation.check.requested.v1","level":"info","request_id":"req_4724cf570ce8460c9029f88779d011e7"}
+{"event":"http_request","request_id":"req_4724cf570ce8460c9029f88779d011e7","correlation_id":"req_4724cf570ce8460c9029f88779d011e7","method":"POST","route":"/api/v1/_internal/foundation-checks","status":202,"duration_ms":30}
+[wrangler:info] POST /api/v1/_internal/foundation-checks 202 Accepted (35ms)
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mp06_queue_routed:outbox[0m
+
+
+{"action":"delivered","attempt_count":0,"component":"outbox","correlation_id":"req_4724cf570ce8460c9029f88779d011e7","error_code":null,"event_id":"evt_19e2e6b35ad348898f1cc14c26d22de3","event_type":"foundation.check.requested.v1","level":"info","request_id":"req_4724cf570ce8460c9029f88779d011e7"}
+[wrangler:info] QUEUE lumi-agents-outbox-development 1/1 (19ms)
+{"event":"http_request","request_id":"req_d05c4cd1eb3c4567a0a1d57848f25ba8","correlation_id":"req_d05c4cd1eb3c4567a0a1d57848f25ba8","method":"POST","route":"/api/v1/auth/password/signup","status":200,"duration_ms":43}
+[wrangler:info] POST /api/v1/auth/password/signup 200 OK (47ms)
+{"event":"http_request","request_id":"req_fe865563625b42c38563a834afe32d96","correlation_id":"req_fe865563625b42c38563a834afe32d96","method":"POST","route":"/api/v1/auth/verify-email","status":200,"duration_ms":5}
+[wrangler:info] POST /api/v1/auth/verify-email 200 OK (8ms)
+{"event":"http_request","request_id":"req_e9d63695866a4eaabaeb83dafa254373","correlation_id":"req_e9d63695866a4eaabaeb83dafa254373","method":"POST","route":"/api/v1/auth/password/login","status":200,"duration_ms":75}
+[wrangler:info] POST /api/v1/auth/password/login 200 OK (78ms)
+{"event":"http_request","request_id":"req_1458423eefea4b2b8759126f70f7bd8b","correlation_id":"req_1458423eefea4b2b8759126f70f7bd8b","method":"POST","route":"/api/v1/orgs","status":201,"duration_ms":6}
+[wrangler:info] POST /api/v1/orgs 201 Created (11ms)
+{"event":"http_request","request_id":"req_5b727a89e5c54285aba2c215bc5519db","correlation_id":"req_5b727a89e5c54285aba2c215bc5519db","method":"GET","route":"/api/v1/me","status":200,"duration_ms":6}
+[wrangler:info] GET /api/v1/me 200 OK (10ms)
+{"event":"http_request","request_id":"req_11f46dd3986e4b53bebd596e7c847606","correlation_id":"req_11f46dd3986e4b53bebd596e7c847606","method":"PUT","route":"/api/v1/orgs/{org_id}/policy","status":200,"duration_ms":14}
+[wrangler:info] PUT /api/v1/orgs/org_7bbe51854830736df179e6048a7466e7/policy 200 OK (18ms)
+[wrangler:warn] The Workers runtime crashed unexpectedly and is being restarted (crash #1). Any additional runtime output above may indicate the cause.
+[wrangler:info] Updated and ready on http://localhost:8787
+[wrangler:warn] The Workers runtime crashed unexpectedly and is being restarted (crash #2). Any additional runtime output above may indicate the cause.
+[wrangler:error] MiniflareCoreError [ERR_RUNTIME_FAILURE]: The Workers runtime failed to restart after an unexpected crash.
+    at /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:119362:37
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Mutex.runWith (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:55561:16)
+Caused by: MiniflareCoreError [ERR_RUNTIME_FAILURE]: The Workers runtime failed to start. There is likely additional logging output above.
+    at #assembleAndUpdateConfig (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:119477:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:119358:9
+    at async Mutex.runWith (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:55561:16)
+[wrangler:warn] The Workers runtime crashed unexpectedly and is being restarted (crash #1). Any additional runtime output above may indicate the cause.
+⎔ Connection status updated
+Your Worker has access to the following bindings:
+Binding                                                                      Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                Queue                        local
+env.DB (lumi-agents-control-plane-development)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                                      Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                              Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                         Environment Variable         local
+
+⎔ Connection status updated
+Your Worker has access to the following bindings:
+Binding                                                                      Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                            Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                Queue                        local
+env.DB (lumi-agents-control-plane-development)                               D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)         R2 Bucket                    local
+env.CF_VERSION_METADATA                                                      Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                              Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                   Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                       Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                         Environment Variable         local
+

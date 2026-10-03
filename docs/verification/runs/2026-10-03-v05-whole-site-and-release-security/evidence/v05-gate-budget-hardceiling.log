@@ -1,0 +1,33 @@
+$ pnpm --filter @runlumi/agents-cp-api verify:budget-hardceiling
+$ node scripts/v01-budget-hardceiling-probe.mjs
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:54764
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-Szrl0f/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 1542s newer than src/routes/authenticators.rs
+  PASS  signup V01 Budget Ceiling  — status=201
+  PASS  verify V01 Budget Ceiling  — status=200
+  PASS  login start V01 Budget Ceiling  — status=202
+  PASS  login complete V01 Budget Ceiling  — status=200
+  PASS  user V01 Budget Ceiling has an opaque ID  — usr_4721484831a24008b1ba5307d55d1444
+  PASS  create Ceiling Org  — status=201
+  PASS  Ceiling Org organization ID  — org_25bf5828564de2101c6609b425959081
+  PASS  B0 CONTROL: a real PROVIDER and MODEL exist for the seeded `mock-success` fixture, both active -- candidate selection loads both, and a missing one is masked as `route_unavailable` BEFORE any budget check runs  — row={"model_id":"mdl_00000000000000000000000000000002","provider_id":"prv_00000000000000000000000000000002","provider_model_id":"mock-success","provider_key":"mock-success"}
+  PASS  B0 CONTROL: the model policy ALLOWS the alias, model and provider -- otherwise the inference is refused `model_not_allowed` before any budget is consulted  — status=200 body={"allowed_aliases":["v01-ceiling-model-murw9gz1iffz"],"allowed_models":["mdl_00000000000000000000000000000002"],"allowed_providers":["prv_00000000000000000000000000000002
+    CONTROL (no hard budget) -> 403 reason=credential_unavailable reservations 0->1
+  PASS  B1 CONTROL: with NO hard budget the request is NOT refused for the budget -- so the refusal below is a budget decision and not a route that refuses everyone  — status=403 reason=credential_unavailable
+  PASS  B1 CONTROL: and a reservation IS taken, read from D1 -- the unmanaged path's only budget control is this statement, so proving it is live is what makes the refusal below mean something. The request then fails at the credential, which is expected and fine: it got PAST the ceiling  — reservations before=0 after=1 status=403 reason=credential_unavailable
+  PASS  B2 CONTROL: a HARD budget EXISTS, its limit is below the reservation, and the product's own ceiling predicate says the request is DENIED -- read with the SQL the reservation statement uses, so the fixture is checked against the rule and not against the probe's belief  — budget={"budget_id":"bud_651ce2c676999bfb94ca79fe284c42a9","limit_minor":1,"hard":1,"period_start":"2026-10-02T04:31:21.907Z","period_end":"2026-10-04T04:31: ceiling_denies=1
+    ATTACK (exhausted hard budget) -> 403 reason=budget_exceeded reservations 1->1 usage 0->0
+  PASS  B3: an inference against an EXHAUSTED hard budget is REFUSED  — status=403 reason=budget_exceeded body={"error":{"code":"permission_denied","message":"The inference request could not be completed.","request_id":"req_87cbf573b24f4220aee028a12d8862dd","details":{"r
+  PASS  B3: and it names `budget_exceeded` SPECIFICALLY -- the unmanaged path's refusal vocabulary is NOT `budget_state_unavailable` (that is the managed path's), and a reader who assumed one reason covered both would miss that they are two different controls  — reason=budget_exceeded code=permission_denied
+  PASS  B4: and NO reservation is taken -- the ceiling lives in `WHERE NOT EXISTS`, so the INSERT simply matches nothing, and an INSERT matching zero rows neither aborts a D1 batch nor raises. This is the assertion that would catch the refusal being cosmetic  — reservations before=1 after=1
+  PASS  B4: and NO usage row is written -- nothing was dispatched, so nothing is billable  — usage before=0 after=0
+    inference rows after control: [{"request_id":"req_498c2397d6124c088093e78db97f966b","response_state":"failed"}]
+    rows ADDED by the attack: [] dispatched=0
+  PASS  B5: the ATTACK added no inference row that reached a DISPATCHED state -- `response_state` is a closed vocabulary (`not_dispatched`, `dispatched_no_output`, `stream_committed`, `completed`, `failed`), and the objective's requirement 1 is that a hard denial precedes dispatch. The source-order check in `modules/p09_failure_tests.rs` proves the ORDER structurally; this proves the resulting STATE, and it excludes the control's own row, which legitimately dispatched and then failed at the credential  — added=[]
+  PASS  B5 CONTROL: and the CONTROL did produce a dispatched row -- otherwise 'the attack added no dispatched row' would be satisfied by a route that records no inference row at all, which is the shape of an instrument that cannot register a signal  — control rows=[{"request_id":"req_498c2397d6124c088093e78db97f966b","response_state":"failed"}]
+  PASS  create Ceiling Control Org  — status=201
+  PASS  Ceiling Control Org organization ID  — org_e0340e43363387e9db5b9658d20858a3
+  PASS  B6 SCOPE CONTROL: the second organization's policy is accepted, so its inference is refused for a budget reason or not at all -- never because its own fixture is missing  — status=200 body={"allowed_aliases":["v01-ceiling-model2-murw9gz1iffz"],"allowed_models":["mdl_00000000000000000000000000000002"],"allowed_providers":["prv_00000000000
+  PASS  B6 SCOPE: a DIFFERENT organization with NO hard budget is NOT refused for budget_exceeded -- so the refusal is one organization's ceiling and not a platform-wide outage, which would satisfy B3 and B4 while proving nothing about the budget check  — status=403 reason=credential_unavailable
+
+25/25 V01 budget hard-ceiling cases hold

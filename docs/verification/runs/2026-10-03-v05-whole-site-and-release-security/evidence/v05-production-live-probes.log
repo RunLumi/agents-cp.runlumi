@@ -1,0 +1,50 @@
+== V05 live production probes — 2026-10-03T03:46:38Z ==
+
+--- GET /api/health ---
+{"status":"ok","service":"lumi-agents-control-plane-api"}
+HTTP 200 in 1.262616s
+
+--- GET /api/v1/meta ---
+{"api_version":"v1","contract_version":"p01-cg-v1","service":"lumi-agents-control-plane-api"}
+HTTP 200
+
+--- POST /api/v1/auth/passkey/login/start (empty request) ---
+{"ceremony_id":"cer_45293c24d9744b59876aad1e823f75da","expires_at":"2026-10-03T03:51:40.707Z","public_key":{"challenge":"1JAV2-C0wcEW2_RorNZo3tMQxYYS4sIBxJUgOE5p7YM","rpId":"agents-cp.runlumi.app","timeout":60000,"userVerification":"required"}}
+HTTP 201
+
+--- rp.id extracted from login/start options ---
+{
+ "rp": null,
+ "challenge_len": 43,
+ "ceremony_id": "cer_45293c24...",
+ "expires_at": "2026-10-03T03:51:40.707Z"
+}
+--- POST /api/v1/auth/passkey/signup/start (probe identity, no email sent at start) ---
+{"ceremony_id":"cer_2408b0e7608d4c0b9d1172aae650d865","expires_at":"2026-10-03T03:52:09.583Z","public_key":{"attestation":"none","authenticatorSelection":{"requireResidentKey":true,"residentKey":"required","userVerification":"required"},"challenge":"G59NNe04gbVJpNNwX5vYAjwuRXDf_trLRHPQACTNXsE","pubKeyCredParams":[{"alg":-7,"type":"public-key"},{"alg":-8,"type":"public-key"}],"rp":{"id":"agents-cp.runlumi.app","name":"Lumi Agents"},"timeout":60000,"user":{"displayName":"V05 Probe","id":"dXNyXzc1MDUwZjJmNDEwODRjNDlhZDhkZWRlMmRlMzZlMzNh","name":"v05-probe@probe.invalid"}}}
+HTTP 201
+
+--- rp object + exclusion extracted from signup/start options ---
+{
+ "rp": {
+  "id": "agents-cp.runlumi.app",
+  "name": "Lumi Agents"
+ },
+ "rpId": null,
+ "challenge_len": 43,
+ "pubKeyCredParams": [
+  {
+   "alg": -7,
+   "type": "public-key"
+  },
+  {
+   "alg": -8,
+   "type": "public-key"
+  }
+ ],
+ "excludeCredentials_count": 0,
+ "authenticatorSelection": {
+  "requireResidentKey": true,
+  "residentKey": "required",
+  "userVerification": "required"
+ }
+}

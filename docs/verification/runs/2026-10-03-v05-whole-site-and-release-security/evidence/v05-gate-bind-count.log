@@ -1,0 +1,3 @@
+checked 463 prepare() call(s) against their SQL constants
+
+every prepare() call binds exactly as many values as its SQL has placeholders

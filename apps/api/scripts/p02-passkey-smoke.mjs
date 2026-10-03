@@ -42,6 +42,10 @@
 //   P02_PASSKEY_PORT           local Worker port (default: an available port)
 //   P02_PASSKEY_PERSIST_TO     use a specific fresh local persist directory
 //   P02_PASSKEY_KEEP_PERSIST=1 retain the directory for debugging
+//   P02_PASSKEY_FORWARD_VARS=1 pass WEBAUTHN_RP_ID / WEBAUTHN_RP_NAME /
+//                              WEBAUTHN_ORIGINS to the spawned Worker as
+//                              `--var`, so the Worker and the client below run
+//                              the same pairing (e.g. the production values)
 //
 // Exits non-zero if any case does not behave as declared.
 
@@ -320,26 +324,34 @@ function availablePort() {
 }
 
 function startWorker(port) {
-  const child = spawn(
-    wranglerBin,
-    [
-      "dev",
-      "--env",
-      "development",
-      "--local",
-      "--port",
-      String(port),
-      "--persist-to",
-      persistDir,
-      "--show-interactive-dev-session=false",
-    ],
-    {
-      cwd: apiDir,
-      env: { ...process.env, CI: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    },
-  );
+  const args = [
+    "dev",
+    "--env",
+    "development",
+    "--local",
+    "--port",
+    String(port),
+    "--persist-to",
+    persistDir,
+    "--show-interactive-dev-session=false",
+  ];
+  // `wrangler dev` does not surface the process environment as Worker vars, so
+  // driving the Worker with a non-default relying-party pairing needs an
+  // explicit `--var` passthrough. Opt-in, so a mismatch between the Worker's
+  // pairing and the client's stays expressible — that mismatch is the control
+  // which proves this suite notices a pairing change at all.
+  if (process.env.P02_PASSKEY_FORWARD_VARS === "1") {
+    for (const name of ["WEBAUTHN_RP_ID", "WEBAUTHN_RP_NAME", "WEBAUTHN_ORIGINS"]) {
+      const value = process.env[name];
+      if (value) args.push("--var", `${name}:${value}`);
+    }
+  }
+  const child = spawn(wranglerBin, args, {
+    cwd: apiDir,
+    env: { ...process.env, CI: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+  });
   let output = "";
   const capture = (chunk) => {
     output = `${output}${chunk}`.slice(-16_000);
@@ -1604,6 +1616,61 @@ async function probeRecoveryWithActiveSessions(authenticator) {
     return;
   }
 
+  // --- hostile: REPLAY the completed recovery (V04-009) ---------------------------------
+  //
+  // `smoke:passkey` proved replay for registration and for login. Recovery had no such case, and the
+  // reason was structural rather than an oversight in the probe: `ensure_pending` -- the shared
+  // route-level guard -- is called for PasskeySignup, PasskeyLogin, PasskeyAdd and Reauthenticate, and
+  // for NONE of recovery. Recovery therefore has ONE defence, `consume_recovery`'s compare-and-set,
+  // where its four siblings have two. That makes this the cheapest possible replay probe to give
+  // teeth to, and it is also the most valuable: recovery is the ceremony that changes a password.
+  //
+  // The refusal reason CANNOT be used to prove which defence fired. `consume_recovery` returning false
+  // yields `generic_recovery_failure`, whose reason is the deliberately undifferentiated
+  // `recovery_invalid` -- correct, since distinguishing "already consumed" from "never existed" would
+  // be an oracle, but it means a green status proves nothing on its own.
+  //
+  // So the assertions are on STORED EFFECT. The replay carries a DIFFERENT new password: if the
+  // compare-and-set were removed the replay would succeed and the account's password would change,
+  // which the two follow-up logins below would see. A refusal asserted only by status would pass on a
+  // product that accepted the replay and then failed for an unrelated reason.
+  const replayPassword = "replayed-password-long-enough-3";
+  const replay = await call(victimJar, "POST", "/api/v1/auth/password/reset", {
+    challenge_id: recoveryChallengeId,
+    code: recoveryCode,
+    password: replayPassword,
+  });
+  expect(
+    "a consumed recovery ceremony cannot be replayed with the same challenge and code",
+    replay.status >= 400,
+    `status=${replay.status} reason=${reasonOf(replay)}`,
+  );
+  expect(
+    "and the replay is refused as `recovery_invalid` -- the same undifferentiated answer a wrong code " +
+      "gets, so consuming a ceremony is not distinguishable from never having started one",
+    reasonOf(replay) === "recovery_invalid",
+    `reason=${reasonOf(replay) ?? "none"}`,
+  );
+  const recoveredStillWorks = await call(new Jar(), "POST", "/api/v1/auth/password/login", {
+    email,
+    password: "recovered-password-long-enough-2",
+  });
+  expect(
+    "and the password set by the ORIGINAL recovery still authenticates, so the replay changed nothing",
+    recoveredStillWorks.status === 200,
+    `status=${recoveredStillWorks.status}`,
+  );
+  const replayDidNotTake = await call(new Jar(), "POST", "/api/v1/auth/password/login", {
+    email,
+    password: replayPassword,
+  });
+  expect(
+    "and the password carried by the replay does NOT authenticate -- the state assertion that a " +
+      "removed compare-and-set would fail, since accepting the replay would have set exactly this",
+    replayDidNotTake.status >= 400,
+    `status=${replayDidNotTake.status}`,
+  );
+
   // The claim. The pre-recovery session must be dead.
   const attackerSessionAfter = await call(attackerJar, "GET", "/api/v1/me");
   expect(
@@ -1633,6 +1700,168 @@ async function probeRecoveryWithActiveSessions(authenticator) {
     "the new password does authenticate, so the recovery took effect",
     newPassword.status === 200,
     `status=${newPassword.status}`,
+  );
+}
+
+// --- V05: the two ceremony kinds the replay closure did not cover --------------
+//
+// Replay is proven above for signup, login, and recovery. `PasskeyAdd` and
+// `Reauthenticate` complete through the same `ensure_pending` +
+// `consume_ceremony` guards, but "same code path" is an inference, and this
+// suite exists so the attack is run rather than inherited. Both ceremonies are
+// driven end to end first, because a consumed-ceremony refusal is only
+// meaningful if completing the ceremony really did its job: the step-up minted
+// a grant that starts a passkey-add, and the second passkey reached the
+// inventory. The reauth replay carries an ADVANCED sign counter so a counter
+// refusal can never stand in for the consumed-ceremony refusal — the same
+// isolation the login replay above uses.
+
+async function probeAddAndReauthReplay() {
+  const auth = newAuthenticator("v05-primary");
+  const email = `add-reauth-${Date.now().toString(36)}@example.test`;
+  const jar = new Jar();
+
+  const signup = await call(jar, "POST", "/api/v1/auth/passkey/signup/start", {
+    email,
+    display_name: "V05 Add Reauth",
+  });
+  if (
+    !expect(
+      "the add/reauth replay probe starts from a fresh signup ceremony",
+      signup.status === 201,
+      `status=${signup.status} reason=${reasonOf(signup)}`,
+    )
+  ) {
+    return;
+  }
+  const signedUp = await call(jar, "POST", "/api/v1/auth/passkey/signup/complete", {
+    ceremony_id: signup.body.ceremony_id,
+    credential: buildRegistration(signup.body, auth),
+  });
+  if (
+    !expect(
+      "CONTROL: the fresh identity completes signup, so refusals below are about ceremony state",
+      signedUp.status >= 200 && signedUp.status < 300,
+      `status=${signedUp.status} reason=${reasonOf(signedUp)}`,
+    )
+  ) {
+    return;
+  }
+
+  // --- Reauthenticate: complete, use the grant, then replay --------------------
+  const reauthStart = await call(jar, "POST", "/api/v1/account/reauth/passkey/start", {
+    purpose: "passkey_management",
+  });
+  if (
+    !expect(
+      "a passkey step-up ceremony starts for a session holding a passkey",
+      reauthStart.status === 201 && typeof reauthStart.body?.ceremony_id === "string",
+      `status=${reauthStart.status} reason=${reasonOf(reauthStart)}`,
+    )
+  ) {
+    return;
+  }
+  const reauthComplete = await call(jar, "POST", "/api/v1/account/reauth/passkey/complete", {
+    ceremony_id: reauthStart.body.ceremony_id,
+    credential: buildAssertion(auth, { signCount: 5 }, reauthStart.body.public_key.challenge),
+  });
+  const grant = reauthComplete.body?.grant;
+  if (
+    !expect(
+      "CONTROL: the step-up completes and mints a usable grant",
+      reauthComplete.status >= 200 &&
+        reauthComplete.status < 300 &&
+        typeof grant?.grant_id === "string" &&
+        typeof grant?.token === "string",
+      `status=${reauthComplete.status} reason=${reasonOf(reauthComplete)}`,
+    )
+  ) {
+    return;
+  }
+  const replayReauth = await call(jar, "POST", "/api/v1/account/reauth/passkey/complete", {
+    ceremony_id: reauthStart.body.ceremony_id,
+    // An ADVANCED counter: a refusal naming the counter instead of the consumed
+    // ceremony would mean the replay was stopped by the wrong defence, which is
+    // a different invariant.
+    credential: buildAssertion(auth, { signCount: 6 }, reauthStart.body.public_key.challenge),
+  });
+  expect(
+    "a consumed REAUTHENTICATE ceremony cannot be replayed",
+    replayReauth.status === 401 && reasonOf(replayReauth) === "ceremony_invalid",
+    `status=${replayReauth.status} reason=${reasonOf(replayReauth)}`,
+  );
+
+  // --- PasskeyAdd: complete, verify the credential landed, then replay ---------
+  const addStart = await call(jar, "POST", "/api/v1/account/passkeys/register/start", {
+    label: "V05 second",
+    reauth_grant_id: grant.grant_id,
+    reauth_token: grant.token,
+  });
+  if (
+    !expect(
+      "CONTROL: the step-up grant starts a passkey-add ceremony",
+      addStart.status === 201,
+      `status=${addStart.status} reason=${reasonOf(addStart)}`,
+    )
+  ) {
+    return;
+  }
+  const secondAuth = newAuthenticator("v05-second");
+  const addComplete = await call(jar, "POST", "/api/v1/account/passkeys/register/complete", {
+    ceremony_id: addStart.body.ceremony_id,
+    credential: buildRegistration(addStart.body, secondAuth),
+  });
+  if (
+    !expect(
+      "CONTROL: the second passkey completes registration",
+      addComplete.status >= 200 && addComplete.status < 300,
+      `status=${addComplete.status} reason=${reasonOf(addComplete)}`,
+    )
+  ) {
+    return;
+  }
+  const inventory = await call(jar, "GET", "/api/v1/account/passkeys");
+  expect(
+    "CONTROL: the added credential is in the inventory, so the add really happened",
+    (inventory.body?.items?.length ?? 0) >= 2,
+    `items=${inventory.body?.items?.length}`,
+  );
+  const replayAdd = await call(jar, "POST", "/api/v1/account/passkeys/register/complete", {
+    ceremony_id: addStart.body.ceremony_id,
+    credential: buildRegistration(addStart.body, secondAuth),
+  });
+  expect(
+    "a consumed PASSKEY-ADD ceremony cannot be replayed",
+    replayAdd.status === 401 && reasonOf(replayAdd) === "ceremony_invalid",
+    `status=${replayAdd.status} reason=${reasonOf(replayAdd)} -- credential_conflict would mean the ` +
+      "replay reached the duplicate-credential check, i.e. the consumed-state guard did not refuse it",
+  );
+
+  // --- the signature counter is enforced at the stored boundary ----------------
+  // The server stored counter 5 from the step-up control above (the replay was
+  // refused before anything could move it). An assertion signing counter 5 on a
+  // FRESH login ceremony must be refused for the counter, and counter 6 must be
+  // accepted: together they locate the enforced boundary at the stored value
+  // without reading the database, so the case is self-proving on both sides.
+  const staleStart = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/start", {});
+  const stale = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/complete", {
+    ceremony_id: staleStart.body?.ceremony_id,
+    credential: buildAssertion(auth, { signCount: 5 }, staleStart.body?.public_key?.challenge),
+  });
+  expect(
+    "an assertion repeating the stored sign counter is refused as a counter regression",
+    stale.status === 401 && reasonOf(stale) === "passkey_counter_regression",
+    `status=${stale.status} reason=${reasonOf(stale)}`,
+  );
+  const freshStart = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/start", {});
+  const fresh = await call(new Jar(), "POST", "/api/v1/auth/passkey/login/complete", {
+    ceremony_id: freshStart.body?.ceremony_id,
+    credential: buildAssertion(auth, { signCount: 6 }, freshStart.body?.public_key?.challenge),
+  });
+  expect(
+    "CONTROL: an assertion advancing the counter by one signs in, so the refusal above was the counter",
+    fresh.status === 200,
+    `status=${fresh.status} reason=${reasonOf(fresh)}`,
   );
 }
 
@@ -1679,6 +1908,10 @@ async function main() {
 
   const authenticator = await probeRegistration();
   if (authenticator) await probeAuthentication(authenticator);
+  // V05: replay for the two ceremony kinds the closure above did not cover, plus
+  // the counter boundary. Self-contained identity, so it does not depend on the
+  // revocation state the probes below establish.
+  await probeAddAndReauthReplay();
   // These two mutate and then depend on the account's credential state, so they
   // run AFTER the sign-in probes, which need that credential to be usable.
   const afterRevocation = authenticator ? await probeRevokedCredential(authenticator) : null;

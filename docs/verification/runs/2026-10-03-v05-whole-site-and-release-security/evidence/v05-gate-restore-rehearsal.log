@@ -1,0 +1,55 @@
+
+1. build the source database
+
+     schema + fixture applied in 8703 ms
+
+2. export
+
+     196 KiB in 1750 ms
+
+3. restore into an empty database
+
+     loaded in 366 ms
+
+4. verify the RESTORED database
+
+  PASS  the restored database carries its schema
+        110 tables, 73 triggers, 340 indexes
+  PASS  SQLite integrity_check is clean
+        reported: ok
+  PASS  no dangling foreign keys
+        foreign_key_check returned nothing
+  PASS  every table restored with the same row count
+        108 tables compared against the live source
+  PASS  the RESTORED database still refuses every invalid write
+        125/125
+  PASS  a revoked API key's reason still cannot be blanked in the restored copy
+        revoke: ACCEPTED; then blank the reason: refused. A restore that lost this trigger accepts the blank, and a credential is silently un-revokable.
+
+5. measured
+
+     rehearsal setup (not part of recovery)
+       build source   8703 ms
+
+     recovery path -- what an operator actually does
+       export         1750 ms  (196 KiB)
+       restore        366 ms
+       verify         219 ms
+       ─────────────────────────
+       RTO            2336 ms
+
+     whole rehearsal 11039 ms
+
+     RPO            0 rows lost inside the snapshot. A logical export is a
+                    consistent point-in-time image, so the recoverable loss
+                    window is the interval between exports -- an operational
+                    decision, not a platform limit. D1 Time Travel is a
+                    separate mechanism and was NOT exercised here.
+
+6/6 rehearsal checks passed
+
+6. fault injection -- can this rehearsal detect a lossy restore?
+
+  PASS  a restore missing a trigger is DETECTED
+        suite reported 123/125; failing: revoking a key without a reason is refused, a blocked install without a reason is refused
+

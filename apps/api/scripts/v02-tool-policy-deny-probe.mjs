@@ -108,7 +108,7 @@ await runProbe(LABEL, async (probe) => {
    * shared harness would mean editing three already-merged, sensitivity-proven gates, which is a
    * much larger risk than the duplication is worth.
    */
-  const enrollDevice = async (owner, orgId, orgSlug, label) => {
+  const enrollDevice = async (owner, orgId, orgSlug, label, reportedCapabilities = null) => {
     if (typeof orgSlug !== "string") return null;
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const device = {
@@ -153,6 +153,19 @@ await runProbe(LABEL, async (probe) => {
     const token = finished.payload?.device_token;
     if (typeof token !== "string") return null;
     registerSecret(token);
+    // Capabilities are declared by HEARTBEAT, not at enrollment -- `HeartbeatRequest` is the only
+    // request carrying them, and `runtime_capabilities` reads the device's stored report. So a
+    // browser/computer-use call needs a device that has REPORTED the capability, or the evaluator
+    // refuses it `runtime_capability_unavailable` before any policy toggle is read.
+    if (reportedCapabilities) {
+      await request(
+        anonJar(),
+        "POST",
+        "/api/v1/devices/heartbeat",
+        { capabilities: reportedCapabilities, app_version: "0.5.0" },
+        deviceMutation(token, `v02-heartbeat-${tag}`),
+      );
+    }
     return token;
   };
 
@@ -303,7 +316,7 @@ await runProbe(LABEL, async (probe) => {
   // because the decision handler resolves the registration BY fingerprint.
   const fingerprint = (name) =>
     createHash("sha256").update(`${name}:${probe.nonce}`).digest("hex").slice(0, 64);
-  const makeTool = async (name) => {
+  const makeTool = async (name, capabilityIds = [], riskClass = "read_only") => {
     const fp = fingerprint(name);
     const created = await probe.request(
       owner.jar,
@@ -312,8 +325,14 @@ await runProbe(LABEL, async (probe) => {
       {
         name,
         source: "built_in",
-        risk_class: "read_only",
-        capability_ids: [],
+        // Browser and computer tools are registered at their own risk class, because a decision
+        // whose declared `risk_class` disagrees with the registered tool is refused
+        // `tool_risk_class_mismatch` before any policy rule is read.
+        risk_class: riskClass,
+        // Not always empty: a browser- or computer-shaped decision is driven by the CATALOG
+        // definition's capability ids (`has_browser_capability(&definition.capability_ids)`), not by
+        // the call's, so a tool carrying `cap_browser_use` is what makes the browser policy reachable.
+        capability_ids: capabilityIds,
         fingerprint: fp,
       },
       browserMutation(owner.jar, `v02-tool-${name}`),
@@ -328,6 +347,18 @@ await runProbe(LABEL, async (probe) => {
   };
   const allowedTool = await makeTool("v02-allowed-tool");
   const deniedTool = await makeTool("v02-denied-tool");
+  // The browser and computer tools are created HERE rather than in their own phase, because the
+  // agent's `allowed_tool_ids` is fixed when the agent is created and every decision for a tool the
+  // agent does not list is refused `agent_tool_not_allowed` -- which is what the first run of the
+  // browser/computer phase measured, and why its positive control failed while its fourteen denials
+  // passed on an empty allowlist. That is the vacuity the positive control exists to catch.
+  //
+  // They carry NO capability id, because one cannot be set: a `CapabilityId` must be `cap_` + 32
+  // lowercase hex (core/identifiers.rs), so the `has_browser_capability` branch of the decision path
+  // is unreachable for a catalog tool and `risk_class` is the only working way to make a call
+  // browser- or computer-shaped. Recorded as V04-010.
+  const browserTool = await makeTool("v02-browser-tool", [], "browser");
+  const computerTool = await makeTool("v02-computer-tool", [], "computer");
 
   if (typeof allowedTool.id !== "string" || typeof deniedTool.id !== "string") return;
 
@@ -343,7 +374,7 @@ await runProbe(LABEL, async (probe) => {
   // That is what the first version of this probe sent (`denied_capability_ids`,
   // `risk_class_overrides`, `denied_risk_classes`, and made-up browser/computer
   // sub-fields) — and the empty details made it look like a product refusal.
-  const putToolPolicy = async (denied, version) => {
+  const putToolPolicy = async (denied, version, overrides = {}) => {
     const result = await probe.request(
       owner.jar,
       "PUT",
@@ -357,6 +388,10 @@ await runProbe(LABEL, async (probe) => {
         mcp_ids: [],
         denied_mcp_ids: [],
         tool_approval_modes: {},
+        // The browser and computer blocks are overridable because the browser/computer-use phase
+        // needs a policy whose ALLOWLISTS are populated. With an empty allowlist every browser and
+        // computer action is refused for a reason that has nothing to do with the toggles under test,
+        // which would make every one of those denial assertions vacuous.
         browser: {
           allowed_domains: [],
           blocked_domains: [],
@@ -365,6 +400,7 @@ await runProbe(LABEL, async (probe) => {
           allow_authenticated: false,
           allow_clipboard: false,
           external_submit: "deny",
+          ...(overrides.browser ?? {}),
         },
         computer: {
           allow_accessibility: false,
@@ -372,6 +408,7 @@ await runProbe(LABEL, async (probe) => {
           allow_keyboard_mouse: false,
           allow_shell_escalation: false,
           allowed_applications: [],
+          ...(overrides.computer ?? {}),
         },
         version,
       },
@@ -442,7 +479,7 @@ await runProbe(LABEL, async (probe) => {
     {
       name: "v02 tool policy agent",
       project_id: projectId,
-      allowed_tool_ids: [allowedTool.id, deniedTool.id],
+      allowed_tool_ids: [allowedTool.id, deniedTool.id, browserTool.id, computerTool.id],
     },
     browserMutation(owner.jar, "v02-tool-policy-agent"),
   );
@@ -581,6 +618,26 @@ await runProbe(LABEL, async (probe) => {
       `http=${result.status} stored=${row ? row.status : "NO ROW"} body=${probe.brief(result.payload, 160)}`,
     );
     decisions[`${tag}Row`] = row;
+
+    // FR-F04-007, and the reason this is asserted HERE rather than left to a reading of the stored
+    // row above. D1 grades the STORED decision, which is a different requirement: the spec asks that
+    // the backend RETURN a machine-readable denial reason to the caller, and a product that stored the
+    // reason while returning an opaque body would satisfy every other assertion in this probe.
+    //
+    // It is also the only assertion here that cannot be satisfied by a constant. D1 accepts any
+    // non-empty status; this one requires the reason to MATCH THE TAG, so `policy_allowed` on the deny
+    // leg fails. A route that returned one fixed reason for both outcomes would pass a presence check
+    // and fail this one -- which is the difference between asserting a field exists and asserting it
+    // means something.
+    const expectReason = tag === "deny" ? "org_tool_denied" : "policy_allowed";
+    probe.expect(
+      `FR-F04-007: the ${tag} call RETURNS a machine-readable reason to the authorized caller, and it ` +
+        `discriminates -- "${expectReason}" here. The stored row above is a separate requirement, and ` +
+        `this one is on the wire: a product that persisted the reason while answering an opaque body ` +
+        `would pass every other assertion in this probe`,
+      result.payload?.reason === expectReason && result.payload?.decision === tag,
+      `decision=${result.payload?.decision ?? "ABSENT"} reason=${result.payload?.reason ?? "ABSENT"}`,
+    );
   }
 
   const denyRow = decisions.denyRow;
@@ -779,6 +836,331 @@ await runProbe(LABEL, async (probe) => {
     );
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // 3b. FR-F13-005 / FR-F13-006 -- BROWSER AND COMPUTER-USE POLICY. Eleven sub-controls the specs
+  // name, which until now no gate drove end to end. Every one is a boolean or an allowlist on
+  // `BrowserPolicy` / `ComputerPolicy`, so the obvious objection is that a denial proves nothing:
+  // what if the path refuses for an unrelated reason?
+  //
+  // It cannot, and that is the design. The policy below has its ALLOWLISTS POPULATED and every
+  // capability toggle OFF. So for each action there are only two possible outcomes, and they point at
+  // different fields:
+  //
+  //   * `visit` to a listed domain                                        ->  ALLOWED
+  //     (the positive control: the instrument can register an allow on this very path)
+  //   * every other action on a listed target                             ->  DENIED
+  //
+  // An UNCONSULTED toggle yields ALLOW, not deny. So each denial below is attributable to its own
+  // field, and this phase fails if any of the eleven is parsed, stored and never consulted -- which
+  // is the shape a fail-open control takes, and the reason reading the struct is not evidence.
+  // ---------------------------------------------------------------------------------------------
+  const ALLOWED_DOMAIN = "allowed.example.test";
+  const ALLOWED_APP = "com.example.allowed-app";
+  probe.expect(
+    "the BROWSER and COMPUTER tools exist and are listed in the agent's `allowed_tool_ids`. They " +
+      "carry NO capability id, because one cannot be set: a `CapabilityId` must be `cap_` + 32 " +
+      'lowercase hex, so `has_browser_capability` -- which matches `capability == "browser"` or ' +
+      "`cap_` stripped to `browser` -- can never be true for a catalog tool. `risk_class` is " +
+      "therefore the ONLY working way to make a call browser- or computer-shaped (V04-010), and this " +
+      "phase uses it",
+    typeof browserTool.id === "string" && typeof computerTool.id === "string",
+    `browser=${browserTool.id ?? "none"} computer=${computerTool.id ?? "none"}`,
+  );
+
+  const bcPolicy = await putToolPolicy([], policyVersion + 1, {
+    browser: {
+      allowed_domains: [ALLOWED_DOMAIN],
+      blocked_domains: ["blocked.example.test"],
+      allow_download: false,
+      allow_upload: false,
+      allow_authenticated: false,
+      allow_clipboard: false,
+      external_submit: "deny",
+    },
+    computer: {
+      allow_accessibility: false,
+      allow_screen_capture: false,
+      allow_keyboard_mouse: false,
+      allow_shell_escalation: false,
+      allowed_applications: [ALLOWED_APP],
+    },
+  });
+  probe.expect(
+    "wrote a policy whose browser and computer ALLOWLISTS are populated but every capability toggle " +
+      "is off. This is what makes the denials attributable: an unconsulted toggle allows, a " +
+      "consulted one denies, and an empty allowlist would have denied everything for an unrelated " +
+      "reason",
+    bcPolicy.status === 200 || bcPolicy.status === 201,
+    `status=${bcPolicy.status} reason=${probe.reasonOf(bcPolicy) ?? "none"} body=${probe.brief(bcPolicy.payload, 160)}`,
+  );
+
+  // The run is bound to ONE device (`device_not_approved` for any other), so the capability report
+  // goes on THAT device rather than a second one. Heartbeating it only ADDS capability, and the
+  // evaluator consults `runtime.supports_all(...)` only for capabilities a call actually requires --
+  // so every existing read-only decision above is unaffected, and adding capability can only make the
+  // evaluator stricter about a call that needs it.
+  const heartbeat = await request(
+    anonJar(),
+    "POST",
+    "/api/v1/devices/heartbeat",
+    { capabilities: { browser_use: true, computer_use: true }, app_version: "0.5.0" },
+    deviceMutation(device, "v02-heartbeat-capabilities"),
+  );
+  probe.expect(
+    "HEARTBEAT the run's own device with `browser_use` and `computer_use`. Capabilities are declared " +
+      "by heartbeat, not at enrollment, and `runtime_capabilities` reads the device's stored report " +
+      "-- so without this the evaluator refuses every browser/computer call " +
+      "`runtime_capability_unavailable` before any policy toggle is read, which is exactly what an " +
+      "earlier run of this phase measured",
+    heartbeat.status === 200 || heartbeat.status === 204,
+    `status=${heartbeat.status} reason=${probe.reasonOf(heartbeat) ?? "none"} body=${probe.brief(heartbeat.payload, 120)}`,
+  );
+
+  // A browser or computer decision differs from the plain one by carrying the action AND declaring the
+  // matching `risk_class`. `risk_class` is what makes the call browser-shaped
+  // (`browser_shaped = call.risk_class == Browser || browser_capability`), because the
+  // capability-id half of that expression is unreachable (V04-010).
+  const decideAction = (tool, tag, key, action, riskClass) =>
+    probe.request(
+      anonJar(),
+      "POST",
+      `/api/v1/runs/${runId}/tool-decisions`,
+      {
+        tool_call_id: toolCallId(`bc-${tag}`),
+        tool_id: tool.id,
+        tool_fingerprint: tool.fingerprint,
+        capability_ids: [],
+        risk_class: riskClass,
+        arguments_summary: `action=${tag};target=v02`,
+        [key]: action,
+      },
+      asDevice(`v02-bc-decision-${tag}`),
+    );
+
+  const decisionOf = (result) => result?.payload?.decision ?? null;
+
+  // The capability catalogue. THIS IS A PRECONDITION FIXTURE, and the fact that it has to be one is
+  // the finding (V04-010).
+  //
+  // `evaluate_browser_rules` / `evaluate_computer_rules` are reached only after
+  // `capabilities_are_catalogued` passes. Because a tool can never carry the `browser` capability —
+  // `has_browser_capability` matches `capability == "browser"` or `cap_` stripped to `browser`, and a
+  // `CapabilityId` must be `cap_` + 32 lowercase hex — every browser-shaped call REQUIRES the `browser`
+  // capability to be present in `capability_definitions` instead.
+  //
+  // That table has NO WRITER: no INSERT or UPDATE anywhere in `apps/api/src`, no seed in any
+  // migration, and no route. So `capabilities_are_catalogued` is always false and every
+  // browser/computer call in managed mode is refused `capability_not_defined` before any toggle is
+  // read. The first run of this phase measured exactly that: fourteen "denials" passed while every one
+  // of them was refused with the SAME reason, and the positive control -- which is the leg that can
+  // register an allow -- is what exposed it.
+  //
+  // So the rows are seeded here directly, which proves two things at once: the enforcement code is
+  // correct and reachable, and the ONLY thing missing in the product is the writer.
+  const capsBefore = await d1(
+    "SELECT capability_key FROM capability_definitions",
+    "V02 the capability catalogue before seeding",
+  );
+  probe.expect(
+    "`capability_definitions` is EMPTY, and no application code can populate it -- there is no " +
+      "INSERT or UPDATE anywhere in apps/api/src, no seed in any migration, and no route. Every " +
+      "browser/computer call in managed mode is therefore refused `capability_not_defined` before " +
+      "any policy toggle is read, which makes FR-F13-005/006's eleven controls unreachable rather " +
+      "than merely untested (V04-010). The two rows below are seeded as a PRECONDITION FIXTURE",
+    (capsBefore ?? []).length === 0,
+    `rows=${(capsBefore ?? []).length} keys=${(capsBefore ?? []).map((r) => r.capability_key).join(",") || "none"}`,
+  );
+  // The CHECK is `length = 36 AND substr(1,4) = 'cap_'`, so the 32 characters after the prefix are
+  // free-form. Both rows must differ, though -- a first run seeded two rows with the SAME
+  // `capability_id` derived from the nonce alone and the second died on the PRIMARY KEY.
+  const capabilityId = (key) =>
+    `cap_${(probe.nonce.replace(/[^a-z0-9]/g, "").slice(0, 24) + key.replace(/[^a-z0-9]/g, ""))
+      .padEnd(32, "0")
+      .slice(0, 32)}`;
+  for (const [key, riskClass] of [
+    ["browser", "browser"],
+    ["computer", "computer"],
+  ]) {
+    // `org_id` NULL = platform-wide, which is what `CAPABILITIES_FOR_ORG_SQL` selects alongside the
+    // org's own. The evaluator projects BOTH `capability_id` and `capability_key`, so the bare key is
+    // what satisfies `capabilities_are_catalogued`.
+    await d1(
+      `INSERT INTO capability_definitions
+         (capability_id, org_id, capability_key, display_name, risk_class, metadata_json, version,
+          created_at, updated_at)
+       VALUES ('${capabilityId(key)}', NULL,
+               '${key}', 'V02 ${key}', '${riskClass}', '{}', 1,
+               '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+      `V02 seed the ${key} capability`,
+    );
+  }
+  const capsAfter = await d1(
+    "SELECT capability_key FROM capability_definitions ORDER BY capability_key",
+    "V02 the capability catalogue after seeding",
+  );
+  probe.expect(
+    "seeded exactly the two capability rows the evaluator requires, so this phase can reach the " +
+      "browser and computer RULES rather than being refused at the capability check",
+    (capsAfter ?? []).length === 2,
+    `rows=${(capsAfter ?? []).length} keys=${(capsAfter ?? []).map((r) => r.capability_key).join(",")}`,
+  );
+
+  // --- the POSITIVE CONTROL --------------------------------------------------------------
+  const visitAllowed = await decideAction(
+    browserTool,
+    "visit-allowed",
+    "browser_action",
+    { action: "visit", domain: ALLOWED_DOMAIN },
+    "browser",
+  );
+  probe.expect(
+    "POSITIVE CONTROL: a browser `visit` to a listed domain CLEARS the browser rules. It does not come " +
+      "back `allow` -- it comes back `require_session_approval`, because a browser-risk tool requires " +
+      "an approval gate under a default policy, and that is STRONGER evidence than an allow: it " +
+      "proves the call passed `domain_allowed`, reached the approval stage, and was never " +
+      "`browser_action_denied`. Without this leg the thirteen denials below would all pass while the " +
+      "browser rules were never consulted at all",
+    decisionOf(visitAllowed) !== "deny" &&
+      probe.reasonOf(visitAllowed) !== "browser_action_denied" &&
+      probe.reasonOf(visitAllowed) !== "capability_not_defined" &&
+      probe.reasonOf(visitAllowed) !== "runtime_capability_unavailable",
+    `decision=${decisionOf(visitAllowed) ?? "ABSENT"} status=${visitAllowed.status} reason=${probe.reasonOf(visitAllowed) ?? "none"}`,
+  );
+
+  // --- FR-F13-005: the browser sub-controls ------------------------------------------------
+  const browserCases = [
+    ["download", { action: "download", domain: ALLOWED_DOMAIN }, "allow_download"],
+    ["upload", { action: "upload", domain: ALLOWED_DOMAIN }, "allow_upload"],
+    ["authenticated", { action: "authenticated", domain: ALLOWED_DOMAIN }, "allow_authenticated"],
+    ["clipboard", { action: "clipboard", domain: ALLOWED_DOMAIN }, "allow_clipboard"],
+    ["external_submit", { action: "external_submit", domain: ALLOWED_DOMAIN }, "external_submit"],
+  ];
+  for (const [tag, action, field] of browserCases) {
+    const result = await decideAction(browserTool, tag, "browser_action", action, "browser");
+    probe.expect(
+      `FR-F13-005: browser \`${tag}\` is DENIED because \`${field}\` is off -- and because an unconsulted ` +
+        'field would ALLOW, this assertion is what separates "the toggle is enforced" from "the ' +
+        'toggle exists"',
+      decisionOf(result) === "deny",
+      `decision=${decisionOf(result) ?? "ABSENT"} status=${result.status} reason=${probe.reasonOf(result) ?? "none"}`,
+    );
+  }
+
+  // The allowlist, in both directions -- neither is a per-action toggle, so neither is covered above.
+  const visitUnlisted = await decideAction(
+    browserTool,
+    "visit-unlisted",
+    "browser_action",
+    { action: "visit", domain: "elsewhere.example.test" },
+    "browser",
+  );
+  probe.expect(
+    "FR-F13-005: a `visit` to a domain NOT in `allowed_domains` is DENIED, so the allowlist is " +
+      "enforced and not merely present",
+    decisionOf(visitUnlisted) === "deny",
+    `decision=${decisionOf(visitUnlisted) ?? "ABSENT"} status=${visitUnlisted.status} reason=${probe.reasonOf(visitUnlisted) ?? "none"}`,
+  );
+  const visitBlocked = await decideAction(
+    browserTool,
+    "visit-blocked",
+    "browser_action",
+    { action: "visit", domain: "blocked.example.test" },
+    "browser",
+  );
+  probe.expect(
+    "FR-F13-005: a `visit` to a domain in `blocked_domains` is DENIED even though `Visit` requires " +
+      "no capability toggle -- so `blocked_domains` is enforced independently of the per-action flags",
+    decisionOf(visitBlocked) === "deny",
+    `decision=${decisionOf(visitBlocked) ?? "ABSENT"} status=${visitBlocked.status} reason=${probe.reasonOf(visitBlocked) ?? "none"}`,
+  );
+
+  // --- FR-F13-006: the computer sub-controls -----------------------------------------------
+  const computerCases = [
+    ["accessibility", { action: "accessibility", application: ALLOWED_APP }, "allow_accessibility"],
+    [
+      "screen_capture",
+      { action: "screen_capture", application: ALLOWED_APP },
+      "allow_screen_capture",
+    ],
+    [
+      "keyboard_mouse",
+      { action: "keyboard_mouse", application: ALLOWED_APP },
+      "allow_keyboard_mouse",
+    ],
+    [
+      "shell_escalation",
+      { action: "shell_escalation", application: ALLOWED_APP },
+      "allow_shell_escalation",
+    ],
+  ];
+  for (const [tag, action, field] of computerCases) {
+    const result = await decideAction(computerTool, tag, "computer_action", action, "computer");
+    probe.expect(
+      `FR-F13-006: computer-use \`${tag}\` on a listed application is DENIED because \`${field}\` is off`,
+      decisionOf(result) === "deny",
+      `decision=${decisionOf(result) ?? "ABSENT"} status=${result.status} reason=${probe.reasonOf(result) ?? "none"}`,
+    );
+  }
+
+  const computerUnlisted = await decideAction(
+    computerTool,
+    "unlisted-app",
+    "computer_action",
+    { action: "screen_capture", application: "com.example.denied-app" },
+    "computer",
+  );
+  probe.expect(
+    "FR-F13-006: a computer-use action against an application NOT in `allowed_applications` is " +
+      "DENIED, so the application allowlist is enforced",
+    decisionOf(computerUnlisted) === "deny",
+    `decision=${decisionOf(computerUnlisted) ?? "ABSENT"} status=${computerUnlisted.status} reason=${probe.reasonOf(computerUnlisted) ?? "none"}`,
+  );
+
+  // Two fields the DOMAIN structs carry, no decision consults, and the API does not accept.
+  // `deny_unknown_fields` makes this a 422, so the product's behaviour is CORRECT here and this is
+  // recorded rather than asserted as a defect: the difference from the fail-open class is precisely
+  // that an operator cannot believe a control took effect when it did not.
+  const rejected = await probe.request(
+    owner.jar,
+    "PUT",
+    `/api/v1/orgs/${orgId}/policy/tools`,
+    {
+      schema_version: 1,
+      default_posture: "allow",
+      tool_ids: [],
+      denied_tool_ids: [],
+      mcp_ids: [],
+      denied_mcp_ids: [],
+      tool_approval_modes: {},
+      browser: {
+        allowed_domains: [ALLOWED_DOMAIN],
+        blocked_domains: [],
+        allow_download: false,
+        allow_upload: false,
+        allow_authenticated: false,
+        allow_clipboard: false,
+        external_submit: "deny",
+        blocked_categories: ["gambling"],
+      },
+      computer: {
+        allow_accessibility: false,
+        allow_screen_capture: false,
+        allow_keyboard_mouse: false,
+        allow_shell_escalation: false,
+        allowed_applications: [ALLOWED_APP],
+        blocked_applications: ["com.example.denied-app"],
+      },
+      version: (bcPolicy.payload?.version ?? policyVersion + 1) + 1,
+    },
+    browserMutation(owner.jar, `v02-tool-policy-unknown-fields`),
+  );
+  probe.expect(
+    "`blocked_categories` and `blocked_applications` exist on the DOMAIN structs, are consulted by no " +
+      "decision, and are REJECTED by the API rather than silently accepted. Two spec-named " +
+      "sub-controls are therefore not settable at all, and the honest classification is fail-CLOSED",
+    rejected.status === 422 || rejected.status === 400,
+    `status=${rejected.status} reason=${probe.reasonOf(rejected) ?? "none"}`,
+  );
   // ---------------------------------------------------------------------------------------------
   // 4. THE BOUNDARY LEGS. Both graded on stored state, and both required to be indistinguishable
   //    from a run that does not exist — or the route is a cross-tenant existence oracle.

@@ -177,6 +177,12 @@
       },
       "vars": {
         "ENVIRONMENT": "production",
+        // The relying-party pairing the deployed control plane serves
+        // (measured live on agents-cp.runlumi.app: passkey ceremonies are
+        // issued with rp.id = agents-cp.runlumi.app). These MUST be present in
+        // every non-development deployment: a Worker launched without them
+        // constructs no WebAuthn adapter and answers every passkey route with
+        // 503 `passkeys_not_configured` — fail-closed, and now loud about it.
         "WEBAUTHN_RP_ID": "agents-cp.runlumi.app",
         "WEBAUTHN_RP_NAME": "Lumi Agents",
         "WEBAUTHN_ORIGINS": "https://agents-cp.runlumi.app",

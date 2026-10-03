@@ -1,0 +1,21 @@
+$ pnpm --filter @runlumi/agents-cp-api smoke:p03
+$ node scripts/p03-smoke.mjs
+PASS  1. admin signed in and created Org A
+PASS  2. enrollment began anonymously
+PASS  2b. pending status leaks no challenge
+PASS  3. admin approved the enrollment
+PASS  4a. invalid proof denied with stable reason
+PASS  4. completion verified proof and issued device token
+PASS  4b. completion replay is rejected
+PASS  5. heartbeat accepted with bounded capabilities
+PASS  6. project created
+PASS  7. workspace bound to project
+PASS  7b. duplicate binding identity rejected
+PASS  8. control plane lists device and binding
+PASS  9c. integrated policy route exposes P03 snapshot and P04 view
+PASS  9. device fetched and acked policy
+PASS  9b. policy audience bound to enrolling org
+PASS  10. revoked device loses managed access
+PASS  11. stale membership blocks device token refresh
+
+P03 smoke: 17 checks passed

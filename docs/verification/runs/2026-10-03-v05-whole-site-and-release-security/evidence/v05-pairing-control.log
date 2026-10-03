@@ -1,0 +1,44 @@
+compdef:153: _comps: assignment to invalid subscript range
+P02 passkey ceremony probe — relying party "agents-cp.runlumi.app", origin "https://agents-cp.runlumi.app"
+
+PASS  the CBOR encoder produces a 3-key map whose authData round-trips — first byte=0xa3 length=122
+PASS  clientDataJSON carries exactly the fields WebAuthn requires — {"type":"webauthn.get","challenge":"abc","origin":"https://agents-cp.runlumi.app","crossOrigin":false}
+PASS  fresh D1 applies every migration
+PASS  development Worker is healthy — http://127.0.0.1:51796
+PASS  registration ceremony start returns server-generated options — status=201 {"ceremony_id":"cer_6454cee571d947f4a3e9f171c69b623c","expires_at":"2026-10-03T03:58:07.207Z","public_key":{"attestation":"none","authenticatorSelection":{"requireResidentKey":true,"residentKey":"required","userVerification":"required"},"ch
+PASS  the ceremony is server-issued and challenge-bound — ceremony=cer_6454cee5… challenge=string
+PASS  registration requires user verification and a discoverable credential (F01-004) — {"requireResidentKey":true,"residentKey":"required","userVerification":"required"}
+PASS  registration does not force a platform authenticator (F01-004) — undefined
+PASS  registration asks for no attestation (F01-004 default policy) — none
+PASS  a challenge the server never issued is refused — status=401 reason=ceremony_challenge_mismatch
+PASS  an origin outside the configured allowlist is refused — status=401 reason=ceremony_origin_mismatch
+PASS  authenticator data bound to another relying party is refused — status=401 reason=ceremony_origin_mismatch
+PASS  missing required user verification is refused — status=401 reason=ceremony_origin_mismatch
+PASS  a raw_id that does not match the credential id is refused — status=401 reason=passkey_invalid
+PASS  a response with no attested credential data is refused — status=401 reason=ceremony_origin_mismatch
+FAIL  a correct registration completes and establishes a session — status=401 {"error":{"code":"<redacted>","message":"Passkey verification failed. Start a new sign-in attempt and try again.","request_id":"req_2ebb55c092f84ebf96193511010063f1","details":{"reason":"ceremony_origin_mismatch"}}}
+PASS  an expired ceremony is refused with a stable reason — status=401 reason=ceremony_invalid
+PASS  a signup ceremony starts, so there is a kind to misuse — status=201 ceremony=cer_8ee0b1a8ff474b1e889dc63001177d78 reason=null
+FAIL  CONTROL: a signup ceremony completes with a registration payload, so the flow and the payload are both sound — status=401 reason=ceremony_origin_mismatch
+FAIL  the wrong-kind attacks below are not run, because a refusal could not be attributed to the kind — the control did not hold
+PASS  the recovery subject signs up — id=usr_f16105d3871543b6ac6d4e92c586f580
+PASS  a second session is established before the recovery, so there is something to terminate — status=200
+PASS  a recovery can be started for the account — status=202 reason=null
+PASS  the recovery challenge and code are available to finish the ceremony — challenge=rec_9b1c1edd39794f8eadad0506940e36f1 code=present body={"challenge_id":"rec_9b1c1edd39794f8eadad0506940e36f1","expires_at":"2026-10-03T04:08:08.539Z","development_code":"c68cbf2331d68e054f49be1fc9ecb51b97318be65cbc955f289a102a1eeeb30d"}
+PASS  the recovery completes and the password is replaced — status=204 reason=null sent={"challenge_id":"rec_9b1c1edd39794f8eadad0506940e36f1","code":"<redacted>","password":"recovered-password-long-enough-2"} body=null
+PASS  a consumed recovery ceremony cannot be replayed with the same challenge and code — status=401 reason=recovery_invalid
+PASS  and the replay is refused as `recovery_invalid` -- the same undifferentiated answer a wrong code gets, so consuming a ceremony is not distinguishable from never having started one — reason=recovery_invalid
+PASS  and the password set by the ORIGINAL recovery still authenticates, so the replay changed nothing — status=200
+PASS  and the password carried by the replay does NOT authenticate -- the state assertion that a removed compare-and-set would fail, since accepting the replay would have set exactly this — status=401
+PASS  a session established before the recovery no longer authenticates afterwards — status=401 resolved=nobody
+PASS  the pre-recovery password no longer authenticates — status=401
+PASS  the new password does authenticate, so the recovery took effect — status=200
+PASS  the Worker is still serving after the ceremony probes — status=200
+
+30/33 checks passed
+
+3 case(s) failed:
+  - a correct registration completes and establishes a session: status=401 {"error":{"code":"<redacted>","message":"Passkey verification failed. Start a new sign-in attempt and try again.","request_id":"req_2ebb55c092f84ebf96193511010063f1","details":{"reason":"ceremony_origin_mismatch"}}}
+  - CONTROL: a signup ceremony completes with a registration payload, so the flow and the payload are both sound: status=401 reason=ceremony_origin_mismatch
+  - the wrong-kind attacks below are not run, because a refusal could not be attributed to the kind: the control did not hold
+CONTROL_EXIT=1

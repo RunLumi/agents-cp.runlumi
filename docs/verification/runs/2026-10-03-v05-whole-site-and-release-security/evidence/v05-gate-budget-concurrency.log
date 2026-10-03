@@ -1,0 +1,38 @@
+$ pnpm --filter @runlumi/agents-cp-api verify:budget-concurrency
+$ node scripts/v01-budget-concurrency-probe.mjs
+
+  PASS  fresh D1 applies the full migration ledger  — 22 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:55273
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-Q932cR/3925958194ad44a358b775b036e1277921525f39-index_bg.wasm is 1581s newer than src/routes/authenticators.rs
+  PASS  signup Budget Owner  — status=201
+  PASS  verify Budget Owner  — status=200
+  PASS  login start Budget Owner  — status=202
+  PASS  login complete Budget Owner  — status=200
+  PASS  user Budget Owner has an opaque ID  — usr_9559e542cdef455c97530553dda44b9c
+  PASS  create Budget Org  — status=201
+  PASS  Budget Org organization ID  — org_3d93a4d0522bbdd63e77746f2a23cad2
+  PASS  a hard organization budget exists with a limit of 100  — status=201 budget_id=bud_f562653a0b124b05a4747363cc289a7d body={"budget_id":"bud_f562653a0b124b05a4747363cc289a7d","created_at":"2026-10-03T04:31:52.425Z","currency":"USD","hard":true,"id":"bud_f562653a0b124b05a4747363cc289a7d","lifecycle":"active","limit_minor":
+  PASS  a device enrollment can be begun  — status=201 body={"enrollment_id":"enr_0781f4b3b7884ef5b0bf83d1a32d116b","user_code":"8d5d12712ac4941341a60c47f014bf70668b4678ea1824ee6d8fc27d4ce33bdc","verification_uri":"/devices","expires_at":"2026-10-03T04:46:52.4
+  PASS  the org owner approves the device enrollment  — status=201
+  PASS  the approved enrollment releases a proof challenge  — status=200 enrollment_status=approved
+  PASS  the device completes enrollment and receives a token  — status=201 body={"device":{"app_version":"0.5.0","capabilities":null,"created_at":"2026-10-03T04:31:52.459Z","enrolled_by_user_id":"usr_9559e542cdef455c97530553dda44b9c","id":"dvc_e6efa7009bb545bf91b3b6ceb82c5567","l
+  PASS  the inference-request fixtures are in place, so a refusal below is about the ceiling and not about a missing precondition  — seeded=8 of 8
+  PASS  nothing is reserved before the attack  — held=0 count=0
+  PASS  CONTROL: the reservation expiry is in the FUTURE, or every reservation is refused and the ceiling below grades an absence  — expiry=2026-10-03T04:46:57.269Z, now=2026-10-03T04:31:57.269Z -- a literal timestamp here makes this gate's      result a function of the calendar rather than of the product
+
+  8 concurrent reservations of 30 against a limit of 100: 3 granted, 5 denied, 0 5xx
+  status distribution: 201 403
+  PASS  the burst granted at least one reservation, so the ceiling assertion below is measuring a budget and not an absence  — 3 of 8 granted against a limit of 100
+  PASS  concurrent reservations do not collectively exceed the hard limit: outstanding reservations stay within limit_minor  — 8 concurrent requests asked for 240 against a limit of 100; 3 reservations hold 90
+  PASS  the burst is refused by a budget decision, not answered by a store fault  — no 5xx
+  PASS  a denied reservation leaves no row, so the ceiling only counts holds a caller can use  — 3 rows for 3 grants (denied: 5)
+  PASS  a granted reservation can be released when the work it held for fails  — status=200
+  PASS  releasing a reservation returns its capacity, so a failed dispatch does not permanently consume the budget  — held 90 -> 60 after releasing bud_6668f28634724bf2b15c67fda246f67e
+  PASS  a request denied during the burst can reserve the capacity freed by a failed one  — request_id=req_ea4dea97f8ac4bbc410f6b2dcc7bbedf status=201 reason=null
+  PASS  a reservation for a request the server has never seen is refused, so a caller cannot manufacture holds against inference that does not exist  — status=404 reason=resource_not_found
+  PASS  the refused uncorrelated reservation left no row  — rows=0
+  PASS  a reservation against a budget that does not exist is refused, not treated as unlimited  — status=404 reason=budget_not_found
+
+  final: 3 reservations holding 90 against a limit of 100
+
+28/28 V01 budget-concurrency cases hold

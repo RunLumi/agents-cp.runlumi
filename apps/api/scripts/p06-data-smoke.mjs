@@ -136,7 +136,13 @@ await runProbe("P06 data-governance", async (probe) => {
       `SELECT event_type, delivery_status FROM outbox_events WHERE event_type = 'export.requested.v1'`,
       "P06 outbox diagnostic",
     );
-    stopServices();
+    // V04-003 -- `stopServices` is a method on the harness, not a free function. The bare call threw
+    // `ReferenceError: stopServices is not defined` from inside this catch block, which meant the
+    // BLOCKED report below NEVER PRINTED. The gate exited 2 either way, so for as long as this
+    // branch has existed the recorded reason ("the local queue did not deliver a published body")
+    // has been an assumption rather than a measurement -- a gate whose failure report cannot run is
+    // not evidence of anything, including the environment it claims to blame.
+    probe.stopServices();
     console.log(
       `\nBLOCKED: the export was created and durably enqueued, but the local queue\n` +
         `simulator did not hand the job to the consumer in a form it could read, so the\n` +

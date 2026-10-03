@@ -1,0 +1,85 @@
+$ pnpm --filter @runlumi/agents-cp-api verify:observability
+$ node scripts/v02-observability-correlation-probe.mjs
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+  V02 observability -- one request id followed through the system
+
+  PASS        C0 PRECONDITION: the response names its own request id, so there is an id to follow
+              request_id=req_11f46dd3986e4b53bebd596e7c847606 status=200
+  FAIL        C1 LEG 'domain action': the policy row EXISTS and the write committed
+              rows=0
+  FAIL        C1 LEG 'auth/policy': the stored policy carries the value that was written
+              managed_route_enabled=undefined credential_mode=undefined
+  FAIL        C1 LEG 'audit/security event': a security_events row carries THIS request's id
+              rows=0 actions=[]
+  FAIL        C1: the security event names the operation, so the row is about this and not a coincidence
+              actions=[] resource_types=[]
+  PASS        C1: and it is attributed to a principal -- ADR 0007's requirement that a customer-visible action is attributable, which V01-038 found unsatisfiable for a staff actor
+              actor_types=[]
+  FAIL        C1 LEG 'external dispatch/queue': an outbox_events row carries this request's id (or its correlation id)
+              rows=0 types=[]
+  PASS        C1: and the outbox row is attributed to the same organization, so the id is not being reused across tenants
+              org=org_7bbe51854830736df179e6048a7466e7 rows=[]
+  PASS        C1 LEG 'usage/cost': NO usage row was written for an operation that costs nothing -- asserted as an absence, and an absence is only meaningful because the instrument is proven live by the legs above
+              rows=0
+  UNMEASURED  C1 LEG 'request'/'response': the http_request log line
+              the id req_11f46dd3986e4b53bebd596e7c847606 was not found in 2 worker log candidate(s) (first: /Volumes/SSD/agents-cp.runlumi/apps/api/.wrangler/logs) -- the middleware writes to STDOUT and the log location depends on how the dev stack was started, so set OBS_LOG=/path/to/dev.log to include this leg. Reported UNMEASURED rather than assumed present.
+  UNMEASURED  C1: and the log line records the STATUS, so the log is evidence about the response rather than only about the request
+              the id req_11f46dd3986e4b53bebd596e7c847606 was not found in 2 worker log candidate(s) (first: /Volumes/SSD/agents-cp.runlumi/apps/api/.wrangler/logs) -- the middleware writes to STDOUT and the log location depends on how the dev stack was started, so set OBS_LOG=/path/to/dev.log to include this leg. Reported UNMEASURED rather than assumed present.
+  PASS        C2 canary: the password does NOT appear anywhere in security_events
+              password searched across 2 bytes of security_events
+  PASS        C2 canary: the session cookie does NOT appear anywhere in security_events
+              session searched across 2 bytes of security_events
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in security_events
+              csrf searched across 2 bytes of security_events
+  PASS        C2 canary: the password does NOT appear anywhere in outbox_events
+              password searched across 2 bytes of outbox_events
+  PASS        C2 canary: the session cookie does NOT appear anywhere in outbox_events
+              session searched across 2 bytes of outbox_events
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in outbox_events
+              csrf searched across 2 bytes of outbox_events
+  PASS        C2 canary: the password does NOT appear anywhere in org_model_policies
+              password searched across 2 bytes of org_model_policies
+  PASS        C2 canary: the session cookie does NOT appear anywhere in org_model_policies
+              session searched across 2 bytes of org_model_policies
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in org_model_policies
+              csrf searched across 2 bytes of org_model_policies
+  PASS        C2 canary: the password does NOT appear anywhere in idempotency_records
+              password searched across 508 bytes of idempotency_records
+  PASS        C2 canary: the session cookie does NOT appear anywhere in idempotency_records
+              session searched across 508 bytes of idempotency_records
+  PASS        C2 canary: the CSRF token does NOT appear anywhere in idempotency_records
+              csrf searched across 508 bytes of idempotency_records
+  PASS        C2 canary: the PASSWORD does not appear anywhere in users, sessions, security_events, outbox_events or idempotency_records
+              searched 1564 bytes of stored records
+  FAIL        C2 POSITIVE CONTROL: the same search FINDS this request's own id in the records it was correlated against -- so 'the password was not found' is a measurement and not an absent instrument
+              request_id=req_11f46dd3986e4b53bebd596e7c847606 searched across 1564 bytes
+  FAIL        C2 POSITIVE CONTROL: and FINDS this organization's id, so the search reads identity columns rather than only opaque blobs
+              org_id=org_7bbe51854830736df179e6048a7466e7
+  PASS        C2 NEGATIVE CONTROL: a canary that shares its PREFIX with the real password but differs in its last four characters is still not found -- so the search matches the whole literal and not a prefix, and the twelve passes above are not an artefact of a loose match
+              prefix searched: v02-observability-canary-Passw…
+  PASS        C2 canary: nor does the account's email outside the users row, so a stored record is not carrying the sign-in identity where it has no business to
+              email=obs-murxydwi@v02.invalid
+
+  19 pass, 7 fail, 2 unmeasured.
+  A leg that could not be read is UNMEASURED, not passing.
+
+[ELIFECYCLE] Command failed with exit code 1.
+Error: ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+
+  × "pnpm recursive run" failed in /Volumes/SSD/agents-cp.runlumi/apps/api
+
+[ELIFECYCLE] Command failed with exit code 1.

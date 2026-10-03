@@ -1,0 +1,6 @@
+  note  VI-TEN-001 a cross-tenant read loses its organization predicate: the fault text occurs 5 times in apps/api/src/repositories/plugins.rs; the first is replaced, so the case depends on the source's shape
+  note  VI-TEN-001 a service-account page stops being org-scoped: the fault text occurs 3 times in apps/api/src/repositories/machine_identity.rs; the first is replaced, so the case depends on the source's shape
+  note  VI-IDEM-001 a completed idempotency record is allowed to hold no status again: the fault text occurs 2 times in apps/api/migrations/0020_p09_idempotency_null_safety.sql; the first is replaced, so the case depends on the source's shape
+  note  VI-AUTH-001 a consumed WebAuthn ceremony is accepted a second time: the fault text occurs 3 times in apps/api/src/repositories/authenticators.rs; the first is replaced, so the case depends on the source's shape
+
+13/13 cases have a fault that still applies to the source
