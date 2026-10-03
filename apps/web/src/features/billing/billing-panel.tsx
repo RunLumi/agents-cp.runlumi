@@ -24,6 +24,7 @@ import { SubscriptionSummary } from "./subscription-summary";
 import { UsageVsPlanLimits } from "./usage-vs-limits";
 import {
   BillingDefinitionRow,
+  BillingEmpty,
   BillingError,
   BillingLoading,
   BillingNotice,
@@ -52,7 +53,13 @@ export interface BillingPanelProps {
   stale?: boolean;
 }
 
-type ResourceStatus = "loading" | "ready" | "error" | "permission" | "unavailable";
+type ResourceStatus =
+  | "loading"
+  | "ready"
+  | "error"
+  | "permission"
+  | "unavailable"
+  | "not_connected";
 
 interface Resource<T> {
   status: ResourceStatus;
@@ -233,6 +240,29 @@ export function BillingPanel({
           <div className="p-5">
             <BillingPermission />
           </div>
+        </BillingSurface>
+      </section>
+    );
+  }
+
+  // V05-003: an organization with no billing record is the expected state of a
+  // workspace that has never been connected to the payment provider — a
+  // not-connected state, not an error. The screen reference
+  // (`docs/screens/lumi_plan_entitlements.webp`) designs exactly this: a plan
+  // surface stating the connection is missing, with the provider portal as the
+  // way to change it.
+  if (
+    state.subscription.status === "not_connected" &&
+    state.entitlements.status !== "ready"
+  ) {
+    return (
+      <section aria-label="Billing and entitlements" className="space-y-5">
+        <PanelHeading stale={stale || state.refreshing} onRefresh={() => void load()} />
+        <BillingSurface ariaLabel="Billing not connected">
+          <BillingEmpty
+            title="Not connected to a paid plan"
+            description="This workspace has no subscription record yet. Start a subscription or manage billing details in the payment provider portal, and the plan, capabilities, and usage limits appear here."
+          />
         </BillingSurface>
       </section>
     );
@@ -763,6 +793,13 @@ function fromError<T>(error: unknown): Resource<T> {
     (error.status === 503 || error.code === "subscription_state_unavailable")
   ) {
     return { status: "unavailable", data: null, error, stale: false };
+  }
+  // A 404 on a billing resource means the organization has no billing record
+  // at all — the expected state of a workspace that has never been connected
+  // to the payment provider, not a failure (V05-003: this used to render the
+  // error panel, where the screen reference designs a not-connected state).
+  if (error instanceof ApiClientError && error.status === 404) {
+    return { status: "not_connected", data: null, error, stale: false };
   }
   return { status: "error", data: null, error, stale: false };
 }
