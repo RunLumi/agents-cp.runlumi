@@ -81,17 +81,23 @@ glass confined to the floating header, visible focus rings).
 
 ## Harness notes (the loop working on its own instruments)
 
-The whole-site probe took seven runs to go green, and every fix was to the **harness**, not an
-assertion loosened: a submit-picker that matched "Sign in with passkey" instead of the password form
-(a real ceremony start, waiting forever); a stale Chrome session from a previous run making the sweep
-measure the wrong account (now cleared at start); `document.querySelector("select")` grabbing the
-header's **org-switcher** instead of the key form's select, which re-fired organization selection and
-wedge the dashboard in "Loading organization…" (a real user cannot re-select the already-selected
-option, so not a product defect — but recorded, because the org loader has no error/retry exit from
-that state); and the one-time-secret reveal poll (the create triggers an org-level refetch). The
-first three sweep executions' logs are preserved as `v05-whole-site.log` (final run) — earlier
-failure outputs are summarized here rather than committed, since they measured a harness-shaped
-world, not the product.
+- **The product's own secret canary caught this campaign.** The first commit of this evidence was
+  refused by `p09-secret-canary`: the sweep's check detail printed the revealed `lumik_` machine
+  key into `v05-whole-site.log`, and the committed-literal scan flagged it (14/15 canaries → fixed).
+  The value was dead (its throwaway D1 was deleted minutes after the run), but dead is not the test
+  — the log is redacted and the probe now prints `[shown — redacted]` instead of the value. The
+  canary's "the detector would catch a planted leak" assertion is thereby confirmed against a real
+  commit, not only against its own planted fixture.
+- The whole-site probe took seven runs to go green, and every fix was to the **harness**, not an
+  assertion loosened: a submit-picker that matched "Sign in with passkey" instead of the password form
+  (a real ceremony start, waiting forever); a stale Chrome session from a previous run making the sweep
+  measure the wrong account (now cleared at start); `document.querySelector("select")` grabbing the
+  header's **org-switcher** instead of the key form's select, which re-fired organization selection and
+  wedge the dashboard in "Loading organization…" (a real user cannot re-select the already-selected
+  option, so not a product defect — but recorded, because the org loader has no error/retry exit from
+  that state); and the one-time-secret reveal poll (the create triggers an org-level refetch). The
+  final run's log is `v05-whole-site.log`; earlier failure outputs are summarized here rather than
+  committed, since they measured a harness-shaped world, not the product.
 
 ## What this section does not claim
 

@@ -562,7 +562,12 @@ const keyFlow = await page.evaluate(async (secretPatternSource) => {
 check(
   "identity: creating an API key shows the secret exactly once",
   keyFlow.step === "key-created" && keyFlow.secretShown,
-  JSON.stringify(keyFlow).slice(0, 200),
+  // Never print the secret: the check detail lands in the run log, and a
+  // committed log that carries a secret-shaped literal trips the product's own
+  // secret canary (measured: p09-secret-canary refused the first commit of
+  // this evidence). The full value is kept only in memory for the
+  // acknowledgement assertion below.
+  JSON.stringify({ ...keyFlow, fullSecret: keyFlow.fullSecret ? "[shown — redacted]" : null }).slice(0, 200),
 );
 if (keyFlow.step === "key-created") {
   // The only exit from the reveal is the explicit acknowledgement.
