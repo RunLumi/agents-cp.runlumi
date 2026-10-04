@@ -93,6 +93,23 @@ Required:
 
 Before PR review, complete `templates/handoff.md`.
 
+## Resume checkpoint
+
+For long-running work, update before interruption, compaction, or handoff. Follow [the resume protocol](../../prompts/README.md#resuming-long-running-work). Use this section only while the packet is active; merged packets remain immutable.
+
+- Updated on / owner:
+- Original outcome / first unmet acceptance criterion:
+- Latest user constraints / do not do:
+- Checkout path / HEAD / relevant working and index changes:
+- Packet write surface / shared-file ownership:
+- Contract Gate commit/version / dependency status:
+- Completed work / exact evidence paths and commands:
+- Unresolved hypotheses / blockers / missing proof:
+- Running commands or processes / worktree or runtime resources:
+- Next concrete action / safe retry or recovery conditions:
+
+Do not include credentials, raw tokens, or sensitive request bodies.
+
 ## Stop conditions
 
 Stop rather than improvise if:

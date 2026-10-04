@@ -106,6 +106,20 @@ If a real blocker appears, leave the repository in a coherent state and document
 - cheapest unblock path;
 - whether dependent work can continue safely.
 
+## Resuming long-running work
+
+Before an interruption, context compaction, or ownership handoff, update the resume checkpoint in the **active** work packet using [the work-packet template](../implementation/templates/work-packet.md#resume-checkpoint). Keep it concise and reference durable evidence rather than copying logs. A short, uninterrupted task does not need a separate checkpoint document. Do not rewrite merged packets or edit coordinator-owned `STATUS.md` to store a checkpoint.
+
+Record the original outcome and acceptance criteria, latest user constraints, packet/write surface, Contract Gate version, checkout path and HEAD, completed work with evidence, unresolved hypotheses/blockers, active commands/processes, and the next concrete action. Record only resource names and redacted evidence; never persist credentials or sensitive request content.
+
+On resume:
+
+1. Read the checkpoint and original goal/spec/contract, including the latest user steering. A summary is an index, not a replacement for the contract or proof.
+2. Read back checkout path, HEAD, working/index changes, file ownership, and Contract Gate status. If they differ, reconcile the actual state before a write or rebase; preserve unrelated edits.
+3. Check whether recorded processes, deployments, or mutation harnesses are still running before starting overlapping work. Inspect an interrupted operation's result before retrying; do not blindly rerun a possibly completed mutation.
+4. Reuse evidence only when its head, relevant file state, build, fixture, and environment still match. Otherwise rerun the affected proof. Keep local, hosted, runtime, and production evidence distinct.
+5. Continue from the first unmet acceptance criterion. Report a real blocker with evidence and proceed with independent authorized work where safe.
+
 ## Parallelism
 
 Good parallelism:

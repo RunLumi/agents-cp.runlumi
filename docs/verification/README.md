@@ -121,6 +121,8 @@ LLM graders may help with ambiguous UX/semantic quality. They must not be author
 
 ## Test the tests
 
+Read the [runtime proof catalog and verifier lessons](runtime-proofs.md) before choosing runtime gates or writing/changing probes and mutation harnesses. It retains command prerequisites, historical blockers, and known false-verdict failure modes; its recorded PASS counts require fresh verification against the current head and environment.
+
 For Tier-0/Tier-1 invariants ask:
 
 > If the implementation were wrong in the obvious dangerous way, would our verifier fail?
@@ -138,6 +140,20 @@ Use targeted mutation/fault injection in a disposable worktree, e.g.:
 The mutation must be killed by the expected verifier **for the intended reason**.
 
 Do not optimize for a broad mutation percentage. Target load-bearing invariants.
+
+## Evaluating agent guidance and workflows
+
+Use this protocol when claiming that a prompt, skill, tool description, or agent workflow improves task quality, cost, or latency. Routine clarification and document relocation can be validated by consistency, discoverability, and preservation checks; they do not by themselves prove better agent performance.
+
+1. Define one objective, the permitted edit surface, representative tasks, and the quality floor before tuning. Use redacted real defects/review feedback plus ordinary tasks and relevant hard cases; do not sample only failures of the current model. Follow retention and privacy rules when using traces.
+2. Freeze task inputs, checkable expected outcomes/rubric, runner, and baseline revision/configuration. Grade deterministic invariants with executable checks. For subjective quality, calibrate a grader on reviewed examples, check that identical outputs receive consistent verdicts, and blind/randomize baseline-vs-candidate order. The producing agent's own completion report is not an independent grade.
+3. Split tuning cases from independent validation cases before editing. The optimizer may inspect tuning traces; keep validation answers/traces out of its prompts, tools, and tuning workspace. If isolation is unavailable or cases have already been inspected, disclose that limitation and leave the generalization claim UNPROVEN. Do not turn individual failure text or reference answers into instructions.
+4. Run baseline and candidate in fresh, equivalent environments with pinned model/harness settings and separate state. Vary one causal change at a time. Record per-case results, errors, elapsed time, and token/cost metrics when available. Diagnose timeouts, truncated output, stale artifacts, and grader defects separately from task failures.
+5. For stochastic scores, repeat enough to distinguish a meaningful gain from measured variation; report cases, repetitions, uncertainty, and missing metrics. A gain on tuning cases alone does not justify adoption. Keep a candidate only when independent validation meets the objective and the quality floor; undo only the candidate's own edits if it regresses. Stop tuning when gains cannot be distinguished from noise and investigate the remaining failures.
+
+If a case or grader contradicts an authoritative requirement, preserve the original failure and justify its repair from that requirement, version the evaluation, and rerun both baseline and candidate. Never relax security/financial gates or add artificial failures to create scoring headroom. Require a fresh independent set before claiming generalization after validation cases influence further tuning.
+
+Store the objective, case/rubric versions, split and isolation method, baseline/candidate SHAs or patch fingerprints, model/harness configuration, redacted per-case evidence, decision, and limitations in the relevant verification run or engineering-practice review. No benchmark gain is a substitute for the product's required runtime and security proofs.
 
 ## Cadence
 
