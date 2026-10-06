@@ -43,7 +43,7 @@ dirty/override flags, package manager pins, verdict and named assertions.
 `journey.json` and bounded redacted `worker.log` preserve diagnostics. The runner
 cleans up its own Worker and temporary database; it retains reports/build output.
 Exit 0 = PASS, 1 = runtime FAIL, 2 = setup/build BLOCKED. Dirty local runs are
-explicitly non-reproducible; CI refuses them. CI uploads only JSON reports.
+explicitly non-reproducible; CI refuses them. CI publishes only JSON reports in the job summary.
 
 ## Edit both repos
 

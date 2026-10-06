@@ -1,7 +1,7 @@
 # ADR 0011: Pinned cross-repository integration
 
 - Status: Accepted
-- Date: 2026-10-04
+- Date: 2026-10-06
 
 Track RunLumi/LumiAgents as a Git submodule at `integrations/lumi-agents`.
 The gitlink is the tested client revision. Keep histories, releases, package
