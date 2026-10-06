@@ -143,3 +143,14 @@ logout, then enrollment/policy/adoption/runtime/scheduler still required.
 Browser-opening now explicit button (begin returns URL); 12 focused tests,
 architecture and client root typecheck PASS. Current app screenshot predates
 that small UI change; rebuild before reusing runtime evidence.
+
+Actual auth closure runtime: desktop-account-electron.mjs + CDP attachPage
+connects real app renderer (not a replacement page). New build used. UI creates
+PKCE, isolated Chrome password login approves, UI completes with account visible;
+OS-encrypted main vault created; app restart restored account; logout deleted
+own vault record. PASS exit 0, log test-results/electron-account-e2e.log.
+Screenshot visually inspected at temp profile lumi-electron-account-LiDm5y/
+evidence/authenticated.png. Both app processes and Chrome/Worker stopped.
+This is password auth path only; primary passkey + provider both-account matrix
+still owed, along with invalid-sender runtime and full type baseline.
+Next DE2E-INT-02 device lifecycle/policy; never shrink full A–E completion.
