@@ -126,3 +126,20 @@ and agent-runtime-build session are now running (client test-results logs).
 Next: inspect live build handles/results, launch actual app with isolated home/
 userData/sessionData and runtime, screenshot account Settings, exercise IPC +
 real browser approval and secure persistence. Preserve original A–E goal.
+
+Electron runtime checkpoint: pinned binary + agent runtime + node-pty prepared.
+Actual app launched in test-results/electron-profile/{home,userData,session};
+main/host/renderer all worked. UI Cancel provider flow → Use API key → Skip for
+now → Exit onboarding reached local workspace, no injected login state. Settings
+→ General rendered real Lumi section; screenshot account-settings.png visually
+inspected. Provider login remained visible. Native app was stopped (owned PID
+47925 TERM); no ongoing Electron process expected, recheck before new launch.
+First node-pty setup ENOENT preserved; rerun with local .bin passed.
+Renderer UI/IPC startup proof achieved, NOT Lumi successful sign-in/keychain
+proof. Production main/host/preload/renderer build PASS. Browser password
+approval proof PASS separately. Next assemble one harness with local Worker,
+isolated actual Electron + isolated Chrome, perform Lumi sign-in/persist/restart/
+logout, then enrollment/policy/adoption/runtime/scheduler still required.
+Browser-opening now explicit button (begin returns URL); 12 focused tests,
+architecture and client root typecheck PASS. Current app screenshot predates
+that small UI change; rebuild before reusing runtime evidence.
