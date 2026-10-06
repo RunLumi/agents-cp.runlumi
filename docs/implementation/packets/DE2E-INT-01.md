@@ -13,7 +13,7 @@ crosses IPC; optional org selection cannot adopt workspaces implicitly.
 ## Write surface
 Control plane: docs/implementation/desktop-e2e/**, this packet and goal prompt.
 Client: new local integration spec and exact host/shared/service test paths to
-be assigned after architecture:context. No client code until ownership is frozen.
+be assigned after architecture:context. Client write surface now frozen for first transport slice: packages/services/src/lumi-account/** and docs/specs/lumi-agents/04-control-plane-account.md. Host transport is never renderer RPC; no custody persistence until Electron secure owner is defined.
 No renderer token persistence, generic bearer adapter or rewrite of provider OAuth.
 
 ## Acceptance
@@ -43,3 +43,44 @@ RPC, so storing Lumi secrets via a generic namespaced key alone is insufficient.
 Inspect its cipher/repository owner and exposure policy; implement a host-private
 credential boundary rather than assuming namespace means secrecy. Both gaps
 remain UNPROVEN pending complete trace/runtime reproducer.
+
+Checkpoint: client baseline fast-forwarded cleanly from fd977fd to d78e8d5
+(only merged monthly guidance). Freshness and architecture services context
+read; architecture before/after PASS (0 violations). New client spec defines
+independent Lumi account and secure-custody boundary. Memory-only host transport
+implements fixed-origin S256 start/exchange, private cookie+CSRF request, expiry
+and cancel generation. Four focused tests PASS via Node24/tsx. Files formatted.
+Full client typecheck/lint running in task session; logs under client test-results.
+Next: inspect results, strengthen stale exchange/logout concurrency, implement
+Electron secure owner + service/IPC, browser approval UI, then real HTTP proof.
+Goal remains A–E, not complete; no product UI/runtime wiring claimed.
+Strict typecheck found nullable first split segment in cookie parser; corrected
+without relaxing types. Original failing log preserved in client test-results/
+typecheck-int01.log; repair run typecheck-int01-repair.log session 16804.
+Logout now captures old request and clears its own session before awaiting,
+so late completion cannot erase a newer login. Focused tests still 4/4.
+Client logs test-results are untracked (must never stage); lint session is live.
+
+2026-10-07 continuation: prior typecheck repair PASS; full lint 0 errors/70
+warnings. Added client main-only lumiSessionVault.ts/.test.ts to write surface
+(main owner adapter, not renderer IPC). Source safeStorage documentation checked;
+Linux basic_text/unknown and unavailable encryption fail closed. Vault uses
+origin-separated encrypted envelope, locked atomic 0600 write, strict schema;
+clear affects only own record. Six focused transport/vault tests PASS;
+architecture check 0 violations. Tests inject cipher: no OS keychain/Electron
+runtime claim. Main TypeScript check and focused lint running; logs under client
+test-results/main-vault-typecheck.log and account-vault-lint.log.
+Next: connect transport persistence through host-private port, add restart/
+logout-race/corrupt-store controls, register safe account service and authorized
+main-host messages, implement actual browser /desktop approval and Electron UI.
+Main vault and transport currently unwired; goal A–E remains incomplete.
+
+Checkpoint final this continuation: client commits 4cd35b3 + c669db5 (DCO),
+new source/spec only, logs NOT staged. Seven focused tests PASS including
+corrupt-record byte preservation; focused lint 0 warnings/errors and architecture
+0 violations. Root client typecheck (host config) PASS; additional main build
+FAIL contains other main-file errors. New fixture Buffer error repaired and
+main-vault-typecheck-repair.log has no new transport/vault-file diagnostics.
+Do not call remaining errors baseline until control build comparison is done.
+Next remains secure vault-to-account persistence/IPC + actual approval UI,
+then Electron runtime proof. No read/load secret channel is exposed yet.
