@@ -23,3 +23,5 @@ ADRs preserve decisions beyond any one human or agent context window.
 - [Research references](REFERENCES.md)
 
 When a durable decision changes, add a new ADR or explicitly supersede the old one. Do not silently rewrite history.
+
+- [0011 Pinned cross-repository integration](0011-pinned-cross-repository-integration.md)

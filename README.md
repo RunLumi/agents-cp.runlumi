@@ -90,3 +90,9 @@ provider execution, encryption/signing readiness and production-scale restore.
 Copyright © 2026 CLOUDJET SOLUTIONS PTE. LTD.
 
 Access to, possession of, or accidental/public disclosure of this source code does **not** grant permission to use, execute, deploy, copy, modify, distribute, host, sublicense, or commercialize it. See [LICENSE](./LICENSE) for the complete terms. Third-party dependencies remain subject to their own licenses.
+
+## Cross-repository integration
+
+Run `node scripts/integration/lumi-agents.mjs` from a clean checkout. See the
+[LumiAgents guide](docs/integration/lumi-agents.md) for prerequisites, proof scope,
+independent development and pin updates.

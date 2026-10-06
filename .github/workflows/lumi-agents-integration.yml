@@ -1,0 +1,41 @@
+name: LumiAgents integration
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lumi-integration-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  adoption:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3
+        with:
+          runtime: node@24
+          require-lockfile: true
+          cache: true
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          target: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - name: Install Worker builder
+        run: cargo install --locked worker-build --version '^0.8'
+      - name: Build pinned pair and exercise adoption
+        run: node scripts/integration/lumi-agents.mjs
+      - name: Publish SHA and assertion evidence
+        if: always()
+        run: |
+          find test-results/lumi-agents -name result.json -o -name journey.json | while read -r report; do
+            printf '\n```json\n' >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+          done
