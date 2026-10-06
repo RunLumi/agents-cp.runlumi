@@ -17,3 +17,12 @@ code retained in URL, explicit submit approval, current cookie/CSRF client,
 fixture browser approval; actual approval-page browser rendering/interaction is
 still UNPROVEN. Parent tests/integration/lumi-account.mjs added to write surface.
 Relevant screenshot inspected visually; no Electron/browser screenshots yet.
+
+Browser runtime checkpoint: desktop-approval-browser.mjs launches real Chrome,
+Vite and local Worker/D1. Synthetic password account fixture is pre-verified;
+UI performs actual password login (no injected session cookies), preserves code,
+D1 pending positive control proves no auto-approval, Enter keyboard approves,
+then real transport exchanges cookies and reads own account. All PASS.
+390x844 screenshots visually inspected; readable/no horizontal overflow.
+Evidence test-results/desktop-approval-browser.log and screenshot directory.
+This proves password path, not passkey path or OS-keychain/Electron custody.

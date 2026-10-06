@@ -116,3 +116,13 @@ logout refusal. Fixture uses development auth; not production primary auth/UI.
 Next: build/render browser approval and Electron settings, prove production auth
 path/custody, resolve full main/renderer build with baseline controls; then device
 lifecycle/policy/adoption and managed runtime/scheduler (remaining A–E).
+
+Runtime checkpoint: client UI intl repaired to real lookup-only contract;
+root client typecheck PASS. Actual desktop production bundle pipeline PASS
+(main/host/preload/renderer); errors from standalone renderer TypeScript still
+need baseline comparison, not hidden by bundle success. Electron pinned binary
+installer completed, no user profile touched. Native node-pty build session
+and agent-runtime-build session are now running (client test-results logs).
+Next: inspect live build handles/results, launch actual app with isolated home/
+userData/sessionData and runtime, screenshot account Settings, exercise IPC +
+real browser approval and secure persistence. Preserve original A–E goal.
