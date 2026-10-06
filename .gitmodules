@@ -1,0 +1,3 @@
+[submodule "integrations/lumi-agents"]
+	path = integrations/lumi-agents
+	url = https://github.com/RunLumi/LumiAgents.git

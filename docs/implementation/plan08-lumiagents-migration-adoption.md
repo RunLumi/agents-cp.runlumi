@@ -170,3 +170,9 @@ Take a copy of realistic pre-org local state and prove:
 Migration must be boring.
 
 If adoption requires users to reason about backend topology, the integration is not finished.
+
+## Follow-on QA
+
+[P08-QA-02](packets/P08-QA-02.md) consumes merged p08-cg-v1 and the client seam
+to test a pinned cross-repository adoption/rollback journey. It does not close
+P08-INT-02..06 or change phase status.

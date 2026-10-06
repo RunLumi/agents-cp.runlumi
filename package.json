@@ -34,8 +34,8 @@
     "verify:revoked-device": "node apps/api/scripts/v01-revoked-device-probe.mjs",
     "verify:invitation-race": "node apps/api/scripts/v01-invitation-race-probe.mjs",
     "verify:usage-attribution": "node apps/api/scripts/v01-usage-attribution-probe.mjs",
-    "format": "oxfmt apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all",
-    "format:check": "oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml && cargo fmt --all -- --check",
+    "format": "oxfmt apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml scripts/integration tests/integration .github/workflows/lumi-agents-integration.yml && cargo fmt --all",
+    "format:check": "oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml scripts/integration tests/integration .github/workflows/lumi-agents-integration.yml && cargo fmt --all -- --check",
     "lint": "oxlint --type-aware apps/web/src apps/web/vite.config.ts",
     "typecheck": "pnpm --filter @runlumi/agents-cp-web typecheck",
     "test": "pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09 && pnpm test:sentry-bridge && pnpm schema:null-check && pnpm guard:probe && pnpm verify:campaign-selftest && pnpm schema:bind-count",
@@ -58,7 +58,8 @@
     "verify:path-id-tenancy": "pnpm --filter @runlumi/agents-cp-api verify:path-id-tenancy",
     "perf:budgets": "pnpm --filter @runlumi/agents-cp-web perf:budgets",
     "verify:observability": "pnpm --filter @runlumi/agents-cp-api verify:observability",
-    "verify:tool-policy-deny": "pnpm --filter @runlumi/agents-cp-api verify:tool-policy-deny"
+    "verify:tool-policy-deny": "pnpm --filter @runlumi/agents-cp-api verify:tool-policy-deny",
+    "test:integration:lumi": "node scripts/integration/lumi-agents.mjs"
   },
   "devDependencies": {
     "oxfmt": "0.70.0",
