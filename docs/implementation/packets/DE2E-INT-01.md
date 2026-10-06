@@ -97,3 +97,22 @@ Next first unmet criterion: authorized safe account RPC registration and actual
 /desktop browser approval UI, then UI sign-in and main/host vault runtime proof.
 Generated scheduler .js/.d.ts left untracked from main build; never stage them.
 No production/customer operation. Goal A–E still active, no E2E completion claim.
+
+2026-10-07 IPC/UI continuation checkpoint: owner registered lazily at app.ready,
+main IPC allowlist + managed app main-frame/exact renderer URL gate, preload and
+optional IPlatformService bridge. Desktop General settings account panel is
+wired through usePlatform, English/Chinese locales, provider OAuth unchanged.
+Write surface extended explicitly: client shared lumi-account/index/platform,
+client globals.d.ts, desktop main index/commands/ipc, preload index, renderer
+platform, UI SettingsPage/account section/locales and existing client account spec.
+Root client typecheck PASS after fixing unsupported intl defaultMessage (old log
+account-ui-types.log preserved; repair account-ui-types-repair.log). Architecture
+0 violations; focused lint 0 errors. Twelve account tests PASS. Renderer/main
+full subproject checks still fail on declarations/CSS and other code; no broad
+Electron build or visual proof claimed. Main-frame navigation URL gate added.
+Real parent Worker/D1 transport probe PASS (account-worker-probe.log): actual
+PKCE start, fixture approval, cookie exchange/account, consumed flow refusal,
+logout refusal. Fixture uses development auth; not production primary auth/UI.
+Next: build/render browser approval and Electron settings, prove production auth
+path/custody, resolve full main/renderer build with baseline controls; then device
+lifecycle/policy/adoption and managed runtime/scheduler (remaining A–E).
