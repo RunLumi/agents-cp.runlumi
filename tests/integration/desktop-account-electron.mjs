@@ -155,6 +155,11 @@ try {
     ).status,
     200,
   );
+  const org = await probe.createOrganization(
+    fixture,
+    "Electron Device Org",
+    `electron-org-${probe.nonce}`,
+  );
   const requireWeb = createRequire(join(root, "apps/web/package.json")),
     { createServer } = await import(pathToFileURL(requireWeb.resolve("vite")).href),
     webPort = await probe.availablePort();
@@ -227,8 +232,43 @@ try {
   );
   await page.screenshot(join(profile, "evidence", "authenticated.png"));
   console.log("PASS Electron IPC/Worker login after real browser approval");
+  await wait(
+    page,
+    () => document.body.innerText.includes("Confirm and enroll this device"),
+    "enrollment UI",
+  );
+  await click(page, "Confirm and enroll this device");
+  await wait(page, () => document.body.innerText.includes("Sync policy"), "enrollment completes");
+  const deviceId = await page.evaluate(
+    () =>
+      document
+        .querySelector("#lumi-account-heading")
+        .parentElement.innerText.match(/dvc_[0-9a-f]{32}/)?.[0],
+  );
+  assert.match(deviceId, /^dvc_[0-9a-f]{32}$/);
+  const stored = await probe.d1Rows(
+    `SELECT org_id,status FROM devices WHERE device_id = '${deviceId}'`,
+    "enrolled device",
+  );
+  assert.equal(stored[0].org_id, org.orgId);
+  assert.equal(stored[0].status, "active");
+  await click(page, "Refresh device token");
+  await wait(
+    page,
+    () =>
+      ![...document.querySelectorAll("button")].find((x) => x.innerText === "Refresh device token")
+        ?.disabled,
+    "refresh complete",
+  );
+  assert.equal(
+    await page.evaluate(() => document.body.innerText.includes("Device action failed")),
+    false,
+  );
+  console.log("PASS Electron enrollment/proof/policy/refresh; D1 active device");
   const vault = join(profile, "userData", "lumi-account"),
-    files = (await readdir(vault)).filter((f) => f.endsWith(".json"));
+    files = (await readdir(vault)).filter(
+      (f) => f.startsWith("lumi-session-") && f.endsWith(".json"),
+    );
   assert.equal(files.length, 1);
   const disk = readFileSync(join(vault, files[0]), "utf8");
   assert.ok(JSON.parse(disk).ciphertext);
@@ -238,9 +278,36 @@ try {
   page = await start();
   await wait(page, () => document.body.innerText.includes("Electron Account"), "restart restore");
   console.log("PASS actual restart restores session");
+  await wait(page, () => document.body.innerText.includes("Sync policy"), "device restart restore");
+  const count = await probe.d1Rows(
+    `SELECT COUNT(*) AS n FROM devices WHERE org_id = '${org.orgId}'`,
+    "no duplicate device",
+  );
+  assert.equal(count[0].n, 1);
+  console.log("PASS restart restores same device, no reenrollment");
+  const revoke = await probe.request(
+    fixture,
+    "DELETE",
+    `/api/v1/orgs/${org.orgId}/devices/${deviceId}`,
+    {},
+    probe.browserMutation(fixture, "revoke-electron"),
+  );
+  assert.equal(revoke.status, 204);
+  await click(page, "Sync policy");
+  await wait(
+    page,
+    () => document.body.innerText.includes("Device action failed"),
+    "revoked policy refusal",
+  );
+  console.log("PASS revoked Electron policy sync refused");
+
   await click(page, "Sign out of Lumi");
   await wait(page, () => document.body.innerText.includes("Sign in to Lumi"), "logout");
-  assert.equal((await readdir(vault)).filter((f) => f.endsWith(".json")).length, 0);
+  assert.equal(
+    (await readdir(vault)).filter((f) => f.startsWith("lumi-session-") && f.endsWith(".json"))
+      .length,
+    0,
+  );
   console.log("PASS logout removes own persisted session");
   assert.equal(probe.failures.length, 0);
 } finally {

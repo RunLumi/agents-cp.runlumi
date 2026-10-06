@@ -51,3 +51,24 @@ main device owner and explicit org enrollment UI, then full lifecycle harness.
 Important open question: post-expiry token recovery requires contract analysis,
 because nonce currently requires a live device token. Do not relax anonymous
 nonce protection or invent a duplicate reenrollment workaround.
+
+2026-10-07 actual Electron lifecycle checkpoint: client commit 1b190c6 adds
+main origin/org/user-bound encrypted Ed25519/token vault, serial owner,
+renderer-safe explicit org enrollment/confirmation/resume/policy/refresh UI.
+Client types and focused lint PASS, architecture 0 violations, 13 tests PASS.
+Actual new desktop build PASS. Harness electron-device-e2e.log PASS exit 0:
+UI starts PKCE → browser approval → enrollment/proof/policy/refresh → D1 active
+org device → OS ciphertext → restart same device/no duplicate → server revoke
+→ Electron sync refusal → logout removes own human session. Device key record
+remains for deliberate recovery; provider credentials unaffected.
+Owned app/Chrome/Worker stopped; evidence temp profile lumi-electron-account-
+W9PNUL retained. Prior automatic approval review usage-limit failure did not
+execute harness edits/build; resumed approved commands executed successfully.
+User now explicitly authorizes documentation, both PR creation and merge after
+full goal gates PASS. Do not merge partial closure or infer secret provisioning.
+Still incomplete: token-expiry recovery (live token nonce contract gap), heartbeat,
+enrollment interruption/replay/expired scenarios, per-runtime policy enforcement,
+workspace adoption/rollback, managed inference/tools/automation, primary passkey,
+provider account matrix, negative IPC runtime/fault sensitivity and full type
+baseline. Next first unmet slice: expiry recovery contract decision + heartbeat,
+then actual workspace/project binding through frozen P03/P08 resources.
