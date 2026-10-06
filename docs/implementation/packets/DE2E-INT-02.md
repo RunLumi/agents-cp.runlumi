@@ -38,3 +38,16 @@ login unchanged. Static/unit tests support but do not replace actual IPC/runtime
 preceding packet. Begin by reading exact device route response shapes and
 host-only public transport surface; pending key must be persisted before network
 side effects. Current full client main/renderer type baseline still unproven.
+
+Checkpoint 2026-10-07: exact device route/response shapes read; client transport
+implemented begin/challenge/complete/policy/ack/nonce-refresh with private token
+and no human cookies. Human account approve method includes CSRF/idempotency.
+Real Worker/D1 probe PASS, test-results/device-client-runtime.log: positive
+pre-revoke enrollment/key proof/policy/ack/refresh, revoked policy+nonce-refresh
+refused and D1 device status revoked. Client root typecheck/architecture/focused
+lint PASS. No main device persistence/UI yet, so restart/actual Electron device
+proof not achieved. Next implement OS-encrypted pending-key/device custody,
+main device owner and explicit org enrollment UI, then full lifecycle harness.
+Important open question: post-expiry token recovery requires contract analysis,
+because nonce currently requires a live device token. Do not relax anonymous
+nonce protection or invent a duplicate reenrollment workaround.
