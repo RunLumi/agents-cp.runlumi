@@ -84,3 +84,16 @@ main-vault-typecheck-repair.log has no new transport/vault-file diagnostics.
 Do not call remaining errors baseline until control build comparison is done.
 Next remains secure vault-to-account persistence/IPC + actual approval UI,
 then Electron runtime proof. No read/load secret channel is exposed yet.
+
+Continuation checkpoint: transport now consumes host-private persistence port;
+serialized completion/restore/logout prevents stale vault writes from granting
+newer authority. Main lumiAccountOwner assembly uses safeStorage + vault after
+app.ready, exported transport only through services/node. Safe account projection
+filters /me to display user/org fields. Nine focused tests PASS, architecture
+0 new violations, root client typecheck PASS and focused lint 0 warnings/errors.
+Logs: persistence-typecheck.log, projection-typecheck.log, projection-lint.log.
+New main owner is assembly code, NOT registered in app lifecycle or IPC yet.
+Next first unmet criterion: authorized safe account RPC registration and actual
+/desktop browser approval UI, then UI sign-in and main/host vault runtime proof.
+Generated scheduler .js/.d.ts left untracked from main build; never stage them.
+No production/customer operation. Goal A–E still active, no E2E completion claim.
