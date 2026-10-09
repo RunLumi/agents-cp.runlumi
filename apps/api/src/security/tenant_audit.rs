@@ -112,6 +112,16 @@ fn is_credential_lookup(key: &str) -> bool {
 const PLATFORM_TABLES: &[&str] = &["support_grants", "kill_switches"];
 
 const JUDGEMENTS: &[(&str, Class, &str)] = &[
+    (
+        "repositories/devices.rs::DELETE_RECOVERY_CHALLENGES_SQL",
+        Class::DeviceBound,
+        "The caller resolves this device under current human org authorization or device revocation before invalidating its challenges.",
+    ),
+    (
+        "repositories/devices.rs::ASSERT_RECOVERY_CONSUMED_SQL",
+        Class::IdChain("repositories/devices.rs::CONSUME_RECOVERY_CHALLENGE_SQL"),
+        "A changes() sentinel immediately after the org/device/user-bound one-time consume in the same D1 batch; it carries no caller-selected ID.",
+    ),
     // -- reads that resolve through an org-scoped read upstream ---------------
     (
         "repositories/automations.rs::AUTOMATION_SESSION_BY_EXTERNAL_ID_SQL",
@@ -711,6 +721,22 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
 /// `ReturnsOrg` from the statement text and fails if the label disagrees, so a
 /// mislabel here cannot survive.
 const MECHANICAL: &[(&str, Class)] = &[
+    (
+        "repositories/devices.rs::INSERT_RECOVERY_CHALLENGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::FIND_RECOVERY_CHALLENGE_SQL",
+        Class::ReturnsOrg,
+    ),
+    (
+        "repositories/devices.rs::ASSERT_RECOVERY_CHALLENGE_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/devices.rs::CONSUME_RECOVERY_CHALLENGE_SQL",
+        Class::OrgBound,
+    ),
     ("repositories/ai.rs::INSERT_PROVIDER_SQL", Class::OrgBound),
     (
         "repositories/ai.rs::UPDATE_PROVIDER_LIFECYCLE_SQL",

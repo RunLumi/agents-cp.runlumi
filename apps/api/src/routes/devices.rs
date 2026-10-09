@@ -34,8 +34,8 @@ use crate::{
         policy::{self, PolicyInputs},
     },
     repositories::{
-        BudgetRepository, DeviceRepository, OrganizationRepository, PolicyRepository,
-        ProjectRepository, ToolRepository,
+        BudgetRepository, CompleteDeviceRecoveryInput, DeviceRepository, OrganizationRepository,
+        PolicyRepository, ProjectRepository, ToolRepository,
     },
     routes::{
         agents::replay_response,
@@ -743,6 +743,378 @@ pub async fn token_nonce(
         }),
     )
         .into_response())
+}
+
+const DEVICE_RECOVERY_CHALLENGE_TTL_SECONDS: u32 = 300;
+const RECOVERY_CHALLENGE_PATH: &str =
+    "/api/v1/orgs/{org_id}/devices/{device_id}/recovery-challenges";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoverDeviceTokenRequest {
+    pub challenge: String,
+    pub signature: String,
+    pub app_version: String,
+}
+
+async fn recovery_authorized(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    context: &RequestContext,
+    org_id: &str,
+    device: &crate::repositories::DeviceRecord,
+    user_id: &str,
+) -> Result<bool, ApiError> {
+    if device.enrolled_by_user_id == user_id {
+        return Ok(true);
+    }
+    Ok(authorize_org(
+        state,
+        headers,
+        context,
+        org_id,
+        Permission::DevicesManage,
+        Some("device"),
+        Some(&device.device_id),
+    )
+    .await
+    .is_ok())
+}
+
+/// Explicit human recovery returns proof material, never a bearer token.
+#[worker::send]
+pub async fn create_recovery_challenge(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path((org_id, device_id)): Path<(String, String)>,
+) -> Result<Response<Body>, ApiError> {
+    let access = authorize_org(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        Permission::DevicesRead,
+        Some("device"),
+        Some(&device_id),
+    )
+    .await?;
+    require_csrf(&headers, &access.session, &context).await?;
+    let key = idempotency_key(&headers, &context)?;
+    let database = database(&state, &context)?;
+    let repository = DeviceRepository::new(database);
+    let device = repository
+        .find_device(&device_id)
+        .await
+        .map_err(|error| database_error(&context, error))?
+        .filter(|row| row.org_id == org_id)
+        .ok_or_else(|| {
+            denial(
+                &context,
+                ApiErrorCode::NotFound,
+                "device_not_found",
+                "No such device.",
+            )
+        })?;
+    if DeviceStatus::parse(&device.status) != Some(DeviceStatus::Active) {
+        return Err(denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "device_revoked",
+            "The device is not active.",
+        ));
+    }
+    if !recovery_authorized(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        &device,
+        access.principal.user_id.as_str(),
+    )
+    .await?
+    {
+        return Err(denial(
+            &context,
+            ApiErrorCode::PermissionDenied,
+            "permission_denied",
+            "You cannot recover this device.",
+        ));
+    }
+    let claim = match prepare_scoped_mutation(
+        database,
+        &context,
+        access.principal.user_id.as_str(),
+        &org_id,
+        &key,
+        "POST",
+        RECOVERY_CHALLENGE_PATH,
+        &json!({ "device_id": device_id }),
+    )
+    .await?
+    {
+        PreparedScopedMutation::Replay(replay) => return Ok(replay_response(replay)),
+        PreparedScopedMutation::Claim(claim) => claim,
+    };
+    let challenge = new_secret();
+    let hash = sha256_hex(&challenge)
+        .await
+        .map_err(|_| service_unavailable(&context))?;
+    let expires = add_seconds(&context.received_at, DEVICE_RECOVERY_CHALLENGE_TTL_SECONDS)
+        .map_err(|_| service_unavailable(&context))?;
+    let statements = repository
+        .issue_recovery_challenge_statements(
+            &hash,
+            &org_id,
+            &device_id,
+            access.principal.user_id.as_str(),
+            expires.as_str(),
+            &context.received_at,
+        )
+        .map_err(|_| service_unavailable(&context))?;
+    let audit = security_event_statement(
+        database,
+        &context,
+        Some(&access.principal),
+        None,
+        Some(&org_id),
+        SecurityEventId::generate(),
+        "device.token_recovery_challenge_requested.v1",
+        "device",
+        Some(&device_id),
+        "success",
+        &json!({ "expires_at": expires.as_str() }),
+    )?;
+    let body = json!({ "challenge": challenge, "expires_at": expires.as_str() });
+    let success =
+        StoredSuccess::new(201, body.clone()).map_err(|_| service_unavailable(&context))?;
+    match commit_scoped_mutation(database, &context, claim, success, statements, audit).await? {
+        ScopedMutationCommit::Committed | ScopedMutationCommit::Guarded => {
+            Ok((StatusCode::CREATED, Json(body)).into_response())
+        }
+        ScopedMutationCommit::Replayed(replay) => Ok(replay_response(replay)),
+    }
+}
+
+/// A current human session plus the original device key may recover an expired token once.
+#[worker::send]
+pub async fn recover_token(
+    State(state): State<Arc<AppState>>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Path((org_id, device_id)): Path<(String, String)>,
+    Json(body): Json<RecoverDeviceTokenRequest>,
+) -> Result<Response<Body>, ApiError> {
+    let access = authorize_org(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        Permission::DevicesRead,
+        Some("device"),
+        Some(&device_id),
+    )
+    .await?;
+    require_csrf(&headers, &access.session, &context).await?;
+    if body.challenge.is_empty()
+        || body.challenge.len() > 256
+        || body.signature.is_empty()
+        || body.signature.len() > 512
+        || !is_hex(&body.signature)
+    {
+        return Err(validation_error(
+            &context,
+            "device_invalid",
+            "Recovery proof is invalid.",
+        ));
+    }
+    devices::validate_app_version(&body.app_version)
+        .map_err(|_| validation_error(&context, "device_invalid", "App version is invalid."))?;
+    let database = database(&state, &context)?;
+    let repository = DeviceRepository::new(database);
+    let device = repository
+        .find_device(&device_id)
+        .await
+        .map_err(|error| database_error(&context, error))?
+        .filter(|row| row.org_id == org_id)
+        .ok_or_else(|| {
+            denial(
+                &context,
+                ApiErrorCode::NotFound,
+                "device_not_found",
+                "No such device.",
+            )
+        })?;
+    if DeviceStatus::parse(&device.status) != Some(DeviceStatus::Active) {
+        return Err(denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "device_revoked",
+            "The device is not active.",
+        ));
+    }
+    if !recovery_authorized(
+        &state,
+        &headers,
+        &context,
+        &org_id,
+        &device,
+        access.principal.user_id.as_str(),
+    )
+    .await?
+    {
+        return Err(denial(
+            &context,
+            ApiErrorCode::PermissionDenied,
+            "permission_denied",
+            "You cannot recover this device.",
+        ));
+    }
+    let organization = OrganizationRepository::new(database)
+        .find_organization(&org_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?
+        .ok_or_else(|| {
+            denial(
+                &context,
+                ApiErrorCode::NotFound,
+                "device_not_found",
+                "No such device.",
+            )
+        })?;
+    if organization.state != "active" {
+        return Err(denial(
+            &context,
+            ApiErrorCode::PermissionDenied,
+            "organization_suspended",
+            "The organization is not active.",
+        ));
+    }
+    let membership = OrganizationRepository::new(database)
+        .find_membership(&org_id, &device.enrolled_by_user_id)
+        .await
+        .map_err(|_| service_unavailable(&context))?;
+    if !membership.is_some_and(|row| row.status == "active") {
+        return Err(denial(
+            &context,
+            ApiErrorCode::PermissionDenied,
+            "membership_required",
+            "The enrolling member is inactive.",
+        ));
+    }
+    let minimum = latest_min_client_version(database, &context, &org_id).await?;
+    if minimum
+        .as_deref()
+        .is_some_and(|version| !version_at_least(&body.app_version, version))
+    {
+        return Err(denial(
+            &context,
+            ApiErrorCode::PermissionDenied,
+            "client_version_too_old",
+            "The device client version is below the organization minimum.",
+        ));
+    }
+    let challenge_hash = sha256_hex(&body.challenge)
+        .await
+        .map_err(|_| service_unavailable(&context))?;
+    let challenge = repository
+        .find_recovery_challenge(&challenge_hash)
+        .await
+        .map_err(|error| database_error(&context, error))?
+        .ok_or_else(|| {
+            denial(
+                &context,
+                ApiErrorCode::Conflict,
+                "device_recovery_challenge_invalid",
+                "Request a new recovery challenge.",
+            )
+        })?;
+    if challenge.device_id != device_id
+        || challenge.org_id != org_id
+        || challenge.requested_by_user_id != access.principal.user_id.as_str()
+        || challenge.consumed_at.is_some()
+        || challenge.expires_at.as_str() <= context.received_at.as_str()
+    {
+        return Err(denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "device_recovery_challenge_invalid",
+            "Request a new recovery challenge.",
+        ));
+    }
+    let signed = format!(
+        "lumi-device-token-recovery-v1\n{device_id}\n{}",
+        body.challenge
+    );
+    if !verify_device_proof(&device.public_key, &body.signature, &signed)
+        .await
+        .unwrap_or(false)
+    {
+        return Err(denial(
+            &context,
+            ApiErrorCode::PermissionDenied,
+            "device_proof_invalid",
+            "Device recovery proof is invalid.",
+        ));
+    }
+    let raw_token = new_secret();
+    let token_hash = sha256_hex(&raw_token)
+        .await
+        .map_err(|_| service_unavailable(&context))?;
+    let expires = add_seconds(&context.received_at, DEVICE_TOKEN_TTL_SECONDS)
+        .map_err(|_| service_unavailable(&context))?;
+    let policy_version =
+        refresh_policy_snapshot(database, &context, &org_id, minimum.as_deref()).await?;
+    let mut statements = repository
+        .complete_recovery_statements(&CompleteDeviceRecoveryInput {
+            challenge_hash: &challenge_hash,
+            org_id: &org_id,
+            device_id: &device_id,
+            user_id: access.principal.user_id.as_str(),
+            token_hash: &token_hash,
+            token_expires_at: expires.as_str(),
+            now: &context.received_at,
+        })
+        .map_err(|_| service_unavailable(&context))?;
+    statements.push(security_event_statement(
+        database,
+        &context,
+        Some(&access.principal),
+        None,
+        Some(&org_id),
+        SecurityEventId::generate(),
+        "device.token_recovered.v1",
+        "device",
+        Some(&device_id),
+        "success",
+        &json!({ "policy_version": policy_version }),
+    )?);
+    let results = match database.batch(statements).await {
+        Ok(results) => results,
+        Err(error) if crate::core::is_guard_abort(&format!("{error:?}")) => {
+            return Err(denial(
+                &context,
+                ApiErrorCode::Conflict,
+                "device_recovery_challenge_invalid",
+                "Request a new recovery challenge.",
+            ));
+        }
+        Err(error) => return Err(database_error(&context, error)),
+    };
+    if results.iter().any(|result| !result.success()) {
+        return Err(denial(
+            &context,
+            ApiErrorCode::Conflict,
+            "device_recovery_challenge_invalid",
+            "Request a new recovery challenge.",
+        ));
+    }
+    if crate::adapters::d1::D1Adapter::changes(&results[1]).unwrap_or_default() != 1 {
+        return Err(service_unavailable(&context));
+    }
+    Ok((StatusCode::OK, Json(json!({
+        "device_token": raw_token, "token_expires_at": expires.as_str(), "policy_version": policy_version,
+    }))).into_response())
 }
 
 #[derive(Debug, Serialize)]
