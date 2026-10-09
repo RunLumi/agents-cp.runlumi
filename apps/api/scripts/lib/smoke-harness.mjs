@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { runOwnedSubprocess } from "./owned-subprocess.mjs";
 import { RequestBoundaryRecorder, workerLiveness } from "./request-boundary.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -339,6 +340,86 @@ export class SmokeHarness {
   }
 
   /**
+   * Async twin of `runWrangler`: same binary, cwd, env, error text and redaction, but the event loop
+   * keeps servicing sockets while wrangler runs. `runWrangler` stays synchronous and unchanged for every
+   * existing probe; only a caller that opts in (`useAsyncSubprocesses`) reaches this.
+   *
+   * It is the account probe's default (see tests/integration/lumi-account.mjs and
+   * docs/verification/ci-socket-handoff.md): with `spawnSync` the probe stopped servicing its sockets for
+   * 1-4 s at a time while the pool held reused keep-alive connections, which is the one way this probe
+   * differs from an ordinary client. The cause of the hosted `UND_ERR_SOCKET` is not proven; this removes
+   * that difference. Unlike `spawnSync` it is bounded by a timeout, so a wedged wrangler fails the probe
+   * instead of hanging it.
+   */
+  async runWranglerAsync(
+    args,
+    label,
+    { timeoutMs = 120_000, maxBytes = 64 * 1024 * 1024, reapMs = 2_000 } = {},
+  ) {
+    const startedAt = Date.now();
+    // The owned-subprocess helper stops wrangler's WHOLE process group (via `killTree`, the same pattern
+    // the Worker uses) on timeout or overflow and confirms it, so no descendant can keep writing to the
+    // probe's D1 or hold the pipes after the probe has failed. See lib/owned-subprocess.mjs for the
+    // POSIX / Windows limits.
+    const run = await runOwnedSubprocess({
+      command: wranglerBin,
+      args,
+      cwd: apiDir,
+      env: { ...process.env, CI: "1" },
+      timeoutMs,
+      maxBytes,
+      reapMs,
+      killTree: (child) => this.killTree(child),
+    });
+    // Recorded as NON-blocking: the idle gap stays explained, but it is not counted as a blocked loop.
+    this.boundary?.noteBlock(label, startedAt, Date.now(), false);
+    // Said only when it is true: a stop that could not be confirmed must not read as a clean failure.
+    const cleanup =
+      run.treeStopped === true
+        ? ""
+        : run.treeStopped === "unsupported"
+          ? "; descendant cleanup is unsupported on this platform"
+          : `; the owned process tree could not be confirmed stopped within ${reapMs}ms`;
+    if (run.error) throw new Error(`${label}: ${run.error.message}`);
+    if (run.failure === "timeout") {
+      throw new Error(`${label} timed out after ${timeoutMs}ms${cleanup}`);
+    }
+    if (run.failure === "overflow") {
+      throw new Error(`${label}: wrangler output exceeded ${maxBytes} bytes${cleanup}`);
+    }
+    if (run.status !== 0) {
+      throw new Error(
+        `${label} failed (${run.status}): ${this.redact(`${run.stdout}${run.stderr}`).slice(0, 800)}`,
+      );
+    }
+    return run.stdout;
+  }
+
+  /** Opt a probe in to the async subprocess path for `d1Rows`/`d1Execute`. Off unless asked. */
+  useAsyncSubprocesses(enabled) {
+    this.asyncSubprocess = Boolean(enabled);
+  }
+
+  /** A D1 write through wrangler, sync or async per `useAsyncSubprocesses`; arguments never differ. */
+  async d1Execute(sql, label) {
+    const args = [
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--env",
+      "development",
+      "--persist-to",
+      this.persistDir,
+      "--command",
+      sql,
+    ];
+    return this.asyncSubprocess
+      ? this.runWranglerAsync(args, label)
+      : this.runWrangler(args, label);
+  }
+
+  /**
    * `wrangler d1 execute --json` prints a leading newline and the statement array
    * it returns is preceded by its own `[`. Stripping to the first `{` removes that
    * `[` and produces "Unexpected non-whitespace character after JSON" -- a harness
@@ -400,22 +481,22 @@ export class SmokeHarness {
    * restricted. A probe that needs a wide single-row aggregate must chunk.
    */
   async d1Rows(sql, label) {
-    const output = this.runWrangler(
-      [
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--env",
-        "development",
-        "--persist-to",
-        this.persistDir,
-        "--json",
-        "--command",
-        sql,
-      ],
-      label,
-    );
+    const args = [
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--env",
+      "development",
+      "--persist-to",
+      this.persistDir,
+      "--json",
+      "--command",
+      sql,
+    ];
+    const output = this.asyncSubprocess
+      ? await this.runWranglerAsync(args, label)
+      : this.runWrangler(args, label);
     const parsed = this.parseD1Json(output, label);
     const statements = Array.isArray(parsed) ? parsed : [parsed];
     return statements.flatMap((statement) =>
@@ -986,6 +1067,7 @@ export class SmokeHarness {
     return {
       failed_after: this.lastRequestLine,
       failed_at_stage: this.stage,
+      d1_subprocess_mode: this.asyncSubprocess ? "async" : "sync",
       error: {
         message: this.redact(String(error?.message ?? error)).slice(0, 300),
         causeCode: error?.cause?.code ?? null,

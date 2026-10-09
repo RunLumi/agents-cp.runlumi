@@ -18,6 +18,7 @@
 // /api/health on a connection that is closed afterwards.
 
 import { spawnSync } from "node:child_process";
+import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
 const RING = 64;
@@ -43,6 +44,36 @@ export class RequestBoundaryRecorder {
     this.inFlight = new Map();
     this.loop = monitorEventLoopDelay({ resolution: 20 });
     this.realFetch = null;
+    // Connection identity from undici's own diagnostics channels, so "which socket did this request
+    // use, and had it been used before" is MEASURED instead of inferred from byte counters. Counting
+    // the events lets a reader tell "the channel reported nothing" from "no connection was opened".
+    this.connections = [];
+    this.connectionsOpened = 0;
+    this.sendEventsSeen = 0;
+    this.requestsPerPort = new Map();
+    this.onConnected = ({ socket }) => {
+      this.connectionsOpened += 1;
+      this.connections.push({ at: this.now(), localPort: socket?.localPort ?? null });
+      if (this.connections.length > RING) this.connections.shift();
+    };
+    this.onSendHeaders = ({ request, socket }) => {
+      this.sendEventsSeen += 1;
+      const pathname = String(request?.path ?? "").split("?")[0];
+      const entry = [...this.inFlight.values()]
+        .reverse()
+        .find((candidate) => candidate.method === request?.method && candidate.path === pathname);
+      const port = socket?.localPort ?? null;
+      const used = this.requestsPerPort.get(port) ?? 0;
+      this.requestsPerPort.set(port, used + 1);
+      if (entry) {
+        entry.connection = {
+          localPort: port,
+          priorRequestsOnSocket: used,
+          socketBytesWrittenBefore: socket?.bytesWritten ?? null,
+          socketBytesReadBefore: socket?.bytesRead ?? null,
+        };
+      }
+    };
   }
 
   /** Replace `globalThis.fetch` so the client under test is observed through the same dispatcher. */
@@ -50,6 +81,8 @@ export class RequestBoundaryRecorder {
     if (this.realFetch) return this;
     this.realFetch = globalThis.fetch;
     this.loop.enable();
+    subscribe("undici:client:connected", this.onConnected);
+    subscribe("undici:client:sendHeaders", this.onSendHeaders);
     const record = this;
     globalThis.fetch = function observedFetch(input, init = {}) {
       return record.observe(input, init);
@@ -62,17 +95,25 @@ export class RequestBoundaryRecorder {
     globalThis.fetch = this.realFetch;
     this.realFetch = null;
     this.loop.disable();
+    unsubscribe("undici:client:connected", this.onConnected);
+    unsubscribe("undici:client:sendHeaders", this.onSendHeaders);
   }
 
-  /** A synchronous child-process call blocks undici's sockets; record how long. */
-  noteBlock(label, startedAt, endedAt) {
-    this.blocks.push({ label, startedAt, endedAt });
+  /**
+   * A child-process call between requests. `blocking: true` (spawnSync) stops undici servicing its
+   * sockets for the duration; `blocking: false` (the async path) does not. Both are recorded so the idle
+   * gap stays explained either way, but only blocking time counts as `blockedInIdleMs`. That is what
+   * makes a failure under the async path informative: it fails with `blockedInIdleMs: 0`.
+   */
+  noteBlock(label, startedAt, endedAt, blocking = true) {
+    this.blocks.push({ label, startedAt, endedAt, blocking });
     if (this.blocks.length > RING) this.blocks.shift();
   }
 
-  blockedBetween(from, to) {
+  blockedBetween(from, to, { blockingOnly = true } = {}) {
     let total = 0;
     for (const block of this.blocks) {
+      if (blockingOnly && !block.blocking) continue;
       const start = Math.max(block.startedAt, from);
       const end = Math.min(block.endedAt, to);
       if (end > start) total += end - start;
@@ -95,6 +136,9 @@ export class RequestBoundaryRecorder {
       blockedInIdleMs: this.lastResponseAt
         ? this.blockedBetween(this.lastResponseAt, startedAt)
         : 0,
+      subprocessInIdleMs: this.lastResponseAt
+        ? this.blockedBetween(this.lastResponseAt, startedAt, { blockingOnly: false })
+        : 0,
       concurrentInFlight: this.inFlight.size,
     };
     this.inFlight.set(entry.seq, entry);
@@ -107,6 +151,10 @@ export class RequestBoundaryRecorder {
     try {
       const response = await this.realFetch(input, nextInit);
       entry.status = response.status;
+      // What the server SAID about the connection: a `Connection: close` here would explain a socket
+      // that is gone before the next request. Header names/values only; no body is read.
+      entry.responseConnection = response.headers.get("connection");
+      entry.responseKeepAlive = response.headers.get("keep-alive");
       return response;
     } catch (error) {
       const cause = error?.cause ?? {};
@@ -153,10 +201,17 @@ export class RequestBoundaryRecorder {
       node: process.version,
       fresh_sockets: this.freshSockets,
       requests_seen: this.seq,
+      connection_events: {
+        opened_total: this.connectionsOpened,
+        send_events_seen: this.sendEventsSeen,
+        recent_opened: this.connections.slice(-12),
+        requests_per_local_port: Object.fromEntries(this.requestsPerPort),
+      },
       recent_requests: this.entries.slice(-24),
       recent_blocks: this.blocks.slice(-12).map((b) => ({
         label: b.label,
         durationMs: b.endedAt - b.startedAt,
+        blocking: b.blocking,
         endedAt: b.endedAt,
       })),
       event_loop_delay_max_ms: Math.round(this.loop.max / 1e6),

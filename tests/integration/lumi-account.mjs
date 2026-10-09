@@ -59,6 +59,13 @@ try {
   // Before any transport is constructed: they bind `fetch` at construction. Observation only;
   // LUMI_PROBE_FRESH_SOCKETS=1 is the diagnostic A/B switch (see lib/request-boundary.mjs).
   probe.attachBoundaryRecorder({ freshSockets: process.env.LUMI_PROBE_FRESH_SOCKETS === "1" });
+  // Default ON. The hosted default run failed with UND_ERR_SOCKET three times at the same point while the
+  // same head passed with pooled sockets disabled, so a reused socket is implicated; the cause is not
+  // proven (docs/verification/ci-socket-handoff.md). Running wrangler asynchronously keeps the event loop
+  // servicing sockets, which is the one thing this probe did that an ordinary client does not. Same SQL
+  // and arguments either way. LUMI_PROBE_SYNC_D1=1 restores the old blocking behaviour so the failing
+  // configuration can still be reproduced on purpose; it is not a fix.
+  probe.useAsyncSubprocesses(process.env.LUMI_PROBE_SYNC_D1 !== "1");
   const owner = await probe.authenticatedUser("Desktop Account");
   for (const value of owner.jar.cookies.values()) probe.registerSecret(value);
   const transport = new LumiAccountHostTransport(probe.baseUrl);
@@ -132,19 +139,8 @@ try {
     Number(tokenRows[0]?.n) === 1,
     JSON.stringify(tokenRows),
   );
-  probe.runWrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--env",
-      "development",
-      "--persist-to",
-      probe.persistDir,
-      "--command",
-      `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${info.id}'`,
-    ],
+  await probe.d1Execute(
+    `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${info.id}'`,
     "force expiry on owned synthetic device",
   );
   const expiredRows = await probe.d1Rows(
@@ -250,19 +246,8 @@ try {
     Number(afterWrongProof[0]?.pending) === 1 && Number(afterWrongProof[0]?.live) === 0,
     JSON.stringify(afterWrongProof),
   );
-  probe.runWrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--env",
-      "development",
-      "--persist-to",
-      probe.persistDir,
-      "--command",
-      `UPDATE device_token_recovery_challenges SET expires_at = '2000-01-01T00:00:00.000Z' WHERE challenge_hash = '${expiredHash}' AND device_id = '${info.id}'`,
-    ],
+  await probe.d1Execute(
+    `UPDATE device_token_recovery_challenges SET expires_at = '2000-01-01T00:00:00.000Z' WHERE challenge_hash = '${expiredHash}' AND device_id = '${info.id}'`,
     "expire owned synthetic recovery challenge",
   );
   const expiredChallengeRows = await probe.d1Rows(

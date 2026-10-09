@@ -51,7 +51,7 @@
     "verify:campaign-preflight": "node apps/api/scripts/p09-mutation-campaign.mjs --preflight",
     "schema:bind-count": "node apps/api/scripts/p09-bind-count-scan.mjs",
     "test:sentry-bridge": "node --test apps/api/scripts/sentry-report-filter.test.mjs",
-    "test:request-boundary": "node --test --test-timeout=15000 apps/api/scripts/request-boundary.test.mjs",
+    "test:request-boundary": "node --test --test-timeout=15000 apps/api/scripts/request-boundary.test.mjs apps/api/scripts/smoke-harness-async-d1.test.mjs apps/api/scripts/owned-subprocess.test.mjs",
     "verify:staff-credential": "pnpm --filter @runlumi/agents-cp-api verify:staff-credential",
     "verify:webhook-fanout": "pnpm --filter @runlumi/agents-cp-api verify:webhook-fanout",
     "verify:budget-hardceiling": "pnpm --filter @runlumi/agents-cp-api verify:budget-hardceiling",

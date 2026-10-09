@@ -9,6 +9,10 @@ on:
         description: "Diagnostic A/B: send Connection: close from the account probe (does not repair anything)"
         type: boolean
         default: false
+      sync_d1:
+        description: "Diagnostic: restore the account probe's blocking wrangler D1 calls (reproduces the old failing configuration; not a fix)"
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -37,6 +41,7 @@ jobs:
       - name: Build pinned pair and exercise adoption
         env:
           LUMI_PROBE_FRESH_SOCKETS: ${{ inputs.fresh_sockets && '1' || '' }}
+          LUMI_PROBE_SYNC_D1: ${{ inputs.sync_d1 && '1' || '' }}
         run: node scripts/integration/lumi-agents.mjs
       - name: Publish SHA and assertion evidence
         if: always()

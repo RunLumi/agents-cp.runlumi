@@ -142,6 +142,29 @@ test("an unavailable ps is reported as unavailable, never as an empty group", as
   assert.match(evidence.process_group.semantics, /best effort/);
 });
 
+test("each request records which socket carried it, and how many requests that socket had already carried", async () => {
+  const recorder = new RequestBoundaryRecorder().install();
+  try {
+    for (const name of ["a", "b", "c"]) await (await fetch(`${base}/${name}`)).text();
+    const snapshot = recorder.snapshot();
+    // The channel must have reported something, or "no connection data" would pass silently.
+    assert.equal(snapshot.connection_events.send_events_seen >= 3, true);
+    assert.equal(snapshot.connection_events.opened_total >= 1, true);
+    // The pool may spread requests over several sockets; the invariant is that the recorded count of
+    // prior requests equals how many EARLIER recorded requests used the same local port.
+    const seen = new Map();
+    for (const entry of snapshot.recent_requests) {
+      const port = entry.connection.localPort;
+      assert.equal(typeof port, "number");
+      assert.equal(entry.connection.priorRequestsOnSocket, seen.get(port) ?? 0);
+      seen.set(port, (seen.get(port) ?? 0) + 1);
+      assert.equal(entry.responseConnection, "keep-alive");
+    }
+  } finally {
+    recorder.uninstall();
+  }
+});
+
 test("blocking time inside the idle gap before a request is attributed to it", async () => {
   let clock = 1_000;
   const recorder = new RequestBoundaryRecorder({ now: () => clock }).install();
@@ -154,6 +177,24 @@ test("blocking time inside the idle gap before a request is attributed to it", a
     const second = recorder.snapshot().recent_requests.at(-1);
     assert.equal(second.idleBeforeMs, 2_000);
     assert.equal(second.blockedInIdleMs, 1_500);
+  } finally {
+    recorder.uninstall();
+  }
+});
+
+test("non-blocking subprocess time explains the idle gap but is not counted as a blocked loop", async () => {
+  let clock = 5_000;
+  const recorder = new RequestBoundaryRecorder({ now: () => clock }).install();
+  try {
+    await (await fetch(`${base}/first`)).text();
+    const firstEnded = recorder.lastResponseAt;
+    recorder.noteBlock("async wrangler", firstEnded + 100, firstEnded + 1_300, false);
+    clock = firstEnded + 1_500;
+    await (await fetch(`${base}/second`)).text();
+    const second = recorder.snapshot().recent_requests.at(-1);
+    assert.equal(second.blockedInIdleMs, 0);
+    assert.equal(second.subprocessInIdleMs, 1_200);
+    assert.equal(recorder.snapshot().recent_blocks.at(-1).blocking, false);
   } finally {
     recorder.uninstall();
   }
