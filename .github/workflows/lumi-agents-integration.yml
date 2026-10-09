@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      fresh_sockets:
+        description: "Diagnostic A/B: send Connection: close from the account probe (does not repair anything)"
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -30,11 +35,13 @@ jobs:
       - name: Install Worker builder
         run: cargo install --locked worker-build --version '^0.8'
       - name: Build pinned pair and exercise adoption
+        env:
+          LUMI_PROBE_FRESH_SOCKETS: ${{ inputs.fresh_sockets && '1' || '' }}
         run: node scripts/integration/lumi-agents.mjs
       - name: Publish SHA and assertion evidence
         if: always()
         run: |
-          find test-results/lumi-agents -name result.json -o -name journey.json | while read -r report; do
+          find test-results/lumi-agents -name result.json -o -name journey.json -o -name account-report.json | while read -r report; do
             printf '\n```json\n' >> "$GITHUB_STEP_SUMMARY"
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
             printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"

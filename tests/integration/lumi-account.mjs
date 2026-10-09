@@ -53,8 +53,12 @@ const probe = new SmokeHarness({ name: "desktop account transport" });
 const reportPath =
   process.env.LUMI_ACCOUNT_REPORT || resolve(root, "test-results/lumi-account-report.json");
 let completed = false;
+let failureEvidence = null;
 try {
   await probe.setup({ persistEnvVar: "DE2E_ACCOUNT_PERSIST", portEnvVar: "DE2E_ACCOUNT_PORT" });
+  // Before any transport is constructed: they bind `fetch` at construction. Observation only;
+  // LUMI_PROBE_FRESH_SOCKETS=1 is the diagnostic A/B switch (see lib/request-boundary.mjs).
+  probe.attachBoundaryRecorder({ freshSockets: process.env.LUMI_PROBE_FRESH_SOCKETS === "1" });
   const owner = await probe.authenticatedUser("Desktop Account");
   for (const value of owner.jar.cookies.values()) probe.registerSecret(value);
   const transport = new LumiAccountHostTransport(probe.baseUrl);
@@ -366,6 +370,14 @@ try {
   assert.equal(probe.failures.length, 0);
   console.log("PASS actual backend logout ends client access");
   completed = probe.failures.length === 0;
+} catch (error) {
+  // Read the Worker's state BEFORE `finally` kills it. Bounded, read-only, never a replay of the request
+  // that failed; the original error is rethrown unchanged so the failure is not softened.
+  failureEvidence = await probe.captureFailureEvidence(error).catch((e) => ({
+    capture_failed: String(e?.message ?? e).slice(0, 200),
+  }));
+  console.error(`--- request-boundary evidence ---\n${JSON.stringify(failureEvidence, null, 2)}`);
+  throw error;
 } finally {
   // Cleanup must run, and a git failure here must not mask the error that got us here.
   try {
@@ -384,6 +396,7 @@ try {
             git(client, "status", "--porcelain", "--untracked-files=normal") !== "",
           assertions: probe.passes,
           failures: probe.failures,
+          ...(failureEvidence ? { failure_evidence: failureEvidence } : {}),
         },
         null,
         2,

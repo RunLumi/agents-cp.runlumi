@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { RequestBoundaryRecorder, workerLiveness } from "./request-boundary.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const apiDir = resolve(here, "..", "..");
@@ -318,12 +319,16 @@ export class SmokeHarness {
   // --- D1 ------------------------------------------------------------------
 
   runWrangler(args, label) {
+    // spawnSync stops this process servicing its sockets for as long as wrangler runs. The duration is
+    // recorded (when a request-boundary recorder is attached) so a socket failure can be compared with it.
+    const blockedFrom = Date.now();
     const result = spawnSync(wranglerBin, args, {
       cwd: apiDir,
       encoding: "utf8",
       env: { ...process.env, CI: "1" },
       maxBuffer: 64 * 1024 * 1024,
     });
+    this.boundary?.noteBlock(label, blockedFrom, Date.now());
     if (result.error) throw new Error(`${label}: ${result.error.message}`);
     if (result.status !== 0) {
       throw new Error(
@@ -961,6 +966,39 @@ export class SmokeHarness {
 
   rememberWorker() {
     this._lastWorker = this.services.find((entry) => entry.label === "Worker");
+  }
+
+  /**
+   * Request-boundary and Worker-liveness evidence for a failure the probe cannot explain from its own
+   * output. Call it BEFORE `cleanup()`: cleanup kills the Worker, which is exactly the evidence wanted.
+   * `freshSockets` is the diagnostic A/B switch described in `request-boundary.mjs`.
+   */
+  attachBoundaryRecorder({ freshSockets = false } = {}) {
+    this.boundary = new RequestBoundaryRecorder({
+      freshSockets,
+      redact: (text) => this.redact(text),
+    }).install();
+    return this.boundary;
+  }
+
+  async captureFailureEvidence(error) {
+    const worker = this.services.find((entry) => entry.label === "Worker");
+    return {
+      failed_after: this.lastRequestLine,
+      failed_at_stage: this.stage,
+      error: {
+        message: this.redact(String(error?.message ?? error)).slice(0, 300),
+        causeCode: error?.cause?.code ?? null,
+      },
+      boundary: this.boundary?.snapshot() ?? null,
+      liveness: await workerLiveness({
+        child: worker?.child,
+        baseUrl: this.baseUrl,
+        // Both streams: wrangler's own pipes (restart/reload banners) and the Worker's console.
+        consoleTail: `${this.workerLog().slice(-2_000)}\n--- worker console ---\n${this.workerConsole(2_000)}`,
+        redact: (text) => this.redact(text),
+      }),
+    };
   }
 
   // --- fixtures ------------------------------------------------------------
