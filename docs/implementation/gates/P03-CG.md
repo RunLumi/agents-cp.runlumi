@@ -104,3 +104,16 @@ Minimal FE/QA fixtures (also used by tests):
 - Contract Gate commit: this commit (`p03-cg-v1`).
 - Unlocked packets: P03-MOD-01..03, P03-BE-01..03, P03-FE-01..03, P03-QA-01. The LumiAgents desktop integration lane (plan03 §6) is a later integration PR in the `RunLumi/LumiAgents` repo and is not gated by this repository's P03 exit; the Integration Gate proves the desktop flow with a scripted device client over the frozen API.
 - Shared files: P03 coordinator owns router registration, module declarations, permission/denial registries, migrations, Wrangler config, and the P03 rows of STATUS.
+
+## P03-CR-002 addendum — human-authorized expired-token recovery
+
+This additive addendum leaves the frozen nonce route unchanged. Once a device
+token expires, a current Lumi human session belonging to the enrolling member or
+an authorized device manager must request an explicit one-time, bounded recovery
+challenge. The device proves its original Ed25519 key over the versioned,
+domain-separated message `lumi-device-token-recovery-v1\n<device_id>\n<challenge>`.
+One D1 batch consumes the challenge, rotates tokens and writes the audit event.
+The human session is rechecked at recovery; device/org/member/client-version
+fences remain server-owned. No anonymous nonce, bearer-only recovery, raw token
+persistence or automatic key replacement is permitted. See
+[`P03-CR-002`](../change-requests/P03-CR-002.md).

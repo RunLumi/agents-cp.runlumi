@@ -159,6 +159,41 @@ WHERE token_hash = ?1 AND device_id = ?2 AND expires_at > ?3
 LIMIT 1
 "#;
 
+const DELETE_RECOVERY_CHALLENGES_SQL: &str =
+    "DELETE FROM device_token_recovery_challenges WHERE device_id = ?1";
+const INSERT_RECOVERY_CHALLENGE_SQL: &str = r#"
+INSERT INTO device_token_recovery_challenges
+    (challenge_hash, org_id, device_id, requested_by_user_id, expires_at, consumed_at, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)
+"#;
+const FIND_RECOVERY_CHALLENGE_SQL: &str = r#"
+SELECT challenge_hash, org_id, device_id, requested_by_user_id, expires_at, consumed_at, created_at
+FROM device_token_recovery_challenges WHERE challenge_hash = ?1 LIMIT 1
+"#;
+const ASSERT_RECOVERY_CHALLENGE_SQL: &str = r#"
+INSERT INTO idempotency_records
+    (principal_id, organization_id, method, path, key_digest, request_fingerprint,
+     state, response_status, response_body, expires_at, claim_token)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE NOT EXISTS (
+  SELECT 1 FROM device_token_recovery_challenges
+  WHERE challenge_hash = ?1 AND org_id = ?2 AND device_id = ?3
+    AND requested_by_user_id = ?4 AND consumed_at IS NULL AND expires_at > ?5
+)
+"#;
+const CONSUME_RECOVERY_CHALLENGE_SQL: &str = r#"
+UPDATE device_token_recovery_challenges SET consumed_at = ?5
+WHERE challenge_hash = ?1 AND org_id = ?2 AND device_id = ?3
+  AND requested_by_user_id = ?4 AND consumed_at IS NULL AND expires_at > ?5
+"#;
+const ASSERT_RECOVERY_CONSUMED_SQL: &str = r#"
+INSERT INTO idempotency_records
+    (principal_id, organization_id, method, path, key_digest, request_fingerprint,
+     state, response_status, response_body, expires_at, claim_token)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE changes() != 1
+"#;
+
 const UPDATE_DEVICE_HEARTBEAT_SQL: &str = r#"
 UPDATE devices
 SET last_seen_at = ?2, capabilities = ?3, capability_reported_at = ?4,
@@ -181,6 +216,16 @@ pub struct DeviceEnrollmentInput<'a> {
     pub platform: &'a str,
     pub app_version: &'a str,
     pub challenge: &'a str,
+}
+
+pub struct CompleteDeviceRecoveryInput<'a> {
+    pub challenge_hash: &'a str,
+    pub org_id: &'a str,
+    pub device_id: &'a str,
+    pub user_id: &'a str,
+    pub token_hash: &'a str,
+    pub token_expires_at: &'a str,
+    pub now: &'a Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,6 +323,17 @@ impl std::fmt::Debug for DeviceTokenRecord {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeviceRecoveryChallengeRecord {
+    pub challenge_hash: String,
+    pub org_id: String,
+    pub device_id: String,
+    pub requested_by_user_id: String,
+    pub expires_at: String,
+    pub consumed_at: Option<String>,
+    pub created_at: String,
+}
+
 pub struct DeviceRepository<'a> {
     database: &'a D1Adapter,
 }
@@ -285,6 +341,95 @@ pub struct DeviceRepository<'a> {
 impl<'a> DeviceRepository<'a> {
     pub fn new(database: &'a D1Adapter) -> Self {
         Self { database }
+    }
+
+    pub fn issue_recovery_challenge_statements(
+        &self,
+        challenge_hash: &str,
+        org_id: &str,
+        device_id: &str,
+        user_id: &str,
+        expires_at: &str,
+        now: &Timestamp,
+    ) -> worker::Result<Vec<D1PreparedStatement>> {
+        let delete = self.database.prepare(
+            DELETE_RECOVERY_CHALLENGES_SQL,
+            &[BindValue::Text(device_id)],
+        )?;
+        let insert = self.database.prepare(
+            INSERT_RECOVERY_CHALLENGE_SQL,
+            &[
+                BindValue::Text(challenge_hash),
+                BindValue::Text(org_id),
+                BindValue::Text(device_id),
+                BindValue::Text(user_id),
+                BindValue::Text(expires_at),
+                BindValue::Text(now.as_str()),
+            ],
+        )?;
+        Ok(vec![delete, insert])
+    }
+
+    pub async fn find_recovery_challenge(
+        &self,
+        hash: &str,
+    ) -> worker::Result<Option<DeviceRecoveryChallengeRecord>> {
+        self.database
+            .prepare(FIND_RECOVERY_CHALLENGE_SQL, &[BindValue::Text(hash)])?
+            .first::<DeviceRecoveryChallengeRecord>(None)
+            .await
+    }
+
+    pub fn complete_recovery_statements(
+        &self,
+        input: &CompleteDeviceRecoveryInput<'_>,
+    ) -> worker::Result<Vec<D1PreparedStatement>> {
+        let guard = self.database.prepare(
+            ASSERT_RECOVERY_CHALLENGE_SQL,
+            &[
+                BindValue::Text(input.challenge_hash),
+                BindValue::Text(input.org_id),
+                BindValue::Text(input.device_id),
+                BindValue::Text(input.user_id),
+                BindValue::Text(input.now.as_str()),
+            ],
+        )?;
+        let consume = self.database.prepare(
+            CONSUME_RECOVERY_CHALLENGE_SQL,
+            &[
+                BindValue::Text(input.challenge_hash),
+                BindValue::Text(input.org_id),
+                BindValue::Text(input.device_id),
+                BindValue::Text(input.user_id),
+                BindValue::Text(input.now.as_str()),
+            ],
+        )?;
+        let assert_consumed = self.database.prepare(ASSERT_RECOVERY_CONSUMED_SQL, &[])?;
+        let delete_tokens = self.database.prepare(
+            DELETE_DEVICE_TOKENS_SQL,
+            &[BindValue::Text(input.device_id)],
+        )?;
+        let insert_token = self.database.prepare(
+            INSERT_DEVICE_TOKEN_SQL,
+            &[
+                BindValue::Text(input.token_hash),
+                BindValue::Text(input.device_id),
+                BindValue::Text(input.token_expires_at),
+                BindValue::Text(input.now.as_str()),
+            ],
+        )?;
+        let clear_challenges = self.database.prepare(
+            DELETE_RECOVERY_CHALLENGES_SQL,
+            &[BindValue::Text(input.device_id)],
+        )?;
+        Ok(vec![
+            guard,
+            consume,
+            assert_consumed,
+            delete_tokens,
+            insert_token,
+            clear_challenges,
+        ])
     }
 
     pub fn insert_enrollment_statement(
@@ -583,7 +728,11 @@ impl<'a> DeviceRepository<'a> {
         let drop_tokens = self
             .database
             .prepare(DELETE_DEVICE_TOKENS_SQL, &[BindValue::Text(device_id)])?;
-        Ok(vec![revoke, drop_tokens])
+        let drop_recovery = self.database.prepare(
+            DELETE_RECOVERY_CHALLENGES_SQL,
+            &[BindValue::Text(device_id)],
+        )?;
+        Ok(vec![revoke, drop_tokens, drop_recovery])
     }
 
     pub async fn revoke_device(

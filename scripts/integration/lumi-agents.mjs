@@ -148,7 +148,18 @@ try {
   }
   const result = JSON.parse(readFileSync(join(output, "journey.json")));
   if (result.verdict !== "PASS" || !result.assertions.length)
-    throw new Error("Missing runtime PASS");
+    throw new Error("Missing adoption runtime PASS");
+  env.LUMI_ACCOUNT_REPORT = join(output, "account-report.json");
+  await run(process.execPath, [join(root, "tests/integration/lumi-account.mjs")]);
+  const accountResult = JSON.parse(readFileSync(env.LUMI_ACCOUNT_REPORT, "utf8"));
+  if (
+    accountResult.verdict !== "PASS" ||
+    !accountResult.assertions.length ||
+    accountResult.control_plane_sha !== evidence.control_plane.sha ||
+    accountResult.lumi_agents_sha !== evidence.lumi_agents.sha
+  )
+    throw new Error("Missing exact-head account/device runtime PASS");
+  evidence.account_integration = accountResult;
   for (const [path, before] of [
     [root, evidence.control_plane],
     [client, evidence.lumi_agents],

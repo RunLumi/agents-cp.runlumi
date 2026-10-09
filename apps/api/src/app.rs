@@ -303,6 +303,14 @@ pub fn router(env: Env) -> Router {
             post(devices::complete_enrollment),
         )
         .route("/api/v1/devices/token/nonce", get(devices::token_nonce))
+        .route(
+            "/api/v1/orgs/{org_id}/devices/{device_id}/recovery-challenges",
+            post(devices::create_recovery_challenge),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/devices/{device_id}/recover-token",
+            post(devices::recover_token),
+        )
         .route("/api/v1/devices/token", post(devices::refresh_token))
         .route("/api/v1/devices/heartbeat", post(devices::heartbeat))
         .route("/api/v1/devices/policy", get(devices::fetch_policy))

@@ -154,3 +154,32 @@ evidence/authenticated.png. Both app processes and Chrome/Worker stopped.
 This is password auth path only; primary passkey + provider both-account matrix
 still owed, along with invalid-sender runtime and full type baseline.
 Next DE2E-INT-02 device lifecycle/policy; never shrink full A–E completion.
+
+## Recovery CI diagnostic follow-up — 2026-10-09
+
+Coordinator-owned extension of the account/device recovery packet. Exact base
+4f730a52c6ad8b0abde8f204f473315cf399d796; P03/P08 contract behavior unchanged.
+Write surface: request-boundary recorder/test, existing smoke-harness hooks,
+lumi-account integration exception diagnostics, test script and integration
+workflow report publication/explicit diagnostic input, CI handoff. No product
+route, auth, migration, submodule SHA or production deploy configuration changes.
+
+Two adoption CI failures lacked Worker liveness evidence before cleanup. This
+follow-up records bounded path-only request status/socket counters, process/session
+availability, redacted console and one read-only fresh-connection health request.
+It rethrows the original error and performs no mutating retry. Default behavior
+preserves socket reuse; fresh_sockets is opt-in diagnostic A/B only. Root cause
+remains UNPROVEN until real diagnostic evidence discriminates hypotheses.
+
+Independent Node24 bounded test suite PASS8/8; redaction/query canaries and
+unavailable-ps control pass. Scoped format and diff-check PASS. Full quality
+passed format/web lint/types/unit/schema/canary/recorder/guard then clippy failed
+ENOSPC. Original FAIL preserved outside Git. Only owned review-clone target
+artifacts moved to SSD; Rust checks rerunning with explicit CARGO_TARGET_DIR.
+Rust repair clippy/WASM finished PASS. Together the unchanged candidate has completed the required quality gates; the interrupted run remains preserved as FAIL. Worker diagnostic failure
+path and hosted exact-head run remain UNPROVEN; no deploy/merge performed.
+
+Handoff: docs/verification/ci-socket-handoff.md. Reviewer focus: bounded privacy
+redaction, original error preservation and diagnostics before Worker cleanup.
+Rollback: revert recorder hooks/workflow input/test-script changes; no schema or
+resource change. Client compatibility: pinned client unchanged.
