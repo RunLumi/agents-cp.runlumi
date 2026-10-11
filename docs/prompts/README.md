@@ -64,6 +64,8 @@ Writing or reading this file does not execute the goal. Invoking it authorizes
 implementation and PR preparation; merges, deployment and credential custody
 follow explicit authorization in the executing session.
 
+[Fresh-machine source transfer](../integration/new-machine-e2e-transfer.md) records published WIP branches and the pinned native source pair. Pulling main documentation alone does not transfer unpublished or unresolved implementation.
+
 ### Claude Code continuation
 
 [goal-desktop-backend-e2e-claude-handoff.md](goal-desktop-backend-e2e-claude-handoff.md)
