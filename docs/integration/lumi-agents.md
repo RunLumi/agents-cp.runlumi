@@ -5,13 +5,13 @@ Cargo workspace. See [ADR 0011](../adr/0011-pinned-cross-repository-integration.
 
 ## Current client source pin
 
-The parent pin selects the LumiAgents main merge that includes desktop
-E2E source PRs [#41](https://github.com/RunLumi/LumiAgents/pull/41) and
-[#40](https://github.com/RunLumi/LumiAgents/pull/40):
-`d533b4ce22c16dbc8ce93f0d175d1403d05fd75e`. Keep this full SHA as the parent
-gitlink; do not make the integration gate float to child `main`. The pin is
-reproducible; the runtime adoption gate must still pass before claiming a tested
-parent/client pair.
+The latest LumiAgents `main` observed on 2026-10-11 is
+`73a4b12a79a7ae90cbf0c320505f4c2d7b3074f3`; GitHub reports desktop account
+PR [#44](https://github.com/RunLumi/LumiAgents/pull/44) and the later main update
+PR [#47](https://github.com/RunLumi/LumiAgents/pull/47) as merged. The parent
+gitlink pins this exact commit; do not make the integration gate float to child
+`main`. The pin is reproducible; the runtime adoption gate must still pass
+before claiming a tested parent/client pair.
 
 ## One command from a clean checkout
 
