@@ -136,6 +136,8 @@ try {
     await clientPnpm([
       "--filter",
       "@zcode/contracts...",
+      "--filter",
+      "@zcode/services...",
       "install",
       "--frozen-lockfile",
       "--ignore-scripts",
