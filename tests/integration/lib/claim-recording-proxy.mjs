@@ -25,10 +25,16 @@ export function decodeBody(chunks, encoding) {
 }
 
 /** A body over the bound is kept truncated AND flagged: it can never validate as a clean refusal. */
-const bounded = (text) => ({ body: text.slice(0, BODY_LIMIT), truncated: text.length > BODY_LIMIT });
+const bounded = (text) => ({
+  body: text.slice(0, BODY_LIMIT),
+  truncated: text.length > BODY_LIMIT,
+});
 
 // Route shape only: identifiers and the query string are dropped (".../runs/run_ab12.../start?x=1" -> ".../runs/run_<star>/start").
-export const routeShape = (url) => String(url).split("?")[0].replace(/\b([a-z]{2,4})_[0-9a-f]{8,}\b/g, "$1_*");
+export const routeShape = (url) =>
+  String(url)
+    .split("?")[0]
+    .replace(/\b([a-z]{2,4})_[0-9a-f]{8,}\b/g, "$1_*");
 
 /**
  * `claimBarrierMs`: hold the FIRST claim of an occurrence until a second claim for it arrives (or the budget runs
@@ -36,7 +42,11 @@ export const routeShape = (url) => String(url).split("?")[0].replace(/\b([a-z]{2
  * guarded write, which is the concurrent-loser path; without it the second claim usually arrives after the winner
  * committed and takes the late invalid-state path. Only timing changes: bodies and headers are forwarded untouched.
  */
-export async function startClaimRecordingProxy({ target, redact = (text) => text, claimBarrierMs: initialBarrierMs = 0 }) {
+export async function startClaimRecordingProxy({
+  target,
+  redact = (text) => text,
+  claimBarrierMs: initialBarrierMs = 0,
+}) {
   let claimBarrierMs = initialBarrierMs;
   const upstream = new URL(target);
   const claims = [];
@@ -48,18 +58,38 @@ export async function startClaimRecordingProxy({ target, redact = (text) => text
     const startedAt = Date.now();
     const held = claim && claimBarrierMs > 0;
     // One-shot fault: forward the request so the Worker COMMITS it, then discard the response and cut the socket.
-    const drop = req.method === "POST" ? drops.find((item) => !item.dropped && item.pattern.test(req.url ?? "")) : undefined;
+    const drop =
+      req.method === "POST"
+        ? drops.find((item) => !item.dropped && item.pattern.test(req.url ?? ""))
+        : undefined;
     if (drop) drop.dropped = true;
     const forward = httpRequest(
       // agent:false = a fresh upstream connection per request, so a pooled socket the Worker already closed can never
       // surface as a transport error on (say) a lease renewal and be mistaken for a product fault.
-      { host: upstream.hostname, port: upstream.port, method: req.method, path: req.url, headers: req.headers, agent: false },
+      {
+        host: upstream.hostname,
+        port: upstream.port,
+        method: req.method,
+        path: req.url,
+        headers: req.headers,
+        agent: false,
+      },
       (answer) => {
         if (drop) {
           answer.resume();
           answer.on("end", () => {
-            drop.result = { status: answer.statusCode, route: routeShape(req.url), at: new Date().toISOString() };
-            requests.push({ at: new Date(startedAt).toISOString(), method: req.method, route: routeShape(req.url), status: `dropped_after_${answer.statusCode}`, ms: Date.now() - startedAt });
+            drop.result = {
+              status: answer.statusCode,
+              route: routeShape(req.url),
+              at: new Date().toISOString(),
+            };
+            requests.push({
+              at: new Date(startedAt).toISOString(),
+              method: req.method,
+              route: routeShape(req.url),
+              status: `dropped_after_${answer.statusCode}`,
+              ms: Date.now() - startedAt,
+            });
             req.socket.destroy();
           });
           return;
@@ -76,7 +106,13 @@ export async function startClaimRecordingProxy({ target, redact = (text) => text
         });
         answer.on("end", () => {
           res.end();
-          requests.push({ at: new Date(startedAt).toISOString(), method: req.method, route: routeShape(req.url), status: answer.statusCode, ms: Date.now() - startedAt });
+          requests.push({
+            at: new Date(startedAt).toISOString(),
+            method: req.method,
+            route: routeShape(req.url),
+            status: answer.statusCode,
+            ms: Date.now() - startedAt,
+          });
           if (claim)
             claims.push({
               occurrenceId: claim[1],
@@ -88,7 +124,14 @@ export async function startClaimRecordingProxy({ target, redact = (text) => text
       },
     );
     forward.on("error", (error) => {
-      requests.push({ at: new Date(startedAt).toISOString(), method: req.method, route: routeShape(req.url), status: "transport_error", code: error?.code, ms: Date.now() - startedAt });
+      requests.push({
+        at: new Date(startedAt).toISOString(),
+        method: req.method,
+        route: routeShape(req.url),
+        status: "transport_error",
+        code: error?.code,
+        ms: Date.now() - startedAt,
+      });
       res.destroy();
     });
     if (!held) {
@@ -155,17 +198,26 @@ export function refusalReason(row) {
 export function assertRefusalDisclosesNothing(row, { forbidden }) {
   const problems = [];
   const snippet = JSON.stringify(String(row.body).slice(0, 400));
-  if (row.truncated) problems.push("refusal body exceeds the validated bound, so it cannot be certified");
+  if (row.truncated)
+    problems.push("refusal body exceeds the validated bound, so it cannot be certified");
   let parsed;
   try {
     parsed = JSON.parse(row.body);
   } catch {
     problems.push(`refusal body is not JSON: ${snippet}`);
   }
-  if (parsed && typeof parsed.error?.code !== "string") problems.push(`refusal is not an error envelope: ${snippet}`);
+  if (parsed && typeof parsed.error?.code !== "string")
+    problems.push(`refusal is not an error envelope: ${snippet}`);
   for (const needle of forbidden.filter(Boolean))
     if (row.body.includes(needle)) problems.push(`body contains ${String(needle).slice(0, 8)}…`);
-  for (const pattern of [/\brun_[0-9a-f]{8}/i, /wsb_[0-9a-f]{8}/i, /dvc_[0-9a-f]{8}/i, /fence/i, /lease_token/i, /"token"/i])
+  for (const pattern of [
+    /\brun_[0-9a-f]{8}/i,
+    /wsb_[0-9a-f]{8}/i,
+    /dvc_[0-9a-f]{8}/i,
+    /fence/i,
+    /lease_token/i,
+    /"token"/i,
+  ])
     if (pattern.test(row.body)) problems.push(`body matches ${pattern}`);
   return problems;
 }

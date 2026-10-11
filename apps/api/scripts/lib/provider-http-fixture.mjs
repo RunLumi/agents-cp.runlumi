@@ -24,7 +24,8 @@ export const SCENARIOS = Object.freeze({
   malformed: "200 SSE whose frames are not valid JSON / not SSE",
   redirect: "302 to a different public host; a client that follows would show up as a denial",
   "fail-before-output": "socket destroyed after the request body is read, before any response byte",
-  "output-then-fail": "200 plus one real content frame (or a truncated JSON body), then socket destroyed",
+  "output-then-fail":
+    "200 plus one real content frame (or a truncated JSON body), then socket destroyed",
   "stall-before-headers": "request read, never answered (timeout control)",
   "stall-after-headers": "200 headers flushed, then no body bytes (timeout control)",
   "slow-stream": "200 SSE, one frame every 40 ms for 60 frames then a terminator (cancel control)",
@@ -214,7 +215,14 @@ export async function startProviderFixture({ expectedSecret, host = "127.0.0.1" 
         const tick = () => {
           if (res.destroyed || res.writableEnded) return;
           if (record.framesWritten >= 60) {
-            res.write(sse({ id, model: "fixture", choices: [], usage: { prompt_tokens: 2, completion_tokens: 60 } }));
+            res.write(
+              sse({
+                id,
+                model: "fixture",
+                choices: [],
+                usage: { prompt_tokens: 2, completion_tokens: 60 },
+              }),
+            );
             res.end(sse("[DONE]"));
             return;
           }

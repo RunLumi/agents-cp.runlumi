@@ -10,7 +10,7 @@ subprocess.run(["git","clone","--quiet","--shared",str(source),str(clone)],check
 shutil.copytree(source/"apps/zcode-cli/packages/core/src",clone/"apps/zcode-cli/packages/core/src",dirs_exist_ok=True)
 (clone/"node_modules").symlink_to(source/"node_modules",target_is_directory=True)
 (clone/"apps/zcode-cli/packages/core/node_modules").symlink_to(source/"apps/zcode-cli/packages/core/node_modules",target_is_directory=True)
-env=dict(os.environ);env["PATH"]=os.environ.get("NODE24_BIN", "node").rsplit("/", 1)[0] + ":" + env["PATH"] if "/" in os.environ.get("NODE24_BIN", "node") else env["PATH"];env["TMPDIR"]="$REPO_ROOT/test-results/t"
+env=dict(os.environ);env["PATH"]=os.environ.get("NODE24_BIN", "node").rsplit("/", 1)[0] + ":" + env["PATH"] if "/" in os.environ.get("NODE24_BIN", "node") else env["PATH"];env["TMPDIR"]=str(root / "tmp");Path(env["TMPDIR"]).mkdir(parents=True,exist_ok=True)
 def run(name):
  with (root/(name+".log")).open("w") as out:
   return subprocess.run([os.environ.get("NODE24_BIN", "node"),"--import","tsx","--test","apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts"],cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode

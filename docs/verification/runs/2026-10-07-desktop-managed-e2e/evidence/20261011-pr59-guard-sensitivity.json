@@ -1,0 +1,13 @@
+{
+  "scope": "source-read real SQLite dispatch and live-binding controls; no Worker runtime claim",
+  "reference_parent_main": "80a3813de76b1e13a26f8704f5810c3404c0bac6",
+  "lumi_agents_pin": "ac011fce8d6273a1218022de17fdeafec7a59ba9",
+  "probe_sha256": "f03ea5906fb7d698943f2b71671406e8ba1ecf64aae706b864935c2257f276c2",
+  "target_sha256": "124988034f72573a581fe05c760ca646240f5f227745acdc86ee875d12d0ffdd",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "mutation_reason": "live binding was refused",
+  "source_unchanged": true,
+  "head_unchanged": true
+}

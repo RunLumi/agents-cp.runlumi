@@ -3,6 +3,15 @@
 `integrations/lumi-agents` is a pinned Git submodule, not part of this pnpm or
 Cargo workspace. See [ADR 0011](../adr/0011-pinned-cross-repository-integration.md).
 
+## Current client source pin
+
+The gitlink selects LumiAgents main `ac011fce8d6273a1218022de17fdeafec7a59ba9`,
+including [PR #48](https://github.com/RunLumi/LumiAgents/pull/48), whose resolution
+preserves the newer v3.15.1 and session/vault/paging fixes. Integration uses this
+exact commit; updating the pin requires a new paired runtime test. The source pin
+does not certify the full Electron E2E goal. See the
+[PR #59 review record](../verification/pr59-reconciliation-20261011.md).
+
 ## One command from a clean checkout
 
 Prerequisites: Git, Node 24, npm (for isolated pinned pnpm tools),

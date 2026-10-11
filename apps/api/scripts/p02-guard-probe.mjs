@@ -447,8 +447,8 @@ check("is_guard_abort actually reads the list this probe verifies", () => {
 // assumed: this campaign has now shipped four comparisons that held on empty or identical inputs,
 // and a polarity test that passes because the predicate is constant would be the fifth.
 //
-// The ten conditions are read out of the repository source rather than restated here, so this
-// matrix cannot drift from the code it grades: an eleventh `guard!` fails the count.
+// The guard conditions are read out of the repository source rather than restated here, so this
+// matrix cannot drift from the code it grades: a tenth `guard!` fails the count.
 // Resolved the way the rest of this probe resolves its sources -- from the script's own directory,
 // not the working directory. `pnpm --filter` runs with `apps/api` as the cwd, and a hard-coded
 // repo-relative path fails there while passing when the file is run by hand from the root. Two of
@@ -498,6 +498,101 @@ check("V01-023: the polarity matrix covers every guard! in the automations repos
   }
   return null;
 });
+
+check(
+  "dispatch eligibility guard permits active authority and aborts each lost authorization",
+  () => {
+    // guardOwners captures the method name without its `_statement` suffix.
+    const owner = "assert_dispatch_eligible";
+    const owners = guardOwners();
+    const conditions = guardConditions();
+    const index = owners.indexOf(owner);
+    if (index < 0 || !conditions[index]) {
+      return `${owner} has no source-pinned guard condition`;
+    }
+    const condition = conditions[index];
+    const now = "2026-10-07T12:00:00.000Z";
+    const expired = "2026-10-07T11:59:59.000Z";
+    const ids = {
+      user: `usr_${"1".repeat(32)}`,
+      org: `org_${"1".repeat(32)}`,
+      membership: `mem_${"1".repeat(32)}`,
+      license: `lic_${"1".repeat(32)}`,
+    };
+    const cases = [
+      { name: "active organization, member, and license", blocked: false },
+      {
+        name: "suspended organization",
+        blocked: true,
+        sql: "UPDATE organizations SET state = 'suspended'",
+      },
+      {
+        name: "suspended membership",
+        blocked: true,
+        sql: "UPDATE memberships SET status = 'suspended'",
+      },
+      {
+        name: "stale license state",
+        blocked: true,
+        sql: "UPDATE license_states SET state = 'suspended'",
+      },
+      {
+        name: "expired grace period",
+        blocked: true,
+        sql: `UPDATE license_states SET state = 'grace', grace_expires_at = '${expired}'`,
+        expectedLicenseState: "grace",
+      },
+    ];
+    for (const testCase of cases) {
+      const { db, cleanup } = freshDatabase();
+      try {
+        db.prepare(
+          `INSERT INTO users (user_id, email, display_name, email_verified, version, created_at, updated_at)
+           VALUES (?, ?, 'Probe', 1, 1, ?, ?)`,
+        ).run(ids.user, "dispatch-probe@example.test", now, now);
+        db.prepare(
+          `INSERT INTO organizations (org_id, display_name, slug, state, version, created_by_user_id, created_at, updated_at)
+           VALUES (?, 'Probe', 'dispatch-probe', 'active', 1, ?, ?, ?)`,
+        ).run(ids.org, ids.user, now, now);
+        db.prepare(
+          `INSERT INTO memberships (membership_id, org_id, user_id, role, status, version, created_at, updated_at)
+           VALUES (?, ?, ?, 'member', 'active', 1, ?, ?)`,
+        ).run(ids.membership, ids.org, ids.user, now, now);
+        db.prepare(
+          `INSERT INTO license_states (license_state_id, org_id, state, version, created_at, updated_at)
+           VALUES (?, ?, 'active', 1, ?, ?)`,
+        ).run(ids.license, ids.org, now, now);
+        if (testCase.sql) db.exec(testCase.sql);
+
+        const quote = (value) => `'${value.replaceAll("'", "''")}'`;
+        const concrete = condition
+          .replaceAll("?1", quote(ids.org))
+          .replaceAll("?2", quote(ids.user))
+          .replaceAll("?3", quote(now))
+          .replaceAll("?4", quote(testCase.expectedLicenseState ?? "active"));
+        const error = captureError(
+          db,
+          `INSERT INTO idempotency_records (
+             principal_id, organization_id, method, path, key_digest, request_fingerprint,
+             state, response_status, response_body, expires_at, claim_token
+           ) ${SENTINEL_ROW} WHERE NOT EXISTS (${concrete})`,
+        );
+        if (!testCase.blocked && error !== null) {
+          return `${testCase.name}: valid dispatch was blocked (${error})`;
+        }
+        if (testCase.blocked && error === null) {
+          return `${testCase.name}: unauthorized dispatch was not blocked`;
+        }
+        if (testCase.blocked && !isRecognised(error, guardAbortTexts())) {
+          return `${testCase.name}: failed outside the deliberate guard (${error})`;
+        }
+      } finally {
+        cleanup();
+      }
+    }
+    return null;
+  },
+);
 
 check(
   "V01-023: assert_run_link_absent_statement permits the first start and aborts a duplicate",
@@ -601,7 +696,10 @@ check(
     const end = source.indexOf("    }", start);
     if (end < 0) return "could not find the end of assert_device_binding_current_statement";
     const body = source.slice(start, end);
-    const condition = /guard!\(\s*"([\s\S]*?)"\s*,?\s*\)/.exec(body)?.[1]?.replace(/\s+/g, " ").trim();
+    const condition = /guard!\(\s*"([\s\S]*?)"\s*,?\s*\)/
+      .exec(body)?.[1]
+      ?.replace(/\s+/g, " ")
+      .trim();
     if (!condition) return "could not read the device-binding guard condition";
     if (
       !/binding_id = \?1/.test(condition) ||
@@ -612,7 +710,9 @@ check(
       return `device-binding guard no longer asserts exact live ownership: ${condition}`;
     }
     if (
-      !/BindValue::Text\(binding_id\),\s*BindValue::Text\(org_id\),\s*BindValue::Text\(device_id\)/.test(body)
+      !/BindValue::Text\(binding_id\),\s*BindValue::Text\(org_id\),\s*BindValue::Text\(device_id\)/.test(
+        body,
+      )
     ) {
       return "device-binding guard's SQL placeholders no longer match its bound IDs";
     }
@@ -629,9 +729,12 @@ check(
                  'identity_probe', 'Probe', 'local', NULL, '${stamp}', '${stamp}', NULL)`,
       );
       const live = db
-        .prepare("SELECT COUNT(*) AS n FROM workspace_bindings WHERE binding_id = 'binding_probe' AND removed_at IS NULL")
+        .prepare(
+          "SELECT COUNT(*) AS n FROM workspace_bindings WHERE binding_id = 'binding_probe' AND removed_at IS NULL",
+        )
         .get();
-      if (Number(live.n) !== 1) return "live workspace-binding positive control did not create one row";
+      if (Number(live.n) !== 1)
+        return "live workspace-binding positive control did not create one row";
 
       const quote = (value) => `'${value.replaceAll("'", "''")}'`;
       const guardFor = (orgId, deviceId) => `INSERT INTO idempotency_records (
@@ -646,9 +749,13 @@ check(
 
       const refuse = (label, orgId, deviceId) => {
         const error = captureError(db, guardFor(orgId, deviceId));
-        if (error === null) return `${label} did not abort, so the stale binding would retain authority`;
-        if (!isRecognised(error, guardAbortTexts())) return `${label} aborted with an unrecognised text: ${error}`;
-        const sentinels = db.prepare("SELECT COUNT(*) AS n FROM idempotency_records WHERE principal_id IS NULL").get();
+        if (error === null)
+          return `${label} did not abort, so the stale binding would retain authority`;
+        if (!isRecognised(error, guardAbortTexts()))
+          return `${label} aborted with an unrecognised text: ${error}`;
+        const sentinels = db
+          .prepare("SELECT COUNT(*) AS n FROM idempotency_records WHERE principal_id IS NULL")
+          .get();
         if (Number(sentinels.n) !== 0) return `${label} persisted ${sentinels.n} sentinel row(s)`;
         return null;
       };
@@ -656,7 +763,10 @@ check(
       if (wrongOrg) return wrongOrg;
       const wrongDevice = refuse("cross-device binding", "org_probe", "device_outsider");
       if (wrongDevice) return wrongDevice;
-      db.prepare("UPDATE workspace_bindings SET removed_at = ? WHERE binding_id = ?").run(stamp, "binding_probe");
+      db.prepare("UPDATE workspace_bindings SET removed_at = ? WHERE binding_id = ?").run(
+        stamp,
+        "binding_probe",
+      );
       const removed = refuse("removed binding", "org_probe", "device_probe");
       if (removed) return removed;
       return null;

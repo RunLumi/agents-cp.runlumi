@@ -21,7 +21,14 @@ import { promisify } from "node:util";
 import { canonicalPath, ownedProviderConfigPaths } from "./lumi-child-env.mjs";
 import { until } from "./automation-evidence.mjs";
 import { readTable } from "./automation-journey-state.mjs";
-import { assistantTerminal, assistantText, managedTasks, outputShape, probe, taskOutput } from "./automation-task-output.mjs";
+import {
+  assistantTerminal,
+  assistantText,
+  managedTasks,
+  outputShape,
+  probe,
+  taskOutput,
+} from "./automation-task-output.mjs";
 
 const run = promisify(execFile);
 
@@ -58,17 +65,28 @@ export async function runEntry(root, mode, first, second, { timeout = 60_000 } =
   try {
     ({ stdout } = await run(
       process.execPath,
-      ["--import", pathToFileURL(join(client, "node_modules/tsx/dist/loader.mjs")).href, join(root, ENTRY), mode, first, second],
+      [
+        "--import",
+        pathToFileURL(join(client, "node_modules/tsx/dist/loader.mjs")).href,
+        join(root, ENTRY),
+        mode,
+        first,
+        second,
+      ],
       { cwd: client, env, timeout, maxBuffer: MAX_ENTRY_STDOUT_BYTES, encoding: "utf8" },
     ));
   } catch (error) {
-    const reason = error.killed ? `timed out after ${timeout}ms` : `exit ${error.code ?? "unknown"}`;
+    const reason = error.killed
+      ? `timed out after ${timeout}ms`
+      : `exit ${error.code ?? "unknown"}`;
     throw new Error(`local-personal-provider entry "${mode}" failed (${reason})`);
   }
   try {
     return JSON.parse(stdout);
   } catch {
-    throw new Error(`local-personal-provider entry "${mode}" did not print exactly one JSON document`);
+    throw new Error(
+      `local-personal-provider entry "${mode}" did not print exactly one JSON document`,
+    );
   }
 }
 
@@ -99,7 +117,13 @@ export async function startLocalProviderStub({ stamp, markers = {}, maxRequests 
       if (req.method !== "POST" || !path.endsWith("/chat/completions")) {
         other += 1;
         res.writeHead(path.endsWith("/models") ? 200 : 404, { "content-type": "application/json" });
-        res.end(JSON.stringify(path.endsWith("/models") ? { object: "list", data: [{ id: LOCAL_PROVIDER.modelId, object: "model" }] } : { error: "not found" }));
+        res.end(
+          JSON.stringify(
+            path.endsWith("/models")
+              ? { object: "list", data: [{ id: LOCAL_PROVIDER.modelId, object: "model" }] }
+              : { error: "not found" },
+          ),
+        );
         return;
       }
       const text = Buffer.concat(chunks).toString("utf8");
@@ -125,28 +149,58 @@ export async function startLocalProviderStub({ stamp, markers = {}, maxRequests 
         unauthorized += 1;
         requests.push(record);
         res.writeHead(401, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: { message: "bad synthetic key", type: "invalid_request_error" } }));
+        res.end(
+          JSON.stringify({
+            error: { message: "bad synthetic key", type: "invalid_request_error" },
+          }),
+        );
         return;
       }
       if (requests.filter((item) => item.authorized).length >= maxRequests) {
         rejected += 1;
         res.writeHead(429, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: { message: "stub request cap reached", type: "rate_limit" } }));
+        res.end(
+          JSON.stringify({ error: { message: "stub request cap reached", type: "rate_limit" } }),
+        );
         return;
       }
       requests.push(record);
-      const base = { id: `chatcmpl-stub-${requests.length}`, created: Math.floor(Date.now() / 1_000), model: LOCAL_PROVIDER.modelId };
+      const base = {
+        id: `chatcmpl-stub-${requests.length}`,
+        created: Math.floor(Date.now() / 1_000),
+        model: LOCAL_PROVIDER.modelId,
+      };
       const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
       if (record.stream) {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
         const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
-        send({ ...base, object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content: reply }, finish_reason: null }] });
-        send({ ...base, object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage });
+        send({
+          ...base,
+          object: "chat.completion.chunk",
+          choices: [
+            { index: 0, delta: { role: "assistant", content: reply }, finish_reason: null },
+          ],
+        });
+        send({
+          ...base,
+          object: "chat.completion.chunk",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage,
+        });
         res.end("data: [DONE]\n\n");
         return;
       }
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ...base, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: reply }, finish_reason: "stop" }], usage }));
+      res.end(
+        JSON.stringify({
+          ...base,
+          object: "chat.completion",
+          choices: [
+            { index: 0, message: { role: "assistant", content: reply }, finish_reason: "stop" },
+          ],
+          usage,
+        }),
+      );
     });
   });
   await new Promise((resolve, reject) => {
@@ -162,8 +216,21 @@ export async function startLocalProviderStub({ stamp, markers = {}, maxRequests 
     /** Content-free snapshot: counts and booleans, never bodies or header values. */
     stats() {
       const accepted = requests.filter((item) => item.authorized);
-      const byMarker = Object.fromEntries(Object.keys(markers).map((name) => [name, accepted.filter((item) => item.markers.includes(name)).length]));
-      return { accepted: accepted.length, unauthorized, rejected, other, byMarker, maxRequests, requests: requests.map((item) => ({ ...item })) };
+      const byMarker = Object.fromEntries(
+        Object.keys(markers).map((name) => [
+          name,
+          accepted.filter((item) => item.markers.includes(name)).length,
+        ]),
+      );
+      return {
+        accepted: accepted.length,
+        unauthorized,
+        rejected,
+        other,
+        byMarker,
+        maxRequests,
+        requests: requests.map((item) => ({ ...item })),
+      };
     },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
@@ -178,7 +245,10 @@ export async function startLocalProviderStub({ stamp, markers = {}, maxRequests 
 export async function writeLocalPersonalConfig({ root, profile, stub }) {
   const { builtinFilePath, personalFilePath } = ownedProviderConfigPaths(profile);
   mkdirSync(dirname(builtinFilePath), { recursive: true });
-  copyFileSync(join(root, "integrations/lumi-agents/config/provider/zcode-builtin.json"), builtinFilePath);
+  copyFileSync(
+    join(root, "integrations/lumi-agents/config/provider/zcode-builtin.json"),
+    builtinFilePath,
+  );
   const spec = { ...LOCAL_PROVIDER, apiKey: stub.apiKey, baseUrl: stub.baseUrl };
   const written = await runEntry(root, "write", personalFilePath, JSON.stringify(spec));
   const view = await runEntry(root, "resolve", builtinFilePath, personalFilePath);
@@ -187,12 +257,22 @@ export async function writeLocalPersonalConfig({ root, profile, stub }) {
     written.defaultModelSelection,
     `the Host would not resolve the synthetic default as preferred: ${JSON.stringify(view)}`,
   );
-  assert.ok(view.preferredSelection.options?.reasoningLevel, "preferred selection carries a reasoning level");
-  return { builtinFilePath, personalFilePath, defaultModelSelection: written.defaultModelSelection, sha256: sha256(personalFilePath), visibleProviders: view.visibleProviders };
+  assert.ok(
+    view.preferredSelection.options?.reasoningLevel,
+    "preferred selection carries a reasoning level",
+  );
+  return {
+    builtinFilePath,
+    personalFilePath,
+    defaultModelSelection: written.defaultModelSelection,
+    sha256: sha256(personalFilePath),
+    visibleProviders: view.visibleProviders,
+  };
 }
 
 /** Hash of the profile's personal provider config bytes (before/after adoption must match). */
-export const personalConfigHash = (profile) => sha256(ownedProviderConfigPaths(profile).personalFilePath);
+export const personalConfigHash = (profile) =>
+  sha256(ownedProviderConfigPaths(profile).personalFilePath);
 
 /** Seed a control with an explicit selection that is NOT in the catalog (must be rejected, never replaced). */
 export async function seedBadModelControl({ root, profile, spec }) {
@@ -201,7 +281,14 @@ export async function seedBadModelControl({ root, profile, spec }) {
     root,
     "seed-bad-model",
     dbPath,
-    JSON.stringify({ ...spec, modelSelection: { providerId: LOCAL_PROVIDER.providerId, modelId: "absent-model", options: { reasoningLevel: LOCAL_PROVIDER.defaultReasoningLevel } } }),
+    JSON.stringify({
+      ...spec,
+      modelSelection: {
+        providerId: LOCAL_PROVIDER.providerId,
+        modelId: "absent-model",
+        options: { reasoningLevel: LOCAL_PROVIDER.defaultReasoningLevel },
+      },
+    }),
   );
 }
 
@@ -219,44 +306,90 @@ const sameDirectory = (a, b) => typeof a === "string" && canonicalPath(a) === ca
  * An attempt, `last_error`, or a dispatched-only row is never `completed`.
  */
 export function readLocalRun(profile, { automationId, reply, workspacePath }) {
-  const automation = readTable(profile, "SELECT dispatch_status, dispatch_attempts, run_count, last_error FROM automations WHERE automation_id = ?", automationId)[0];
+  const automation = readTable(
+    profile,
+    "SELECT dispatch_status, dispatch_attempts, run_count, last_error FROM automations WHERE automation_id = ?",
+    automationId,
+  )[0];
   if (!automation) return { status: "failed", reason: "automation row missing" };
-  const runs = readTable(profile, "SELECT run_id, dispatch_status, outcome, session_id, error, attempts, model_selection FROM automation_runs WHERE automation_id = ? ORDER BY created_at", automationId);
-  const failedRun = runs.find((row) => row.dispatch_status === "failed_to_dispatch" || row.outcome === "failed" || row.error);
-  if (failedRun) return { status: "failed", reason: `run ${failedRun.run_id} ${failedRun.dispatch_status}/${failedRun.outcome}: ${truncate(failedRun.error)}` };
-  const succeeded = runs.filter((row) => row.dispatch_status === "dispatched" && row.outcome === "succeeded" && !row.error && row.session_id);
+  const runs = readTable(
+    profile,
+    "SELECT run_id, dispatch_status, outcome, session_id, error, attempts, model_selection FROM automation_runs WHERE automation_id = ? ORDER BY created_at",
+    automationId,
+  );
+  const failedRun = runs.find(
+    (row) => row.dispatch_status === "failed_to_dispatch" || row.outcome === "failed" || row.error,
+  );
+  if (failedRun)
+    return {
+      status: "failed",
+      reason: `run ${failedRun.run_id} ${failedRun.dispatch_status}/${failedRun.outcome}: ${truncate(failedRun.error)}`,
+    };
+  const succeeded = runs.filter(
+    (row) =>
+      row.dispatch_status === "dispatched" &&
+      row.outcome === "succeeded" &&
+      !row.error &&
+      row.session_id,
+  );
   if (succeeded.length === 0)
     return {
       status: "pending",
       reason: `no succeeded run yet (runs ${JSON.stringify(runs.map((row) => [row.dispatch_status, row.outcome]))}; automation attempts ${automation.dispatch_attempts}, last_error ${truncate(automation.last_error) || "none"})`,
     };
   const tasks = probe(() => managedTasks(profile, { localAutomationId: automationId }));
-  if (tasks.status !== "ok") return { status: "pending", reason: `tasks-index not readable (${tasks.code})` };
+  if (tasks.status !== "ok")
+    return { status: "pending", reason: `tasks-index not readable (${tasks.code})` };
   for (const run of succeeded) {
     const task = tasks.value.find((item) => item.taskId === run.session_id);
     if (!task || task.status !== "completed") continue;
-    if (workspacePath && !sameDirectory(task.workspacePath, workspacePath)) return { status: "failed", reason: "the control's task ran in a different workspace" };
+    if (workspacePath && !sameDirectory(task.workspacePath, workspacePath))
+      return { status: "failed", reason: "the control's task ran in a different workspace" };
     const output = probe(() => taskOutput(profile, task.taskId));
-    if (output.status !== "ok") return { status: "pending", reason: `Agent store not readable (${output.code})` };
+    if (output.status !== "ok")
+      return { status: "pending", reason: `Agent store not readable (${output.code})` };
     if (!assistantTerminal(output.value)) continue;
     if (!assistantText(output.value).includes(reply))
-      return { status: "failed", reason: `completed task lacks the stub marker: ${JSON.stringify(outputShape(output.value))}` };
-    return { status: "completed", run, task, runCount: automation.run_count, modelSelection: run.model_selection };
+      return {
+        status: "failed",
+        reason: `completed task lacks the stub marker: ${JSON.stringify(outputShape(output.value))}`,
+      };
+    return {
+      status: "completed",
+      run,
+      task,
+      runCount: automation.run_count,
+      modelSelection: run.model_selection,
+    };
   }
-  return { status: "pending", reason: "run succeeded but no completed Agent task with a terminal assistant message yet" };
+  return {
+    status: "pending",
+    reason: "run succeeded but no completed Agent task with a terminal assistant message yet",
+  };
 }
 
 /** Wait for `readLocalRun` to be `completed`; a `failed` verdict throws immediately with the recorded reason. */
-export async function awaitLocalRun(label, profile, params, { timeout = 150_000, every = 4_000 } = {}) {
-  const result = await until(label, async () => readLocalRun(profile, params), (value) => value.status !== "pending", {
-    timeout,
-    every,
-  });
+export async function awaitLocalRun(
+  label,
+  profile,
+  params,
+  { timeout = 150_000, every = 4_000 } = {},
+) {
+  const result = await until(
+    label,
+    async () => readLocalRun(profile, params),
+    (value) => value.status !== "pending",
+    {
+      timeout,
+      every,
+    },
+  );
   assert.equal(result.status, "completed", `${label}: ${result.reason}`);
   return result;
 }
 
-const rowOf = (profile, id) => readTable(profile, "SELECT * FROM automations WHERE automation_id = ?", id)[0];
+const rowOf = (profile, id) =>
+  readTable(profile, "SELECT * FROM automations WHERE automation_id = ?", id)[0];
 
 /**
  * BEFORE adoption (call after onboarding, before the adopt stage): local personal work completes with no
@@ -277,7 +410,11 @@ export async function preAdoptionLocalProof(ctx) {
   assert.equal(stats.byMarker.adopted, 0, "the future adoption original has made no local request");
   assert.equal(stats.unauthorized, 0, "every stub request carried the synthetic key");
   const baseline = personalConfigHash(profileA);
-  ctx.state.localProvider = { baselineSha256: baseline, preflightRunId: done.run.run_id, preflightTaskId: done.task.taskId };
+  ctx.state.localProvider = {
+    baselineSha256: baseline,
+    preflightRunId: done.run.run_id,
+    preflightTaskId: done.task.taskId,
+  };
   ledger.pass(
     `pre-adoption positive: local preflight run ${done.run.run_id} is dispatched+succeeded with no error and its completed Agent task holds the stub marker (provider ${LOCAL_PROVIDER.providerId}; ${stats.byMarker.preflight} stub request(s) for it, config sha256 ${baseline.slice(0, 12)})`,
   );
@@ -288,12 +425,36 @@ export async function preAdoptionLocalProof(ctx) {
     (row) => !!row && !!row.last_error,
     { timeout: 120_000, every: 4_000 },
   );
-  assert.match(bad.last_error, /模型选择不可用/, `explicit bad model must fail with the selection error, got ${truncate(bad.last_error)}`);
-  const badRuns = readTable(profileA, "SELECT dispatch_status, outcome, session_id FROM automation_runs WHERE automation_id = ?", seeds.badModel.automationId);
-  assert.ok(badRuns.every((row) => row.dispatch_status !== "dispatched" && row.outcome !== "succeeded" && !row.session_id), `no bad-model run may dispatch: ${JSON.stringify(badRuns)}`);
-  assert.equal(managedTasks(profileA, { localAutomationId: seeds.badModel.automationId }).length, 0, "no Agent task exists for the bad-model control");
-  assert.equal(stub.stats().byMarker.badModel, 0, "the bad-model prompt never reached the stub (no silent fallback to the default)");
-  ledger.pass(`explicit absent model negative: rejected with the selection error, ${badRuns.length} run row(s) none dispatched, no task, 0 stub requests (no silent fallback)`);
+  assert.match(
+    bad.last_error,
+    /模型选择不可用/,
+    `explicit bad model must fail with the selection error, got ${truncate(bad.last_error)}`,
+  );
+  const badRuns = readTable(
+    profileA,
+    "SELECT dispatch_status, outcome, session_id FROM automation_runs WHERE automation_id = ?",
+    seeds.badModel.automationId,
+  );
+  assert.ok(
+    badRuns.every(
+      (row) =>
+        row.dispatch_status !== "dispatched" && row.outcome !== "succeeded" && !row.session_id,
+    ),
+    `no bad-model run may dispatch: ${JSON.stringify(badRuns)}`,
+  );
+  assert.equal(
+    managedTasks(profileA, { localAutomationId: seeds.badModel.automationId }).length,
+    0,
+    "no Agent task exists for the bad-model control",
+  );
+  assert.equal(
+    stub.stats().byMarker.badModel,
+    0,
+    "the bad-model prompt never reached the stub (no silent fallback to the default)",
+  );
+  ledger.pass(
+    `explicit absent model negative: rejected with the selection error, ${badRuns.length} run row(s) none dispatched, no task, 0 stub requests (no silent fallback)`,
+  );
 }
 
 /**
@@ -311,16 +472,43 @@ export async function postAdoptionLocalProof(ctx) {
     { timeout: 240_000 },
   );
   const control = rowOf(profileA, seeds.control.automationId);
-  assert.equal(control.model_selection, "null", "the control still follows the Host default (its stored selection was not changed)");
-  assert.ok(!control.last_error, `control last_error must be empty, got ${truncate(control.last_error)}`);
+  assert.equal(
+    control.model_selection,
+    "null",
+    "the control still follows the Host default (its stored selection was not changed)",
+  );
+  assert.ok(
+    !control.last_error,
+    `control last_error must be empty, got ${truncate(control.last_error)}`,
+  );
   const frozen = JSON.parse(done.modelSelection ?? "null");
-  assert.equal(frozen?.providerId, LOCAL_PROVIDER.providerId, `the run froze ${JSON.stringify(frozen)}, not the personal provider`);
-  assert.notEqual(frozen.providerId, "lumi-managed", "managed mode did not replace the local personal model");
-  assert.equal(personalConfigHash(profileA), state.localProvider.baselineSha256, "provider_config.json bytes changed across adoption");
+  assert.equal(
+    frozen?.providerId,
+    LOCAL_PROVIDER.providerId,
+    `the run froze ${JSON.stringify(frozen)}, not the personal provider`,
+  );
+  assert.notEqual(
+    frozen.providerId,
+    "lumi-managed",
+    "managed mode did not replace the local personal model",
+  );
+  assert.equal(
+    personalConfigHash(profileA),
+    state.localProvider.baselineSha256,
+    "provider_config.json bytes changed across adoption",
+  );
   const stats = stub.stats();
   assert.ok(stats.byMarker.control >= 1, "the stub received the control prompt");
-  assert.equal(stats.byMarker.adopted, 0, "the adopted original made zero local stub requests (only the managed path ran it)");
-  assert.equal(stats.unauthorized + stats.rejected, 0, `stub saw unauthorized=${stats.unauthorized} rejected=${stats.rejected}`);
+  assert.equal(
+    stats.byMarker.adopted,
+    0,
+    "the adopted original made zero local stub requests (only the managed path ran it)",
+  );
+  assert.equal(
+    stats.unauthorized + stats.rejected,
+    0,
+    `stub saw unauthorized=${stats.unauthorized} rejected=${stats.rejected}`,
+  );
   ledger.pass(
     `post-adoption positive: control run ${done.run.run_id} (same workspace, selection "null") is dispatched+succeeded with no error, its completed task ${done.task.taskId} holds the stub marker and it froze ${frozen.providerId}/${frozen.modelId}; provider_config.json sha256 unchanged (${state.localProvider.baselineSha256.slice(0, 12)}); stub requests control=${stats.byMarker.control} adopted=${stats.byMarker.adopted} badModel=${stats.byMarker.badModel} of cap ${stats.maxRequests}`,
   );

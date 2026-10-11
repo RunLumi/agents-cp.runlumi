@@ -9,7 +9,9 @@ import { pathToFileURL } from "node:url";
 import { SmokeHarness } from "../../apps/api/scripts/lib/smoke-harness.mjs";
 const root = resolve(import.meta.dirname, "../..");
 const requireWeb = createRequire(resolve(root, "apps/web/package.json"));
-const requireClient = createRequire(resolve(root, "integrations/lumi-agents/package.json"));
+// Bundle the selected client checkout, so the evidence SHA matches the source under test.
+const client = resolve(process.env.LUMI_AGENTS_DIR || resolve(root, "integrations/lumi-agents"));
+const requireClient = createRequire(resolve(client, "package.json"));
 let viteEntry;
 try {
   viteEntry = requireWeb.resolve("vite");
@@ -21,13 +23,10 @@ const out = resolve(root, "test-results/lumi-account-client");
 await build({
   configFile: false,
   logLevel: "warn",
-  root: resolve(root, "integrations/lumi-agents"),
+  root: client,
   ssr: { noExternal: true },
   build: {
-    ssr: resolve(
-      root,
-      "integrations/lumi-agents/packages/services/src/lumi-account/hostTransport.ts",
-    ),
+    ssr: resolve(client, "packages/services/src/lumi-account/hostTransport.ts"),
     outDir: out,
     rollupOptions: { output: { entryFileNames: "transport.mjs" } },
   },
@@ -41,10 +40,7 @@ await build({
   root: resolve(root, "integrations/lumi-agents"),
   ssr: { noExternal: true },
   build: {
-    ssr: resolve(
-      root,
-      "integrations/lumi-agents/packages/services/src/lumi-account/deviceTransport.ts",
-    ),
+    ssr: resolve(client, "packages/services/src/lumi-account/deviceTransport.ts"),
     outDir: resolve(out, "device"),
     rollupOptions: { output: { entryFileNames: "device.mjs" } },
   },
@@ -58,6 +54,9 @@ const reportPath =
 let completed = false;
 try {
   await probe.setup({ persistEnvVar: "DE2E_ACCOUNT_PERSIST", portEnvVar: "DE2E_ACCOUNT_PORT" });
+  // Diagnostic A/B for socket reuse; async D1 keeps the live Worker servicing requests.
+  probe.attachBoundaryRecorder({ freshSockets: process.env.LUMI_PROBE_FRESH_SOCKETS === "1" });
+  probe.useAsyncSubprocesses(process.env.LUMI_PROBE_SYNC_D1 !== "1");
   const owner = await probe.authenticatedUser("Desktop Account");
   for (const value of owner.jar.cookies.values()) probe.registerSecret(value);
   const transport = new LumiAccountHostTransport(probe.baseUrl);
@@ -87,7 +86,14 @@ try {
   );
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   let deviceCredential = null;
-  const device = new LumiDeviceHostTransport(probe.baseUrl, fetch, {
+  // Wrangler mutates this fixture's local D1 while the Worker remains open. Do
+  // not reuse a keep-alive socket that may have gone stale across that boundary.
+  const fixtureFetch = (input, init = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set("connection", "close");
+    return fetch(input, { ...init, headers });
+  };
+  const device = new LumiDeviceHostTransport(probe.baseUrl, fixtureFetch, {
     async load() {
       return deviceCredential;
     },
@@ -131,19 +137,8 @@ try {
     Number(tokenRows[0]?.n) === 1,
     JSON.stringify(tokenRows),
   );
-  probe.runWrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--env",
-      "development",
-      "--persist-to",
-      probe.persistDir,
-      "--command",
-      `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${info.id}'`,
-    ],
+  await probe.d1Execute(
+    `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${info.id}'`,
     "force expiry on owned synthetic device",
   );
   const expiredRows = await probe.d1Rows(
@@ -180,6 +175,43 @@ try {
     anonymousChallenge,
     [401],
   );
+  // A different organization's member must not mint a challenge for this device,
+  // through either the caller's org path or the device's org path.
+  const outsider = await probe.authenticatedUser("Recovery Outsider");
+  for (const value of outsider.jar.cookies.values()) probe.registerSecret(value);
+  const outsiderOrg = await probe.createOrganization(
+    outsider.jar,
+    "Recovery Outsider Org",
+    `outsider-${probe.nonce}`,
+  );
+  const outsiderOwnOrg = await probe.request(
+    outsider.jar,
+    "POST",
+    `/api/v1/orgs/${outsiderOrg.orgId}/devices/${info.id}/recovery-challenges`,
+    { device_id: info.id },
+    probe.browserMutation(outsider.jar, "recovery-outsider-own-org"),
+  );
+  probe.expectStatus("cross-tenant recovery through caller org refuses", outsiderOwnOrg, [404]);
+  const outsiderDeviceOrg = await probe.request(
+    outsider.jar,
+    "POST",
+    `/api/v1/orgs/${org.orgId}/devices/${info.id}/recovery-challenges`,
+    { device_id: info.id },
+    probe.browserMutation(outsider.jar, "recovery-outsider-device-org"),
+  );
+  probe.expectStatus(
+    "non-member cannot mint device recovery challenge",
+    outsiderDeviceOrg,
+    [403, 404],
+  );
+  const foreignChallengeRows = await probe.d1Rows(
+    `SELECT COUNT(*) AS n FROM device_token_recovery_challenges WHERE device_id='${info.id}'`,
+    "cross-tenant attempts stored no challenge",
+  );
+  probe.expect(
+    "cross-tenant attempts stored no recovery challenge",
+    Number(foreignChallengeRows[0]?.n) === 0,
+  );
   const expiredChallenge = await transport.createDeviceRecoveryChallenge(org.orgId, info.id);
   probe.expect(
     "human-authorized challenge is bounded",
@@ -197,19 +229,17 @@ try {
     (e) => e.status === 403,
   );
   probe.expect("wrong device proof cannot recover token", true);
-  probe.runWrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--env",
-      "development",
-      "--persist-to",
-      probe.persistDir,
-      "--command",
-      `UPDATE device_token_recovery_challenges SET expires_at = '2000-01-01T00:00:00.000Z' WHERE challenge_hash = '${expiredHash}' AND device_id = '${info.id}'`,
-    ],
+  const afterWrongProof = await probe.d1Rows(
+    `SELECT (SELECT COUNT(*) FROM device_token_recovery_challenges WHERE challenge_hash='${expiredHash}' AND consumed_at IS NULL) AS pending, (SELECT COUNT(*) FROM device_tokens WHERE device_id='${info.id}' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) AS live`,
+    "state after wrong device proof",
+  );
+  probe.expect(
+    "wrong device proof leaves the challenge unconsumed and mints no token",
+    Number(afterWrongProof[0]?.pending) === 1 && Number(afterWrongProof[0]?.live) === 0,
+    JSON.stringify(afterWrongProof),
+  );
+  await probe.d1Execute(
+    `UPDATE device_token_recovery_challenges SET expires_at = '2000-01-01T00:00:00.000Z' WHERE challenge_hash = '${expiredHash}' AND device_id = '${info.id}'`,
     "expire owned synthetic recovery challenge",
   );
   const expiredChallengeRows = await probe.d1Rows(
@@ -226,6 +256,14 @@ try {
     (e) => e.status === 409,
   );
   probe.expect("expired recovery challenge is refused", true);
+  const afterExpiredChallenge = await probe.d1Rows(
+    `SELECT COUNT(*) AS n FROM device_tokens WHERE device_id='${info.id}' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+    "state after expired challenge",
+  );
+  probe.expect(
+    "expired recovery challenge mints no token",
+    Number(afterExpiredChallenge[0]?.n) === 0,
+  );
   const challenge = await transport.createDeviceRecoveryChallenge(org.orgId, info.id);
   const proofMessage = `lumi-device-token-recovery-v1\n${info.id}\n${challenge.challenge}`;
   const recovered = await transport.recoverDeviceToken(org.orgId, info.id, {
@@ -246,6 +284,15 @@ try {
     (e) => e.status === 409,
   );
   probe.expect("consumed recovery challenge cannot replay", true);
+  const afterReplay = await probe.d1Rows(
+    `SELECT (SELECT COUNT(*) FROM device_token_recovery_challenges WHERE device_id='${info.id}') AS challenges, (SELECT COUNT(*) FROM device_tokens WHERE device_id='${info.id}' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) AS live`,
+    "state after replayed challenge",
+  );
+  probe.expect(
+    "replay leaves no challenge and exactly one live token",
+    Number(afterReplay[0]?.challenges) === 0 && Number(afterReplay[0]?.live) === 1,
+    JSON.stringify(afterReplay),
+  );
   console.log("PASS actual human-authorized expired-token recovery; anonymous nonce stays closed");
   // Ordinary device transport still holds the pre-recovery token, so directly verify the new token
   // against the real nonce route using the existing proof key, without storing it in a mock.
@@ -356,6 +403,7 @@ try {
         orgId: org.orgId,
         adoptionStateId: adoption.adoptionStateId,
         stage,
+        credentialMode: adoptionState.credentialMode,
         version: adoptionState.version,
         clientAppVersion: "3.14.3",
       },
@@ -443,6 +491,12 @@ try {
   assert.equal(probe.failures.length, 0);
   console.log("PASS actual backend logout ends client access");
   completed = probe.failures.length === 0;
+} catch (error) {
+  const failureEvidence = await probe.captureFailureEvidence(error).catch((captureError) => ({
+    capture_failed: String(captureError?.message ?? captureError).slice(0, 200),
+  }));
+  console.error(`--- request-boundary evidence ---\n${JSON.stringify(failureEvidence, null, 2)}`);
+  throw error;
 } finally {
   mkdirSync(dirname(reportPath), { recursive: true });
   writeFileSync(
@@ -459,29 +513,22 @@ try {
             cwd: root,
             encoding: "utf8",
           }).trim() !== "",
-        lumi_agents_sha: execFileSync(
-          "git",
-          ["-C", resolve(root, "integrations/lumi-agents"), "rev-parse", "HEAD"],
-          { encoding: "utf8" },
-        ).trim(),
+        lumi_agents_sha: execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: client,
+          encoding: "utf8",
+        }).trim(),
         lumi_agents_dirty:
-          execFileSync(
-            "git",
-            [
-              "-C",
-              resolve(root, "integrations/lumi-agents"),
-              "status",
-              "--porcelain",
-              "--untracked-files=normal",
-            ],
-            { encoding: "utf8" },
-          ).trim() !== "",
+          execFileSync("git", ["-C", client, "status", "--porcelain", "--untracked-files=normal"], {
+            encoding: "utf8",
+          }).trim() !== "",
         assertions: probe.passes,
         failures: probe.failures,
+        boundary: probe.boundary?.snapshot() ?? null,
       },
       null,
       2,
     ) + "\n",
   );
+  probe.boundary?.uninstall();
   probe.cleanup();
 }

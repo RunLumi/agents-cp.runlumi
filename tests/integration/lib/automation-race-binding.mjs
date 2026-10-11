@@ -30,7 +30,11 @@ export function admittedByResolver(definition, devices, bindings) {
   );
   return devices
     .filter((device) => device.status === "active")
-    .filter((device) => definition.target_kind === "eligible_device" || definition.target_device_id === device.device_id)
+    .filter(
+      (device) =>
+        definition.target_kind === "eligible_device" ||
+        definition.target_device_id === device.device_id,
+    )
     .filter((device) => {
       if (definition.target_workspace_binding_id)
         return (bindings ?? []).some(
@@ -57,12 +61,17 @@ export function assertEachDeviceResolves(bindings, deviceIds, projectId) {
         `device ${deviceId} has ${byDevice[deviceId].status} server workspace binding(s) for ${projectId}: ${JSON.stringify(byDevice[deviceId].bindingIds)}`,
       );
   const ids = deviceIds.map((deviceId) => byDevice[deviceId].bindingIds[0]);
-  if (new Set(ids).size !== ids.length) throw new Error(`devices share a workspace binding: ${JSON.stringify(ids)}`);
+  if (new Set(ids).size !== ids.length)
+    throw new Error(`devices share a workspace binding: ${JSON.stringify(ids)}`);
   const identities = new Set(
-    (bindings ?? []).filter((row) => ids.includes(row.binding_id)).map((row) => row.workspace_identity),
+    (bindings ?? [])
+      .filter((row) => ids.includes(row.binding_id))
+      .map((row) => row.workspace_identity),
   );
   if (identities.size !== ids.length)
-    throw new Error(`devices must bind their own workspace identity, saw ${JSON.stringify([...identities])}`);
+    throw new Error(
+      `devices must bind their own workspace identity, saw ${JSON.stringify([...identities])}`,
+    );
   return Object.fromEntries(deviceIds.map((deviceId, index) => [deviceId, ids[index]]));
 }
 

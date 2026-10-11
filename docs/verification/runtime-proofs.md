@@ -16,7 +16,7 @@ are the gates that do. Each is self-contained unless noted.
 | `pnpm smoke:local` | the P01 foundation surface answers | a Worker on `:8787` |
 | `pnpm smoke:p02` … `smoke:p05` | the P02–P05 surfaces answer | a Worker on `:8787` |
 | `pnpm smoke:passkey` | a real WebAuthn ceremony verifies end-to-end — registration and assertion, with hostile cases for challenge, origin, RP ID, replay, expiry, and revocation | nothing; it starts its own D1 and Worker. Needs `pnpm build` first, or it compiles one |
-| `pnpm guard:probe` | a guard sentinel's abort is recognised as a deliberate refusal, not a store outage | nothing; a real SQLite database |
+| `pnpm guard:probe` | a guard sentinel's abort is recognised as a deliberate refusal, not a store outage; the source-read polarity matrix covers all ten `guard!` sites in the automation repository, including an active dispatch control and refusals for suspended org/member, stale license, and expired grace, plus a live device-binding control and no-write refusals for foreign org/device and removed bindings | nothing; a real SQLite database |
 | `pnpm --filter @runlumi/agents-cp-api p08:invariants` | the migration's triggers and constraints refuse what the domain says they refuse | a local D1 |
 | `pnpm verify:restore` | a restored database still refuses every invalid write | nothing |
 | `pnpm verify:mutation --apply` | every declared Tier-0 invariant is killed by a deliberate fault | **a disposable linked worktree**; it refuses to run against a checkout |

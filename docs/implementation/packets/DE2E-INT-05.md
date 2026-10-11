@@ -7,48 +7,55 @@ SHAs before implementation; versions alone are not merge evidence.
 
 ## Current cross-machine handoff — 2026-10-11
 
-This branch is a preservation snapshot of the dirty parent checkout at `e7ad897`
-plus its local WIP. It is intentionally a draft continuation, not a merge-ready
-branch. Its source commit starts at local HEAD `e7ad897`; the draft PR targets
-`codex/e2e-phase01-account-device` at phase-one recovery commit `b7d8fb8`. Reconcile
-it against current `main` before proposing any merge because phase files have since
-advanced there.
+PR #59 is reconciled against parent main `80a3813de76b1e13a26f8704f5810c3404c0bac6`.
+Coordinator: Codex. Review write surface: retained evidence/path normalization,
+this checkpoint, integration pin documentation, `p02-guard-probe.mjs`, the two
+provider-fixture credential labels, and sensitivity harness safety/regression
+coverage. Existing P03/P04/P06/P08 contracts and migrations are unchanged.
 
-The parent gitlink in this snapshot pins LumiAgents `71cd9742ac8ff099bab59a9c02edc7f14c3e3dba`,
-the open draft [LumiAgents PR #48](https://github.com/RunLumi/LumiAgents/pull/48).
-The latest merged LumiAgents `main` remains `73a4b12a79a7ae90cbf0c320505f4c2d7b3074f3`.
-The separate parent pin refresh is [PR #58](https://github.com/RunLumi/agents-cp.runlumi/pull/58),
-whose quality and adoption checks passed on `b31e3a13a8159f77e2ad5aec2d4d70fdebeb4209`;
-it is still open. Parent PRs #51 and #52 and evidence PR #57 are merged. The full
-desktop/backend E2E goal remains incomplete.
+The original `e7ad897` WIP is preserved in commits `b773d3d` and `24896bb`.
+Current main's provider, socket, asynchronous D1, account recovery, automation,
+workflow, prompt and design changes take precedence over their older snapshot
+versions. The dispatch-eligibility guard test is preserved alongside the added
+live device-binding guard test.
 
-Fetch this parent snapshot on another machine with:
+The gitlink pins LumiAgents `ac011fce8d6273a1218022de17fdeafec7a59ba9`, the latest
+merged main at review time, including [client PR #48](https://github.com/RunLumi/LumiAgents/pull/48).
+Its conflict resolution retained the newer v3.15.1, session, vault and paging
+fixes. The parent pin refresh in PR #58 selected an earlier revision; this pin
+supersedes it. The full desktop/backend E2E goal remains incomplete.
+
+For a new machine after PR #59 merges:
 
 ```sh
-git fetch origin codex/desktop-e2e-wip-handoff-20261011
-git switch --track -c codex/desktop-e2e-wip-handoff-20261011 origin/codex/desktop-e2e-wip-handoff-20261011
-git submodule update --init --recursive
+git clone --recurse-submodules https://github.com/RunLumi/agents-cp.runlumi.git
+cd agents-cp.runlumi
+# Existing clone: git pull --ff-only && git submodule update --init --recursive
+node scripts/integration/lumi-agents.mjs
 ```
 
-The ignored local `test-results/` tree, generated output and the empty typo file
-`apps/api/rangler.jsonc` are intentionally absent; retained proof records and source
-probes are in the branch. Historical machine paths in imported evidence were
-normalized to `$REPO_ROOT`, `$LUMI_AGENTS_DIR`, `$HOME`, `$TMPDIR`, or `$SSD_ROOT`.
-These placeholders are descriptive; rerun required evidence on the receiving
-machine. The provider-fixture Node test first hit sandbox `listen` EPERM before
-assertions, then passed 20/20 under the loopback-enabled test runner; its transcript
-is `20261011-provider-http-fixture-node24.log`. The first exact-head pre-push also found
-V01-023 had 10 automation `guard!` sites but only nine pinned. The probe now tests
-the new `assert_device_binding_current_statement` against real SQLite: a live binding
-passes; wrong-org, wrong-device and removed-binding cases abort without persisted
-sentinels. It passes 16/16. A deliberate `1 = 0` fault failed for the intended
-runtime reason (`live binding was refused`), and the restored probe passed with the
-source SHA unchanged; see `20261011-guard-binding-{baseline,mutation,restored}.log`
-and `20261011-guard-binding-sensitivity.json`. The secret-canary check passed
-15/15, Python sensitivity scripts compiled, the portable shell probe passed
-`bash -n`, and `git diff --check` passed after transcript normalization. Continue
-from the first unmet criterion in the INT-03/04/05 packets and preserve the original
-FAIL/UNPROVEN/BLOCKED verdicts.
+The runner installs each repository's pinned package manager, builds the pair,
+and reports both exact SHAs. See `docs/integration/lumi-agents.md` for prerequisites
+and the separate account/device and actual Electron gates.
+
+Ignored `test-results/`, generated output and the empty typo
+`apps/api/rangler.jsonc` are excluded. Historical evidence paths are descriptive
+placeholders; rerun on the receiving machine before claiming current proof.
+Original FAIL/UNPROVEN/BLOCKED verdicts remain intact.
+
+Review found the credential sensitivity script had an invalid embedded Python
+string, an unexported result path, and a restore dependent on its changing working
+directory. The repaired script uses the explicit disposable checkout for every
+build, probe and restore, checks its expected HEAD before restoring, and requires
+a successful baseline/restored probe plus mutation exit 1. Tests use disposable
+fixture repositories to verify these safety properties; they do not certify the
+real credential runtime. The Python sensitivity wrappers create real temporary
+paths instead of passing literal `$REPO_ROOT` strings.
+
+Fresh review validation and exact paired-SHA results are recorded in
+`docs/verification/pr59-reconciliation-20261011.md`. Continue from the first unmet
+acceptance criterion below; this merge is source consolidation, not completion
+of the full Electron/provider/tool/automation goal.
 
 ## Required result
 

@@ -16,7 +16,7 @@ for name in files:
 (clone/"packages/services/node_modules").symlink_to(source/"packages/services/node_modules",target_is_directory=True)
 env=dict(os.environ)
 env["PATH"]=os.environ.get("NODE24_BIN", "node").rsplit("/", 1)[0] + ":" + env["PATH"] if "/" in os.environ.get("NODE24_BIN", "node") else env["PATH"]
-env["TMPDIR"]="$REPO_ROOT/test-results/t"
+env["TMPDIR"]=str(root / "tmp");Path(env["TMPDIR"]).mkdir(parents=True,exist_ok=True)
 def run(name):
  with (root/(name+".log")).open("w") as out:
   return subprocess.run([os.environ.get("NODE24_BIN", "node"),"--import","tsx","--test","packages/services/src/lumi-account/managedToolTransport.test.ts","packages/services/src/lumi-account/managedToolAdmission.test.ts"],cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode

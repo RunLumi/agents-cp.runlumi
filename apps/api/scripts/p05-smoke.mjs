@@ -1940,10 +1940,17 @@ async function main() {
       deviceHeaders(state.deviceA),
     );
     expectStatus("actual client gate reads current device policy", policy, 200);
-    expectStatus("actual client gate acknowledges its current policy", await request(
-      new CookieJar(), "POST", "/api/v1/devices/policy/ack",
-      { policy_version: policy.payload.policy_version }, deviceHeaders(state.deviceA),
-    ), 204);
+    expectStatus(
+      "actual client gate acknowledges its current policy",
+      await request(
+        new CookieJar(),
+        "POST",
+        "/api/v1/devices/policy/ack",
+        { policy_version: policy.payload.policy_version },
+        deviceHeaders(state.deviceA),
+      ),
+      204,
+    );
     const transport = new LumiDeviceHostTransport(baseUrl, fetch, {
       load: async () => ({
         id: state.deviceA.id,
@@ -1955,20 +1962,50 @@ async function main() {
       save: async () => {},
     });
     await transport.restore();
-    const oldReports = await d1(`SELECT capabilities FROM devices WHERE device_id='${state.deviceA.id}'`, "existing device capability report");
+    const oldReports = await d1(
+      `SELECT capabilities FROM devices WHERE device_id='${state.deviceA.id}'`,
+      "existing device capability report",
+    );
     const existingReport = JSON.parse(oldReports[0]?.capabilities ?? "{}");
-    const runtimeToggleKeys = ["browser_use", "computer_use", "remote_environment", "automation_eligible"];
+    const runtimeToggleKeys = [
+      "browser_use",
+      "computer_use",
+      "remote_environment",
+      "automation_eligible",
+    ];
     const reportedCapabilities = {
-      ...Object.fromEntries(runtimeToggleKeys.filter(key => typeof existingReport[key] === "boolean").map(key => [key, existingReport[key]])),
-      filesystem_write: true, process_execution: false, network_access: false, mcp_execution: false,
+      ...Object.fromEntries(
+        runtimeToggleKeys
+          .filter((key) => typeof existingReport[key] === "boolean")
+          .map((key) => [key, existingReport[key]]),
+      ),
+      filesystem_write: true,
+      process_execution: false,
+      network_access: false,
+      mcp_execution: false,
     };
     // This fixture owns an actual file-writing handler; other added runtimes
     // are not exercised and remain false. This is not Electron inventory proof.
     const heartbeatProjection = await transport.heartbeat("3.14.3", reportedCapabilities);
-    expect("actual private heartbeat returns validated current policy", heartbeatProjection.policyVersion === policy.payload.policy_version);
-    const heartbeatRows = await d1(`SELECT capabilities,capability_reported_at FROM devices WHERE device_id='${state.deviceA.id}'`, "private heartbeat stored runtime report");
-    expect("actual private heartbeat stores exact bounded capabilities", heartbeatRows.length === 1 && heartbeatRows[0].capability_reported_at &&
-      JSON.stringify(JSON.parse(heartbeatRows[0].capabilities)) === JSON.stringify(Object.fromEntries(Object.entries(reportedCapabilities).sort(([a],[b])=>a.localeCompare(b)))));
+    expect(
+      "actual private heartbeat returns validated current policy",
+      heartbeatProjection.policyVersion === policy.payload.policy_version,
+    );
+    const heartbeatRows = await d1(
+      `SELECT capabilities,capability_reported_at FROM devices WHERE device_id='${state.deviceA.id}'`,
+      "private heartbeat stored runtime report",
+    );
+    expect(
+      "actual private heartbeat stores exact bounded capabilities",
+      heartbeatRows.length === 1 &&
+        heartbeatRows[0].capability_reported_at &&
+        JSON.stringify(JSON.parse(heartbeatRows[0].capabilities)) ===
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(reportedCapabilities).sort(([a], [b]) => a.localeCompare(b)),
+            ),
+          ),
+    );
     const run = state.mainRun,
       callId = opaqueId("tcl", "production-client-admission");
     const summary = createManagedArgumentsSummary({
@@ -2077,9 +2114,14 @@ async function main() {
       transport.requestManagedToolDecision(params),
       transport.requestManagedToolDecision(params),
     ]);
-    console.log("client claim outcomes", outcomes.map((result) => result.status === "fulfilled"
-      ? { status: result.status, decision: result.value.decision }
-      : { status: result.status, httpStatus: result.reason?.status, code: result.reason?.code }));
+    console.log(
+      "client claim outcomes",
+      outcomes.map((result) =>
+        result.status === "fulfilled"
+          ? { status: result.status, decision: result.value.decision }
+          : { status: result.status, httpStatus: result.reason?.status, code: result.reason?.code },
+      ),
+    );
     expect(
       "production client releases only one permit after backend claim",
       outcomes.filter((r) => r.status === "fulfilled" && r.value.decision === "allow").length ===
@@ -2216,9 +2258,18 @@ async function main() {
       let identityLookups = 0;
       const resolveIdentity = async (request) => {
         identityLookups++;
-        expect("Core sends uncatalogued local identity before authoritative lookup", request.tool.catalogued === false && request.tool.toolId === `tool_${"0".repeat(32)}`);
-        const identity = await catalogAccount.resolveReviewedToolIdentity(state.orgA.orgId, request.tool);
-        expect("Core authoritative lookup returns reviewed server ID", identity?.toolId === state.toolPlane.privileged.tool_id && identity.catalogued === true);
+        expect(
+          "Core sends uncatalogued local identity before authoritative lookup",
+          request.tool.catalogued === false && request.tool.toolId === `tool_${"0".repeat(32)}`,
+        );
+        const identity = await catalogAccount.resolveReviewedToolIdentity(
+          state.orgA.orgId,
+          request.tool,
+        );
+        expect(
+          "Core authoritative lookup returns reviewed server ID",
+          identity?.toolId === state.toolPlane.privileged.tool_id && identity.catalogued === true,
+        );
         return { runId: request.context.runId, identity: identity ?? null };
       };
       const fixture = createManagedResultFixture({

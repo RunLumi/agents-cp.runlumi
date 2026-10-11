@@ -57,7 +57,8 @@ function probeScopedButton(label) {
     disabled: shown.filter((state) => state.button.disabled).length,
     busy: !!scope.querySelector('[role="status"]'),
   };
-  if (shown.length !== 1) return { ...base, ready: false, reason: "need exactly one visible button" };
+  if (shown.length !== 1)
+    return { ...base, ready: false, reason: "need exactly one visible button" };
   const { button, rect } = shown[0];
   if (button.disabled || button.getAttribute("aria-disabled") === "true")
     return { ...base, ready: false, reason: "disabled" };
@@ -115,7 +116,11 @@ export async function reachAccountSection(app, { expectRestoredAccount = false }
   for (let i = 0; i < 12; i++) {
     const body = await page.evaluate(() => document.body.innerText);
     if (body.includes("Continue locally")) {
-      assert.equal(expectRestoredAccount, false, "restored Lumi session must not reopen startup entry");
+      assert.equal(
+        expectRestoredAccount,
+        false,
+        "restored Lumi session must not reopen startup entry",
+      );
       await ui.clickText("Continue locally");
     } else if (body.includes("Waiting for")) await ui.clickText("Cancel");
     else if (body.includes("Use API key")) await ui.clickText("Use API key");
@@ -139,7 +144,16 @@ export async function reachAccountSection(app, { expectRestoredAccount = false }
  * Sign in through the real PKCE flow (code matched in a real browser), enroll the device, bind the
  * workspace and advance it to managed policy. Returns identifiers read back from the UI/Worker.
  */
-export async function onboardToManagedPolicy({ app, probe, web, org, org_fixture, projectId, email, password }) {
+export async function onboardToManagedPolicy({
+  app,
+  probe,
+  web,
+  org,
+  org_fixture,
+  projectId,
+  email,
+  password,
+}) {
   const page = app.page;
   const ui = uiHelpers(page);
   await reachAccountSection(app);
@@ -164,10 +178,7 @@ export async function onboardToManagedPolicy({ app, probe, web, org, org_fixture
     const browser = await newPage(chrome);
     await browser.goto(`http://127.0.0.1:${web.port}/desktop?user_code=${code}`);
     const browserUi = uiHelpers(browser);
-    await browserUi.wait(
-      () => !!document.querySelector('input[type="password"]'),
-      "browser login",
-    );
+    await browserUi.wait(() => !!document.querySelector('input[type="password"]'), "browser login");
     await browser.evaluate(
       (account, secret) => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
@@ -195,7 +206,10 @@ export async function onboardToManagedPolicy({ app, probe, web, org, org_fixture
     await chrome.close();
   }
   await ui.clickText("I approved — complete sign-in");
-  await ui.wait(() => document.body.innerText.includes("Automation Journey"), "desktop authenticated");
+  await ui.wait(
+    () => document.body.innerText.includes("Automation Journey"),
+    "desktop authenticated",
+  );
   await ui.wait(
     () => document.body.innerText.includes("Confirm and enroll this device"),
     "enrollment UI",
@@ -241,11 +255,9 @@ export async function onboardToManagedPolicy({ app, probe, web, org, org_fixture
       { arg: label },
     );
     await ui.clickText(label);
-    await ui.wait(
-      (text) => document.body.innerText.includes(text),
-      `ladder reached ${next}`,
-      { arg: next },
-    );
+    await ui.wait((text) => document.body.innerText.includes(text), `ladder reached ${next}`, {
+      arg: next,
+    });
   }
   await ui.clickText("Apply managed policy");
   await ui.wait(
