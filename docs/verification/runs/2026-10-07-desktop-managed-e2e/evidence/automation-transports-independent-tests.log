@@ -1,0 +1,18 @@
+✔ only faithfully representable schedules are adoptable; everything else stays local (0.792625ms)
+✔ preview candidates and create bodies carry metadata only, never the prompt (45.345334ms)
+✔ zone offset tables are bounded and expose daylight-saving transitions (2.890917ms)
+✔ preview reads the server verdict and refuses a self-contradicting one (26.551834ms)
+✔ release readback refuses to treat a still-present managed automation as removed (0.735833ms)
+✔ a real-shaped due, claim, start, renew, settle sequence satisfies the fence guard (4.2205ms)
+✔ a delayed renewal that moves the lease version backwards is refused by the guard (0.482833ms)
+✔ refusals carry the stable server reason and never the lease token (0.204625ms)
+✔ missing or contradictory facts fail closed instead of being invented (0.382958ms)
+✔ settle refuses a response that names another run or state (0.127625ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 523.275041

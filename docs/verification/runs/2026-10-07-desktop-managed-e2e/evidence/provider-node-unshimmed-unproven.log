@@ -1,0 +1,233 @@
+
+  outbound topology: node (scheme/port not observable by the node handler; production URL guard still enforced by the Worker)
+  PASS  fresh D1 applies the full migration ledger  — 28 migration rows
+Updating config... undefined undefined
+local dev variables file not found at ".dev.vars.development". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+local dev variables file not found at ".dev.vars". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env.development". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env.development.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+No experimental flag store instantiated
+Attempted to use flag "MULTIWORKER" which has not been instantiated
+Your Worker has access to the following bindings:
+Binding                                                                          Resource                     Mode
+env.OUTBOX_QUEUE (lumi-agents-outbox-development)                                Queue                        local
+env.JOBS_QUEUE (lumi-agents-jobs-development)                                    Queue                        local
+env.DB (lumi-agents-control-plane-development)                                   D1 Database                  local
+env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports-development)             R2 Bucket                    local
+env.CF_VERSION_METADATA                                                          Worker Version Metadata      local
+env.ENVIRONMENT ("development")                                                  Environment Variable         local
+env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-development-dlq")                       Environment Variable         local
+env.JOBS_DLQ_NAME ("lumi-agents-jobs-development-dlq")                           Environment Variable         local
+env.JOBS_QUEUE_NAME ("lumi-agents-jobs-development")                             Environment Variable         local
+env.LUMI_PROVIDER_ALLOWLIST ("provider-http-fixture.example")                    Environment Variable         local
+
+No experimental flag store instantiated
+Attempted to use flag "MULTIWORKER" which has not been instantiated
+[wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/pause 204 No Content (0ms)
+[wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/pause 204 No Content (1ms)
+Writing additional module to output /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.wrangler/tmp/dev-XHk7pp/50a5b9a880c4fc6f2d05df6c2233b03df75321a1-index_bg.wasm
+RemoteRuntimeController teardown beginning...
+RemoteRuntimeController teardown complete
+⎔ Starting local server...
+[wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/pause 204 No Content (0ms)
+[wrangler-ProxyWorker:info] Ready on http://127.0.0.1:55175
+[wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/play 204 No Content (3ms)
+[wrangler-ProxyWorker:info] GET /api/health 200 OK (438ms)
+  PASS  development Worker is healthy  — http://127.0.0.1:55175
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-XHk7pp/50a5b9a880c4fc6f2d05df6c2233b03df75321a1-index_bg.wasm is 679s newer than src/adapters/providers.rs
+[wrangler-ProxyWorker:info] POST /api/v1/auth/signup 201 Created (24ms)
+  PASS  signup Provider HTTP Owner  — status=201
+[wrangler-ProxyWorker:info] POST /api/v1/auth/verify-email 200 OK (7ms)
+  PASS  verify Provider HTTP Owner  — status=200
+[wrangler-ProxyWorker:info] POST /api/v1/auth/login/start 202 Accepted (7ms)
+  PASS  login start Provider HTTP Owner  — status=202
+[wrangler-ProxyWorker:info] POST /api/v1/auth/login/complete 200 OK (9ms)
+  PASS  login complete Provider HTTP Owner  — status=200
+  PASS  user Provider HTTP Owner has an opaque ID  — usr_ef26d406fcad4a69b1dc5325befe6c59
+[wrangler-ProxyWorker:info] POST /api/v1/orgs 201 Created (11ms)
+  PASS  create Provider HTTP Org  — status=201
+  PASS  Provider HTTP Org organization ID  — org_a89d46b77530b00e75b62f4f3ae61908
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/budgets 201 Created (38ms)
+  PASS  CONTROL: a hard budget exists  — status=201
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (43ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for ok through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:40:51.514Z","display_name":"HTTP fixture ok","endpoint_id":"pe_f89be6771bd1e9e0d400d3d0cda7008c","endpoint_url":"https://provider-http-fixture.example/v1/ok","lifecycle"
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (14ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (22ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (17ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_baafe6f3b6cb6295ac645df05c9b9a12/publish 200 OK (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 200 OK (40ms)
+
+  control: http=200 fixture_calls=1 forwarded=1 denials=[]
+  PASS  CONTROL: the unmodified adapter's request was accepted by the runtime and reached the provider  — fixture_calls=1
+  PASS  CONTROL: non-streaming completion returns the fixture body through the real adapter  — {"alias":"phttp-ok","choices":[{"finish_reason":"stop","index":0,"message":{"content":"fixture ok","role":"assistant"}}],"fallback_count":0,"id":"req_2bf6d3235a4d442d9e88696a0e1d118f","model":"phttp-ok","model_id":"mdl_13af5264dcf79f2195d2a
+  PASS  CONTROL: the adapter sent the real credential, JSON content type, and a translated body  — {"seq":1,"scenario":"ok","method":"POST","path":"/v1/ok/v1/chat/completions","headerNames":["accept","authorization","cf-worker","connection","content-length","content-type","host","mf-custom-node-service","x-lumi-request-id"],"accept":"app
+  PASS  CONTROL: no unexpected outbound destination was attempted  — []
+  PASS  CONTROL json: request reaches a terminal state and no reservation is left held  — state=completed error=n/a held=0
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 200 OK (22ms)
+  PASS  CONTROL: streaming SSE passes through intact  — data: {"alias":"phttp-ok","choices":[{"delta":{"role":"assistant"},"finish_reason":null,"index":0}],"id":"req_d5edd909ff294b9a9ef6c4576a111607","model":"phttp-ok","model_id":"mdl_13af5264dcf79f2195d2a54f96c71714","object":"chat.completion.c
+  PASS  CONTROL sse: request reaches a terminal state and no reservation is left held  — state=completed error=n/a held=0
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (9ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for rate-limit through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:40:54.008Z","display_name":"HTTP fixture rate-limit","endpoint_id":"pe_2d5094f53cd53ff2918dc45f88a7f054","endpoint_url":"https://provider-http-fixture.example/v1/rate-li
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (10ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (64ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_d626f80501f62e5b3c33ea3a6a5d3dc0/publish 200 OK (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 429 Too Many Requests (14ms)
+  PASS  429: surfaced as an error, not a 200  — status=429
+  PASS  429: exactly one upstream call with max_retries=0  — calls=1
+  PASS  429: request reaches a terminal state and no reservation is left held  — state=failed error=provider_rate_limited held=0
+  PASS  429: no usage billed
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (11ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for server-error through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:40:56.351Z","display_name":"HTTP fixture server-error","endpoint_id":"pe_2fb20951828eebe4e1aa485c514eea80","endpoint_url":"https://provider-http-fixture.example/v1/serve
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (12ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_dd9912ab45f2f5d06bdb24cc90f65ad4/publish 200 OK (14ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 503 Service Unavailable (15ms)
+  PASS  503: surfaced as an error, not a 200  — status=503
+  PASS  503: exactly one upstream call with max_retries=0  — calls=1
+  PASS  503: request reaches a terminal state and no reservation is left held  — state=failed error=provider_unavailable held=0
+  PASS  503: no usage billed
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (10ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for rate-limit through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:40:58.284Z","display_name":"HTTP fixture rate-limit","endpoint_id":"pe_f9915da5fc691ded3d4d06807ec05abd","endpoint_url":"https://provider-http-fixture.example/v1/rate-li
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_bb8330503c86682deb3bbf497e611b18/publish 200 OK (12ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 429 Too Many Requests (15ms)
+  PASS  429 with max_retries=2: calls are within 1 attempt + 2 retries  — calls=1
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (7ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for redirect through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:40:58.365Z","display_name":"HTTP fixture redirect","endpoint_id":"pe_181c1725e676ccbefed7ec5c75a56ee4","endpoint_url":"https://provider-http-fixture.example/v1/redirect"
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (12ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_38fe701b46d27513eb3c4e05f14ef0d8/publish 200 OK (10ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 503 Service Unavailable (15ms)
+  PASS  redirect: surfaced as an error, not a 200  — status=503
+  PASS  redirect: the provider was called once
+  PASS  redirect: the Worker did NOT follow the Location (a follow would hit the forwarder as a denied host)  — []
+  PASS  redirect: request reaches a terminal state and no reservation is left held  — state=failed error=upstream_invalid_response held=0
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (11ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for malformed through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:40:59.626Z","display_name":"HTTP fixture malformed","endpoint_id":"pe_e2d2eed4f5270384debe8779c26622bf","endpoint_url":"https://provider-http-fixture.example/v1/malforme
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_c78a9f2f722522ee1027740dba06765a/publish 200 OK (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 503 Service Unavailable (16ms)
+  PASS  malformed: reported as failure and the broken frame is not forwarded as content  — {"error":{"code":"service_unavailable","message":"The inference request could not be completed.","request_id":"req_1efebc38b3fc4fc394091b9388ee0e55","details":{"reason":"upstream_invalid_response"}}}
+  PASS  malformed: request reaches a terminal state and no reservation is left held  — state=failed error=upstream_invalid_response held=0
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (11ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for fail-before-output through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:41:01.117Z","display_name":"HTTP fixture fail-before-output","endpoint_id":"pe_0ffe34d5661bd1e53e7bfda1bb97fcdf","endpoint_url":"https://provider-http-fixture.example/v1
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_13d8984b5143cb1efdc718c4797eadec/publish 200 OK (16ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 503 Service Unavailable (14ms)
+  PASS  fail-before-output: surfaced as an error  — {"error":{"code":"service_unavailable","message":"The inference request could not be completed.","request_id":"req_4e55b1c3dd1c420998ebd9b1c785b630","details":{"reason":"provider_unavailable"}}}
+  PASS  fail-before-output: the provider was reached once
+  PASS  fail-before-output: request reaches a terminal state and no reservation is left held  — state=failed error=provider_unavailable held=0
+  PASS  fail-before-output: no usage billed
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (9ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for output-then-fail through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:41:03.115Z","display_name":"HTTP fixture output-then-fail","endpoint_id":"pe_1700e5f3145355ccdf456752a3a8f06b","endpoint_url":"https://provider-http-fixture.example/v1/o
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_025999df8a550f087e84345e25b3646b/publish 200 OK (14ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 200 OK (16ms)
+
+  output-then-fail: http=200 body=data: {"alias":"phttp-output-then-fail","choices":[{"delta":{"role":"assistant"},"finish_reason":null,"index":0}],"id":"req_aa9c40a740bc486da0358f0b92a08519","model":"phttp-output-then-fail","model_id":"mdl_208bfe55b477b106a882c0152c32f0cd","object":"chat.completion.chunk","provider_id":"prv_2a321be
+  PASS  output-then-fail: the client is told about the failure after partial output  — data: {"alias":"phttp-output-then-fail","choices":[{"delta":{"role":"assistant"},"finish_reason":null,"index":0}],"id":"req_aa9c40a740bc486da0358f0b92a08519","model":"phttp-output-then-fail","model_id":"mdl_208bfe55b477b106a882c0152c32f0cd"
+  PASS  output-then-fail: request reaches a terminal state and no reservation is left held  — state=failed error=upstream_invalid_response held=0
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (9ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for stall-before-headers through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:41:04.397Z","display_name":"HTTP fixture stall-before-headers","endpoint_id":"pe_d7864e0054094757065ff43d059f9788","endpoint_url":"https://provider-http-fixture.example/
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (7ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_3d5c6da6b44d53c9b08866a61cbc83c9/publish 200 OK (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 503 Service Unavailable (1522ms)
+  PASS  stall-before-headers: the route timeout fires (bounded by ~1.5 s, well under the 30 s client cap)  — elapsed=1526ms status=503
+  PASS  stall-before-headers: surfaced as an error  — {"error":{"code":"service_unavailable","message":"The inference request could not be completed.","request_id":"req_67a87bf4419b4bc4b8d332543cdd3718","details":{"reason":"request_timeout"}}}
+  PASS  stall-before-headers: request reaches a terminal state and no reservation is left held  — state=failed error=request_timeout held=0
+  stall-before-headers: request req_67a87bf4419b4bc4b8d332543cdd3718 state=failed error=request_timeout elapsed=1526ms
+  stall-before-headers: upstream fixture outcome=client-closed frames=0; forwarder upstreamDestroyedBy=response-closed resClosedBeforeFinish=true; closedAfter=1503ms
+  PASS  stall-before-headers: the provider socket was closed by the Worker side before the provider finished  — fixture outcome=client-closed frames=0; forwarder upstreamDestroyedBy=response-closed resClosedBeforeFinish=true
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (10ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for stall-after-headers through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:41:07.782Z","display_name":"HTTP fixture stall-after-headers","endpoint_id":"pe_6d720ea48048dc5676a65e3702b5c47a","endpoint_url":"https://provider-http-fixture.example/v
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (7ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_e3d67dafee98076f9a07178e4e69e391/publish 200 OK (15ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 503 Service Unavailable (1521ms)
+  PASS  stall-after-headers: the route timeout fires (bounded by ~1.5 s, well under the 30 s client cap)  — elapsed=1524ms status=503
+  PASS  stall-after-headers: surfaced as an error  — {"error":{"code":"service_unavailable","message":"The inference request could not be completed.","request_id":"req_c8c47b0716c040b4b36c42db1612f8cb","details":{"reason":"provider_unavailable"}}}
+  PASS  stall-after-headers: request reaches a terminal state and no reservation is left held  — state=failed error=provider_unavailable held=0
+  stall-after-headers: request req_c8c47b0716c040b4b36c42db1612f8cb state=failed error=provider_unavailable elapsed=1524ms
+  stall-after-headers: upstream fixture outcome=client-closed frames=0; forwarder upstreamDestroyedBy=response-closed resClosedBeforeFinish=true; closedAfter=1502ms
+  PASS  stall-after-headers: the provider socket was closed by the Worker side before the provider finished  — fixture outcome=client-closed frames=0; forwarder upstreamDestroyedBy=response-closed resClosedBeforeFinish=true
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (9ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for slow-stream through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:41:11.340Z","display_name":"HTTP fixture slow-stream","endpoint_id":"pe_ad189546a0a066e6cf6c0041b608c68b","endpoint_url":"https://provider-http-fixture.example/v1/slow-s
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (7ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_e935ca83cb1980e29e95e321cae838fa/publish 200 OK (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 200 OK (17ms)
+  PASS  slow-stream control: the stream was read to its terminator  — data: {"alias":"phttp-slow-stream-control","choices":[{"delta":{"role":"assistant"},"finish_reason":null,"index":0}],"id":"req_2ac4e63c6de14faaa80b95bb9a49b587","model":"phttp-slow-stream-control","model_id":"mdl_86d3a18c2d5cc58f0e475ba8f79
+
+  slow-stream no-cancel control: state=completed error=n/a reservations=committed held=0 total=3701ms
+  PASS  slow-stream control: a fully-read stream settles terminal with no reservation held  — state=completed error=n/a reservations=committed held=0
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (10ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (7ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (12ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_b6d1194758b0701e0ab01fa3a7dce63b/publish 200 OK (11ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 200 OK (12ms)
+
+  mock:// disconnect control: state=failed error=request_timeout reservations=released held=0 settledWithin=21585ms
+  UNPROVEN  mock:// control: OBSERVED held reservation beyond the 20000ms bound; reclaimed only at 21585ms (product cause not diagnosed)  — state=failed error=request_timeout reservations=released held=0
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/providers 201 Created (11ms)
+  PASS  CONTROL: catalog accepts the public https endpoint for slow-stream through the real SSRF/allowlist gate  — status=201 body={"provider":{"adapter":"openai_compatible","created_at":"2026-10-09T10:41:36.764Z","display_name":"HTTP fixture slow-stream","endpoint_id":"pe_03675458ce9a47cdad1a75a662d6482c","endpoint_url":"https://provider-http-fixture.example/v1/slow-s
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/catalog/models 201 Created (9ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/credentials 201 Created (8ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes 201 Created (12ms)
+[wrangler-ProxyWorker:info] POST /api/v1/orgs/org_a89d46b77530b00e75b62f4f3ae61908/routes/rte_d0ea32d921a40b0fd8cb92df989969cc/publish 200 OK (13ms)
+[wrangler-ProxyWorker:info] POST /api/v1/inference/chat/completions 200 OK (17ms)
+  cancel: upstream fixture outcome=client-closed frames=3; forwarder upstreamDestroyedBy=response-closed resClosedBeforeFinish=true; closedAfter=85ms
+  PASS  cancel: the provider socket was closed by the Worker side before the provider finished  — fixture outcome=client-closed frames=3; forwarder upstreamDestroyedBy=response-closed resClosedBeforeFinish=true
+
+  cancel settlement: state=stream_committed error=n/a reservations=reserved held=1 atBound(22307ms)=state:stream_committed,held:1 settledWithin=nullms window=90000ms
+  UNPROVEN  cancel: OBSERVED request still unsettled with reservation held after 90000ms (product cause not diagnosed)  — state=stream_committed error=n/a reservations=reserved held=1 atBound(22307ms)=state:stream_committed,held:1
+
+  fixture tally: {"ok":2,"rate-limit":2,"server-error":1,"redirect":1,"malformed":1,"fail-before-output":1,"output-then-fail":1,"stall-before-headers":1,"stall-after-headers":1,"slow-stream":2}
+  PASS  no request reached the fixture on an unknown path
+  PASS  the forwarder denied nothing during the whole run (the Worker only dialled the one permitted host)  — []
+  PASS  fixture and forwarder ledgers hold no credential value
+
+per-claim verdicts:
+  PASS           [critical] unmodified-adapter-request — the unmodified production adapter's request is accepted by the runtime and reaches the provider
+  PASS           [critical] control-json — non-streaming completion through the real adapter, credential/translation correct, request terminal
+  PASS           [critical] control-sse — streaming SSE passes through intact and the request is terminal
+  PASS           [critical] status-429 — provider 429 is an error, one upstream call, terminal, no usage billed
+  PASS           [critical] status-503 — provider 503 is an error, one upstream call, terminal, no usage billed
+  PASS           [critical] retry-bound-429 — 429 retries stay within 1 attempt + max_retries
+  PASS           [critical] redirect-not-followed — a provider 3xx is an error and is never followed
+  PASS           [critical] stream-malformed — a malformed stream frame fails the request and is not forwarded as content
+  PASS           [critical] stream-fail-before-output — a transport failure before output is an error, one call, terminal, no usage
+  PASS           [critical] stream-output-then-fail — a failure after partial output is reported and the request is terminal
+  PASS           [critical] timeout-stall-before-headers — a stall before headers is bounded by the route timeout and ends terminal
+  PASS           [critical] timeout-stall-after-headers — a stall after headers is bounded by the route timeout and ends terminal
+  PASS           [critical] timeout-upstream-closure — on timeout the provider socket is closed by the Worker
+  PASS           [critical] stream-no-cancel-settles — positive control: a fully-read stream settles terminal with no reservation held
+  UNPROVEN       [critical] cancel-settles — after a client disconnect the request settles terminal within the bound and holds no reservation
+      UNPROVEN: cancel: OBSERVED request still unsettled with reservation held after 90000ms (product cause not diagnosed) (state=stream_committed error=n/a reservations=reserved held=1 atBound(22307ms)=state:stream_committed,held:1)
+  PASS           [critical] cancel-upstream-propagation — a client disconnect cancels the upstream provider request
+  PASS           [critical] summary-no-unknown-path — no request reached the fixture on an unknown path
+  PASS           [critical] summary-no-denied-egress — the Worker dialled only the one permitted host
+  PASS           [critical] summary-no-secret-in-ledger — the fixture ledger holds no credential value
+  UNPROVEN       [advisory] cancel-mock-control — advisory control: disconnect on a mock:// provider settles terminal (separates adapter path from generic cancel handling)
+      UNPROVEN: mock:// control: OBSERVED held reservation beyond the 20000ms bound; reclaimed only at 21585ms (product cause not diagnosed) (state=failed error=request_timeout reservations=released held=0)
+overall: UNPROVEN (exit 2)
+PROVIDER_HTTP_VERDICTS {"overall":"UNPROVEN","redirectShim":false,"outbound":"node","claims":{"unmodified-adapter-request":"PASS","control-json":"PASS","control-sse":"PASS","status-429":"PASS","status-503":"PASS","retry-bound-429":"PASS","redirect-not-followed":"PASS","stream-malformed":"PASS","stream-fail-before-output":"PASS","stream-output-then-fail":"PASS","timeout-stall-before-headers":"PASS","timeout-stall-after-headers":"PASS","timeout-upstream-closure":"PASS","stream-no-cancel-settles":"PASS","cancel-settles":"UNPROVEN","cancel-upstream-propagation":"PASS","summary-no-unknown-path":"PASS","summary-no-denied-egress":"PASS","summary-no-secret-in-ledger":"PASS","cancel-mock-control":"UNPROVEN"}}
+
+65/65 provider-http-adapter cases hold

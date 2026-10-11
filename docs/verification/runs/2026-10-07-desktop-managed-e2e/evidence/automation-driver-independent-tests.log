@@ -1,0 +1,17 @@
+✔ a due adopted occurrence claims, starts, renews and settles through the guard (1.180375ms)
+✔ an occurrence of an automation not adopted here is never claimed (0.111708ms)
+✔ two clients race one occurrence and exactly one executes (0.15925ms)
+✔ a lost lease is terminal: ambiguity stops renewal and settlement and never replays (0.197208ms)
+✔ a superseded holder cannot settle: the server fence is authoritative (0.124125ms)
+✔ a start refusal releases the lease and reports it without side effects (0.125167ms)
+✔ revocation and ineligibility are refusals; stale policy is refused before the claim (0.107666ms)
+✔ a non-executable principal is refused before the claim spends the attempt budget (0.085209ms)
+✔ a guard rejection after a granted claim returns the lease before any side effect (0.130958ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 366.872542

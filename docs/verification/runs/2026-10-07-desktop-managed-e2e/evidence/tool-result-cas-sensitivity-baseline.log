@@ -1,0 +1,30 @@
+{
+  "scope": "actual result CAS SQL, real schema/audit; memory copies only",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "claim": "completed wins over failed with one stored result/audit",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "completed wins over cancelled with one stored result/audit",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "failed wins over completed with one stored result/audit",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "failed wins over cancelled with one stored result/audit",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "cancelled wins over completed with one stored result/audit",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "cancelled wins over failed with one stored result/audit",
+      "verdict": "PASS"
+    }
+  ]
+}

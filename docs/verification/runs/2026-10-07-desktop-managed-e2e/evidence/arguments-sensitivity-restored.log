@@ -1,0 +1,28 @@
+✔ managed summary does not export paths, commands, arbitrary names or strings (0.684709ms)
+✔ summary binds nested input, long tails, arrays and fields beyond a display bound (0.368375ms)
+✔ only closed action vocabulary is displayable and summary stays server-canonical (0.320875ms)
+✔ non-JSON, cyclic, excessive-depth and oversized input fails closed (0.467416ms)
+✔ hashing does not invoke input getters and rejects non-JSON array/object shapes (0.109958ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (12.438167ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (1.151459ms)
+✔ an explicit local-only context preserves unmanaged execution (0.283541ms)
+✔ a managed gate cannot be bypassed by a local allow (0.418333ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.206167ms)
+✔ managed context is preserved when a batch is chunked (0.777417ms)
+✔ managed decision re-evaluates hook-modified input (1.408542ms)
+✔ a changed managed fingerprint is denied (0.340875ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.50975ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.363375ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (2.475875ms)
+✔ a mutation between gate completion and handler admission is refused (0.523917ms)
+✔ an asynchronous managed handler owns an isolated approved input snapshot (0.269292ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (1.80425ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.351ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1027.541917

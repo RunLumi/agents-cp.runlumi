@@ -1,0 +1,13 @@
+✔ only a completed admission releases allow before an actual file handler (9.207875ms)
+✔ refused, ambiguous or unsupported admission never retries or releases allow (0.611125ms)
+✔ pending approval returns its requirement without attempting a claim (0.121833ms)
+✔ result reporting sends status only and validates authoritative identity (1.183792ms)
+✔ private tool transport uses DeviceToken only and rejects unbound allows (106.41325ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 536.852625

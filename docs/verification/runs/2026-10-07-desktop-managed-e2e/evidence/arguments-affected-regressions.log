@@ -1,0 +1,33 @@
+✔ managed reverse port serializes metadata and carries abort/trace outside params (2.562834ms)
+✔ managed summary does not export paths, commands, arbitrary names or strings (0.863542ms)
+✔ summary binds nested input, long tails, arrays and fields beyond a display bound (0.413084ms)
+✔ only closed action vocabulary is displayable and summary stays server-canonical (0.66025ms)
+✔ non-JSON, cyclic, excessive-depth and oversized input fails closed (0.636166ms)
+✔ hashing does not invoke input getters and rejects non-JSON array/object shapes (0.158958ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (12.951833ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (1.154083ms)
+✔ an explicit local-only context preserves unmanaged execution (0.282292ms)
+✔ a managed gate cannot be bypassed by a local allow (0.429042ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.210125ms)
+✔ managed context is preserved when a batch is chunked (0.64425ms)
+✔ managed decision re-evaluates hook-modified input (4.448042ms)
+✔ a changed managed fingerprint is denied (0.490834ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.374417ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.434ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (5.910083ms)
+✔ a mutation between gate completion and handler admission is refused (0.643333ms)
+✔ an asynchronous managed handler owns an isolated approved input snapshot (0.287417ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (4.642792ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.944375ms)
+✔ private tool bridge matches independent requests and refuses stale, malformed and expired replies (43.031958ms)
+✔ managed auth is bound to the exact active run, alias and workspace (0.479ms)
+✔ late results lose authority when logout or settlement removes or replaces the lease (0.518041ms)
+✔ private tool transport uses DeviceToken only and rejects unbound allows (77.884792ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1872.069417

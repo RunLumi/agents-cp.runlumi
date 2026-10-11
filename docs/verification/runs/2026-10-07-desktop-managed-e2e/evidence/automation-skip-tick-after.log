@@ -1,0 +1,42 @@
+   Compiling lumi-agents-control-plane-api v0.1.0 (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.28s
+     Running unittests src/lib.rs (target/debug/deps/lumi_agents_control_plane_api-70a99ecb46a025f8)
+
+running 28 tests
+test jobs::automations::tests::a_missed_slot_never_stays_pending ... ok
+test jobs::automations::tests::a_claim_normalizes_pending_through_the_dispatch_edge ... ok
+test jobs::automations::tests::a_pre_start_expiry_requeues_but_a_post_start_expiry_is_ambiguous ... ok
+test jobs::automations::tests::a_manual_rule_never_produces_scheduled_instants ... ok
+test jobs::automations::tests::dispatch_recheck_enforces_the_active_automation_entitlement ... ok
+test jobs::automations::tests::cancel_previous_keeps_the_successor_queued_behind_its_predecessor ... ok
+test jobs::automations::tests::dispatch_recheck_fails_closed_for_a_missing_license_projection ... ok
+test jobs::automations::tests::a_queued_successor_past_its_bounded_age_is_skipped ... ok
+test jobs::automations::tests::a_catch_up_rule_without_a_limit_is_rejected_at_the_boundary ... ok
+test jobs::automations::tests::dispatch_recheck_refuses_an_expired_grace_and_a_stale_policy ... ok
+test jobs::automations::tests::an_ambiguous_predecessor_never_dispatches_under_any_policy ... ok
+test jobs::automations::tests::dispatch_recheck_refuses_membership_loss_and_org_state ... ok
+test jobs::automations::tests::deterministic_ids_are_stable_and_distinct_per_slot ... ok
+test jobs::automations::tests::occurrence_event_names_cover_every_dispatcher_moved_state_but_the_claim ... ok
+test jobs::automations::tests::predecessor_view_uses_the_predecessor_queued_age ... ok
+test jobs::automations::tests::retry_settings_round_trip_through_the_bounded_domain_policy ... ok
+test jobs::automations::tests::no_predecessor_always_dispatches ... ok
+test jobs::automations::tests::the_attempt_budget_fails_an_exhausted_occurrence_instead_of_looping ... ok
+test jobs::automations::tests::catch_up_is_bounded_by_the_frozen_limit ... ok
+test jobs::automations::tests::queue_one_allows_at_most_one_open_successor ... ok
+test jobs::automations::tests::the_frozen_schedule_kinds_are_the_only_persisted_ones ... ok
+test jobs::automations::tests::a_long_offline_window_is_bounded_and_coalesces_forward ... ok
+test jobs::automations::tests::the_report_totals_are_additive ... ok
+test jobs::automations::tests::a_terminal_predecessor_always_allows_the_next_slot ... ok
+test jobs::automations::tests::a_due_slot_projects_to_one_dispatchable_occurrence ... ok
+test jobs::automations::tests::the_occurrence_payload_is_bounded_metadata_only ... ok
+test jobs::automations::tests::skip_missed_policy_keeps_the_current_tick_but_drops_offline_backlog ... ok
+test jobs::automations::tests::the_due_projection_never_leaks_an_idempotency_digest_or_bad_json ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 1040 filtered out; finished in 0.00s
+
+     Running tests/egress_corpus.rs (target/debug/deps/egress_corpus-671e534860a04d95)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+

@@ -1,0 +1,19 @@
+✔ browser broker starts with a long TMPDIR while preserving socket auth and cleanup (8.409375ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (9.324667ms)
+✔ an explicit local-only context preserves unmanaged execution (0.359125ms)
+✔ a managed gate cannot be bypassed by a local allow (0.644209ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.228ms)
+✔ managed context is preserved when a batch is chunked (0.504667ms)
+✔ managed decision re-evaluates hook-modified input (1.588625ms)
+✔ a changed managed fingerprint is denied (0.396709ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.277959ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.343666ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.285167ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1281.021833

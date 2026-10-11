@@ -1,0 +1,23 @@
+✔ managed reverse port serializes metadata and carries abort/trace outside params (2.693083ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (9.945ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (0.946791ms)
+✔ an explicit local-only context preserves unmanaged execution (0.236875ms)
+✔ a managed gate cannot be bypassed by a local allow (0.340084ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.178167ms)
+✔ managed context is preserved when a batch is chunked (0.5845ms)
+✔ managed decision re-evaluates hook-modified input (1.5215ms)
+✔ a changed managed fingerprint is denied (0.27425ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.218917ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.276542ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (1.89ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.255625ms)
+✔ private tool bridge matches independent requests and refuses stale, malformed and expired replies (43.486625ms)
+✔ private tool transport uses DeviceToken only and rejects unbound allows (71.718208ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1512.474125

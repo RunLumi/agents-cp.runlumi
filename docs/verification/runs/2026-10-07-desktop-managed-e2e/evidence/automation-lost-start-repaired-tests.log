@@ -1,0 +1,28 @@
+✔ a due adopted occurrence claims, starts, renews and settles through the guard (1.23075ms)
+✔ an occurrence of an automation not adopted here is never claimed (0.119625ms)
+✔ two clients race one occurrence and exactly one executes (0.17125ms)
+✔ a lost lease is terminal: ambiguity stops renewal and settlement and never replays (0.28075ms)
+✔ a superseded holder cannot settle: the server fence is authoritative (0.219791ms)
+✔ a start refusal releases the lease and reports it without side effects (0.185542ms)
+✔ revocation and ineligibility are refusals; stale policy is refused before the claim (0.131792ms)
+✔ a non-executable principal is refused before the claim spends the attempt budget (0.113583ms)
+✔ a guard rejection after a granted claim returns the lease before any side effect (0.158167ms)
+✔ lost start response never attempts a pre-start release (0.152417ms)
+✔ a due adopted occurrence claims, starts, renews and settles through the guard (1.160209ms)
+✔ an occurrence of an automation not adopted here is never claimed (0.110792ms)
+✔ two clients race one occurrence and exactly one executes (0.158375ms)
+✔ a lost lease is terminal: ambiguity stops renewal and settlement and never replays (0.201208ms)
+✔ a superseded holder cannot settle: the server fence is authoritative (0.125458ms)
+✔ a start refusal releases the lease and reports it without side effects (0.128667ms)
+✔ lost committed start response remains ambiguous with no release or retry (0.107208ms)
+✔ revocation and ineligibility are refusals; stale policy is refused before the claim (0.123375ms)
+✔ a non-executable principal is refused before the claim spends the attempt budget (0.086333ms)
+✔ a guard rejection after a granted claim returns the lease before any side effect (0.165042ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 400.986125

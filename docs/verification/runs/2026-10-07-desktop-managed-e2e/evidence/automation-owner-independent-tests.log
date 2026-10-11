@@ -1,0 +1,14 @@
+✔ preview and cancel create nothing locally or remotely (18.899208ms)
+✔ an unconfirmed, unadoptable or conflicting import writes no marker (5.998833ms)
+✔ confirm preserves the original and hands execution to exactly one scheduler (50.113083ms)
+✔ every crash window keeps at most one scheduler and never duplicates the managed copy (11.35625ms)
+✔ recovery without a managed copy keeps the original suppressed and decides nothing for the user (7.619875ms)
+✔ release deletes and reads back the managed copy before the local original resumes (6.086584ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 981.192083

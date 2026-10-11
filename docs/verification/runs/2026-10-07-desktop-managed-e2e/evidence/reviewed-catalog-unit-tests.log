@@ -1,0 +1,20 @@
+✔ refuses credentials, insecure remote origins and non-origin URLs (0.448916ms)
+✔ host transport exposes only validated server-owned managed options (9.361958ms)
+✔ real S256 pair and host-private cookies follow the frozen auth contract (1.562459ms)
+✔ cancelled asynchronous sign-in cannot publish a pending flow (0.313333ms)
+✔ exchange missing CSRF cannot establish a session (0.270125ms)
+✔ session restores only from same-origin private persistence and logout clears it (0.216667ms)
+✔ cancel during persistent write clears the stale session before publishing (0.331959ms)
+✔ reviewed identity uses server ID with exact runtime needs and no catalog metadata (1.569708ms)
+✔ mismatch never drops capabilities or lowers risk/source (0.393334ms)
+✔ unknown, review and disabled tools are not accepted (0.181208ms)
+✔ foreign/malformed/duplicate catalog rows fail closed (0.182708ms)
+✔ all pages are reviewed and cycles/incomplete catalogs cannot release a match (0.222334ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 457.054417
