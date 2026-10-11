@@ -5,11 +5,7 @@
 // Importing the product modules keeps the review row and the runtime in lockstep:
 // any descriptor change moves the fingerprint and the managed gate then denies the
 // call as uncatalogued, which the harness would report instead of hiding.
-import {
-  createToolRegistry,
-  registerBuiltInTools,
-  resolveManagedToolIdentity,
-} from "@zcode/core";
+import { createToolRegistry, registerBuiltInTools, resolveManagedToolIdentity } from "@zcode/core";
 
 const registry = createToolRegistry();
 registerBuiltInTools(registry, { allowedTools: ["Write"], silentDuplicateWarnings: true });

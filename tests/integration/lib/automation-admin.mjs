@@ -28,7 +28,11 @@ export async function setAutomationStatus(ctx, action, automationId) {
     { version: current.version },
     probe.browserMutation(fixtureOrg.fixture, nextKey(action)),
   );
-  assert.equal(result.status, 200, `${action} answered ${result.status}: ${result.text.slice(0, 300)}`);
+  assert.equal(
+    result.status,
+    200,
+    `${action} answered ${result.status}: ${result.text.slice(0, 300)}`,
+  );
   const after = await definitionVersion(server, orgId, automationId);
   assert.equal(after.status, target, `${action} took effect in D1`);
 }
@@ -40,7 +44,11 @@ export async function revokeDevice(ctx, deviceId) {
     `SELECT status FROM devices WHERE device_id='${deviceId}'`,
     "device before revoke",
   );
-  assert.equal(before[0]?.status, "active", "positive control: the device is active before revocation");
+  assert.equal(
+    before[0]?.status,
+    "active",
+    "positive control: the device is active before revocation",
+  );
   const result = await probe.request(
     fixtureOrg.fixture,
     "DELETE",
@@ -48,8 +56,14 @@ export async function revokeDevice(ctx, deviceId) {
     {},
     probe.browserMutation(fixtureOrg.fixture, nextKey("revoke")),
   );
-  assert.ok([200, 202, 204].includes(result.status), `revoke answered ${result.status}: ${result.text.slice(0, 300)}`);
-  const after = await server.rows(`SELECT status FROM devices WHERE device_id='${deviceId}'`, "device after revoke");
+  assert.ok(
+    [200, 202, 204].includes(result.status),
+    `revoke answered ${result.status}: ${result.text.slice(0, 300)}`,
+  );
+  const after = await server.rows(
+    `SELECT status FROM devices WHERE device_id='${deviceId}'`,
+    "device after revoke",
+  );
   assert.equal(after[0]?.status, "revoked", "revocation is stored");
   const tokens = await server.rows(
     `SELECT COUNT(*) AS n FROM device_tokens WHERE device_id='${deviceId}'`,

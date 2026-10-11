@@ -4,16 +4,35 @@ import { awaitClaims, claimOutcomes, summarizeClaims } from "./automation-claim-
 
 const json = (id, status) =>
   `{"event":"http_request","request_id":"${id}","correlation_id":"${id}","method":"POST","route":"/api/v1/devices/automation-occurrences/{occurrence_id}/claim","status":${status},"duration_ms":6}`;
-const proxy = (occ, status) => `[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/${occ}/claim ${status} Created (26ms)`;
-const text = [json("req_a", 201), "noise", proxy("occ_1", 201), json("req_b", 409), proxy("occ_1", 409), json("req_c", 201), proxy("occ_2", 201)].join("\n");
+const proxy = (occ, status) =>
+  `[wrangler-ProxyWorker:info] POST /api/v1/devices/automation-occurrences/${occ}/claim ${status} Created (26ms)`;
+const text = [
+  json("req_a", 201),
+  "noise",
+  proxy("occ_1", 201),
+  json("req_b", 409),
+  proxy("occ_1", 409),
+  json("req_c", 201),
+  proxy("occ_2", 201),
+].join("\n");
 
 test("one accepted and one refused claim for the contested occurrence, with paired correlation ids", () => {
   const summary = summarizeClaims(claimOutcomes(text, "occ_1"));
-  assert.deepEqual(summary, { accepted: 1, refused: 1, other: [], correlationIds: ["req_a", "req_b"] });
+  assert.deepEqual(summary, {
+    accepted: 1,
+    refused: 1,
+    other: [],
+    correlationIds: ["req_a", "req_b"],
+  });
 });
 
 test("an occurrence nobody else claimed shows no refusal (positive control for the reader)", () => {
-  assert.deepEqual(summarizeClaims(claimOutcomes(text, "occ_2")), { accepted: 1, refused: 0, other: [], correlationIds: ["req_c"] });
+  assert.deepEqual(summarizeClaims(claimOutcomes(text, "occ_2")), {
+    accepted: 1,
+    refused: 0,
+    other: [],
+    correlationIds: ["req_c"],
+  });
 });
 
 test("a capture whose lines do not pair 1:1 keeps statuses but withholds correlation ids", () => {

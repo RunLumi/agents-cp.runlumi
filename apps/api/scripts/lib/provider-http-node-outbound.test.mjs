@@ -26,12 +26,17 @@ after(async () => {
 
 function call({ host = HOST, path, method = "POST", onResponse }) {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ host: "127.0.0.1", port: frontPort, method, path, headers: { host } }, (res) => {
-      if (onResponse) return onResponse(req, res, resolve);
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
-    });
+    const req = httpRequest(
+      { host: "127.0.0.1", port: frontPort, method, path, headers: { host } },
+      (res) => {
+        if (onResponse) return onResponse(req, res, resolve);
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () =>
+          resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }),
+        );
+      },
+    );
     req.on("error", reject);
     req.end(JSON.stringify({ model: "m", stream: false, messages: [] }));
   });
@@ -53,7 +58,10 @@ test("deny matrix never reaches the fixture", async () => {
     { path: "/v1/ok/other", reason: "path_not_permitted" },
   ];
   for (const c of cases) assert.equal((await call(c)).status, 403, c.reason);
-  assert.deepEqual(outbound.denials().map((d) => d.reason), cases.map((c) => c.reason));
+  assert.deepEqual(
+    outbound.denials().map((d) => d.reason),
+    cases.map((c) => c.reason),
+  );
   assert.equal(fixture.count(), before);
   assert.ok(!JSON.stringify(outbound.denials()).includes("token=x"), "query must not be recorded");
 });
@@ -69,7 +77,9 @@ test("downstream close mid-stream destroys the provider socket", async () => {
       });
     },
   });
-  await fixture.waitFor((rs) => rs.length > start && rs[start].outcome !== "pending", { label: "close" });
+  await fixture.waitFor((rs) => rs.length > start && rs[start].outcome !== "pending", {
+    label: "close",
+  });
   const record = fixture.records()[start];
   assert.equal(record.outcome, "client-closed");
   assert.ok(record.framesWritten < 60);
@@ -82,7 +92,13 @@ test("an unreachable provider becomes a marked 502, not a hang", async () => {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const status = await new Promise((resolve, reject) => {
     const req = httpRequest(
-      { host: "127.0.0.1", port: server.address().port, method: "POST", path: "/v1/ok/v1/chat/completions", headers: { host: HOST } },
+      {
+        host: "127.0.0.1",
+        port: server.address().port,
+        method: "POST",
+        path: "/v1/ok/v1/chat/completions",
+        headers: { host: HOST },
+      },
       (res) => {
         res.resume();
         res.on("end", () => resolve([res.statusCode, res.headers["x-lumi-fixture-egress"]]));

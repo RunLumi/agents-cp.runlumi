@@ -67,28 +67,37 @@ export function automationUi(app) {
       return null;
     });
     if (back) await realClickAt(back, "leave Settings");
-    const hasList = () => page().evaluate(() => !!document.querySelector('[data-testid="automations-list"]'));
+    const hasList = () =>
+      page().evaluate(() => !!document.querySelector('[data-testid="automations-list"]'));
     if (await hasList()) return;
-    if (!(await page().evaluate(() => !!document.querySelector('[data-testid="automations-open"]'))))
+    if (
+      !(await page().evaluate(() => !!document.querySelector('[data-testid="automations-open"]')))
+    )
       await ui().clickText("Back to workspace");
     await ui().wait(() => !!document.querySelector('[data-testid="automations-open"]'), "sidebar");
     await ui().clickTestId("automations-open");
-    await ui().wait(() => !!document.querySelector('[data-testid="automations-list"]'), "automations list");
+    await ui().wait(
+      () => !!document.querySelector('[data-testid="automations-list"]'),
+      "automations list",
+    );
   }
 
   const cardTitles = () =>
     page().evaluate(() =>
       [...document.querySelectorAll('[data-testid="automation-card"]')].map((card) => ({
         text: card.innerText,
-        badge: card.querySelector('[data-testid="lumi-automation-badge"] [data-state]')?.getAttribute("data-state") ?? null,
+        badge:
+          card
+            .querySelector('[data-testid="lumi-automation-badge"] [data-state]')
+            ?.getAttribute("data-state") ?? null,
       })),
     );
 
   async function waitForCard(title) {
     await ui().wait(
       (needle) =>
-        [...document.querySelectorAll('[data-testid="automation-card"]')].some((card) =>
-          card.innerText.split("\n")[0].trim() === needle,
+        [...document.querySelectorAll('[data-testid="automation-card"]')].some(
+          (card) => card.innerText.split("\n")[0].trim() === needle,
         ),
       `automation card ${title}`,
       { arg: title, timeout: 45_000 },
@@ -104,8 +113,8 @@ export function automationUi(app) {
   async function openCardMenu(title) {
     await waitForCard(title);
     const point = await page().evaluate((needle) => {
-      const card = [...document.querySelectorAll('[data-testid="automation-card"]')].find((item) =>
-        item.innerText.split("\n")[0].trim() === needle,
+      const card = [...document.querySelectorAll('[data-testid="automation-card"]')].find(
+        (item) => item.innerText.split("\n")[0].trim() === needle,
       );
       const trigger = card?.querySelector('[data-testid="automation-card-menu"]');
       if (!trigger) return null;
@@ -117,15 +126,18 @@ export function automationUi(app) {
       return point;
     }, title);
     await realClickAt(point, `card menu of ${title}`);
-    await ui().wait((selector) => !!document.querySelector(selector), `menu of ${title}`, { arg: MENU });
+    await ui().wait((selector) => !!document.querySelector(selector), `menu of ${title}`, {
+      arg: MENU,
+    });
   }
 
   /** Menu item test ids offered by the open card menu (so absence of an action is observable). */
   const menuTestIds = () =>
-    page().evaluate((selector) =>
-      [...document.querySelectorAll(`${selector} [data-testid]`)].map((item) =>
-        item.getAttribute("data-testid"),
-      ),
+    page().evaluate(
+      (selector) =>
+        [...document.querySelectorAll(`${selector} [data-testid]`)].map((item) =>
+          item.getAttribute("data-testid"),
+        ),
       MENU,
     );
 
@@ -137,33 +149,51 @@ export function automationUi(app) {
       await openCardMenu(title);
       if (await centerOfTestId("lumi-automation-handover", MENU)) break;
       const offered = await menuTestIds();
-      uiObservations.push({ at: new Date().toISOString(), title, attempt, offered, note: "hand-over menu item absent" });
-      assert.ok(attempt < attempts, `hand over menu item never appeared for ${title} after ${attempts} attempts; menu offered ${JSON.stringify(offered)}`);
+      uiObservations.push({
+        at: new Date().toISOString(),
+        title,
+        attempt,
+        offered,
+        note: "hand-over menu item absent",
+      });
+      assert.ok(
+        attempt < attempts,
+        `hand over menu item never appeared for ${title} after ${attempts} attempts; menu offered ${JSON.stringify(offered)}`,
+      );
       await dismissMenu();
       await delay(settleMs);
     }
-    await realClickAt(await centerOfTestId("lumi-automation-handover", MENU), "hand over menu item");
-    await ui().wait(() => !!document.querySelector('[data-testid="lumi-automation-dialog"]'), "dialog");
+    await realClickAt(
+      await centerOfTestId("lumi-automation-handover", MENU),
+      "hand over menu item",
+    );
+    await ui().wait(
+      () => !!document.querySelector('[data-testid="lumi-automation-dialog"]'),
+      "dialog",
+    );
   }
 
   /** Card menu -> "Attach to existing" (spec 07). Opening the dialog only previews; nothing is sent. */
   async function startAttach(title) {
     await openCardMenu(title);
     await realClickAt(await centerOfTestId("lumi-automation-attach", MENU), "attach menu item");
-    await ui().wait(() => !!document.querySelector('[data-testid="lumi-automation-dialog"]'), "attach dialog");
+    await ui().wait(
+      () => !!document.querySelector('[data-testid="lumi-automation-dialog"]'),
+      "attach dialog",
+    );
   }
 
   /** Rendered candidate radios: label text and whether the product marked them attachable. */
   const attachOptions = () =>
     page().evaluate(
       (selector) =>
-        [...document.querySelectorAll(`${selector} [data-testid="lumi-automation-attach-option"]`)].map(
-          (input) => ({
-            text: input.closest("label")?.innerText ?? "",
-            attachable: input.getAttribute("data-attachable") === "true",
-            checked: input.checked,
-          }),
-        ),
+        [
+          ...document.querySelectorAll(`${selector} [data-testid="lumi-automation-attach-option"]`),
+        ].map((input) => ({
+          text: input.closest("label")?.innerText ?? "",
+          attachable: input.getAttribute("data-attachable") === "true",
+          checked: input.checked,
+        })),
       DIALOG,
     );
 
@@ -171,7 +201,9 @@ export function automationUi(app) {
   async function chooseAttachOption(index) {
     const point = await page().evaluate(
       (selector, position) => {
-        const input = document.querySelectorAll(`${selector} [data-testid="lumi-automation-attach-option"]`)[position];
+        const input = document.querySelectorAll(
+          `${selector} [data-testid="lumi-automation-attach-option"]`,
+        )[position];
         if (!input || input.disabled) return null;
         input.scrollIntoView({ block: "center" });
         const rect = input.getBoundingClientRect();
@@ -185,9 +217,14 @@ export function automationUi(app) {
 
   /** Real click on the local-instructions acknowledgement; returns its checked state afterwards. */
   async function toggleAttachAck() {
-    await realClickAt(await centerOfTestId("lumi-automation-attach-ack", DIALOG), "attach acknowledgement");
+    await realClickAt(
+      await centerOfTestId("lumi-automation-attach-ack", DIALOG),
+      "attach acknowledgement",
+    );
     return page().evaluate(
-      (selector) => document.querySelector(`${selector} [data-testid="lumi-automation-attach-ack"]`)?.checked ?? null,
+      (selector) =>
+        document.querySelector(`${selector} [data-testid="lumi-automation-attach-ack"]`)?.checked ??
+        null,
       DIALOG,
     );
   }
@@ -213,33 +250,37 @@ export function automationUi(app) {
       if (phase && phases.includes(phase)) return phase;
       await delay(250);
     }
-    throw new Error(`dialog never reached ${label ?? phases.join("|")}; phase=${await dialogPhase()}; text=${(await dialogText()).slice(0, 300)}`);
+    throw new Error(
+      `dialog never reached ${label ?? phases.join("|")}; phase=${await dialogPhase()}; text=${(await dialogText()).slice(0, 300)}`,
+    );
   }
 
   /** Wait until the agent and model <select>s hold the real options the Worker returned. */
   async function waitOptionsLoaded() {
-    await ui().wait(
-      () => {
-        const selects = [...document.querySelectorAll('[data-testid="lumi-automation-dialog"] select')];
-        return selects.length >= 2 && selects.every((select) => select.options.length > 1);
-      },
-      "agent and model options",
-    );
+    await ui().wait(() => {
+      const selects = [
+        ...document.querySelectorAll('[data-testid="lumi-automation-dialog"] select'),
+      ];
+      return selects.length >= 2 && selects.every((select) => select.options.length > 1);
+    }, "agent and model options");
   }
 
   /** Select an actual rendered option by label or its public alias/id; never call a handler. */
   async function chooseByLabel(label, optionText) {
     const ok = await page().evaluate(
       (text, wanted) => {
-        const wrapper = [...document.querySelectorAll('[data-testid="lumi-automation-dialog"] label')].find(
-          (item) => item.innerText.trim().startsWith(text),
-        );
+        const wrapper = [
+          ...document.querySelectorAll('[data-testid="lumi-automation-dialog"] label'),
+        ].find((item) => item.innerText.trim().startsWith(text));
         const select = wrapper?.querySelector("select");
-        const option = select && [...select.options].find((item) =>
-          item.text.trim() === wanted || item.value === wanted,
-        );
+        const option =
+          select &&
+          [...select.options].find((item) => item.text.trim() === wanted || item.value === wanted);
         if (!select || !option) return false;
-        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, option.value);
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(
+          select,
+          option.value,
+        );
         select.dispatchEvent(new Event("input", { bubbles: true }));
         select.dispatchEvent(new Event("change", { bubbles: true }));
         return select.value === option.value;
@@ -264,7 +305,10 @@ export function automationUi(app) {
   }
 
   async function waitDialogGone() {
-    await ui().wait(() => !document.querySelector('[data-testid="lumi-automation-dialog"]'), "dialog closed");
+    await ui().wait(
+      () => !document.querySelector('[data-testid="lumi-automation-dialog"]'),
+      "dialog closed",
+    );
   }
 
   async function cancelDialog() {

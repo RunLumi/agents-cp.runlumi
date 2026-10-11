@@ -25,7 +25,9 @@ export function claimOutcomes(consoleText, occurrenceId) {
     }
   }
   // Pair only when every claim in the capture has both lines and the statuses agree position by position.
-  const paired = proxy.length === structured.length && proxy.every((row, i) => row.status === structured[i].status);
+  const paired =
+    proxy.length === structured.length &&
+    proxy.every((row, i) => row.status === structured[i].status);
   return proxy
     .map((row, i) => ({ ...row, correlationId: paired ? structured[i].correlationId : undefined }))
     .filter((row) => row.occurrenceId === occurrenceId);
@@ -46,7 +48,11 @@ export function summarizeClaims(outcomes) {
  * native-full-lane3-run8.log round 1 vs its full capture). Wait for the accepted claim, then briefly for a
  * refusal; whatever is present when the budgets run out is returned and judged by the caller.
  */
-export async function awaitClaims(readConsole, occurrenceId, { acceptedMs = 20_000, refusedMs = 6_000, everyMs = 1_000 } = {}) {
+export async function awaitClaims(
+  readConsole,
+  occurrenceId,
+  { acceptedMs = 20_000, refusedMs = 6_000, everyMs = 1_000 } = {},
+) {
   const summary = () => summarizeClaims(claimOutcomes(readConsole(), occurrenceId));
   const waitFor = async (budgetMs, done) => {
     const deadline = Date.now() + budgetMs;

@@ -15,7 +15,14 @@
 
 import { request as httpRequest } from "node:http";
 
-const HOP_BY_HOP = new Set(["host", "connection", "keep-alive", "transfer-encoding", "upgrade", "proxy-connection"]);
+const HOP_BY_HOP = new Set([
+  "host",
+  "connection",
+  "keep-alive",
+  "transfer-encoding",
+  "upgrade",
+  "proxy-connection",
+]);
 
 /**
  * @param {{ permittedHost: string, targetOrigin: string, pathPattern?: RegExp }} options
@@ -93,7 +100,10 @@ export function createNodeOutbound({
     upstream.on("error", (error) => {
       entry.upstreamError = String(error?.code ?? error?.name ?? "error");
       if (!res.headersSent) {
-        res.writeHead(502, { "content-type": "application/json", "x-lumi-fixture-egress": "upstream-transport-failure" });
+        res.writeHead(502, {
+          "content-type": "application/json",
+          "x-lumi-fixture-egress": "upstream-transport-failure",
+        });
         res.end(JSON.stringify({ error: "fixture_upstream_transport_failure" }));
       } else {
         res.destroy();

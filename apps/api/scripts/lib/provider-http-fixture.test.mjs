@@ -13,7 +13,11 @@ const call = (forwarder, scenario, { stream = false, signal, headers = {} } = {}
   forwarder(
     new Request(url(scenario), {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}`, ...headers },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${SECRET}`,
+        ...headers,
+      },
       body: JSON.stringify({
         model: "m",
         stream,
@@ -29,7 +33,10 @@ describe("provider HTTP fixture + forwarder", () => {
   let forwarder;
   before(async () => {
     fixture = await startProviderFixture({ expectedSecret: SECRET });
-    forwarder = createOutboundForwarder({ permittedHost: PUBLIC_HOST, targetOrigin: fixture.origin });
+    forwarder = createOutboundForwarder({
+      permittedHost: PUBLIC_HOST,
+      targetOrigin: fixture.origin,
+    });
   });
   after(() => fixture.close());
   beforeEach(() => forwarder.reset());
@@ -110,7 +117,10 @@ describe("provider HTTP fixture + forwarder", () => {
 
   test("a client-side abort reaches the owned socket (cancel control)", async () => {
     const controller = new AbortController();
-    const response = await call(forwarder, "slow-stream", { stream: true, signal: controller.signal });
+    const response = await call(forwarder, "slow-stream", {
+      stream: true,
+      signal: controller.signal,
+    });
     const reader = response.body.getReader();
     await reader.read();
     const before = fixture.forScenario("slow-stream").at(-1).seq;
@@ -127,25 +137,44 @@ describe("provider HTTP fixture + forwarder", () => {
   test("a stalled provider is cut by a timeout signal", async () => {
     // Direct (non-Miniflare) call: the signal IS delivered, the upstream is aborted, and the
     // forwarder reports it as its marked 502 rather than a rejection.
-    const response = await call(forwarder, "stall-before-headers", { signal: AbortSignal.timeout(150) });
+    const response = await call(forwarder, "stall-before-headers", {
+      signal: AbortSignal.timeout(150),
+    });
     assert.equal(response.status, 502);
     assert.equal(forwarder.forwarded().at(-1).requestAborted, true);
     await fixture.waitFor(
-      (records) => records.some((r) => r.scenario === "stall-before-headers" && r.outcome === "client-closed"),
+      (records) =>
+        records.some((r) => r.scenario === "stall-before-headers" && r.outcome === "client-closed"),
       { label: "stalled request closed by client" },
     );
   });
 
   describe("every unmatched destination is denied and never reaches the fixture", () => {
     const cases = [
-      ["plain http to the permitted host", "http://provider-http-fixture.example/v1/ok/v1/chat/completions", "scheme_not_https"],
+      [
+        "plain http to the permitted host",
+        "http://provider-http-fixture.example/v1/ok/v1/chat/completions",
+        "scheme_not_https",
+      ],
       ["other public host", url("ok", "api.openai.com"), "host_not_permitted"],
       ["loopback literal", "https://127.0.0.1/v1/ok/v1/chat/completions", "host_not_permitted"],
-      ["fixture's own origin", `${"http"}://127.0.0.1:1/v1/ok/v1/chat/completions`, "scheme_not_https"],
+      [
+        "fixture's own origin",
+        `${"http"}://127.0.0.1:1/v1/ok/v1/chat/completions`,
+        "scheme_not_https",
+      ],
       ["host-suffix trick", url("ok", `${PUBLIC_HOST}.evil.test`), "host_not_permitted"],
-      ["non-default port", `https://${PUBLIC_HOST}:8443/v1/ok/v1/chat/completions`, "port_not_default"],
+      [
+        "non-default port",
+        `https://${PUBLIC_HOST}:8443/v1/ok/v1/chat/completions`,
+        "port_not_default",
+      ],
       ["wrong path", `https://${PUBLIC_HOST}/v1/models`, "path_not_permitted"],
-      ["query string", `https://${PUBLIC_HOST}/v1/ok/v1/chat/completions?x=1`, "path_not_permitted"],
+      [
+        "query string",
+        `https://${PUBLIC_HOST}/v1/ok/v1/chat/completions?x=1`,
+        "path_not_permitted",
+      ],
     ];
     for (const [label, target, reason] of cases) {
       test(label, async () => {
