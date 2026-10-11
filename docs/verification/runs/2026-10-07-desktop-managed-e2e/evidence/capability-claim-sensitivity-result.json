@@ -1,0 +1,9 @@
+{
+  "scope": "actual SQL capability guard; memory copies of retained D1, not HTTP race fault injection",
+  "mutation": "guard never aborts despite changed capability binding; SQL remains valid",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "source_unchanged": true,
+  "source_sha256": "d4d066ea2c17a27294b53828e5d81d39e84c789b4b2b2b67ebafaf947dc075a3"
+}

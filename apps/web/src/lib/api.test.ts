@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  approveDesktopSignIn,
   createFoundationCheck,
   getHealth,
   listPasskeys,
@@ -20,6 +21,23 @@ describe("API client", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("approves the explicit desktop code with current CSRF and handles 204", async () => {
+    vi.stubGlobal("document", { cookie: "lumi_csrf=test-csrf" });
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(approveDesktopSignIn("1234ABCD")).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/auth/device-code/approve",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ user_code: "1234ABCD" }),
+      }),
+    );
+    const init = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("test-csrf");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("parses a successful health response", async () => {

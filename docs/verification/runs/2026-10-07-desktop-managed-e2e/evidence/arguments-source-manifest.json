@@ -1,0 +1,19 @@
+{
+  "scope": "dirty working-source and built artifacts; runtime reports remain separate",
+  "parent_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "client_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "files": {
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.ts": "78d807764dd2f72e95909d2445f039c90e467ca9a1cb4016920511e772eacd47",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts": "754a8a81910198f225df94d4273931a07e91ddef4fd029258654e8f64d8e74f6",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-handler.ts": "ac8fe21560c4791a19a916fc8e267f36a204c6e64cd40a3aec9bd7042eb487c1",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-tool-identity.ts": "5bfd7143b0eff11d7c7a0a7afbc813f87f8aa16f6bf4bdfd407e293c62450d2c",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.ts": "055d41e6be0994859563a685e3a40406b4ff5e9a5624f035dfb539194a2bb120",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts": "c5e8f4cfb4496954ff514d95222890b9bb34bfa647f23a8eedb4c234b61c39b1",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts": "4d06ec35afe18649802d6a383da1c894cf22b96611855533701fedea0935b99e",
+    "apps/api/scripts/p05-smoke.mjs": "7ee589957ee342e4e9e91f26a79a4d0493e58f3e6d9b364286b93d13cda46270",
+    "integrations/lumi-agents/apps/zcode-cli/packages/core/dist/tool/executor/managed-arguments.js": "f5e010c43cd796273571cdb4149f5eda36fb88de445dfb63d3ae69e22ddbfda7",
+    "integrations/lumi-agents/packages/desktop/out/main/index.js": "6159a91cc7ee7423b2c2228ee966882db0667ff4d23a772a6780a0aba68293ef",
+    "integrations/lumi-agents/packages/desktop/out/host/index.js": "1cc6ab59322e45f632247ce55e446f5161d480cc8cd9c03c0c4ccd4e9864e24a",
+    "integrations/lumi-agents/packages/desktop/bundled-agents/darwin-arm64/glm/zcode.cjs": "ea0b38a46d6e1a24f8188e74e690af12c84e8e06756982ab436dc51687e265ea"
+  }
+}

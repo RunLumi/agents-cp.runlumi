@@ -40,6 +40,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+#[path = "tool_execution.rs"]
+mod execution;
+
 use crate::{
     adapters::{add_seconds, new_resource_id, sha256_hex},
     app::AppState,
@@ -398,7 +401,7 @@ impl PutToolPolicyRequest {
 /// The device-scoped decision request. There is no `decision`, `allow`, or
 /// `approved` field: the host asks for a decision and the server evaluates
 /// current policy.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolDecisionRequest {
     pub tool_call_id: String,
@@ -1801,13 +1804,29 @@ async fn resolve_decision(input: DecisionInput<'_>) -> Result<Value, ApiError> {
             _ => None,
         };
         if let Some((decision, reason)) = replayable {
-            return Ok(decision_body(
+            if decision == ToolDecision::Allow {
+                let writes = call_writes(&input, "allowed")?;
+                return persist_decision(
+                    input,
+                    decision,
+                    Some(reason),
+                    Some(&approval.approval_id),
+                    Some(&approval.expires_at),
+                    RUN_EVENT_DECISION,
+                    "tool.decision_recorded.v1",
+                    "success",
+                    writes,
+                )
+                .await;
+            }
+            return decision_body(
                 &input,
                 decision,
                 Some(reason),
                 Some(&approval.approval_id),
                 Some(&approval.expires_at),
-            ));
+            )
+            .await;
         }
         // An approval that was approved but has since expired, or that was
         // already denied or cancelled, cannot be reused for this call.
@@ -1993,7 +2012,7 @@ async fn persist_decision(
     audit_outcome: &str,
     business_writes: Vec<worker::d1::D1PreparedStatement>,
 ) -> Result<Value, ApiError> {
-    let body = decision_body(&input, decision, reason, approval_id, approval_expires_at);
+    let body = decision_body(&input, decision, reason, approval_id, approval_expires_at).await?;
     let event = run_event_statement(&input, decision, reason, approval_id, event_type).await?;
     let security = device_security_event(
         input.database,
@@ -2105,14 +2124,17 @@ async fn run_event_statement(
 
 /// Frozen broker response: the decision, its stable reason code, the exact tool
 /// binding, and policy metadata. Never a secret, a URL, or an argument body.
-fn decision_body(
+async fn decision_body(
     input: &DecisionInput<'_>,
     decision: ToolDecision,
     reason: Option<&'static str>,
     approval_id: Option<&str>,
     approval_expires_at: Option<&str>,
-) -> Value {
-    json!({
+) -> Result<Value, ApiError> {
+    let arguments_hash = sha256_hex(&input.arguments_summary)
+        .await
+        .map_err(|_| service_unavailable(&input.context))?;
+    Ok(json!({
         "run_id": input.scope.run_id,
         "tool_call_id": input.tool_call_id,
         "tool_id": input.tool_id,
@@ -2125,7 +2147,8 @@ fn decision_body(
         "approval_expires_at": approval_expires_at,
         "policy_version": input.policy_version,
         "policy_state": input.policy_state.as_str(),
-    })
+        "arguments_hash": arguments_hash,
+    }))
 }
 
 fn is_terminal_run_state(state: &str) -> bool {
@@ -2287,6 +2310,10 @@ fn runtime_capabilities(
         ("computer_use", "computer"),
         ("automation_eligible", "automation"),
         ("remote_environment", "environment"),
+        ("filesystem_write", "filesystem"),
+        ("process_execution", "process"),
+        ("network_access", "network"),
+        ("mcp_execution", "mcp"),
     ] {
         if report.get(key).and_then(Value::as_bool) == Some(true) {
             reported.insert(capability.to_owned());
@@ -3438,6 +3465,12 @@ pub struct ToolResultRequest {
     pub status: String,
     pub result_summary: Option<String>,
     pub error_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preflight: Option<ToolDecisionRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_version: Option<i64>,
 }
 
 fn tool_call_result_json(call: &ToolCallRefRecord) -> Value {
@@ -3464,6 +3497,9 @@ pub async fn record_tool_result(
     Path((run_id, tool_call_id)): Path<(String, String)>,
     Json(body): Json<ToolResultRequest>,
 ) -> Result<Response<Body>, ApiError> {
+    if body.status == "allowed" {
+        return execution::claim(state, context, headers, run_id, tool_call_id, body).await;
+    }
     let access = authorize_device(&state, &headers, &context).await?;
     if RunId::new(run_id.as_str()).is_err() || ToolCallId::new(tool_call_id.as_str()).is_err() {
         return Err(not_found(&context, "The tool call was not found."));
@@ -3527,52 +3563,39 @@ pub async fn record_tool_result(
     if call.org_id != run.org_id || call.run_id != run.run_id {
         return Err(not_found(&context, "The tool call was not found."));
     }
+    if body.preflight.is_some() || body.arguments_hash.is_some() || body.policy_version.is_some() {
+        return Err(validation_error(
+            &context,
+            "tool_result_invalid",
+            "Preflight fields are only valid for execution admission.",
+        ));
+    }
+    if status == "completed"
+        && (call.execution_started_at.is_none()
+            || call.execution_device_id.as_deref() != Some(access.device.device_id.as_str()))
+    {
+        return Err(validation_error(
+            &context,
+            "tool_execution_not_started",
+            "The tool has no execution claim.",
+        ));
+    }
     if call.status == status {
         return Ok(Json(tool_call_result_json(&call)).into_response());
     }
-    if matches!(call.status.as_str(), "denied" | "failed" | "cancelled") {
+    if matches!(
+        call.status.as_str(),
+        "denied" | "completed" | "failed" | "cancelled"
+    ) {
         return Err(not_found(&context, "The tool call is already terminal."));
     }
-    let approvals = ApprovalRepository::new(database);
-    let approval = approvals
-        .find_approval_for_tool_call(&run_id, &tool_call_id)
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    let mut writes = Vec::new();
-    if let Some(approval) = approval.as_ref() {
-        match approval.status.as_str() {
-            "pending" => {
-                return Err(validation_error(
-                    &context,
-                    "approval_required",
-                    "The tool call is waiting for approval.",
-                ));
-            }
-            "approved" => {
-                if approval.approval_mode == "per_use" {
-                    writes.push(
-                        approvals
-                            .consume_approval_statement(
-                                &approval.approval_id,
-                                &access.device.org_id,
-                                &tool_call_id,
-                                &access.device.device_id,
-                                &context.received_at,
-                            )
-                            .map_err(|error| database_error(&context, error))?,
-                    );
-                }
-            }
-            "denied" | "expired" | "cancelled" => {
-                return Err(validation_error(
-                    &context,
-                    "tool_denied",
-                    "The tool call was not approved.",
-                ));
-            }
-            _ => {}
-        }
-    }
+    let mut writes = vec![
+        tools
+            .assert_result_status_statement(&call)
+            .map_err(|error| database_error(&context, error))?,
+    ];
+    // Approval is consumed only by the pre-execution claim. Result reporting
+    // cannot retroactively authorize side effects or spend another grant.
     writes.push(
         tools
             .update_tool_call_status_statement(&run_id, &tool_call_id, status, &context.received_at)
@@ -3640,11 +3663,24 @@ pub async fn record_tool_result(
     match commit_scoped_mutation(database, &context, claim, success, writes, outbox).await? {
         ScopedMutationCommit::Replayed(success) => Ok(replay_response(&success)),
         ScopedMutationCommit::Committed => Ok(Json(response).into_response()),
-        ScopedMutationCommit::Guarded => Err(validation_error(
-            &context,
-            "approval_already_resolved",
-            "The approval was already consumed or resolved.",
-        )),
+        ScopedMutationCommit::Guarded => {
+            let latest = tools
+                .find_tool_call_ref(&run_id, &tool_call_id)
+                .await
+                .map_err(|error| database_error(&context, error))?;
+            if let Some(latest) = latest
+                && latest.org_id == run.org_id
+                && latest.status == status
+            {
+                return Ok(Json(tool_call_result_json(&latest)).into_response());
+            }
+            Err(domain_error(
+                &context,
+                ApiErrorCode::Conflict,
+                "tool_result_conflict",
+                "The tool already has a different result.",
+            ))
+        }
     }
 }
 
@@ -3653,6 +3689,61 @@ mod tests {
     use super::*;
 
     const TOOL_ID: &str = "tool_0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn desktop_capability_support_requires_exact_true_report_and_catalog_mapping() {
+        let mut device: DeviceRecord = serde_json::from_value(json!({
+            "device_id":"device", "org_id":"org", "enrolled_by_user_id":"user",
+            "name":"fixture", "platform":"macos", "app_version":"1.0.0",
+            "public_key":"public", "key_fingerprint":"fingerprint", "status":"active",
+            "created_at":"fixture", "updated_at":"fixture"
+        }))
+        .unwrap();
+        for (toggle, key) in [
+            ("filesystem_write", "filesystem"),
+            ("process_execution", "process"),
+            ("network_access", "network"),
+            ("mcp_execution", "mcp"),
+        ] {
+            let id = "cap_0123456789abcdef0123456789abcdef".to_owned();
+            let catalog = vec![CapabilityDefinitionRecord {
+                capability_id: id.clone(),
+                org_id: None,
+                capability_key: key.into(),
+                display_name: key.into(),
+                risk_class: "external_side_effect".into(),
+                metadata_json: "{}".into(),
+                version: 1,
+                created_at: "fixture".into(),
+                updated_at: "fixture".into(),
+            }];
+            let requested = BTreeSet::from([id.clone()]);
+            for report in [
+                json!({}),
+                json!({toggle:false}),
+                json!({toggle:"true"}),
+                json!({"automation_eligible":true}),
+            ] {
+                device.capabilities = Some(report.to_string());
+                assert!(
+                    !runtime_capabilities(&device, None, &requested, &catalog)
+                        .supported_capability_ids
+                        .contains(&id)
+                );
+            }
+            device.capabilities = Some(json!({toggle:true}).to_string());
+            assert!(
+                runtime_capabilities(&device, None, &requested, &catalog)
+                    .supported_capability_ids
+                    .contains(&id)
+            );
+            assert!(
+                !runtime_capabilities(&device, None, &requested, &[])
+                    .supported_capability_ids
+                    .contains(&id)
+            );
+        }
+    }
 
     fn context() -> RequestContext {
         RequestContext::new(

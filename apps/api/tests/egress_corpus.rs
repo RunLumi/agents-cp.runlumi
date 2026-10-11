@@ -376,6 +376,12 @@ fn the_local_development_escape_hatch_is_scoped_to_development() {
     assert!(!providers_accepts("https://169.254.169.254/v1", &[], true));
     // The mock fixtures are development-only and are a fixed, closed set.
     assert!(providers_accepts("mock://lumi-success", &[], true));
+    assert!(providers_accepts("mock://lumi-tool", &[], true));
+    assert_eq!(
+        providers::validate_endpoint_url("mock://lumi-tool", &[], false),
+        Err(SsrfError::SchemeNotAllowed),
+        "the tool fixture was reachable outside development"
+    );
     for fixture in [
         "mock://evil",
         "mock://lumi-success/../../etc/passwd",
@@ -438,47 +444,76 @@ fn a_name_that_resolves_inward_is_refused_at_resolution_not_at_registration() {
     );
 }
 
-/// Every outbound request must be constructed with redirects disabled.
+/// Every outbound request must be constructed so a redirect is never followed.
 ///
 /// `worker`'s `fetch` follows redirects by default, so a validator that only
 /// inspects the initial URL is decorative: a 302 to `169.254.169.254` reaches
 /// the metadata service with the request intact, signature headers and all.
-/// `RequestRedirect::Error` maps to `redirect: "error"`, which surfaces a 3xx
-/// as a fetch failure instead of a followed hop.
+///
+/// Two no-follow modes exist and they are not interchangeable. `Error` maps to
+/// `redirect: "error"`, which workerd refuses to construct (1.20260921.1: use
+/// "manual" and check the response status code), so it cannot be used on a path
+/// that must work. `Manual` hands the 3xx back unfollowed, which is only a
+/// control if the caller then refuses it. A `Manual` request in a file that
+/// never refuses a 3xx is a silent pass-through and is rejected here.
 ///
 /// The check is structural because the behaviour is not observable from a host
-/// test — it lives in the Workers runtime. A count comparison is enough to
-/// catch the regression this protects against: a new outbound request that
-/// forgets the line.
+/// test — it lives in the Workers runtime. The semantic half (3xx is terminal
+/// and non-retryable) is proved in `providers::tests` and the provider HTTP
+/// runtime probe.
 #[test]
-fn no_outbound_request_is_constructed_without_redirects_disabled() {
+fn no_outbound_request_is_constructed_in_a_redirect_following_mode() {
     let mut requests = 0_usize;
-    let mut disabled = 0_usize;
-    let mut followed = 0_usize;
+    let mut no_follow = 0_usize;
     for (name, body) in rust_sources() {
-        requests += body.matches("RequestInit::new()").count();
-        disabled += body
-            .matches("with_redirect(RequestRedirect::Error)")
+        let manual = body
+            .matches("with_redirect(RequestRedirect::Manual)")
             .count();
-        followed += body.matches("RequestRedirect::Follow").count()
-            + body.matches("RequestRedirect::Manual").count();
+        requests += body.matches("RequestInit::new()").count();
+        no_follow += manual
+            + body
+                .matches("with_redirect(RequestRedirect::Error)")
+                .count();
+        assert_eq!(
+            body.matches("RequestRedirect::Follow").count(),
+            0,
+            "{name} reintroduces redirect following"
+        );
         assert!(
             !body.contains("redirect: \"follow\""),
             "{name} asks the runtime to follow redirects"
         );
+        if manual > 0 {
+            assert!(
+                body.contains("fn refuse_redirect(") && body.contains("refuse_redirect(status)"),
+                "{name} uses RequestRedirect::Manual but never refuses the 3xx it gets back"
+            );
+        }
     }
     assert!(
         requests > 0,
         "the scan found no outbound request at all, so it is not looking"
     );
     assert_eq!(
-        requests, disabled,
-        "every RequestInit must set RequestRedirect::Error"
+        requests, no_follow,
+        "every RequestInit must set RequestRedirect::Manual (with a 3xx refusal) or ::Error"
     );
-    assert_eq!(
-        followed, 0,
-        "RequestRedirect::Follow or ::Manual reintroduces redirect following"
+}
+
+/// The provider path must use the runtime-supported mode, not the one workerd rejects.
+///
+/// Regression for the provider HTTP platform handoff: with `Error` every dispatch
+/// failed at `Request` construction and the adapter made zero HTTP calls.
+#[test]
+fn the_provider_adapter_uses_manual_redirects_and_refuses_the_3xx() {
+    let source = fs::read_to_string(crate_root().join("src/adapters/providers.rs"))
+        .expect("a readable provider adapter");
+    assert!(source.contains("with_redirect(RequestRedirect::Manual)"));
+    assert!(
+        !source.contains("with_redirect(RequestRedirect::Error)"),
+        "workerd rejects redirect \"error\" at Request construction"
     );
+    assert!(source.contains("refuse_redirect(status)"));
 }
 
 fn rust_sources() -> Vec<(String, String)> {

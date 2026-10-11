@@ -466,6 +466,8 @@ SELECT job_id, job_type, schema_version, org_id, subject_type, subject_id,
        state, attempt, next_attempt_at
 FROM queue_job_envelopes
 WHERE state IN ('queued', 'retry_wait')
+  AND job_type IN ('export.run', 'deletion.run', 'automation.generate_occurrence',
+                   'automation.dispatch', 'automation.expire_lease')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
 ORDER BY created_at ASC
 LIMIT ?2
@@ -903,6 +905,106 @@ impl QueueEnvelopeDispatchRow {
             payload_ref: self.payload_ref.clone(),
             payload,
         })
+    }
+}
+
+/// The `subject_type` an automation job row carries; the occurrence is the subject.
+const AUTOMATION_SUBJECT_TYPE: &str = "automation_occurrence";
+/// The only schema version either consumer accepts.
+const AUTOMATION_SCHEMA_VERSION: i64 = 1;
+
+/// Why a due row could not become a queue message. Carries no row content, so
+/// the caller can log it verbatim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DispatchProjectionError;
+
+impl QueueEnvelopeDispatchRow {
+    /// The queue body for this row, or `Ok(None)` when no producer owns its type.
+    ///
+    /// Two envelope families share one table and one queue and are NOT
+    /// interchangeable: export and deletion rows become `DataJobEnvelope`, automation
+    /// rows become the strict `QueueJobEnvelope`. The family is chosen from the
+    /// declared job type; a type outside both is left queued for its own subsystem.
+    pub fn to_queue_body(
+        &self,
+        occurred_at: &crate::core::Timestamp,
+    ) -> Result<Option<Value>, DispatchProjectionError> {
+        if matches!(self.job_type.as_str(), "export.run" | "deletion.run") {
+            let message = self.to_message().map_err(|_| DispatchProjectionError)?;
+            return serde_json::to_value(message)
+                .map(Some)
+                .map_err(|_| DispatchProjectionError);
+        }
+        if crate::repositories::JobType::parse(&self.job_type)
+            .is_some_and(crate::consumers::automations::is_automation_job_type)
+        {
+            return self.to_automation_message(occurred_at).map(Some);
+        }
+        Ok(None)
+    }
+
+    /// Project an automation row onto the frozen `QueueJobEnvelope`.
+    ///
+    /// The message is a hint: the automation handler re-reads the durable job row and
+    /// treats it as the authority, so the payload stays `None` and nothing is copied
+    /// from the occurrence. What this guards is that a row whose scope or reference
+    /// is malformed is never published. The body is decoded through the consumer's
+    /// own type, so `deny_unknown_fields` and the field set cannot drift from it.
+    pub fn to_automation_message(
+        &self,
+        occurred_at: &crate::core::Timestamp,
+    ) -> Result<Value, DispatchProjectionError> {
+        use crate::core::{CorrelationId, EventId, OrganizationId, ResourceId};
+
+        let subject_ok = self.subject_type == AUTOMATION_SUBJECT_TYPE
+            && ResourceId::new(&self.subject_id).is_ok_and(|id| id.prefix() == "occ");
+        let job_ok = ResourceId::new(&self.job_id).is_ok_and(|id| id.prefix() == "job");
+        // A tenant-less automation job cannot exist: every writer binds the org.
+        let org_ok = self
+            .org_id
+            .as_deref()
+            .is_some_and(|org| OrganizationId::new(org).is_ok());
+        let reference_ok = self.payload_ref.as_deref()
+            == Some(format!("d1:automation_occurrences/{}", self.subject_id).as_str());
+        let dedupe_ok = self
+            .dedupe_key
+            .starts_with(&format!("{}:{}:", self.job_type, self.subject_id));
+        let optional_ids_ok = self
+            .event_id
+            .as_deref()
+            .is_none_or(|id| EventId::new(id).is_ok())
+            && self
+                .correlation_id
+                .as_deref()
+                .is_none_or(|id| CorrelationId::new(id).is_ok());
+        if !(subject_ok
+            && job_ok
+            && org_ok
+            && reference_ok
+            && dedupe_ok
+            && optional_ids_ok
+            && self.schema_version == AUTOMATION_SCHEMA_VERSION)
+        {
+            return Err(DispatchProjectionError);
+        }
+        let body = serde_json::json!({
+            "job_id": self.job_id,
+            "job_type": self.job_type,
+            "schema_version": self.schema_version,
+            "dedupe_key": self.dedupe_key,
+            "event_id": self.event_id,
+            "occurred_at": occurred_at.as_str(),
+            "attempt": self.attempt,
+            "correlation_id": self.correlation_id,
+            "tenant_scope": { "org_id": self.org_id },
+            "payload_ref": self.payload_ref,
+            "payload": Value::Null,
+        });
+        let envelope: crate::consumers::QueueJobEnvelope =
+            serde_json::from_value(body.clone()).map_err(|_| DispatchProjectionError)?;
+        crate::consumers::automations::validate_automation_envelope(&envelope)
+            .map_err(|_| DispatchProjectionError)?;
+        Ok(body)
     }
 }
 
@@ -2735,6 +2837,202 @@ mod tests {
         // nothing, because `subject_id()` has no arm for it.
         let row = dispatch_row("webhook_endpoint", "webhook.deliver");
         assert!(row.to_message().is_err());
+    }
+
+    // ---------------------------------------------------------------------
+    // The automation producer branch. The row must project onto the envelope the
+    // automation consumer decodes, never the data-job one.
+    // ---------------------------------------------------------------------
+
+    const OCC: &str = "occ_55555555555555555555555555555555";
+
+    fn automation_row(job_type: &str) -> QueueEnvelopeDispatchRow {
+        QueueEnvelopeDispatchRow {
+            job_id: "job_66666666666666666666666666666666".to_owned(),
+            job_type: job_type.to_owned(),
+            schema_version: 1,
+            org_id: Some("org_22222222222222222222222222222222".to_owned()),
+            subject_type: "automation_occurrence".to_owned(),
+            subject_id: OCC.to_owned(),
+            dedupe_key: format!("{job_type}:{OCC}:0"),
+            event_id: None,
+            request_id: None,
+            correlation_id: None,
+            payload_ref: Some(format!("d1:automation_occurrences/{OCC}")),
+            state: "queued".to_owned(),
+            attempt: 1,
+            next_attempt_at: Some("2026-09-27T20:00:00.000Z".to_owned()),
+        }
+    }
+
+    fn tick() -> crate::core::Timestamp {
+        crate::core::Timestamp::new("2026-09-27T20:01:00.000Z").expect("timestamp")
+    }
+
+    #[test]
+    fn every_owned_automation_row_becomes_a_body_the_real_consumer_schema_decodes() {
+        for job_type in [
+            "automation.generate_occurrence",
+            "automation.dispatch",
+            "automation.expire_lease",
+        ] {
+            let body = automation_row(job_type)
+                .to_queue_body(&tick())
+                .expect("projects")
+                .expect("owned");
+            // The consumer's own strict type, then its own validator.
+            let envelope: crate::consumers::QueueJobEnvelope =
+                serde_json::from_value(body).expect("consumer schema decodes");
+            crate::consumers::automations::validate_automation_envelope(&envelope)
+                .expect("consumer validator accepts");
+            assert_eq!(envelope.job_type, job_type);
+            assert_eq!(envelope.payload, None, "the stored row is the authority");
+            assert_eq!(envelope.occurred_at.as_str(), tick().as_str());
+            assert_eq!(
+                envelope.tenant_org_id(),
+                Some("org_22222222222222222222222222222222")
+            );
+        }
+    }
+
+    #[test]
+    fn both_projected_envelope_families_pass_the_queue_json_boundary_intact() {
+        // The wire step the producer takes next. Each body must be a non-empty object
+        // that survives the JSON text boundary with its envelope fields, because a body
+        // that arrives as `{}` carries no `job_type` and is silently unroutable.
+        let cases = [
+            (dispatch_row("export_job", "export.run"), "export.run"),
+            (automation_row("automation.dispatch"), "automation.dispatch"),
+        ];
+        for (row, job_type) in cases {
+            let body = row
+                .to_queue_body(&tick())
+                .expect("projects")
+                .expect("owned");
+            let text = crate::adapters::queues::json_object_text(&body)
+                .expect("a projected envelope is a valid queue body");
+            let wire: Value = serde_json::from_str(&text).expect("JSON text");
+            assert_eq!(wire["job_type"], job_type);
+            assert_eq!(wire["job_id"], body["job_id"]);
+            assert_eq!(
+                wire["tenant_scope"]["org_id"],
+                body["tenant_scope"]["org_id"]
+            );
+            assert_eq!(wire, body, "the boundary must not alter the envelope");
+        }
+    }
+
+    #[test]
+    fn an_automation_body_is_not_a_data_job_envelope() {
+        let body = automation_row("automation.dispatch")
+            .to_queue_body(&tick())
+            .expect("projects")
+            .expect("owned");
+        assert!(
+            serde_json::from_value::<crate::consumers::DataJobEnvelope>(body).is_err(),
+            "the data-job decoder must not accept an automation message"
+        );
+    }
+
+    #[test]
+    fn data_jobs_keep_their_existing_body() {
+        let row = dispatch_row("export_job", "export.run");
+        let expected = serde_json::to_value(row.to_message().expect("valid")).expect("json");
+        assert_eq!(row.to_queue_body(&tick()), Ok(Some(expected)));
+    }
+
+    #[test]
+    fn a_frozen_valid_correlation_id_projects_unchanged() {
+        // Positive control for the cases below: the producer must not be stricter
+        // than the consumer, which accepts any value `CorrelationId` accepts.
+        let mut row = automation_row("automation.dispatch");
+        row.correlation_id = Some("not-an-id".to_owned());
+        let body = row
+            .to_queue_body(&tick())
+            .expect("projects")
+            .expect("owned");
+        assert_eq!(body["correlation_id"], "not-an-id");
+    }
+
+    #[test]
+    fn unowned_job_types_are_left_queued() {
+        for job_type in [
+            "webhook.deliver",
+            "notification.deliver",
+            "billing.sync",
+            "nope",
+        ] {
+            assert_eq!(automation_row(job_type).to_queue_body(&tick()), Ok(None));
+        }
+    }
+
+    #[test]
+    fn malformed_scope_or_reference_is_refused_rather_than_published() {
+        type Corruption = fn(&mut QueueEnvelopeDispatchRow);
+        let cases: [(&str, Corruption); 14] = [
+            ("no tenant", |r| r.org_id = None),
+            ("bad tenant", |r| r.org_id = Some("org_x".to_owned())),
+            ("wrong subject type", |r| {
+                r.subject_type = "export_job".to_owned()
+            }),
+            ("wrong subject prefix", |r| {
+                r.subject_id = "exp_55555555555555555555555555555555".to_owned()
+            }),
+            ("missing reference", |r| r.payload_ref = None),
+            ("foreign reference", |r| {
+                r.payload_ref =
+                    Some("d1:automation_occurrences/occ_77777777777777777777777777777777".into())
+            }),
+            ("other table reference", |r| {
+                r.payload_ref = Some(format!("d1:export_jobs/{OCC}"))
+            }),
+            ("foreign dedupe key", |r| {
+                r.dedupe_key = "automation.dispatch:occ_77777777777777777777777777777777:0".into()
+            }),
+            ("schema version", |r| r.schema_version = 2),
+            ("attempt past the cap", |r| r.attempt = 9),
+            // `CorrelationId` is frozen as 1-128 visible ASCII bytes, so a
+            // `req_`-style value is not required; these are what it rejects.
+            ("correlation id with whitespace", |r| {
+                r.correlation_id = Some("has space".to_owned())
+            }),
+            ("correlation id too long", |r| {
+                r.correlation_id = Some("c".repeat(129))
+            }),
+            ("empty correlation id", |r| {
+                r.correlation_id = Some(String::new())
+            }),
+            ("non-ascii correlation id", |r| {
+                r.correlation_id = Some("corr-é".to_owned())
+            }),
+        ];
+        for (name, mutate) in cases {
+            let mut row = automation_row("automation.dispatch");
+            mutate(&mut row);
+            assert_eq!(
+                row.to_queue_body(&tick()),
+                Err(DispatchProjectionError),
+                "{name} must not project"
+            );
+        }
+    }
+
+    #[test]
+    fn the_due_query_selects_only_the_types_a_producer_owns() {
+        // Unowned rows stay queued forever; without this they fill the oldest-first
+        // window and starve the rows that can run.
+        for owned in [
+            "export.run",
+            "deletion.run",
+            "automation.generate_occurrence",
+            "automation.dispatch",
+            "automation.expire_lease",
+        ] {
+            assert!(QUEUE_ENVELOPES_DUE_SQL.contains(owned), "{owned}");
+        }
+        for unowned in ["webhook.deliver", "notification.deliver"] {
+            assert!(!QUEUE_ENVELOPES_DUE_SQL.contains(unowned), "{unowned}");
+        }
     }
 
     #[test]

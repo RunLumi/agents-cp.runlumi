@@ -189,6 +189,27 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     return;
   }
 
+  // A binding-less automation runs in the claiming device's OWN workspace for the project, which
+  // the server resolves from that device's live binding; without one the claim is refused with
+  // `workspace_binding_unresolved` before any attempt is spent. Give the device a real binding.
+  const workspaceBinding = await request(
+    anonJar(),
+    "POST",
+    "/api/v1/devices/bindings",
+    {
+      project_id: projectId,
+      workspace_identity: `v01-attempt-workspace-${probe.nonce}`,
+      display_name: "V01 attempt workspace",
+      environment_type: "local",
+    },
+    { Authorization: `DeviceToken ${device.token}` },
+  );
+  expectStatus(
+    "CONTROL: the device has a workspace binding for the project",
+    workspaceBinding,
+    [201],
+  );
+
   // --- the automation, with the tightest bound and the shortest lease ---------
   // `max_start_attempts: 1` is the floor the column allows and `lease_ttl_seconds: 30` the
   // ceiling's opposite, so a second start has the fewest places to hide and the wait is the

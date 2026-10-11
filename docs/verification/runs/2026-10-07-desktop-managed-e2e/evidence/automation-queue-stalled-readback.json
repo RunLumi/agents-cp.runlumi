@@ -1,0 +1,66 @@
+{
+  "scope": "read-only actual local D1; queue delivery is separately evidenced by Worker log",
+  "verdict": "UNPROVEN",
+  "automation_occurrences": [
+    {
+      "occurrence_id": "occ_8d7f83a67ed33255d81620e825caeabc",
+      "org_id": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "state": "pending",
+      "state_version": 1
+    },
+    {
+      "occurrence_id": "occ_8d7f83a67ed3325558a9551d1a99324f",
+      "org_id": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "state": "pending",
+      "state_version": 1
+    },
+    {
+      "occurrence_id": "occ_ec36af91f6a3bf76dd92193234b221d4",
+      "org_id": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "state": "pending",
+      "state_version": 1
+    },
+    {
+      "occurrence_id": "occ_ec36af91f6a3bf76749a6d67c79494a7",
+      "org_id": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "state": "pending",
+      "state_version": 1
+    }
+  ],
+  "queue_job_envelopes": [
+    {
+      "job_id": "job_ca4eece4aea465da9ebc5b13408b0a58",
+      "job_type": "automation.dispatch",
+      "state": "queued",
+      "attempt": 1,
+      "lease_version": 0,
+      "subject_id": "occ_8d7f83a67ed33255d81620e825caeabc"
+    },
+    {
+      "job_id": "job_5f0cc04cda7afd779d4a5059079147cc",
+      "job_type": "automation.dispatch",
+      "state": "queued",
+      "attempt": 1,
+      "lease_version": 0,
+      "subject_id": "occ_8d7f83a67ed3325558a9551d1a99324f"
+    },
+    {
+      "job_id": "job_7e49c1fe3a0e5f8b346ce9b17034fce1",
+      "job_type": "automation.dispatch",
+      "state": "queued",
+      "attempt": 1,
+      "lease_version": 0,
+      "subject_id": "occ_ec36af91f6a3bf76dd92193234b221d4"
+    },
+    {
+      "job_id": "job_5d3d71764095bbf9af3aefd60c0e73b3",
+      "job_type": "automation.dispatch",
+      "state": "queued",
+      "attempt": 1,
+      "lease_version": 0,
+      "subject_id": "occ_ec36af91f6a3bf76749a6d67c79494a7"
+    }
+  ],
+  "automation_leases": [],
+  "runs": []
+}

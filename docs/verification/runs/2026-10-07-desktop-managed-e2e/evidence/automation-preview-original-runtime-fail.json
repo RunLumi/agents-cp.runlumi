@@ -1,0 +1,111 @@
+{
+  "verdict": "FAIL",
+  "until": "adopt",
+  "stages": {
+    "onboard": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI: Lumi sign-in, device enrollment, opaque binding and managed-policy workspace"
+        }
+      ],
+      "notes": []
+    },
+    "adopt": {
+      "status": "FAIL",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI lists the seeded local originals, none with a hand-over badge"
+        }
+      ],
+      "notes": [],
+      "error": "Error: dialog never reached ready (positive control: a preview that can be confirmed); phase=preview_failed; text=Hand over to Lumi\n\nLumi runs this automation on its schedule. The original stays on this device, unchanged, and stops running here while it is managed.\n\nThat did not work. Check the state shown on the automation card before trying again. lumi_response_invalid\n\nClose\nClose\n    at Object.waitPhase (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-ui.mjs:151:11)\n    at async adoptStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-adopt.mjs:49:3)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:170:3"
+    },
+    "schedule": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "race": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "restart": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "faults": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    }
+  },
+  "unprovenStages": [
+    "adopt",
+    "schedule",
+    "race",
+    "restart",
+    "faults"
+  ],
+  "scope": "scoped diagnostic through adopt; not journey E certification",
+  "provenance": {
+    "bundles": [
+      {
+        "name": "main",
+        "files": 21,
+        "sha256": "70aea4585269a80cfea3096a75c571c247fc9be413bc8225b13fb04f597a6d84",
+        "newest": "2026-10-08T14:00:23.512Z"
+      },
+      {
+        "name": "host",
+        "files": 18,
+        "sha256": "01010db1e8cddb04956abb3b94d0691920566c097a5ed3464c8ebaf1287f4d38",
+        "newest": "2026-10-08T14:00:23.512Z"
+      },
+      {
+        "name": "scheduler",
+        "files": 3,
+        "sha256": "f8d7a4c4819a087f095b2875ab651d6c4c0b720fbb81117361f3fe87c789f566",
+        "newest": "2026-10-08T14:00:23.474Z"
+      },
+      {
+        "name": "renderer",
+        "files": 4118,
+        "sha256": "652060c9874a67af0a8f075c0d9b9d8298cfe8b0f63aa7362ae36b7d52f5f7fd",
+        "newest": "2026-10-08T14:00:31.357Z"
+      },
+      {
+        "name": "preload",
+        "files": 6,
+        "sha256": "3d8f5f33561ae142b501e322338708e57227885e878a3134ebc3f74cd5826a7e",
+        "newest": "2026-10-08T14:00:23.400Z"
+      }
+    ],
+    "newestSource": "2026-10-08T14:00:14.715Z",
+    "oldestBundle": "2026-10-08T14:00:23.400Z",
+    "buildStale": false,
+    "parentHead": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+    "clientHead": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+    "pairedGitlink": "fd977fd06c6d11c0202554d0ae693825a8217879",
+    "parentDirtyFiles": 70,
+    "clientDirtyFiles": 164,
+    "parentDirtyHash": "4e00aa6461e3a63d9246dc56bcf7f4513d2b2c1c73a956e628f0ce3dd146e1c7",
+    "clientDirtyHash": "f0a1a6e062c2b325016667141f7a4c9e61574f664b1911bdcd1afc146020102b",
+    "node": "v24.19.0"
+  },
+  "fixtures": {
+    "orgId": "org_93cd49d497d4985ca604eb2b088b4c3a",
+    "projectId": "prj_64987d664e2643a2b1b7430607b05709",
+    "deviceA": "dvc_aeabd2ec8a064e77ad5e66cb2d107910",
+    "entitlements": {
+      "status": 422,
+      "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_b33e572539ce42e592cc5c55cc150307\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
+    },
+    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-aqiXkF",
+    "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
+  }
+}

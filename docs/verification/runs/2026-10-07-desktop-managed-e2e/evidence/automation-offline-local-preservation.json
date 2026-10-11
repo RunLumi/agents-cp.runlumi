@@ -1,0 +1,10 @@
+{
+  "verdict": "PASS",
+  "scope": "no Worker; local preservation only",
+  "results": [
+    "rebuilt Electron app boots and renders with the control plane unreachable",
+    "existing local cron path still claims and dispatches an unmarked due automation",
+    "a due adopted original is not claimed, dispatched or rewritten by the real scheduler",
+    "Main stays up while managed polling cannot reach a control plane"
+  ]
+}

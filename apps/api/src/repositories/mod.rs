@@ -46,8 +46,8 @@ pub use budgets::*;
 pub use data_governance::*;
 pub use device::{DeviceAuthorizationRecord, DeviceAuthorizationRepository};
 pub use devices::{
-    DeviceEnrollmentInput, DeviceEnrollmentRecord, DevicePolicyRecord, DeviceRecord,
-    DeviceRepository, DeviceTokenRecord,
+    CompleteDeviceRecoveryInput, DeviceEnrollmentInput, DeviceEnrollmentRecord, DevicePolicyRecord,
+    DeviceRecord, DeviceRecoveryChallengeRecord, DeviceRepository, DeviceTokenRecord,
 };
 pub use idempotency::{IdempotencyClaimToken, IdempotencyLookup, IdempotencyRepository};
 pub use identity::{

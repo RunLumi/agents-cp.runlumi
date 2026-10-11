@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LumiMark } from "@/components/brand";
+import { DesktopApproval } from "@/features/auth/desktop-approval";
 import { AuthScreen } from "@/features/auth/auth-screen";
 import { OrgDashboard } from "@/features/organizations/org-dashboard";
 import { getMe, logout, type MeResponse } from "@/lib/api";
@@ -54,6 +55,8 @@ export function App() {
   if (session.kind === "error") {
     return <SessionError error={session.error} onRetry={() => void loadSession()} />;
   }
+  if (window.location.pathname === "/desktop")
+    return <DesktopApproval me={session.me} onSignOut={() => void signOut()} />;
   return (
     <OrgDashboard
       me={session.me}

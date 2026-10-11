@@ -1,0 +1,38 @@
+{
+  "scope": "immutable ToolCallRef claim in real retained schema; memory copies only",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "claim": "partial timestamp only",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "zero policy version",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "claim reset",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "claim time changed",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "claim policy changed",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "argument binding changed",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "tool fingerprint changed",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "terminal result preserves admission metadata",
+      "verdict": "PASS"
+    }
+  ]
+}

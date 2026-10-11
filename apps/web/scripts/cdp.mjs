@@ -104,7 +104,7 @@ export async function launch({ port = 9333, headless = true } = {}) {
   return browser;
 }
 
-function connect(url) {
+export function connect(url) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     const pending = new Map();
@@ -163,6 +163,11 @@ const KEY_CODES = {
 
 export async function newPage(browser, url = "about:blank") {
   const { targetId } = await browser.send("Target.createTarget", { url });
+  return attachPage(browser, targetId);
+}
+
+/** Attach to an actual Electron renderer instead of creating a replacement. */
+export async function attachPage(browser, targetId) {
   const { sessionId } = await browser.send("Target.attachToTarget", { targetId, flatten: true });
   const page = {
     targetId,

@@ -1,0 +1,11 @@
+{
+  "control_plane_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "client_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "dirty_pair": true,
+  "file_sha256": {
+    "apps/zcode-cli/packages/bootstrap/src/app/node-repl-browser-broker.ts": "46132e86d5e11939a9877e9363c2a1fb811659f4cca8e30cad38c02cff1c7953",
+    "apps/zcode-cli/packages/bootstrap/test/browser-broker-temp-path.test.ts": "bc52300078ec418334723e11112d6f0423aa0cb9248211a54158d81f241df0a7",
+    "apps/zcode-cli/packages/core/src/runtime/methods/turn-tool-execution.ts": "d2cf533908f960fd7368e0d73217e73b17961e75ea829143424901ce13b44943",
+    "apps/zcode-cli/packages/core/src/runtime/methods/turn.ts": "9319a4eb014ace072177cb80ea94ab382c95a14ff0aa016b86f00dd68fed8218"
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "verdict": "FAIL",
+  "until": "schedule",
+  "stages": {
+    "onboard": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI: Lumi sign-in, device enrollment, opaque binding and managed-policy workspace"
+        }
+      ],
+      "notes": []
+    },
+    "adopt": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI lists the seeded local originals, none with a hand-over badge"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "real server conflict is shown with no Confirm or stored effects before entitlement"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "preview then Cancel: local tasks-index hash, marker table and D1 definition/occurrence/lease/run/link/audit counts are identical"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "bounded-run automation previews as not adoptable with its reason, no Confirm action, and no local or server mutation"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "explicit Hand over with a chosen agent and model completes in the actual UI"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "D1 shows one active managed definition for the chosen project/agent/alias and the prompt body appears in no server table"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the card shows Managed by Lumi only on the adopted original and offers Return instead of a second hand-over"
+        }
+      ],
+      "notes": []
+    },
+    "schedule": {
+      "status": "FAIL",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "server generated a due occurrence (its own sweep) and it reached succeeded through the real scheduler, not a test claim"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "D1: one lease for the desktop device, attempts claimed>started>succeeded, run link settled, P05 run succeeded (same ids)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the local managed-occurrence journal settled with the same occurrence and run ids as D1"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "real managed run readback: 1 inference request(s), 1 usage event(s), 8 audit row(s) for the same run/occurrence"
+        }
+      ],
+      "notes": [],
+      "error": "Error: prompt body after the managed run: automation_leases failed (1): \n{\n  \"error\": {\n    \"text\": \"Failed to parse body as JSON, got: Error: internal error; reference = con5pf8fcau7v4kgd5nqjocs\\n    at D1DatabaseObject.queryExecute (file:///Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/workers/d1/database.worker.js:198:73)\\n    at async D1DatabaseObject.fetch (file:///Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/workers/shared/index.worker.js:388:18)\\n    at async D1DatabaseObject.fetch (file:///Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/workers/shared/index.worker.js:555:14)\"\n  }\n}\n\n    at SmokeHarness.runWrangler (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/scripts/lib/smoke-harness.mjs:329:13)\n    at SmokeHarness.d1Rows (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/scripts/lib/smoke-harness.mjs:398:25)\n    at rows (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-journey-state.mjs:68:38)\n    at Object.assertAbsent (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-journey-state.mjs:98:28)\n    at async scheduleStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-schedule.mjs:83:3)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:171:3"
+    },
+    "race": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "restart": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "faults": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    }
+  },
+  "unprovenStages": [
+    "schedule",
+    "race",
+    "restart",
+    "faults"
+  ],
+  "scope": "scoped diagnostic through schedule; not journey E certification",
+  "provenance": {
+    "bundles": [
+      {
+        "name": "main",
+        "files": 21,
+        "sha256": "604fa10a16f50f4fce562fd85e4365db7fb96efbc99bc2e8e1cf7ec9a5d338a9",
+        "newest": "2026-10-08T23:59:00.395Z"
+      },
+      {
+        "name": "host",
+        "files": 18,
+        "sha256": "0898f4948f9536aada8724143026978e182d0edf4ddb1906e0171f78473651ab",
+        "newest": "2026-10-08T23:59:00.397Z"
+      },
+      {
+        "name": "scheduler",
+        "files": 3,
+        "sha256": "b4badb4637c9778cba4bfb7ea876bb11230d4ec2bfa1be4d8584e6c06e4e25be",
+        "newest": "2026-10-08T23:59:00.394Z"
+      },
+      {
+        "name": "renderer",
+        "files": 4118,
+        "sha256": "0c4d5d9705f587c52c2e53d1c30e283959b3707a8a4cfae94fbcf05e1a6093ee",
+        "newest": "2026-10-08T23:59:08.905Z"
+      },
+      {
+        "name": "preload",
+        "files": 6,
+        "sha256": "df09fe65c516e0bcc2897f256d05f4f120636d8e0cdeb2779aa712a9dd17c16c",
+        "newest": "2026-10-08T23:59:00.236Z"
+      }
+    ],
+    "newestSource": "2026-10-08T23:54:04.415Z",
+    "oldestBundle": "2026-10-08T23:59:00.236Z",
+    "buildStale": false,
+    "parentHead": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+    "clientHead": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+    "pairedGitlink": "fd977fd06c6d11c0202554d0ae693825a8217879",
+    "parentDirtyFiles": 84,
+    "clientDirtyFiles": 165,
+    "parentDirtyHash": "b627059f4cc72450adb323de238f0e29622f344baa581ed870b318378a17ac74",
+    "clientDirtyHash": "2c581610b914be777d43796b6cb2e1c053489c9f40e8bd2b2fc55f2848fa99b7",
+    "parentCandidateContentHash": "ac7c57a4893f59ba97eabdbab1c7f55b630f709638ed9acd69d2fd21ab75714c",
+    "clientCandidateContentHash": "19317daecc0342de9648a7f5cc186b2159a135375b269f33e6b24bbfda13802b",
+    "node": "v24.19.0"
+  },
+  "fixtures": {
+    "orgId": "org_550a04df6c360d9d8fcf376904567aac",
+    "projectId": "prj_6aca2c8ec07c4494b4424b2beaaf1780",
+    "deviceA": "dvc_d2aaf47d6baa439ba5ceab96e1d48093",
+    "managedAutomationId": "aut_0573ab65cec845fdaa02569ebfca1702",
+    "entitlements": {
+      "status": 422,
+      "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_6e79fd79c255450ca151bd3b5d56e87a\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
+    },
+    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-JRk53c",
+    "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
+  }
+}

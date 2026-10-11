@@ -1,0 +1,15 @@
+{
+  "complete": false,
+  "stages": [
+    {
+      "name": "browser.close",
+      "status": "FAILED: timed out after 10000 ms",
+      "ms": 10002
+    },
+    {
+      "name": "server.close",
+      "status": "ok",
+      "ms": 2
+    }
+  ]
+}

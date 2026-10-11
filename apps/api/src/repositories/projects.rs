@@ -140,7 +140,7 @@ const BINDING_BY_ID_SQL: &str = r#"
 SELECT binding_id, org_id, project_id, device_id, workspace_identity, display_name,
        environment_type, last_seen_at, created_at, updated_at
 FROM workspace_bindings
-WHERE binding_id = ?1
+WHERE binding_id = ?1 AND removed_at IS NULL
 LIMIT 1
 "#;
 
@@ -148,7 +148,7 @@ const BINDINGS_BY_PROJECT_SQL: &str = r#"
 SELECT binding_id, org_id, project_id, device_id, workspace_identity, display_name,
        environment_type, last_seen_at, created_at, updated_at
 FROM workspace_bindings
-WHERE project_id = ?1
+WHERE project_id = ?1 AND removed_at IS NULL
 ORDER BY created_at DESC, binding_id DESC
 LIMIT ?2
 "#;
@@ -157,18 +157,19 @@ const BINDINGS_BY_DEVICE_SQL: &str = r#"
 SELECT binding_id, org_id, project_id, device_id, workspace_identity, display_name,
        environment_type, last_seen_at, created_at, updated_at
 FROM workspace_bindings
-WHERE device_id = ?1
+WHERE device_id = ?1 AND removed_at IS NULL
 ORDER BY created_at DESC, binding_id DESC
 LIMIT ?2
 "#;
 
 const DELETE_BINDING_SQL: &str = r#"
-DELETE FROM workspace_bindings WHERE binding_id = ?1 AND project_id = ?2
+UPDATE workspace_bindings SET removed_at = ?3, updated_at = ?3
+WHERE binding_id = ?1 AND project_id = ?2 AND removed_at IS NULL
 "#;
 
 const BINDING_COUNT_FOR_DEVICE_SQL: &str = r#"
 SELECT COUNT(*) AS n FROM workspace_bindings
-WHERE device_id = ?1 AND workspace_identity = ?2
+WHERE device_id = ?1 AND workspace_identity = ?2 AND removed_at IS NULL
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -546,16 +547,26 @@ LIMIT ?2"#,
         &self,
         binding_id: &str,
         project_id: &str,
+        removed_at: &Timestamp,
     ) -> worker::Result<D1PreparedStatement> {
         self.database.prepare(
             DELETE_BINDING_SQL,
-            &[BindValue::Text(binding_id), BindValue::Text(project_id)],
+            &[
+                BindValue::Text(binding_id),
+                BindValue::Text(project_id),
+                BindValue::Text(removed_at.as_str()),
+            ],
         )
     }
 
-    pub async fn delete_binding(&self, binding_id: &str, project_id: &str) -> worker::Result<bool> {
+    pub async fn delete_binding(
+        &self,
+        binding_id: &str,
+        project_id: &str,
+        removed_at: &Timestamp,
+    ) -> worker::Result<bool> {
         let result = self
-            .delete_binding_statement(binding_id, project_id)?
+            .delete_binding_statement(binding_id, project_id, removed_at)?
             .run()
             .await?;
         Ok(D1Adapter::changes(&result)? > 0)

@@ -440,6 +440,14 @@ export async function loginComplete(
   );
 }
 
+export async function approveDesktopSignIn(userCode: string): Promise<void> {
+  await requestJson(
+    "/api/v1/auth/device-code/approve",
+    { method: "POST", body: { user_code: userCode } },
+    isEmptyObject,
+  );
+}
+
 export async function logout(signal?: AbortSignal): Promise<void> {
   await requestJson(
     "/api/v1/auth/logout",

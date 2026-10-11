@@ -6,6 +6,8 @@ Last initialized: 2026-09-27
 
 ## Current phase
 
+- Follow-on execution: **desktop/backend E2E closure active**, coordinator: current goal session. See `desktop-e2e/plan.md`; actual Electron account login/restart/logout proven locally, device transport proven via Worker/D1. Device main custody/UI, adoption/runtime/scheduler and remaining hostile/release proofs are not yet complete. Historical phase verdicts below are unchanged.
+
 - Active execution model: **P08 closed**
 - Current implementation phases: **P09 production hardening complete (Integration Gate: PASS WITH FOLLOW-UP); P08 complete (control plane merged, client seam merged in `RunLumi/LumiAgents` PR #31); P07 implementation complete; P06 implementation complete; P05 complete; P04 implemented/review; P03 complete**
 - Next implementable phase: **P08-INT-02..06 in `RunLumi/LumiAgents` (wizard UI, ownership labels, import flow, offline startup wiring) against frozen `p08-cg-v1`, plus the seven P09 follow-ups in `docs/release/release-checklist.md`. None of the P09 follow-ups blocks P08; the backup/restore rehearsal should be done first.**

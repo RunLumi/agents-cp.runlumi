@@ -57,10 +57,10 @@ use crate::{
     },
     repositories::{
         AutomationDefinitionRecord, AutomationOccurrenceRecord, AutomationStoreError,
-        AutomationUpdateInput, AutomationsRepository, ExecutionLeaseRecord, NewAttemptInput,
-        NewAutomationInput, NewAutomationRunInput, NewLeaseInput, NewOccurrenceInput,
-        NewRunLinkInput, NewScheduleRuleInput, OccurrenceTransition, ProjectRepository,
-        RunRepository, StoredScheduleRevision,
+        AutomationUpdateInput, AutomationsRepository, DeviceBindingResolution,
+        ExecutionLeaseRecord, NewAttemptInput, NewAutomationInput, NewAutomationRunInput,
+        NewLeaseInput, NewOccurrenceInput, NewRunLinkInput, NewScheduleRuleInput,
+        OccurrenceTransition, ProjectRepository, RunRepository, StoredScheduleRevision,
     },
     routes::{
         agents::{
@@ -1320,21 +1320,6 @@ pub async fn create_automation(
             &NewScheduleRuleInput {
                 schedule_rule_id: &schedule_rule_id,
                 org_id: &org_id,
-                kind: revision.rule.kind().as_str(),
-                expression: None,
-                timezone: None,
-                dom_dow_mode: None,
-                dst_policy: None,
-                interval_every: None,
-                interval_unit: None,
-                anchor_at: None,
-                scheduled_at: None,
-                by_weekday_json: None,
-                by_monthday_json: None,
-                by_month_json: None,
-                overlap_policy: revision.rule.overlap_policy().as_str(),
-                missed_policy: revision.rule.missed_policy().as_str(),
-                catch_up_limit: revision.rule.catch_up_limit().map(i64::from),
                 canonical_json: &canonical_json,
             },
             now,
@@ -1687,21 +1672,6 @@ pub async fn patch_automation(
                     &NewScheduleRuleInput {
                         schedule_rule_id: &new_rule_id,
                         org_id: &org_id,
-                        kind: revision.rule.kind().as_str(),
-                        expression: None,
-                        timezone: None,
-                        dom_dow_mode: None,
-                        dst_policy: None,
-                        interval_every: None,
-                        interval_unit: None,
-                        anchor_at: None,
-                        scheduled_at: None,
-                        by_weekday_json: None,
-                        by_monthday_json: None,
-                        by_month_json: None,
-                        overlap_policy: revision.rule.overlap_policy().as_str(),
-                        missed_policy: revision.rule.missed_policy().as_str(),
-                        catch_up_limit: revision.rule.catch_up_limit().map(i64::from),
                         canonical_json: &canonical_json,
                     },
                     &context.received_at,
@@ -2456,6 +2426,46 @@ pub async fn due_automations(
         .into_response())
 }
 
+/// The workspace binding a run for `automation` carries when `access.device` executes it.
+///
+/// Resolved from server rows for the AUTHENTICATED device (never from the request body), so the
+/// device that wins a claim is the device whose own workspace the run is bound to. Refusing here,
+/// before a lease or a P05 run exists, is what keeps an unresolvable automation from leaving a
+/// leased occurrence or a binding-less queued run behind.
+async fn resolve_run_binding(
+    context: &RequestContext,
+    repository: &AutomationsRepository<'_>,
+    access: &DeviceAccess,
+    automation: &AutomationDefinitionRecord,
+) -> Result<String, ApiError> {
+    let project_id = automation
+        .project_id
+        .as_deref()
+        .ok_or_else(|| domain_failure(context, DomainError::AutomationInvalidState))?;
+    match repository
+        .resolve_device_workspace_binding(
+            &access.device.org_id,
+            project_id,
+            &access.device.device_id,
+            automation.target_workspace_binding_id.as_deref(),
+        )
+        .await
+        .map_err(|_| service_unavailable(context))?
+    {
+        DeviceBindingResolution::Resolved(binding_id) => Ok(binding_id),
+        DeviceBindingResolution::Unresolved => Err(conflict(
+            context,
+            "workspace_binding_unresolved",
+            "This device has no workspace binding for the automation's project.",
+        )),
+        DeviceBindingResolution::Ambiguous => Err(conflict(
+            context,
+            "workspace_binding_ambiguous",
+            "This device has several workspace bindings for the automation's project.",
+        )),
+    }
+}
+
 #[worker::send]
 pub async fn claim_occurrence(
     State(state): State<Arc<AppState>>,
@@ -2528,6 +2538,9 @@ pub async fn claim_occurrence(
             ),
         });
     }
+    // The attempt counter must not move for a device that could never start the run, so the
+    // binding is resolved here with the same function `start` uses.
+    resolve_run_binding(&context, &repository, &access, &automation).await?;
     let current_state = occurrence
         .state()
         .map_err(|error| domain_failure(&context, error))?;
@@ -2947,6 +2960,10 @@ pub async fn start_occurrence(
         .map_err(|error| database_error(&context, error))?
         .filter(|agent| agent.lifecycle == "active")
         .ok_or_else(|| domain_failure(&context, DomainError::AutomationInvalidState))?;
+    // The run's binding is the claiming device's own server-resolved binding, never NULL: Main
+    // refuses a run whose binding it did not authorize, and that refusal must stay.
+    let workspace_binding_id =
+        resolve_run_binding(&context, &repository, &access, &automation).await?;
     let run_id = generated_id("run");
     let session_id = generated_id("rse");
     let link_id = generated_id("lnk");
@@ -2958,7 +2975,7 @@ pub async fn start_occurrence(
         org_id: &access.device.org_id,
         project_id: &project_id,
         device_id: &access.device.device_id,
-        workspace_binding_id: automation.target_workspace_binding_id.as_deref(),
+        workspace_binding_id: Some(&workspace_binding_id),
         agent_definition_id: &agent.agent_definition_id,
         agent_definition_version: agent.version,
         external_id: &occurrence.occurrence_id,
@@ -2998,6 +3015,13 @@ pub async fn start_occurrence(
             &automation.execution_principal_id,
             context.received_at.as_str(),
             eligibility.license_state.as_deref().unwrap_or("active"),
+        )
+        .map_err(|error| database_error(&context, error))?;
+    let binding_guard = repository
+        .assert_device_binding_current_statement(
+            &access.device.org_id,
+            &access.device.device_id,
+            &workspace_binding_id,
         )
         .map_err(|error| database_error(&context, error))?;
     let session = repository
@@ -3085,6 +3109,7 @@ pub async fn start_occurrence(
             occurrence_guard,
             link_absent,
             eligibility_guard,
+            binding_guard,
             session,
             run,
             link,
@@ -3321,6 +3346,28 @@ pub async fn settle_occurrence(
             })
             .map_err(|error| database_error(&context, error))?,
     );
+    // A failed occurrence must not leave the server-created P05 run behind. If the host never
+    // moved it out of `queued` (activation refused, e.g. a binding it does not authorize), nothing
+    // can ever execute it, so it is cancelled in the same batch. Both statements are no-ops for a
+    // run that already advanced or ended, so a `running` run is never touched here.
+    if next == OccurrenceState::Failed
+        && let Some(run_id) = run_id.as_deref()
+    {
+        writes.extend(
+            repository
+                .cancel_unstarted_run_statements(
+                    &access.device.org_id,
+                    run_id,
+                    &occurrence.occurrence_id,
+                    &lease.lease_id,
+                    context.request_id.as_str(),
+                    context.correlation_id.as_str(),
+                    &generated_id("rev"),
+                    context.received_at.as_str(),
+                )
+                .map_err(|error| database_error(&context, error))?,
+        );
+    }
     writes.push(
         crate::jobs::automations::occurrence_outbox_statement(
             database,

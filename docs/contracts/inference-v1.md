@@ -41,11 +41,21 @@ A successful streaming response is `text/event-stream`. Events are typed and car
 - `response.completed`
 - `error`
 
+`response.tool_call.delta` (P04-CR-002, additive) carries `index`, nullable `call_id`, nullable `name` and `arguments_delta`. `call_id` and `name` are present only on the fragments where the provider sent them; the gateway never substitutes an ID. `response.completed` carries `finish_reason` (`tool_calls` when any call was streamed, otherwise `stop`). Calls are bounded: index below 128, ID 1-128 bytes of `[A-Za-z0-9_.:-]`, unique per response, name 1-128 bytes, at most 256 KiB of arguments per call and 512 KiB per response. A call that never receives an ID and a name, or any out-of-bounds fragment, ends the stream with `error` (`upstream_invalid_response`). A tool-call fragment is meaningful output: no fallback or retry follows it.
+
 Clients should preserve backpressure, stop reading when cancelled, and treat the first received event as response commitment. A disconnect does not authorize a new model request; a new call receives a new request ID.
 
 ## OpenAI compatibility
 
 `POST /api/v1/inference/chat/completions` supports the documented P04 subset of `model`, `messages`, `stream`, `temperature`, `max_tokens`/`max_completion_tokens`, and `tools`. Unsupported fields fail validation. The `model` value is a Lumi alias, not a vendor model ID.
+
+Tool turns (P04-CR-002) use the OpenAI shape, strictly validated with unknown fields refused:
+
+- An assistant message may carry `tool_calls: [{"id", "type": "function", "function": {"name", "arguments"}}]` and then may have `null` or absent `content`. Without calls, `content` stays required. `type` must be exactly `function`; call IDs are 1-128 bytes of `[A-Za-z0-9_.:-]` and unique in the request; at most 128 calls per request; `arguments` is a JSON object string of at most 256 KiB. Calls count toward the aggregate 512 KiB request content limit and the token estimate.
+- A `tool` message requires `tool_call_id` naming one earlier, still-unanswered call and non-null `content`. No other role may carry `tool_calls` or `tool_call_id`.
+- Streaming chunks carry `delta.tool_calls[]` with `index`, `id`/`type` and `function.name` only on the fragments where the provider sent them, and `function.arguments` fragments. The terminal chunk has `finish_reason: "tool_calls"` when calls were produced (plain text keeps `stop`). With `stream_options.include_usage` a final independent chunk with empty `choices` carries `usage`. Non-streaming responses return `message.tool_calls`, `content: null` when there is no text, and `finish_reason: "tool_calls"`.
+- The gateway only transports calls. It never executes them or resolves approvals; P05 device/scope checks, the reviewed catalog, policy, grants and the once-only execution claim remain the authority. Tool arguments and results are request content under the existing privacy rules and are never written to audit metadata or logs.
+- The Anthropic adapter does not translate tool turns and refuses them (`unsupported_capability`) instead of dropping them.
 
 ## Compatibility and fallback
 
