@@ -67,9 +67,9 @@ follow explicit authorization in the executing session.
 ### Claude Code continuation
 
 [goal-desktop-backend-e2e-claude-handoff.md](goal-desktop-backend-e2e-claude-handoff.md)
-contains the full original goal plus the dated continuation baseline, source
-reconciliation, agent ownership, remaining proof obligations and the human's
-explicit phase PR/merge authorization. Reverify its dated state before execution.
+is a 4,000-character continuation prompt referencing the complete original goal,
+with the dated baseline, ownership, proof gates and phase PR/merge authorization.
+Read the referenced full goal and reverify the baseline before execution.
 
 ```text
 /goal @docs/prompts/goal-desktop-backend-e2e-claude-handoff.md
