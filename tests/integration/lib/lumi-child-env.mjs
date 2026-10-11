@@ -131,7 +131,10 @@ export function ownedProviderConfigEnv(profile) {
   const { builtinFilePath, personalFilePath } = ownedProviderConfigPaths(profile);
   if (!existsSync(builtinFilePath) || !existsSync(personalFilePath)) return {};
   for (const path of [builtinFilePath, personalFilePath])
-    assert.ok(isSameOrAncestor(canonicalPath(profile), canonicalPath(path)), "provider config must live inside the profile");
+    assert.ok(
+      isSameOrAncestor(canonicalPath(profile), canonicalPath(path)),
+      "provider config must live inside the profile",
+    );
   return {
     ZCODE_BUILTIN_PROVIDER_CONFIG_FILE: builtinFilePath,
     ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: personalFilePath,
@@ -141,7 +144,13 @@ export function ownedProviderConfigEnv(profile) {
 /** Create the XDG directories so a child that expects them never falls back to another location. */
 export function prepareIsolatedHome(profile) {
   const layout = isolatedHomeLayout(profile);
-  for (const dir of [layout.home, layout.configHome, layout.dataHome, layout.cacheHome, layout.stateHome])
+  for (const dir of [
+    layout.home,
+    layout.configHome,
+    layout.dataHome,
+    layout.cacheHome,
+    layout.stateHome,
+  ])
     mkdirSync(dir, { recursive: true });
   return layout;
 }
@@ -156,13 +165,18 @@ export function isolatedChildEnv(profile, overrides = {}, base = process.env) {
   assertProfileIsNotPersonal(profile);
   const protectedKeys = new Set(PROTECTED_KEYS);
   const conflicting = Object.keys(overrides).filter((key) => protectedKeys.has(key.toUpperCase()));
-  assert.deepEqual(conflicting, [], `overrides may not replace isolation roots: ${conflicting.join(", ")}`);
+  assert.deepEqual(
+    conflicting,
+    [],
+    `overrides may not replace isolation roots: ${conflicting.join(", ")}`,
+  );
   const layout = isolatedHomeLayout(profile);
   const inherited = { ...base };
   for (const key of Object.keys(inherited)) {
     // Main keeps the exact-case OS identity (native keystore); any other spelling or root is dropped.
     if (OS_IDENTITY_KEYS.includes(key)) continue;
-    if (INHERITED_PERSONAL_KEYS.includes(key.toUpperCase()) || protectedKeys.has(key.toUpperCase())) delete inherited[key];
+    if (INHERITED_PERSONAL_KEYS.includes(key.toUpperCase()) || protectedKeys.has(key.toUpperCase()))
+      delete inherited[key];
   }
   return {
     ...inherited,
@@ -192,14 +206,21 @@ export function isolatedChildEnv(profile, overrides = {}, base = process.env) {
  */
 export function describeIsolation(profile, env) {
   const layout = isolatedHomeLayout(profile);
-  const mainHomeIsProfile = env.HOME !== undefined && canonicalPath(env.HOME) === canonicalPath(layout.home);
+  const mainHomeIsProfile =
+    env.HOME !== undefined && canonicalPath(env.HOME) === canonicalPath(layout.home);
   return {
-    nativeOsKeystore: { mainHomeIsProfile, homeSource: mainHomeIsProfile ? "profile" : "inherited-os-home" },
+    nativeOsKeystore: {
+      mainHomeIsProfile,
+      homeSource: mainHomeIsProfile ? "profile" : "inherited-os-home",
+    },
     mainAppData: {
       dataBaseDir: env.ZCODE_DATA_BASE_DIR,
       userData: env.ZCODE_DESKTOP_USER_DATA_DIR,
       sessionData: env.ZCODE_DESKTOP_SESSION_DATA_DIR,
     },
-    hostAgentHome: { requestedRoot: env.ZCODE_DESKTOP_HOME_DIR, agentStore: env.ZCODE_SESSION_DB_PATH },
+    hostAgentHome: {
+      requestedRoot: env.ZCODE_DESKTOP_HOME_DIR,
+      agentStore: env.ZCODE_SESSION_DB_PATH,
+    },
   };
 }

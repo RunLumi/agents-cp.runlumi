@@ -521,9 +521,21 @@ check(
     };
     const cases = [
       { name: "active organization, member, and license", blocked: false },
-      { name: "suspended organization", blocked: true, sql: "UPDATE organizations SET state = 'suspended'" },
-      { name: "suspended membership", blocked: true, sql: "UPDATE memberships SET status = 'suspended'" },
-      { name: "stale license state", blocked: true, sql: "UPDATE license_states SET state = 'suspended'" },
+      {
+        name: "suspended organization",
+        blocked: true,
+        sql: "UPDATE organizations SET state = 'suspended'",
+      },
+      {
+        name: "suspended membership",
+        blocked: true,
+        sql: "UPDATE memberships SET status = 'suspended'",
+      },
+      {
+        name: "stale license state",
+        blocked: true,
+        sql: "UPDATE license_states SET state = 'suspended'",
+      },
       {
         name: "expired grace period",
         blocked: true,

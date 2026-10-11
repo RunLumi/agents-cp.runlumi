@@ -46,7 +46,9 @@ export function createClaimLedger() {
     const claim = claims.get(id);
     if (!claim) throw new Error(`unknown claim ${id}`);
     if (claim.records.length === 0) return "UNPROVEN"; // never ran: absent evidence is not a pass
-    const worst = claim.records.reduce((a, b) => (SEVERITY[b.verdict] > SEVERITY[a.verdict] ? b : a));
+    const worst = claim.records.reduce((a, b) =>
+      SEVERITY[b.verdict] > SEVERITY[a.verdict] ? b : a,
+    );
     if (worst.verdict === "PASS") return "PASS";
     if (worst.verdict === "NOT_APPLICABLE") {
       return claim.records.some((r) => r.verdict === "PASS") ? "PASS" : "NOT_APPLICABLE";
@@ -60,7 +62,10 @@ export function createClaimLedger() {
       title: claim.title,
       critical: claim.critical,
       verdict: verdictOf(claim.id),
-      evidence: claim.records.length === 0 ? ["no evidence recorded; the case never ran"] : claim.records.map((r) => `${r.verdict}: ${r.evidence}`),
+      evidence:
+        claim.records.length === 0
+          ? ["no evidence recorded; the case never ran"]
+          : claim.records.map((r) => `${r.verdict}: ${r.evidence}`),
     }));
 
   /** Overall verdict + exit code. `failuresElsewhere` = assertions failed outside any claim. */
@@ -87,7 +92,9 @@ export function createClaimLedger() {
   const format = (conclusion = conclude()) => {
     const lines = ["", "per-claim verdicts:"];
     for (const row of conclusion.rows) {
-      lines.push(`  ${row.verdict.padEnd(14)} ${row.critical ? "[critical]" : "[advisory]"} ${row.id} — ${row.title}`);
+      lines.push(
+        `  ${row.verdict.padEnd(14)} ${row.critical ? "[critical]" : "[advisory]"} ${row.id} — ${row.title}`,
+      );
       if (row.verdict !== "PASS") for (const line of row.evidence) lines.push(`      ${line}`);
     }
     lines.push(`overall: ${conclusion.overall} (exit ${conclusion.exitCode})`);
@@ -108,15 +115,24 @@ export function createClaimLedger() {
  */
 export function classifyStreamCut({ status, contentType, firstChunk }) {
   if (!Number.isInteger(status) || status < 200 || status > 299) {
-    return { established: false, reason: `response was HTTP ${status ?? "none"}, not a 2xx stream: this is a pre-output failure, not a post-output disconnect` };
+    return {
+      established: false,
+      reason: `response was HTTP ${status ?? "none"}, not a 2xx stream: this is a pre-output failure, not a post-output disconnect`,
+    };
   }
   if (!/^text\/event-stream\b/i.test(contentType ?? "")) {
-    return { established: false, reason: `content-type ${contentType ?? "none"} is not text/event-stream` };
+    return {
+      established: false,
+      reason: `content-type ${contentType ?? "none"} is not text/event-stream`,
+    };
   }
   if (!/(^|\n)data:/.test(firstChunk ?? "")) {
     return { established: false, reason: "no SSE data frame was observed before the disconnect" };
   }
-  return { established: true, reason: "2xx SSE response with an observed data frame before the cut" };
+  return {
+    established: true,
+    reason: "2xx SSE response with an observed data frame before the cut",
+  };
 }
 
 /**
@@ -130,19 +146,32 @@ export function classifyStreamCut({ status, contentType, firstChunk }) {
  */
 export function classifyUpstreamClosure({ fixtureRecord, ledgerEntry, completeFrames }) {
   if (!fixtureRecord) return { verdict: "UNPROVEN", note: "no fixture record for this request" };
-  if (!ledgerEntry) return { verdict: "UNPROVEN", note: "no forwarder ledger entry for this request" };
+  if (!ledgerEntry)
+    return { verdict: "UNPROVEN", note: "no forwarder ledger entry for this request" };
   const seen = `fixture outcome=${fixtureRecord.outcome} frames=${fixtureRecord.framesWritten}; forwarder upstreamDestroyedBy=${ledgerEntry.upstreamDestroyedBy ?? "none"} resClosedBeforeFinish=${ledgerEntry.resClosedBeforeFinish}`;
   if (fixtureRecord.outcome === "pending") {
-    return { verdict: "UNPROVEN", note: `OBSERVED provider socket still open at the observation bound; ${seen}` };
+    return {
+      verdict: "UNPROVEN",
+      note: `OBSERVED provider socket still open at the observation bound; ${seen}`,
+    };
   }
   if (fixtureRecord.outcome !== "client-closed") {
-    return { verdict: "UNPROVEN", note: `OBSERVED provider socket ended without a client close (${fixtureRecord.outcome}); ${seen}` };
+    return {
+      verdict: "UNPROVEN",
+      note: `OBSERVED provider socket ended without a client close (${fixtureRecord.outcome}); ${seen}`,
+    };
   }
   if (Number.isInteger(completeFrames) && fixtureRecord.framesWritten >= completeFrames) {
-    return { verdict: "UNPROVEN", note: `OBSERVED the stream had already written every frame before the close; ${seen}` };
+    return {
+      verdict: "UNPROVEN",
+      note: `OBSERVED the stream had already written every frame before the close; ${seen}`,
+    };
   }
   if (ledgerEntry.upstreamDestroyedBy === null || ledgerEntry.resClosedBeforeFinish !== true) {
-    return { verdict: "UNPROVEN", note: `the provider saw a close the handler does not attribute to a downstream close; ${seen}` };
+    return {
+      verdict: "UNPROVEN",
+      note: `the provider saw a close the handler does not attribute to a downstream close; ${seen}`,
+    };
   }
   return { verdict: "PASS", note: seen };
 }
@@ -153,9 +182,18 @@ export function classifyUpstreamClosure({ fixtureRecord, ledgerEntry, completeFr
  * `ambiguous` (settled within `slackMs` of the route timeout, error code not conclusive) both keep
  * the claim UNPROVEN and record the error code and timing instead.
  */
-export function classifySettleCause({ errorCode, settledWithinMs, routeTimeoutMs, slackMs = 1_500 }) {
+export function classifySettleCause({
+  errorCode,
+  settledWithinMs,
+  routeTimeoutMs,
+  slackMs = 1_500,
+}) {
   if (/timeout/i.test(errorCode ?? "")) return "timeout";
-  if (Number.isFinite(settledWithinMs) && Number.isFinite(routeTimeoutMs) && Math.abs(settledWithinMs - routeTimeoutMs) <= slackMs) {
+  if (
+    Number.isFinite(settledWithinMs) &&
+    Number.isFinite(routeTimeoutMs) &&
+    Math.abs(settledWithinMs - routeTimeoutMs) <= slackMs
+  ) {
     return "ambiguous";
   }
   return "not-timeout";

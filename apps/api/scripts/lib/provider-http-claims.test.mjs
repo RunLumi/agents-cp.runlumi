@@ -80,7 +80,10 @@ describe("claim ledger verdicts", () => {
 
   test("NOT_APPLICABLE is refused for critical claims and needs a reason otherwise", () => {
     const ledger = ledgerWith(["crit"], ["adv", { critical: false }]);
-    assert.throws(() => ledger.record("crit", "NOT_APPLICABLE", "because"), /cannot be NOT_APPLICABLE/);
+    assert.throws(
+      () => ledger.record("crit", "NOT_APPLICABLE", "because"),
+      /cannot be NOT_APPLICABLE/,
+    );
     assert.throws(() => ledger.record("adv", "NOT_APPLICABLE", "  "), /needs a reason/);
     ledger.record("adv", "NOT_APPLICABLE", "no such surface");
     assert.equal(ledger.verdictOf("adv"), "NOT_APPLICABLE");
@@ -96,15 +99,27 @@ describe("claim ledger verdicts", () => {
 
 describe("cancel settlement classification", () => {
   test("prompt settlement is PASS", () => {
-    assert.equal(classifyCancelSettlement({ settledWithinMs: 1500, boundMs: 20_000, windowMs: 150_000 }).verdict, "PASS");
+    assert.equal(
+      classifyCancelSettlement({ settledWithinMs: 1500, boundMs: 20_000, windowMs: 150_000 })
+        .verdict,
+      "PASS",
+    );
   });
   test("late reclaim is not a PASS and keeps the held-reservation evidence", () => {
-    const out = classifyCancelSettlement({ settledWithinMs: 70_000, boundMs: 20_000, windowMs: 150_000 });
+    const out = classifyCancelSettlement({
+      settledWithinMs: 70_000,
+      boundMs: 20_000,
+      windowMs: 150_000,
+    });
     assert.equal(out.verdict, "UNPROVEN");
     assert.match(out.note, /held reservation beyond the 20000ms bound/);
   });
   test("never settling inside the window is UNPROVEN, not a product diagnosis", () => {
-    const out = classifyCancelSettlement({ settledWithinMs: null, boundMs: 20_000, windowMs: 150_000 });
+    const out = classifyCancelSettlement({
+      settledWithinMs: null,
+      boundMs: 20_000,
+      windowMs: 150_000,
+    });
     assert.equal(out.verdict, "UNPROVEN");
     assert.match(out.note, /product cause not diagnosed/);
   });
@@ -113,22 +128,50 @@ describe("cancel settlement classification", () => {
 describe("post-output cut precondition", () => {
   const frame = 'data: {"choices":[{"delta":{"content":"x"}}]}\n\n';
   test("a 2xx SSE response with a data frame establishes the cut", () => {
-    assert.equal(classifyStreamCut({ status: 200, contentType: "text/event-stream; charset=utf-8", firstChunk: frame }).established, true);
+    assert.equal(
+      classifyStreamCut({
+        status: 200,
+        contentType: "text/event-stream; charset=utf-8",
+        firstChunk: frame,
+      }).established,
+      true,
+    );
   });
   test("a 503 JSON error cannot prove post-output cancel", () => {
-    const out = classifyStreamCut({ status: 503, contentType: "application/json", firstChunk: '{"error":{"code":"provider_unavailable"}}' });
+    const out = classifyStreamCut({
+      status: 503,
+      contentType: "application/json",
+      firstChunk: '{"error":{"code":"provider_unavailable"}}',
+    });
     assert.equal(out.established, false);
     assert.match(out.reason, /pre-output failure/);
   });
   test("a 200 JSON body, or an SSE response with no data frame, is not established", () => {
-    assert.equal(classifyStreamCut({ status: 200, contentType: "application/json", firstChunk: frame }).established, false);
-    assert.equal(classifyStreamCut({ status: 200, contentType: "text/event-stream", firstChunk: ": keepalive\n\n" }).established, false);
-    assert.equal(classifyStreamCut({ status: undefined, contentType: null, firstChunk: "" }).established, false);
+    assert.equal(
+      classifyStreamCut({ status: 200, contentType: "application/json", firstChunk: frame })
+        .established,
+      false,
+    );
+    assert.equal(
+      classifyStreamCut({
+        status: 200,
+        contentType: "text/event-stream",
+        firstChunk: ": keepalive\n\n",
+      }).established,
+      false,
+    );
+    assert.equal(
+      classifyStreamCut({ status: undefined, contentType: null, firstChunk: "" }).established,
+      false,
+    );
   });
 });
 
 describe("provider-http-adapter-probe.mjs wiring (source guard)", () => {
-  const source = readFileSync(fileURLToPath(new URL("../provider-http-adapter-probe.mjs", import.meta.url)), "utf8");
+  const source = readFileSync(
+    fileURLToPath(new URL("../provider-http-adapter-probe.mjs", import.meta.url)),
+    "utf8",
+  );
   test("the mock control uses the mock adapter, and cancel claims gate on the cut precondition", () => {
     assert.match(source, /adapter: mockClaim \? "mock" : "openai_compatible"/);
     assert.equal((source.match(/precondition\.established/g) ?? []).length >= 2, true);
@@ -147,7 +190,9 @@ describe("provider-http-adapter-probe.mjs wiring (source guard)", () => {
     declared.add("cancel-mock-control");
     const used = new Set([
       ...[...source.matchAll(/\b(?:check|note|terminal)\(\s*"([a-z0-9-]+)"/g)].map((m) => m[1]),
-      ...[...source.matchAll(/(?:claims: \[|mockClaim: )([^\]\n}]*)/g)].flatMap((m) => [...m[1].matchAll(/"([a-z0-9-]+)"/g)].map((x) => x[1])),
+      ...[...source.matchAll(/(?:claims: \[|mockClaim: )([^\]\n}]*)/g)].flatMap((m) =>
+        [...m[1].matchAll(/"([a-z0-9-]+)"/g)].map((x) => x[1]),
+      ),
       "status-429",
       "status-503",
       "timeout-stall-before-headers",
@@ -165,10 +210,20 @@ describe("classifyUpstreamClosure (node-outbound ledgers)", () => {
   const closed = { outcome: "client-closed", framesWritten: 12 };
   const attributed = { upstreamDestroyedBy: "response-closed", resClosedBeforeFinish: true };
   test("PASS needs the provider to see the close AND the handler to attribute it to a downstream close", () => {
-    assert.equal(classifyUpstreamClosure({ fixtureRecord: closed, ledgerEntry: attributed, completeFrames: 60 }).verdict, "PASS");
+    assert.equal(
+      classifyUpstreamClosure({
+        fixtureRecord: closed,
+        ledgerEntry: attributed,
+        completeFrames: 60,
+      }).verdict,
+      "PASS",
+    );
   });
   test("a provider close the handler does not attribute is not PASS", () => {
-    const r = classifyUpstreamClosure({ fixtureRecord: closed, ledgerEntry: { upstreamDestroyedBy: null, resClosedBeforeFinish: false } });
+    const r = classifyUpstreamClosure({
+      fixtureRecord: closed,
+      ledgerEntry: { upstreamDestroyedBy: null, resClosedBeforeFinish: false },
+    });
     assert.equal(r.verdict, "UNPROVEN");
   });
   test("a socket still open, a finished stream, or a fixture-initiated destroy are observations, not PASS", () => {
@@ -178,25 +233,52 @@ describe("classifyUpstreamClosure (node-outbound ledgers)", () => {
       { outcome: "server-destroyed", framesWritten: 1 },
       { outcome: "client-closed", framesWritten: 60 },
     ]) {
-      const r = classifyUpstreamClosure({ fixtureRecord, ledgerEntry: attributed, completeFrames: 60 });
+      const r = classifyUpstreamClosure({
+        fixtureRecord,
+        ledgerEntry: attributed,
+        completeFrames: 60,
+      });
       assert.equal(r.verdict, "UNPROVEN", fixtureRecord.outcome);
       assert.match(r.note, /OBSERVED/);
     }
   });
   test("missing ledgers are UNPROVEN, never PASS", () => {
-    assert.equal(classifyUpstreamClosure({ fixtureRecord: undefined, ledgerEntry: attributed }).verdict, "UNPROVEN");
-    assert.equal(classifyUpstreamClosure({ fixtureRecord: closed, ledgerEntry: undefined }).verdict, "UNPROVEN");
+    assert.equal(
+      classifyUpstreamClosure({ fixtureRecord: undefined, ledgerEntry: attributed }).verdict,
+      "UNPROVEN",
+    );
+    assert.equal(
+      classifyUpstreamClosure({ fixtureRecord: closed, ledgerEntry: undefined }).verdict,
+      "UNPROVEN",
+    );
   });
 });
 
 describe("classifySettleCause", () => {
   test("a timeout error code is the timeout path, not a cancel", () => {
-    assert.equal(classifySettleCause({ errorCode: "request_timeout", settledWithinMs: 3_000, routeTimeoutMs: 20_000 }), "timeout");
+    assert.equal(
+      classifySettleCause({
+        errorCode: "request_timeout",
+        settledWithinMs: 3_000,
+        routeTimeoutMs: 20_000,
+      }),
+      "timeout",
+    );
   });
   test("settling at the route timeout without a conclusive code is ambiguous", () => {
-    assert.equal(classifySettleCause({ errorCode: null, settledWithinMs: 20_400, routeTimeoutMs: 20_000 }), "ambiguous");
+    assert.equal(
+      classifySettleCause({ errorCode: null, settledWithinMs: 20_400, routeTimeoutMs: 20_000 }),
+      "ambiguous",
+    );
   });
   test("a prompt settle with a non-timeout code is attributable to the cancel path", () => {
-    assert.equal(classifySettleCause({ errorCode: "client_disconnected", settledWithinMs: 1_200, routeTimeoutMs: 20_000 }), "not-timeout");
+    assert.equal(
+      classifySettleCause({
+        errorCode: "client_disconnected",
+        settledWithinMs: 1_200,
+        routeTimeoutMs: 20_000,
+      }),
+      "not-timeout",
+    );
   });
 });
