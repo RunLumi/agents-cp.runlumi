@@ -87,7 +87,14 @@ try {
   );
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   let deviceCredential = null;
-  const device = new LumiDeviceHostTransport(probe.baseUrl, fetch, {
+  // Wrangler mutates this fixture's local D1 while the Worker remains open. Do
+  // not reuse a keep-alive socket that may have gone stale across that boundary.
+  const fixtureFetch = (input, init = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set("connection", "close");
+    return fetch(input, { ...init, headers });
+  };
+  const device = new LumiDeviceHostTransport(probe.baseUrl, fixtureFetch, {
     async load() {
       return deviceCredential;
     },
