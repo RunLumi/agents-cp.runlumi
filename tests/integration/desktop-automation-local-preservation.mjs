@@ -17,7 +17,12 @@ import { readTable, seedLocalAutomations, snapshotLocal } from "./lib/automation
 
 const root = resolve(import.meta.dirname, "../..");
 const client = join(root, "integrations/lumi-agents");
-const binary = join(client, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+const binary = join(
+  client,
+  process.platform === "darwin"
+    ? "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    : "node_modules/electron/dist/electron",
+);
 const profile = await mkdtemp(join(tmpdir(), "lumi-automation-local-"));
 const workspacePath = join(profile, "workspace");
 mkdirSync(workspacePath, { recursive: true });

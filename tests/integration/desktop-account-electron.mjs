@@ -8,7 +8,11 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomBytes } from "node:crypto";
-import { isolatedChildEnv, prepareIsolatedHome } from "./lib/lumi-child-env.mjs";
+import {
+  isolatedChildEnv,
+  nativeKeystoreArgs,
+  prepareIsolatedHome,
+} from "./lib/lumi-child-env.mjs";
 import { SmokeHarness } from "../../apps/api/scripts/lib/smoke-harness.mjs";
 import { launch, newPage, connect, attachPage } from "../../apps/web/scripts/cdp.mjs";
 import {
@@ -105,7 +109,12 @@ async function start({ expectRestoredAccount = false } = {}) {
   const port = await probe.availablePort();
   app = spawn(
     binary,
-    [desktop, `--open-workspace=${workspacePath}`, `--remote-debugging-port=${port}`],
+    [
+      desktop,
+      `--open-workspace=${workspacePath}`,
+      `--remote-debugging-port=${port}`,
+      ...nativeKeystoreArgs(),
+    ],
     {
       detached: true,
       // Main keeps the OS HOME (native keystore); Host/Agent HOME and app data roots are profile-owned.

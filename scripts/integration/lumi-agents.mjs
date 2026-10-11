@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -64,6 +64,22 @@ function snapshot(cwd) {
     package_manager: JSON.parse(readFileSync(join(cwd, "package.json"))).packageManager,
   };
 }
+if (desktopMode && process.platform === "linux" && process.env.LUMI_DESKTOP_SESSION !== "1") {
+  // Re-enter inside an owned headless session: private D-Bus bus, Xvfb display and an
+  // isolated, unlocked gnome-keyring under this run's output. Personal sessions are never used.
+  const state = join(output, "desktop-session");
+  const code = await new Promise((done) => {
+    const session = spawn(
+      join(root, "scripts/integration/linux-desktop-session.sh"),
+      [state, process.execPath, fileURLToPath(import.meta.url)],
+      { stdio: "inherit", env: { ...process.env, LUMI_DESKTOP_SESSION: "1" } },
+    );
+    session.once("error", () => done(2));
+    session.once("exit", (exitCode) => done(exitCode ?? 2));
+  });
+  rmSync(state, { recursive: true, force: true });
+  process.exit(code);
+}
 try {
   if (Number(process.versions.node.split(".")[0]) !== 24) throw new Error("Use Node.js 24");
   if (!process.env.LUMI_AGENTS_DIR && !existsSync(join(client, "package.json")))
@@ -125,13 +141,22 @@ try {
   const offlineArgs = process.env.LUMI_INTEGRATION_OFFLINE === "1" ? ["--offline"] : [];
   await rootPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
   if (desktopMode) {
-    if (process.platform !== "darwin")
+    if (process.platform !== "darwin" && process.platform !== "linux")
       throw new Error(
-        "Desktop runner currently requires macOS native runtime, display and keychain",
+        "Desktop runner requires macOS or Linux native runtime, display and keystore",
       );
     // The actual desktop requires its native/Electron install hooks. A failed
     // hook stays BLOCKED; the contract-only runner intentionally omits them.
-    await clientPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
+    // Enable only the client's own `allowBuilds` hooks, even where a user-level
+    // pnpm config disables lifecycle scripts, and let pnpm replace the module
+    // gate's isolated layout without an interactive prompt.
+    await clientPnpm([
+      "install",
+      "--frozen-lockfile",
+      "--config.ignore-scripts=false",
+      "--config.confirm-modules-purge=false",
+      ...offlineArgs,
+    ]);
   } else {
     // The module gate consumes only this dependency closure. pnpm 10's hoisted
     // linker can race while copying nested esbuild paths (pnpm/pnpm#12880,

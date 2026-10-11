@@ -161,6 +161,16 @@ export function prepareIsolatedHome(profile) {
  * REFUSED, and the isolation fields are applied last, so no override can undo isolation.
  * `base` defaults to the supervisor's environment, which is only COPIED.
  */
+/**
+ * Native secure-storage selection for the actual Electron Main. Headless Linux has no desktop
+ * environment for Chromium to infer a keystore from, so it would select `basic_text`, which the
+ * product correctly refuses. Name the Secret Service explicitly; the harness session supplies an
+ * owned, unlocked keyring (`scripts/integration/linux-desktop-session.sh`).
+ */
+export function nativeKeystoreArgs(platform = process.platform) {
+  return platform === "linux" ? ["--password-store=gnome-libsecret"] : [];
+}
+
 export function isolatedChildEnv(profile, overrides = {}, base = process.env) {
   assertProfileIsNotPersonal(profile);
   const protectedKeys = new Set(PROTECTED_KEYS);
