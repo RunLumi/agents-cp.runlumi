@@ -53,6 +53,7 @@ const { LumiDeviceHostTransport } = await import(
   pathToFileURL(resolve(out, "device/device.mjs")).href
 );
 const probe = new SmokeHarness({ name: "desktop account transport" });
+probe.useAsyncSubprocesses(process.env.LUMI_PROBE_SYNC_D1 !== "1");
 const reportPath =
   process.env.LUMI_ACCOUNT_REPORT || resolve(root, "test-results/lumi-account-report.json");
 let completed = false;
@@ -131,19 +132,8 @@ try {
     Number(tokenRows[0]?.n) === 1,
     JSON.stringify(tokenRows),
   );
-  probe.runWrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--env",
-      "development",
-      "--persist-to",
-      probe.persistDir,
-      "--command",
-      `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${info.id}'`,
-    ],
+  await probe.d1Execute(
+    `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${info.id}'`,
     "force expiry on owned synthetic device",
   );
   const expiredRows = await probe.d1Rows(
@@ -197,19 +187,8 @@ try {
     (e) => e.status === 403,
   );
   probe.expect("wrong device proof cannot recover token", true);
-  probe.runWrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--env",
-      "development",
-      "--persist-to",
-      probe.persistDir,
-      "--command",
-      `UPDATE device_token_recovery_challenges SET expires_at = '2000-01-01T00:00:00.000Z' WHERE challenge_hash = '${expiredHash}' AND device_id = '${info.id}'`,
-    ],
+  await probe.d1Execute(
+    `UPDATE device_token_recovery_challenges SET expires_at = '2000-01-01T00:00:00.000Z' WHERE challenge_hash = '${expiredHash}' AND device_id = '${info.id}'`,
     "expire owned synthetic recovery challenge",
   );
   const expiredChallengeRows = await probe.d1Rows(
