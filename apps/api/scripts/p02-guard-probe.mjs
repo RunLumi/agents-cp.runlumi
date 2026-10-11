@@ -447,7 +447,7 @@ check("is_guard_abort actually reads the list this probe verifies", () => {
 // assumed: this campaign has now shipped four comparisons that held on empty or identical inputs,
 // and a polarity test that passes because the predicate is constant would be the fifth.
 //
-// The nine conditions are read out of the repository source rather than restated here, so this
+// The guard conditions are read out of the repository source rather than restated here, so this
 // matrix cannot drift from the code it grades: a tenth `guard!` fails the count.
 // Resolved the way the rest of this probe resolves its sources -- from the script's own directory,
 // not the working directory. `pnpm --filter` runs with `apps/api` as the cwd, and a hard-coded
@@ -483,21 +483,104 @@ function guardOwners() {
 check("V01-023: the polarity matrix covers every guard! in the automations repository", () => {
   const conditions = guardConditions();
   const owners = guardOwners();
-  if (conditions.length !== 9) {
+  if (conditions.length !== 10) {
     return (
-      `found ${conditions.length} guard! sites and expected 9. Either a guard was added -- in ` +
+      `found ${conditions.length} guard! sites and expected 10. Either a guard was added -- in ` +
       `which case its polarity is unpinned and this matrix is a false pass -- or one was removed, ` +
       `in which case this count is stale. Read ${AUTOMATIONS_REPO} and decide deliberately.`
     );
   }
-  if (owners.length !== 9) {
+  if (owners.length !== 10) {
     return (
-      `attributed ${owners.length} of the 9 guard! sites to a named function, so a failure ` +
+      `attributed ${owners.length} of the 10 guard! sites to a named function, so a failure ` +
       `below could not be traced to a symbol`
     );
   }
   return null;
 });
+
+check(
+  "dispatch eligibility guard permits active authority and aborts each lost authorization",
+  () => {
+    // guardOwners captures the method name without its `_statement` suffix.
+    const owner = "assert_dispatch_eligible";
+    const owners = guardOwners();
+    const conditions = guardConditions();
+    const index = owners.indexOf(owner);
+    if (index < 0 || !conditions[index]) {
+      return `${owner} has no source-pinned guard condition`;
+    }
+    const condition = conditions[index];
+    const now = "2026-10-07T12:00:00.000Z";
+    const expired = "2026-10-07T11:59:59.000Z";
+    const ids = {
+      user: `usr_${"1".repeat(32)}`,
+      org: `org_${"1".repeat(32)}`,
+      membership: `mem_${"1".repeat(32)}`,
+      license: `lic_${"1".repeat(32)}`,
+    };
+    const cases = [
+      { name: "active organization, member, and license", blocked: false },
+      { name: "suspended organization", blocked: true, sql: "UPDATE organizations SET state = 'suspended'" },
+      { name: "suspended membership", blocked: true, sql: "UPDATE memberships SET status = 'suspended'" },
+      { name: "stale license state", blocked: true, sql: "UPDATE license_states SET state = 'suspended'" },
+      {
+        name: "expired grace period",
+        blocked: true,
+        sql: `UPDATE license_states SET state = 'grace', grace_expires_at = '${expired}'`,
+        expectedLicenseState: "grace",
+      },
+    ];
+    for (const testCase of cases) {
+      const { db, cleanup } = freshDatabase();
+      try {
+        db.prepare(
+          `INSERT INTO users (user_id, email, display_name, email_verified, version, created_at, updated_at)
+           VALUES (?, ?, 'Probe', 1, 1, ?, ?)`,
+        ).run(ids.user, "dispatch-probe@example.test", now, now);
+        db.prepare(
+          `INSERT INTO organizations (org_id, display_name, slug, state, version, created_by_user_id, created_at, updated_at)
+           VALUES (?, 'Probe', 'dispatch-probe', 'active', 1, ?, ?, ?)`,
+        ).run(ids.org, ids.user, now, now);
+        db.prepare(
+          `INSERT INTO memberships (membership_id, org_id, user_id, role, status, version, created_at, updated_at)
+           VALUES (?, ?, ?, 'member', 'active', 1, ?, ?)`,
+        ).run(ids.membership, ids.org, ids.user, now, now);
+        db.prepare(
+          `INSERT INTO license_states (license_state_id, org_id, state, version, created_at, updated_at)
+           VALUES (?, ?, 'active', 1, ?, ?)`,
+        ).run(ids.license, ids.org, now, now);
+        if (testCase.sql) db.exec(testCase.sql);
+
+        const quote = (value) => `'${value.replaceAll("'", "''")}'`;
+        const concrete = condition
+          .replaceAll("?1", quote(ids.org))
+          .replaceAll("?2", quote(ids.user))
+          .replaceAll("?3", quote(now))
+          .replaceAll("?4", quote(testCase.expectedLicenseState ?? "active"));
+        const error = captureError(
+          db,
+          `INSERT INTO idempotency_records (
+             principal_id, organization_id, method, path, key_digest, request_fingerprint,
+             state, response_status, response_body, expires_at, claim_token
+           ) ${SENTINEL_ROW} WHERE NOT EXISTS (${concrete})`,
+        );
+        if (!testCase.blocked && error !== null) {
+          return `${testCase.name}: valid dispatch was blocked (${error})`;
+        }
+        if (testCase.blocked && error === null) {
+          return `${testCase.name}: unauthorized dispatch was not blocked`;
+        }
+        if (testCase.blocked && !isRecognised(error, guardAbortTexts())) {
+          return `${testCase.name}: failed outside the deliberate guard (${error})`;
+        }
+      } finally {
+        cleanup();
+      }
+    }
+    return null;
+  },
+);
 
 check(
   "V01-023: assert_run_link_absent_statement permits the first start and aborts a duplicate",
