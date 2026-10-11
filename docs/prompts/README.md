@@ -47,6 +47,37 @@ Do **not** concatenate every goal into one mega-prompt. Run the goal for the cur
 
 Together these goals cover **F01–F26**.
 
+## Cross-repository integration closure
+
+[goal-desktop-backend-e2e.md](goal-desktop-backend-e2e.md) closes the actual
+Electron desktop → host/runtime → Worker → persistence/provider/tool journeys.
+It consumes existing P03–P08 contracts and the pinned integration harness; it
+does not restart all phases or enable frozen-off history sync. It requires real
+desktop UI/runtime evidence, tenant/revocation/budget/tool attacks and local-state
+preservation. Missing external proof remains BLOCKED or UNPROVEN.
+
+```text
+/goal @docs/prompts/goal-desktop-backend-e2e.md
+```
+
+Writing or reading this file does not execute the goal. Invoking it authorizes
+implementation and PR preparation; merges, deployment and credential custody
+follow explicit authorization in the executing session.
+
+### Claude Code continuation
+
+[goal-desktop-backend-e2e-claude-handoff.md](goal-desktop-backend-e2e-claude-handoff.md)
+contains the full original goal plus the dated continuation baseline, source
+reconciliation, agent ownership, remaining proof obligations and the human's
+explicit phase PR/merge authorization. Reverify its dated state before execution.
+
+```text
+/goal @docs/prompts/goal-desktop-backend-e2e-claude-handoff.md
+```
+
+If the executing harness does not support `/goal` or file references, ask it to
+read and execute the complete file as its task. Writing the prompt does not run it.
+
 ## Standard operating model
 
 Every goal assumes the agent acts as the **phase coordinator** unless the prompt says otherwise.
