@@ -1,6 +1,6 @@
 {
   "scope": "selected root vars of owned Main and Node utilities; finished Agent env not sampled, in-profile AgentDB separately read",
-  "profile": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk",
+  "profile": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk",
   "observations": [
     {
       "pid": 80450,
@@ -11,12 +11,12 @@
       "pid": 80781,
       "role": "node_utility",
       "selected_roots": {
-        "HOME": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk/home",
-        "USERPROFILE": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk/home",
-        "ZCODE_DESKTOP_HOME_DIR": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk/home",
-        "ZCODE_LOG_DIR": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk/home/.zcode/cli/log",
-        "ZCODE_SESSION_DB_PATH": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk/home/.zcode/cli/db/db.sqlite",
-        "ZCODE_STORAGE_DIR": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk/home/.zcode"
+        "HOME": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk/home",
+        "USERPROFILE": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk/home",
+        "ZCODE_DESKTOP_HOME_DIR": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk/home",
+        "ZCODE_LOG_DIR": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk/home/.zcode/cli/log",
+        "ZCODE_SESSION_DB_PATH": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk/home/.zcode/cli/db/db.sqlite",
+        "ZCODE_STORAGE_DIR": "$REPO_ROOT/test-results/t/lumi-automation-a-OihBfk/home/.zcode"
       }
     }
   ]

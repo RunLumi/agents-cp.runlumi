@@ -375,12 +375,12 @@ broker lint PASS. This does not remove the earlier CLI turn-tools baseline lint
 limitation or prove CUA sibling long-path support.
 
 Synthetic profile:
-/Volumes/SSD/agents-cp.runlumi/test-results/desktop-clean-elaprn7t/tmp/lumi-electron-account-Klmi1F.
-D1: /Volumes/SSD/agents-cp.runlumi/test-results/desktop-report-port-repaired-d1.
+$REPO_ROOT/test-results/desktop-clean-elaprn7t/tmp/lumi-electron-account-Klmi1F.
+D1: $REPO_ROOT/test-results/desktop-report-port-repaired-d1.
 Full clean bootstrap remains BLOCKED at dependency installation as recorded below.
 
 Follow-on after tool context propagation: Electron report at
-/private/tmp/lumi-electron-account-W4BQKt/evidence/result.json also PASSes.
+$TMPDIR/lumi-electron-account-W4BQKt/evidence/result.json also PASSes.
 The first source manifest describes the earlier proven pair; see the follow-on
 manifest for the subsequent tool-boundary files.
 
@@ -410,7 +410,7 @@ independent total-request tally. Corrected run exits 2: expected and total
 counts are zero at 127.0.0.1, localhost, 192.168.1.4 and 10.2.0.2, each with
 503/provider_unavailable. Healthy HTTP control remains BLOCKED; no fault verdict
 is established. Absence of a dispatch log does not locate the underlying cause.
-Disposable D1 is /private/tmp/lumi-http-provider-fault-persist. See original and
+Disposable D1 is $TMPDIR/lumi-http-provider-fault-persist. See original and
 corrected probe logs under evidence/. Local socket receipt alone would still
 require a usable positive response before grading faults.
 
@@ -418,8 +418,8 @@ Evidence report and screenshots are in evidence/. Both source HEADs are dirty:
 parent e7ad897a7f400048df17100594ef86b3788ea0f1 and client
 2a495254f0018644d24c9c1e5c5210bb7a30075c. The source manifest fingerprints
 the tested working files; a HEAD alone does not identify these dirty changes.
-Report originated at /private/tmp/lumi-electron-account-Y9FZr6/evidence/result.json.
-Disposable D1: /private/tmp/lumi-electron-account-persist-17.
+Report originated at $TMPDIR/lumi-electron-account-Y9FZr6/evidence/result.json.
+Disposable D1: $TMPDIR/lumi-electron-account-persist-17.
 
 ## Scope proven
 
@@ -472,8 +472,8 @@ LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs
 
 Disposable clean snapshots use parent ca66e8820eb41bd9c506b1932da4775eded5ff95
 and client 21d2e11f134e1d77d165a076b1754697bad53825. They are local validation
-commits only, not remote releases. The candidate moved from /private/tmp to
-/Volumes/SSD/agents-cp.runlumi/test-results/desktop-clean-elaprn7t/control-plane
+commits only, not remote releases. The candidate moved from $TMPDIR to
+$REPO_ROOT/test-results/desktop-clean-elaprn7t/control-plane
 after the first install hit ENOSPC. Both sources stayed clean.
 
 Both pinned pnpm tools install correctly on SSD. Offline root install is BLOCKED

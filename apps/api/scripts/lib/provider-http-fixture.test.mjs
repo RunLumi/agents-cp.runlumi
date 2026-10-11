@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { createOutboundForwarder } from "./provider-http-forwarder.mjs";
 import { startProviderFixture } from "./provider-http-fixture.mjs";
 
-const SECRET = "sk-fixture-secret-do-not-store";
+const FIXTURE_CREDENTIAL = "fixture-only-credential-canary";
 const PUBLIC_HOST = "provider-http-fixture.example";
 const url = (scenario, host = PUBLIC_HOST) => `https://${host}/v1/${scenario}/v1/chat/completions`;
 
@@ -15,7 +15,7 @@ const call = (forwarder, scenario, { stream = false, signal, headers = {} } = {}
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${SECRET}`,
+        authorization: `Bearer ${FIXTURE_CREDENTIAL}`,
         ...headers,
       },
       body: JSON.stringify({
@@ -32,7 +32,7 @@ describe("provider HTTP fixture + forwarder", () => {
   let fixture;
   let forwarder;
   before(async () => {
-    fixture = await startProviderFixture({ expectedSecret: SECRET });
+    fixture = await startProviderFixture({ expectedSecret: FIXTURE_CREDENTIAL });
     forwarder = createOutboundForwarder({
       permittedHost: PUBLIC_HOST,
       targetOrigin: fixture.origin,
@@ -70,7 +70,7 @@ describe("provider HTTP fixture + forwarder", () => {
     assert.deepEqual(record.body.messages, [
       { role: "user", chars: 19, sha8: record.body.messages[0].sha8 },
     ]);
-    assert.equal(fixture.holdsNoSecret(SECRET), true);
+    assert.equal(fixture.holdsNoSecret(FIXTURE_CREDENTIAL), true);
     assert.equal(JSON.stringify(fixture.records()).includes("private prompt text"), false);
   });
 

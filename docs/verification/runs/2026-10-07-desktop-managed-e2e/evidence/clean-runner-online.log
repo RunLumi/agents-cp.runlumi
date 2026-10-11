@@ -16,7 +16,7 @@
   "override": false,
   "reproducible": true
 }
-[integration] /Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /Volumes/SSD/agents-cp.runlumi/test-results/desktop-clean-elaprn7t/control-plane/test-results/pnpm-tools/12.5.1/node_modules/pnpm/bin/pnpm.mjs install --frozen-lockfile
+[integration] $NODE24_BIN $REPO_ROOT/test-results/desktop-clean-elaprn7t/control-plane/test-results/pnpm-tools/12.5.1/node_modules/pnpm/bin/pnpm.mjs install --frozen-lockfile
 Scope: all 3 workspace projects
 ✓ Lockfile passes supply-chain policies (verified 15h ago)
 Lockfile is up to date, resolution step is skipped
@@ -276,5 +276,5 @@ Will retry in 10s. 1 retries left.
 Will retry in 10s. 1 retries left.
 [WARN] GET https://registry.npmjs.org/gensync/-/gensync-1.0.0-beta.2.tgz error (Failed to fetch https://registry.npmjs.org/gensync/-/gensync-1.0.0-beta.2.tgz: error sending request: operation timed out) — 1
 Will retry in 10s. 1 retries left.
-BLOCKED: /Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node: SIGTERM
-BLOCKED: /Volumes/SSD/agents-cp.runlumi/test-results/desktop-clean-elaprn7t/control-plane/test-results/lumi-agents/2026-10-07T07-21-12.536Z/result.json
+BLOCKED: $NODE24_BIN: SIGTERM
+BLOCKED: $REPO_ROOT/test-results/desktop-clean-elaprn7t/control-plane/test-results/lumi-agents/2026-10-07T07-21-12.536Z/result.json

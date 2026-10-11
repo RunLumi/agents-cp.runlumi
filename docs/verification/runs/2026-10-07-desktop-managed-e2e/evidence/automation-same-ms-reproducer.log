@@ -17,9 +17,9 @@
 test at packages/services/src/session/automationManagedGuard.test.ts:7:2267
 ✖ adoption refuses a stale local revision even when edits share the same millisecond (6.909917ms)
   AssertionError [ERR_ASSERTION]: Missing expected rejection.
-      at async <anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/session/automationManagedGuard.test.ts:158:5)
-      at async withRepo (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/session/automationManagedGuard.test.ts:32:5)
-      at async TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/session/automationManagedGuard.test.ts:153:3)
+      at async <anonymous> ($LUMI_AGENTS_DIR/packages/services/src/session/automationManagedGuard.test.ts:158:5)
+      at async withRepo ($LUMI_AGENTS_DIR/packages/services/src/session/automationManagedGuard.test.ts:32:5)
+      at async TestContext.<anonymous> ($LUMI_AGENTS_DIR/packages/services/src/session/automationManagedGuard.test.ts:153:3)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: false,

@@ -5,6 +5,58 @@ Dependencies: P06-CG p06-cg-v1 with current CR001/002/003, P08-CG p08-cg-v1,
 device/workspace Main owners and DE2E-INT-04 managed runtime. Verify merged gate
 SHAs before implementation; versions alone are not merge evidence.
 
+## Current cross-machine handoff — 2026-10-11
+
+PR #59 is reconciled against parent main `80a3813de76b1e13a26f8704f5810c3404c0bac6`.
+Coordinator: Codex. Review write surface: retained evidence/path normalization,
+this checkpoint, integration pin documentation, `p02-guard-probe.mjs`, the two
+provider-fixture credential labels, and sensitivity harness safety/regression
+coverage. Existing P03/P04/P06/P08 contracts and migrations are unchanged.
+
+The original `e7ad897` WIP is preserved in commits `b773d3d` and `24896bb`.
+Current main's provider, socket, asynchronous D1, account recovery, automation,
+workflow, prompt and design changes take precedence over their older snapshot
+versions. The dispatch-eligibility guard test is preserved alongside the added
+live device-binding guard test.
+
+The gitlink pins LumiAgents `ac011fce8d6273a1218022de17fdeafec7a59ba9`, the latest
+merged main at review time, including [client PR #48](https://github.com/RunLumi/LumiAgents/pull/48).
+Its conflict resolution retained the newer v3.15.1, session, vault and paging
+fixes. The parent pin refresh in PR #58 selected an earlier revision; this pin
+supersedes it. The full desktop/backend E2E goal remains incomplete.
+
+For a new machine after PR #59 merges:
+
+```sh
+git clone --recurse-submodules https://github.com/RunLumi/agents-cp.runlumi.git
+cd agents-cp.runlumi
+# Existing clone: git pull --ff-only && git submodule update --init --recursive
+node scripts/integration/lumi-agents.mjs
+```
+
+The runner installs each repository's pinned package manager, builds the pair,
+and reports both exact SHAs. See `docs/integration/lumi-agents.md` for prerequisites
+and the separate account/device and actual Electron gates.
+
+Ignored `test-results/`, generated output and the empty typo
+`apps/api/rangler.jsonc` are excluded. Historical evidence paths are descriptive
+placeholders; rerun on the receiving machine before claiming current proof.
+Original FAIL/UNPROVEN/BLOCKED verdicts remain intact.
+
+Review found the credential sensitivity script had an invalid embedded Python
+string, an unexported result path, and a restore dependent on its changing working
+directory. The repaired script uses the explicit disposable checkout for every
+build, probe and restore, checks its expected HEAD before restoring, and requires
+a successful baseline/restored probe plus mutation exit 1. Tests use disposable
+fixture repositories to verify these safety properties; they do not certify the
+real credential runtime. The Python sensitivity wrappers create real temporary
+paths instead of passing literal `$REPO_ROOT` strings.
+
+Fresh review validation and exact paired-SHA results are recorded in
+`docs/verification/pr59-reconciliation-20261011.md`. Continue from the first unmet
+acceptance criterion below; this merge is source consolidation, not completion
+of the full Electron/provider/tool/automation goal.
+
 ## Required result
 
 Actual desktop previews bounded local automation metadata and conflicts; preview
@@ -124,7 +176,7 @@ Quota/terminal update (2026-10-09): ClaudeUI90828 andcancel94480 terminatedexit1
 - Full goal remains INCOMPLETE. GitHub readback: child PR39 merged at d72c0d1 (main); parent PR52 merged into PR51 branch b7d8fb8, whose quality/adoption checks pass. PR51 remains draft/open; parent main5dec5fc. Supervisor performed no merge here.
 - Phase02 independent clones now branches codex/e2e-phase02-workspace (server) and codex/e2e-phase02-lumi-workspace (client). Base trees fe3d6e1/b7d8fb8 and2a49525/d72c0d1 respectively compare identical; ancestry differs due squash. Preserve dirty indexes.
 - Actual-source browser baseline originally50PASS/6FAIL: missing keyboardfocus and320px credential overflow. Claude applied actual source repairs. Independent verifiedNode24 run report12-26-21 has56PASS but cleanup hung, interruptedexit130; overall harness gate remains UNPROVEN until clean bounded exit. Original reports retained. UI primary resume90828 diagnoses cleanup and runs sensitivity.
-- Verified Node runtime correction: nvm path namedv24.20.0 actually runs22.14.0. Use absolute bundled node /Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node (24.19.0); never infer version fromdirectory. Do not alter unrelated nvm configuration.
+- Verified Node runtime correction: nvm path namedv24.20.0 actually runs22.14.0. Use absolute bundled node $NODE24_BIN (24.19.0); never infer version fromdirectory. Do not alter unrelated nvm configuration.
 - HTTP provider real-node topology with enable_request_signal: cancel-signal-runtime.log terminaloverallPASS, socketclosed85ms/3frames, requestfailedrequest_cancelled reservationreleased2738ms (<20s). Mockdisconnect advisory remainsUNPROVEN23550ms. Original watchdog/hold failures retained. Primary94480 sensitivity/CR004/handoff inprogress; verify configrestoration before subsequentbuilds. Externalprovider stillBLOCKED.
 - Server primary69513 continues inline originalS5T9fault/replay, then minimalqueueproducer/adminreplayrepair. Prior backgroundClaudeCLI jobs were killed on print-modeexit, no runtimeverdict; preserve incomplete logs. NEVER use run_in_background for longtools in this CLI workflow; require inline terminalresults. S5T6duecontrol stillBLOCKED; S5T9UNPROVEN.
 - No new phase02 PR, commit or deployment here. Native two-clientrace/restart/faults and fullaccountpasskeymatrix stillowed. No fullgoalPASS or completion claim.
@@ -143,13 +195,13 @@ admission only, not CTAP2 browser UI or desktop passkey approval. Poll returned
 handle only if resumed; no current local runtime is active. Full automation verifier has
 ended and original FAIL preserved. Claude quota still until11:40.
 
-- Parent isolated checkout: `/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi`,
+- Parent isolated checkout: `$REPO_ROOT`,
   branch `codex/desktop-backend-e2e`, HEAD `e7ad897a7f400048df17100594ef86b3788ea0f1`, dirty.
 - Child: `integrations/lumi-agents`, HEAD `2a495254f0018644d24c9c1e5c5210bb7a30075c`, dirty.
   Original shared checkout has unrelated WIP. Never reset/stash/clean/switch it.
 - **Latest verifier:** tool handle74556, `automation-full-isolated`, retained fresh
   local D1 `test-results/int05-verifier/automation-full-isolated-d1` and log of
-  the same name under `/Volumes/SSD/agents-cp.runlumi`. Full actual Electron
+  the same name under `$REPO_ROOT`. Full actual Electron
   stages; handle74556 now terminalFAIL at race, profileVPdMKK preserved.
   Restart/fault not run. No current local Worker/Electron verifier active.
 - Claude backend/client credential tasks56699/60837 were terminal BEFORE work:
@@ -226,7 +278,7 @@ assemblywiringtests. No localruntime/build, do not certify partial fixes.
 - Child PR39 draft: account/device client, exact2a49525; DCO/licensing CI PASS.
 - Parent PR52 draft stacked on PR51: recovery commit
   `4f730a52c6ad8b0abde8f204f473315cf399d796`. Separate review clone
-  `/private/tmp/lumi-recovery-review-repo` and exact client clone are clean.
+  `$TMPDIR/lumi-recovery-review-repo` and exact client clone are clean.
   Candidate quality/build, native1037+11, clippy/WASM and clean-commit SDK/HTTP
   recovery hostile controls PASS. Published through normal hooks; remote SHA read back.
 - PR52 quality CI PASS; adoption attempt1 and attempt2 FAIL with UND_ERR_SOCKET

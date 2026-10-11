@@ -1,0 +1,32 @@
+▶ provider HTTP fixture + forwarder
+  ✔ non-streaming and streaming control reach the real socket exactly once each (38.86675ms)
+  ✔ auth, body shape and request id are captured redacted (2.856083ms)
+  ✔ a wrong credential is visible as a mismatch, not silently accepted (2.555792ms)
+  ✔ 429 and 503 are single calls with the real status (4.005875ms)
+  ✔ fail-before-output surfaces as a marked 502 with zero response bytes (4.498416ms)
+  ✔ output-then-fail delivers real output, then the stream errors (43.462583ms)
+  ✔ a truncated non-streaming body is an error, not a short success (42.813541ms)
+  ✔ a client-side abort reaches the owned socket (cancel control) (13.706541ms)
+  ✔ a stalled provider is cut by a timeout signal (162.743708ms)
+  ▶ every unmatched destination is denied and never reaches the fixture
+    ✔ plain http to the permitted host (0.368209ms)
+    ✔ other public host (0.091208ms)
+    ✔ loopback literal (0.067458ms)
+    ✔ fixture's own origin (0.074875ms)
+    ✔ host-suffix trick (0.059375ms)
+    ✔ non-default port (0.058041ms)
+    ✔ wrong path (0.052834ms)
+    ✔ query string (0.062583ms)
+    ✔ userinfo is denied even when the Request constructor would refuse it (0.523709ms)
+    ✔ non-POST to the permitted endpoint (0.126333ms)
+    ✔ denial ledger omits query strings (0.097125ms)
+  ✔ every unmatched destination is denied and never reaches the fixture (1.800708ms)
+✔ provider HTTP fixture + forwarder (325.985833ms)
+ℹ tests 20
+ℹ suites 2
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 424.843834

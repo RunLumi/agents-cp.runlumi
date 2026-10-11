@@ -1,5 +1,5 @@
 
-(!) outDir /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/test-results/client-tool-admission is not inside project root and will not be emptied.
+(!) outDir $REPO_ROOT/test-results/client-tool-admission is not inside project root and will not be emptied.
 Use --emptyOutDir to override.
 
 PASS  fresh D1 applies migrations through 0010 — 27 migration rows

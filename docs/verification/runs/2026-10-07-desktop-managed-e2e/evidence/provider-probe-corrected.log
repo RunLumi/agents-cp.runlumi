@@ -1,6 +1,6 @@
 
   local fault server listening on 0.0.0.0:54532; candidate hosts: 127.0.0.1, localhost, 192.168.1.4, 10.2.0.2
-Keeping the local D1/R2 state in /private/tmp/lumi-http-provider-fault-persist
+Keeping the local D1/R2 state in $TMPDIR/lumi-http-provider-fault-persist
   PASS  fresh D1 applies the full migration ledger  — 26 migration rows
   PASS  development Worker is healthy  — http://127.0.0.1:54533
   PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-ii3yX2/e1f674e562d887225b896ea9ecfd198e8b9d1ce5-index_bg.wasm is 1974s newer than src/modules/migration/tests.rs

@@ -8,13 +8,13 @@
 [SCHEDULER] CLI Building entry: {"scheduler/index":"src/scheduler/index.ts"}
 [SCHEDULER] CLI Using tsconfig: tsconfig.json
 [MAIN] CLI tsup v8.5.1
-[MAIN] CLI Using tsup config: /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/tsup.config.ts
+[MAIN] CLI Using tsup config: $LUMI_AGENTS_DIR/packages/desktop/tsup.config.ts
 [PRELOAD] CLI tsup v8.5.1
-[PRELOAD] CLI Using tsup config: /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/tsup.config.ts
+[PRELOAD] CLI Using tsup config: $LUMI_AGENTS_DIR/packages/desktop/tsup.config.ts
 [HOST] CLI tsup v8.5.1
-[HOST] CLI Using tsup config: /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/tsup.config.ts
+[HOST] CLI Using tsup config: $LUMI_AGENTS_DIR/packages/desktop/tsup.config.ts
 [SCHEDULER] CLI tsup v8.5.1
-[SCHEDULER] CLI Using tsup config: /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/tsup.config.ts
+[SCHEDULER] CLI Using tsup config: $LUMI_AGENTS_DIR/packages/desktop/tsup.config.ts
 [MAIN] CLI Target: node22
 [MAIN] ESM Build start
 [PRELOAD] CLI Target: node22
@@ -24,7 +24,8 @@
 [SCHEDULER] CLI Target: node22
 [SCHEDULER] ESM Build start
 vite v8.0.8 building client environment for production...
-[2Ktransforming...[PRELOAD] CJS out/preload/browserVideoRecorder.cjs            140.00 B
+[2K
+transforming...[PRELOAD] CJS out/preload/browserVideoRecorder.cjs            140.00 B
 [PRELOAD] CJS out/preload/embeddedBrowserJavaScriptDialog.cjs 683.54 KB
 [PRELOAD] CJS out/preload/codingPlanWebview.cjs               683.03 KB
 [PRELOAD] CJS out/preload/cuaPermissionPanel.cjs              681.05 KB
@@ -256,7 +257,7 @@ out/renderer/assets/KaTeX_Script-Regular-D5yQViql.woff                  10.58 kB
 out/renderer/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2                11.31 kB
 out/renderer/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2                   11.34 kB
 out/renderer/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf                    11.50 kB
-out/renderer/assets/task-notification-pop-qiQ1Ge3C.mp3                  11.81 kB
+out/renderer/assets/ta[REDACTED_TEST_CANARY].mp3                  11.81 kB
 out/renderer/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2               12.02 kB
 out/renderer/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2                 12.21 kB
 out/renderer/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf                    12.22 kB
@@ -1807,7 +1808,7 @@ out/renderer/assets/badge-russian-ruble-2yhLw_7j.js                      0.40 kB
 out/renderer/assets/bird-BGjTN81L.js                                     0.40 kB │ gzip:     0.27 kB │ map:      1.30 kB
 out/renderer/assets/droplets-DsnTs_r8.js                                 0.40 kB │ gzip:     0.30 kB │ map:      1.14 kB
 out/renderer/assets/file-stack-yky1BrBk.js                               0.40 kB │ gzip:     0.25 kB │ map:      1.18 kB
-out/renderer/assets/flask-conical-off-CN0YTYZX.js                        0.40 kB │ gzip:     0.27 kB │ map:      1.36 kB
+out/renderer/assets/fla[REDACTED_TEST_CANARY].js                        0.40 kB │ gzip:     0.27 kB │ map:      1.36 kB
 out/renderer/assets/hard-drive-Ytzlj7dC.js                               0.40 kB │ gzip:     0.26 kB │ map:      1.25 kB
 out/renderer/assets/mouse-pointer-2-off-CqFY6H8J.js                      0.40 kB │ gzip:     0.29 kB │ map:      1.22 kB
 out/renderer/assets/refresh-ccw-dot-QYqouj9j.js                          0.40 kB │ gzip:     0.27 kB │ map:      1.32 kB
@@ -3052,7 +3053,7 @@ out/renderer/assets/pptxRendererPreviewEngine-CQEjprLn.js            1,042.71 kB
 out/renderer/assets/previewPaneOfficeXlsxContent-D2O0gVQQ.js         2,154.74 kB │ gzip:   697.32 kB │ map:  7,239.13 kB
 out/renderer/assets/styles-B70AlVK2.js                               5,909.19 kB │ gzip: 1,657.39 kB │ map: 20,736.22 kB
 
-[plugin builtin:vite-reporter] 
+[plugin builtin:vite-reporter]
 (!) Some chunks are larger than 500 kB after minification. Consider:
 - Using dynamic import() to code-split the application
 - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting

@@ -16,10 +16,10 @@
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:1:252
 ✖ managed summary does not export paths, commands, arbitrary names or strings (1.2745ms)
   AssertionError [ERR_ASSERTION]: /Users/fixture
-  
+
   true !== false
-  
-      at TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:15:12)
+
+      at TestContext.<anonymous> ($LUMI_AGENTS_DIR/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:15:12)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1382:25)
       at Test.start (node:internal/test_runner/test:1242:17)
@@ -35,9 +35,9 @@ test at apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:1:899
 ✖ summary binds nested input, long tails, arrays and fields beyond a display bound (0.202791ms)
   AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to:
-  
+
   'nested=[object]'
-      at TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:29:48)
+      at TestContext.<anonymous> ($LUMI_AGENTS_DIR/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:29:48)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1382:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
@@ -55,7 +55,7 @@ test at apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:1:1997
 ✖ non-JSON, cyclic, excessive-depth and oversized input fails closed (0.153625ms)
   AssertionError [ERR_ASSERTION]: Missing expected exception.
-      at TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:48:12)
+      at TestContext.<anonymous> ($LUMI_AGENTS_DIR/apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts:48:12)
       at Test.runInAsyncScope (node:async_hooks:227:14)
       at Test.run (node:internal/test_runner/test:1382:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:960:18)

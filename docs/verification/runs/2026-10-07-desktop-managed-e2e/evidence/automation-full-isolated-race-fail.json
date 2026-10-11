@@ -116,7 +116,7 @@
         }
       ],
       "notes": [],
-      "error": "AssertionError [ERR_ASSERTION]: contested occurrence ended failed\n+ actual - expected\n\n+ 'failed'\n- 'succeeded'\n\n    at raceStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-race.mjs:204:12)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:172:3"
+      "error": "AssertionError [ERR_ASSERTION]: contested occurrence ended failed\n+ actual - expected\n\n+ 'failed'\n- 'succeeded'\n\n    at raceStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-race.mjs:204:12)\n    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:172:3"
     },
     "restart": {
       "status": "UNPROVEN",
@@ -193,8 +193,8 @@
       "status": 422,
       "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_11627a07c4ae48e58d407fd5578907a8\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
     },
-    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-VPdMKK",
-    "profileB": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-b-B2vlLq",
+    "profileA": "$REPO_ROOT/test-results/t/lumi-automation-a-VPdMKK",
+    "profileB": "$REPO_ROOT/test-results/t/lumi-automation-b-B2vlLq",
     "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
   }
 }

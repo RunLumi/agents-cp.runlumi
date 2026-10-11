@@ -123,12 +123,12 @@ Candidate has no Git history. Build a NEW repository outside the product checkou
 the product index.
 
 ```sh
-T=/private/tmp/lumi-recovery-phase-repo
+T=$TMPDIR/lumi-recovery-phase-repo
 git init -q "$T" && cd "$T"
-tar -xf /private/tmp/lumi-recovery-phase-candidate/base.tar            # exact e7ad897 tree
+tar -xf $TMPDIR/lumi-recovery-phase-candidate/base.tar            # exact e7ad897 tree
 git add -A && git -c user.name=cand -c user.email=cand@example.invalid commit -qm "base e7ad897"
 git switch -c codex/p03-token-recovery
-git apply -p1 /private/tmp/lumi-recovery-phase-candidate/candidate.patch   # regenerated patch
+git apply -p1 $TMPDIR/lumi-recovery-phase-candidate/candidate.patch   # regenerated patch
 git update-index --cacheinfo 160000,2a495254f0018644d24c9c1e5c5210bb7a30075c,integrations/lumi-agents
 ```
 

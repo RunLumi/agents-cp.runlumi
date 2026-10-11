@@ -21,10 +21,10 @@
 PASS disposable organization, project, success route, hanging route, policy, agent and budget exist
 PASS synthetic personal provider written into the profile; the real registry resolves {"providerId":"e2e-personal-stub","modelId":"stub-chat","options":{"reasoningLevel":"low"}} as preferred (stub http://127.0.0.1:54158/v1)
 PASS six local automations are stored by the product's own repository before first launch
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 
-- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
-- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
 
 Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
 
@@ -51,9 +51,9 @@ waiting 435s for the local due time + two scheduler ticks
 PASS post-adoption positive: control run automation-a45866fc-c4a3-4543-8882-7fc3eee77901:1791542510339 (same workspace, selection "null") is dispatched+succeeded with no error, its completed task sess_1dcf5f79-1d69-47df-bf69-c832a123943f holds the stub marker and it froze e2e-personal-stub/stub-chat; provider_config.json sha256 unchanged (7f6ecb7c9301); stub requests control=2 adopted=0 badModel=0 of cap 200
 PASS past the original's local due time, the unmarked control completed locally while the adopted original stayed untouched: only the managed scheduler ran it
 FAIL race: ReferenceError: orgId is not defined
-    at startClientB (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-race.mjs:215:24)
-    at async raceStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-race.mjs:244:51)
-    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:110:5)
-    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:199:3
+    at startClientB (file://$REPO_ROOT/tests/integration/lib/automation-stage-race.mjs:215:24)
+    at async raceStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-race.mjs:244:51)
+    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:110:5)
+    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:199:3
 VERDICT FAIL; stages onboard=PASS adopt=PASS schedule=UNPROVEN race=FAIL restart=UNPROVEN faults=UNPROVEN
-Profile/evidence retained: /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-Rvhlgm
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-automation-a-Rvhlgm

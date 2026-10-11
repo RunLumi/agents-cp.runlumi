@@ -7,7 +7,7 @@ AssertionError [ERR_ASSERTION]: dispatch count must not evict stop authority for
 
 false !== true
 
-    at file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/[eval1]:8:133
+    at file://$LUMI_AGENTS_DIR/[eval1]:8:133
     at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
   generatedMessage: false,
   code: 'ERR_ASSERTION',

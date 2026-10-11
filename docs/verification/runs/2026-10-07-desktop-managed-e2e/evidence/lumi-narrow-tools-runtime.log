@@ -24,10 +24,10 @@
   PASS  create bounded Electron managed budget  — status=201
 PASS actual Lumi-first startup offers explicit local continuation without provider login
 PASS actual Electron UI begins PKCE
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 
-- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
-- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
 
 Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
 
@@ -52,4 +52,4 @@ PASS actual restart restores session
 PASS restart restores same device, no reenrollment
 PASS revoked Electron policy sync refused
 PASS logout removes own persisted session
-Profile/evidence retained: /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-electron-account-lTHWpl
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-electron-account-lTHWpl

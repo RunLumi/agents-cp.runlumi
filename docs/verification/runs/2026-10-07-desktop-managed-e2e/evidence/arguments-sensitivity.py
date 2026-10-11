@@ -1,7 +1,9 @@
 from pathlib import Path
+import os
 import subprocess, shutil, json, hashlib, os
-source=Path("/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents")
-root=Path("/Volumes/SSD/agents-cp.runlumi/test-results/argument-binding-sensitivity")
+REPO_ROOT = Path(__file__).resolve().parents[5]
+source = Path(os.environ.get("LUMI_AGENTS_DIR", REPO_ROOT / "integrations/lumi-agents"))
+root = Path(os.environ.get("LUMI_E2E_TEST_RESULTS", REPO_ROOT / "test-results" / "argument-binding-sensitivity"))
 root.mkdir(parents=True,exist_ok=False)
 clone=root/"client"
 subprocess.run(["git","clone","--quiet","--shared",str(source),str(clone)],check=True)
@@ -9,8 +11,8 @@ shutil.copytree(source/"apps/zcode-cli/packages/core/src",clone/"apps/zcode-cli/
 (clone/"node_modules").symlink_to(source/"node_modules",target_is_directory=True)
 (clone/"apps/zcode-cli/packages/core/node_modules").symlink_to(source/"apps/zcode-cli/packages/core/node_modules",target_is_directory=True)
 env=dict(os.environ)
-env["PATH"]="/Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:"+env["PATH"]
-args=["node","--import","tsx","--test","apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts","apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts"]
+env["PATH"]=os.environ.get("NODE24_BIN", "node").rsplit("/", 1)[0] + ":" + env["PATH"] if "/" in os.environ.get("NODE24_BIN", "node") else env["PATH"]
+args=[os.environ.get("NODE24_BIN", "node"),"--import","tsx","--test","apps/zcode-cli/packages/core/src/tool/executor/managed-arguments.test.ts","apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts"]
 def run(name):
     with (root/(name+".log")).open("w") as out:
         return subprocess.run(args,cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode

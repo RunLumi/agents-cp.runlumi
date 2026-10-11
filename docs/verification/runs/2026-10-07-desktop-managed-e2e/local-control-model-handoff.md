@@ -51,7 +51,7 @@ file name `provider_config.json`, `provider-node/src/runtime-paths.ts`).
 Supervisor command (read-only, copy first; DB is `home/.zcode/v2/tasks-index.sqlite` with `-wal`):
 
 ```bash
-P=/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-VPdMKK/home/.zcode/v2
+P=$REPO_ROOT/test-results/t/lumi-automation-a-VPdMKK/home/.zcode/v2
 mkdir -p /tmp/lcm && cp "$P"/tasks-index.sqlite* /tmp/lcm/
 sqlite3 /tmp/lcm/tasks-index.sqlite "select title,dispatch_status,dispatch_attempts,run_count,last_error from automations where title='Local control';"
 sqlite3 /tmp/lcm/tasks-index.sqlite "select dispatch_status,attempts,error,model_selection from automation_runs where automation_id=(select automation_id from automations where title='Local control');"

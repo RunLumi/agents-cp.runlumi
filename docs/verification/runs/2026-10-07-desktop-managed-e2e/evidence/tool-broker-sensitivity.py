@@ -1,7 +1,9 @@
 from pathlib import Path
+import os
 import subprocess, shutil, json, hashlib
-source=Path("/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents")
-root=Path("/Volumes/SSD/agents-cp.runlumi/test-results/tool-broker-sensitivity")
+REPO_ROOT = Path(__file__).resolve().parents[5]
+source = Path(os.environ.get("LUMI_AGENTS_DIR", REPO_ROOT / "integrations/lumi-agents"))
+root = Path(os.environ.get("LUMI_E2E_TEST_RESULTS", REPO_ROOT / "test-results" / "tool-broker-sensitivity"))
 root.mkdir(parents=True,exist_ok=True)
 clone=root/"client"
 if not clone.exists(): subprocess.run(["git","clone","--quiet","--shared",str(source),str(clone)],check=True)
@@ -14,10 +16,10 @@ if not (clone/"node_modules").exists(): (clone/"node_modules").symlink_to(source
 if not (clone/"packages/services/node_modules").exists(): (clone/"packages/services/node_modules").symlink_to(source/"packages/services/node_modules",target_is_directory=True)
 if (root/"baseline.log").exists() and not (root/"initial-dependencies-fail.log").exists(): (root/"baseline.log").rename(root/"initial-dependencies-fail.log")
 env=dict(__import__("os").environ)
-env["PATH"]="/Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:"+env["PATH"]
+env["PATH"]=os.environ.get("NODE24_BIN", "node").rsplit("/", 1)[0] + ":" + env["PATH"] if "/" in os.environ.get("NODE24_BIN", "node") else env["PATH"]
 def run(name):
     with (root/(name+".log")).open("w") as out:
-        return subprocess.run(["node","--import","tsx","--test","packages/services/src/lumi-account/managedToolTransport.test.ts"],cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode
+        return subprocess.run([os.environ.get("NODE24_BIN", "node"),"--import","tsx","--test","packages/services/src/lumi-account/managedToolTransport.test.ts"],cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode
 baseline=run("baseline")
 if baseline != 0: raise RuntimeError("baseline did not run successfully")
 target=clone/"packages/services/src/lumi-account/managedToolTransport.ts"

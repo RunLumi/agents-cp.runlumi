@@ -1,5 +1,5 @@
 v24.19.0
-Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/int05-verifier/automation-full-isolated-d1
+Keeping the local D1/R2 state in $REPO_ROOT/test-results/int05-verifier/automation-full-isolated-d1
   PASS  fresh D1 applies the full migration ledger  — 28 migration rows
   PASS  development Worker is healthy  — http://127.0.0.1:50336
   PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-eqALQh/4a38c3b1f32d10bb6db7f9ba45ddf02a00fc8ea6-index_bg.wasm is 14737s newer than src/jobs/automations.rs
@@ -22,10 +22,10 @@ Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/int
   PASS  create bounded budget  — status=201
 PASS disposable organization, project, success route, hanging route, policy, agent and budget exist
 PASS four local automations are stored by the product's own repository before first launch
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 
-- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
-- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
 
 Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
 
@@ -49,7 +49,7 @@ BLOCKED external provider round trip :: only the backend development mock:// pro
 UNPROVEN renewal during a long run :: the mock provider answers inside one heartbeat; renewal is graded in the restart/fault stages on the slow route
 waiting 392s for the local due time + two scheduler ticks
 PASS past the original's local due time, the unmarked control was dispatched locally while the adopted original stayed untouched: only the managed scheduler ran it
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 PASS client B runs in its own isolated profile with its own enrolled, active device
 PASS eligibility control: the due predicate admits only A while the definition is bound to wsb_2d55b0dda43d4a6b9d534f522e6b9b00, so a marker on B alone would never contend
 PASS owner retargeted the definition through the public PATCH route (eligible_device, no workspace binding, version bumped); the due predicate now admits both active devices
@@ -60,11 +60,11 @@ FAIL race: AssertionError [ERR_ASSERTION]: contested occurrence ended failed
 + 'failed'
 - 'succeeded'
 
-    at raceStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-race.mjs:204:12)
-    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)
-    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:172:3
+    at raceStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-race.mjs:204:12)
+    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:102:5)
+    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:172:3
 UNPROVEN restart: not run (stage race failed)
 UNPROVEN faults: not run (stage race failed)
 VERDICT FAIL; stages onboard=PASS adopt=PASS schedule=UNPROVEN race=FAIL restart=UNPROVEN faults=UNPROVEN
-Profile/evidence retained: /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-VPdMKK
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-automation-a-VPdMKK
 EXIT=1

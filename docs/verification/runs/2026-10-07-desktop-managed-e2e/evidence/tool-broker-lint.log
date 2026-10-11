@@ -1,5 +1,5 @@
 
-> zcode@3.14.3 lint /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents
+> zcode@3.14.3 lint $LUMI_AGENTS_DIR
 > oxlint
 
 
@@ -258,7 +258,7 @@
  8 | import type { PanelImperativeHandle } from "react-resizable-panels";
    :               ^^^^^^^^^^|^^^^^^^^^^
    :                         `-- 'PanelImperativeHandle' is imported here
- 9 | 
+ 9 |
    `----
   help: Consider removing this import.
 
@@ -334,7 +334,7 @@
 
   ! eslint(no-unused-vars): Interface 'AskUserQuestionAnswerDraft' is declared but never used.
     ,-[packages/ui/src/lib/askUserQuestion.ts:26:11]
- 25 | 
+ 25 |
  26 | interface AskUserQuestionAnswerDraft {
     :           ^^^^^^^^^^^^^|^^^^^^^^^^^^
     :                        `-- 'AskUserQuestionAnswerDraft' is declared here
@@ -534,7 +534,7 @@
  1 | import { type WindowTabState } from "@/store/tabStore.js";
    :               ^^^^^^^|^^^^^^
    :                      `-- 'WindowTabState' is imported here
- 2 | 
+ 2 |
    `----
   help: Consider removing this import.
 

@@ -1,5 +1,5 @@
 v24.19.0
-Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/int05-verifier/scheduler-host-isolated-d1
+Keeping the local D1/R2 state in $REPO_ROOT/test-results/int05-verifier/scheduler-host-isolated-d1
   PASS  fresh D1 applies the full migration ledger  — 28 migration rows
   PASS  development Worker is healthy  — http://127.0.0.1:65302
   PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-MIGMi4/4a38c3b1f32d10bb6db7f9ba45ddf02a00fc8ea6-index_bg.wasm is 14105s newer than src/jobs/automations.rs
@@ -22,10 +22,10 @@ Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/int
   PASS  create bounded budget  — status=201
 PASS disposable organization, project, success route, hanging route, policy, agent and budget exist
 PASS four local automations are stored by the product's own repository before first launch
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 
-- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
-- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
 
 Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
 
@@ -50,5 +50,5 @@ UNPROVEN renewal during a long run :: the mock provider answers inside one heart
 waiting 412s for the local due time + two scheduler ticks
 PASS past the original's local due time, the unmarked control was dispatched locally while the adopted original stayed untouched: only the managed scheduler ran it
 VERDICT UNPROVEN; stages onboard=PASS adopt=PASS schedule=UNPROVEN race=UNPROVEN restart=UNPROVEN faults=UNPROVEN
-Profile/evidence retained: /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-OihBfk
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-automation-a-OihBfk
 EXIT=1

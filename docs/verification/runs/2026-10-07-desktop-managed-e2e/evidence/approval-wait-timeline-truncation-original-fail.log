@@ -1,13 +1,13 @@
 
-(!) outDir /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/test-results/client-tool-admission is not inside project root and will not be emptied.
+(!) outDir $REPO_ROOT/test-results/client-tool-admission is not inside project root and will not be emptied.
 Use --emptyOutDir to override.
 
 
-(!) outDir /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/test-results/client-tool-admission/core-result is not inside project root and will not be emptied.
+(!) outDir $REPO_ROOT/test-results/client-tool-admission/core-result is not inside project root and will not be emptied.
 Use --emptyOutDir to override.
 
 
-(!) outDir /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/test-results/client-tool-admission/approval-wait is not inside project root and will not be emptied.
+(!) outDir $REPO_ROOT/test-results/client-tool-admission/approval-wait is not inside project root and will not be emptied.
 Use --emptyOutDir to override.
 
 PASS  fresh D1 applies migrations through 0010 — 27 migration rows
@@ -323,7 +323,7 @@ FAIL  timeline, audit, and D1 correlation evidence — managed run D1 timeline e
         "correlation_id": "req_62dee56be6af4c6cba1ebb675b4bcc69"
       }
     ],
- 
+
 
 P05 smoke: 231 checks passed; 1 failures; 6 limitations
 {

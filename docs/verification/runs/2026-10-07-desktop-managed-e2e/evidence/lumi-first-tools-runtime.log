@@ -24,10 +24,10 @@
   PASS  create bounded Electron managed budget  — status=201
 PASS actual Lumi-first startup offers explicit local continuation without provider login
 PASS actual Electron UI begins PKCE
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 
-- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
-- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
 
 Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
 
@@ -269,14 +269,14 @@ PASS actual Electron model-driven Write: exact reviewed descriptor, public appro
 diagnose: fixture file exists=false localAllow=0
 diagnose audit=[{"action":"session.closed.v1","outcome":"success"},{"action":"run.completed.v1","outcome":"success"},{"action":"inference.completed.v1","outcome":"success"},{"action":"usage.recorded.v1","outcome":"success"},{"action":"inference.requested.v1","outcome":"success"},{"action":"inference.completed.v1","outcome":"success"},{"action":"usage.recorded.v1","outcome":"success"},{"action":"inference.requested.v1","outcome":"success"},{"action":"run.started.v1","outcome":"success"},{"action":"run.created.v1","outcome":"success"},{"action":"session.created.v1","outcome":"success"},{"action":"session.closed.v1","outcome":"success"}] run_events=[{"event_type":"run.created.v1"},{"event_type":"run.state_changed.v1"},{"event_type":"run.started.v1"},{"event_type":"run.completed.v1"}]
 diagnose catalog=[{"tool_id":"tool_b836cb99e02dc6e014fe23b5e7545040","name":"Write","source":"built_in","risk_class":"filesystem_write","lifecycle":"active","fingerprint":"afeff00b59538f8536f9a45837fb2efb90296be429d7fe478310329019eaf877","capability_ids_json":"[\"cap_2fd038c370f05abe4025d375c70a2aa1\"]"}] runtimeIdentity={"toolId":"tool_7b74a711ad0d7b9ceb4fdaa358d56d86","name":"Write","fingerprint":"afeff00b59538f8536f9a45837fb2efb90296be429d7fe478310329019eaf877","source":"built_in","riskClass":"filesystem_write","capabilityIds":["cap_2fd038c370f05abe4025d375c70a2aa1"],"catalogued":false} device=[{"capabilities":"{}"}]
-Profile/evidence retained: /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-electron-account-bfsZ0L
-file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/electron-tool-flow.mjs:283
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-electron-account-bfsZ0L
+file://$REPO_ROOT/tests/integration/lib/electron-tool-flow.mjs:283
   throw new Error(
         ^
 
 Error: no pending approval appeared for the managed tool call; renderer shows: {"runs":[{"state":"succeeded"}],"requests":[{"response_state":"completed","error_code":null},{"response_state":"completed","error_code":null}],"calls":[],"codes":"","screen":{"alerts":[],"codes":[],"fixture":["The mock fixture received the tool result. Result: Managed tool decision denied: managed_decision_unavailable"],"toolText":"Worked for 2s\nWrite\nlumi-e2e-fixture-denied-muzd2w3ehwc4.txt\n+\n1\nFailed\n\nThe mock fixture received the tool result. Result: Managed tool decision denied: managed_decision_unavailable\n\nCopy\nLike\nDislike\nFork\n04:57 PM\n\n\n\n\nAsk for follow-up changes\nAdd context\nAsk before changes\nManage models\nSend"}}
-    at waitForPendingApproval (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/electron-tool-flow.mjs:283:9)
-    at async runManagedTool (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-account-electron.mjs:779:22)
-    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-account-electron.mjs:936:22
+    at waitForPendingApproval (file://$REPO_ROOT/tests/integration/lib/electron-tool-flow.mjs:283:9)
+    at async runManagedTool (file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:779:22)
+    at async file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:936:22
 
 Node.js v24.19.0

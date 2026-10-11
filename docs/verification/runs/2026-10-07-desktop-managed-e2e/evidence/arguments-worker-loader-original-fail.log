@@ -124,7 +124,7 @@ PASS  usage read exposes the managed run
 PASS  read usage summary — HTTP 200
 PASS  usage summary is correlated to the run
 PASS  managed run start and correlated inference completed
-FAIL  smoke bootstrap or finalization — Cannot find module '/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/shared/src/zcode-protocol-v4/core.js' imported from /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/shared/src/zcode-protocol-v4/index.ts
+FAIL  smoke bootstrap or finalization — Cannot find module '$LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/core.js' imported from $LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/index.ts
 
 P05 smoke: 114 checks passed; 1 failures; 2 limitations
 {
@@ -133,7 +133,7 @@ P05 smoke: 114 checks passed; 1 failures; 2 limitations
   "failures": [
     {
       "name": "smoke bootstrap or finalization",
-      "message": "Cannot find module '/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/shared/src/zcode-protocol-v4/core.js' imported from /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/shared/src/zcode-protocol-v4/index.ts"
+      "message": "Cannot find module '$LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/core.js' imported from $LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/index.ts"
     }
   ],
   "limitations": [

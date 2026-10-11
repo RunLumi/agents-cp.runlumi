@@ -685,6 +685,97 @@ check(
   },
 );
 
+check(
+  "V01-023: assert_device_binding_current_statement permits live binding and aborts stale scope",
+  () => {
+    // Read the actual guard literal and bind order; a copied predicate would survive a source
+    // inversion just like the original run-link defect did.
+    const source = readFileSync(AUTOMATIONS_REPO, "utf8");
+    const start = source.indexOf("pub fn assert_device_binding_current_statement");
+    if (start < 0) return "assert_device_binding_current_statement is missing";
+    const end = source.indexOf("    }", start);
+    if (end < 0) return "could not find the end of assert_device_binding_current_statement";
+    const body = source.slice(start, end);
+    const condition = /guard!\(\s*"([\s\S]*?)"\s*,?\s*\)/
+      .exec(body)?.[1]
+      ?.replace(/\s+/g, " ")
+      .trim();
+    if (!condition) return "could not read the device-binding guard condition";
+    if (
+      !/binding_id = \?1/.test(condition) ||
+      !/org_id = \?2/.test(condition) ||
+      !/device_id = \?3/.test(condition) ||
+      !/removed_at IS NULL/.test(condition)
+    ) {
+      return `device-binding guard no longer asserts exact live ownership: ${condition}`;
+    }
+    if (
+      !/BindValue::Text\(binding_id\),\s*BindValue::Text\(org_id\),\s*BindValue::Text\(device_id\)/.test(
+        body,
+      )
+    ) {
+      return "device-binding guard's SQL placeholders no longer match its bound IDs";
+    }
+
+    const { db, cleanup } = freshDatabase();
+    try {
+      db.exec("PRAGMA foreign_keys = OFF");
+      const stamp = "2026-01-01T00:00:00.000Z";
+      db.exec(
+        `INSERT INTO workspace_bindings
+           (binding_id, org_id, project_id, device_id, workspace_identity, display_name,
+            environment_type, last_seen_at, created_at, updated_at, removed_at)
+         VALUES ('binding_probe', 'org_probe', 'project_probe', 'device_probe',
+                 'identity_probe', 'Probe', 'local', NULL, '${stamp}', '${stamp}', NULL)`,
+      );
+      const live = db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM workspace_bindings WHERE binding_id = 'binding_probe' AND removed_at IS NULL",
+        )
+        .get();
+      if (Number(live.n) !== 1)
+        return "live workspace-binding positive control did not create one row";
+
+      const quote = (value) => `'${value.replaceAll("'", "''")}'`;
+      const guardFor = (orgId, deviceId) => `INSERT INTO idempotency_records (
+        principal_id, organization_id, method, path, key_digest, request_fingerprint,
+        state, response_status, response_body, expires_at, claim_token
+      ) ${SENTINEL_ROW} WHERE NOT EXISTS (${condition
+        .replaceAll("?1", quote("binding_probe"))
+        .replaceAll("?2", quote(orgId))
+        .replaceAll("?3", quote(deviceId))})`;
+      const liveError = captureError(db, guardFor("org_probe", "device_probe"));
+      if (liveError !== null) return `live binding was refused: ${liveError}`;
+
+      const refuse = (label, orgId, deviceId) => {
+        const error = captureError(db, guardFor(orgId, deviceId));
+        if (error === null)
+          return `${label} did not abort, so the stale binding would retain authority`;
+        if (!isRecognised(error, guardAbortTexts()))
+          return `${label} aborted with an unrecognised text: ${error}`;
+        const sentinels = db
+          .prepare("SELECT COUNT(*) AS n FROM idempotency_records WHERE principal_id IS NULL")
+          .get();
+        if (Number(sentinels.n) !== 0) return `${label} persisted ${sentinels.n} sentinel row(s)`;
+        return null;
+      };
+      const wrongOrg = refuse("cross-organization binding", "org_outsider", "device_probe");
+      if (wrongOrg) return wrongOrg;
+      const wrongDevice = refuse("cross-device binding", "org_probe", "device_outsider");
+      if (wrongDevice) return wrongDevice;
+      db.prepare("UPDATE workspace_bindings SET removed_at = ? WHERE binding_id = ?").run(
+        stamp,
+        "binding_probe",
+      );
+      const removed = refuse("removed binding", "org_probe", "device_probe");
+      if (removed) return removed;
+      return null;
+    } finally {
+      cleanup();
+    }
+  },
+);
+
 check("is_guard_abort does not widen itself past the list", () => {
   // Belt and braces. Even while reading the list, a function that also accepts any
   // text containing "constraint" is back to the pre-VFY-004 behaviour, which called

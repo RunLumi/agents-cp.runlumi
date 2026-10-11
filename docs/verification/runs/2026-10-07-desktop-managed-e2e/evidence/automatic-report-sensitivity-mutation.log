@@ -33,8 +33,8 @@
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:16759
 ✖ managed handler completes once but tool success waits for result ACK without sending output (0.771625ms)
   Error: completed without required reporting
-      at <anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:707:15)
-      at async TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:704:5)
+      at <anonymous> ($REPO_ROOT/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:707:15)
+      at async TestContext.<anonymous> ($REPO_ROOT/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:704:5)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
 
@@ -42,13 +42,13 @@ test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:
 ✖ handler failure reports failed with no exception text (2.742125ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
   + []
   - [
   -   'failed'
   - ]
-  
-      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:763:10)
+
+      at TestContext.<anonymous> ($REPO_ROOT/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:763:10)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: true,
@@ -62,10 +62,10 @@ test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:19841
 ✖ failed report is unknown delivery and never retries the handler (0.853458ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
+
   true !== false
-  
-      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:785:10)
+
+      at TestContext.<anonymous> ($REPO_ROOT/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:785:10)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: true,
@@ -79,6 +79,6 @@ test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:20954
 ✖ cancelled managed execution reports cancelled without raw failure detail (1502.0245ms)
   Error: automatic cancellation report missing
-      at Timeout.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:798:41)
+      at Timeout.<anonymous> ($REPO_ROOT/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:798:41)
       at listOnTimeout (node:internal/timers:635:17)
       at process.processTimers (node:internal/timers:571:7)

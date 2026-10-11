@@ -1,4 +1,4 @@
-Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-electron-d1
+Keeping the local D1/R2 state in $REPO_ROOT/test-results/automatic-result-electron-d1
   PASS  fresh D1 applies the full migration ledger  — 27 migration rows
   PASS  development Worker is healthy  — http://127.0.0.1:57069
   PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-EZQdEO/b181342854ae9086802d9cb9f7c97c75cd4f2343-index_bg.wasm is 27821s newer than src/security/tenant_audit.rs
@@ -16,10 +16,10 @@ Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/aut
   PASS  create project-approved managed agent  — status=201
   PASS  create bounded Electron managed budget  — status=201
 PASS actual Electron UI begins PKCE
-The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
 
-- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
-- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
 
 Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
 
@@ -38,4 +38,4 @@ PASS actual restart restores session
 PASS restart restores same device, no reenrollment
 PASS revoked Electron policy sync refused
 PASS logout removes own persisted session
-Profile/evidence retained: /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-electron-account-EhVhT3
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-electron-account-EhVhT3

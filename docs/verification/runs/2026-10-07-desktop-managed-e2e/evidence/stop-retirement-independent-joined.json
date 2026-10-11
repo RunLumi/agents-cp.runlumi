@@ -8,7 +8,7 @@
   "client_dirty": true,
   "runtime": "Node24",
   "lint": "four files 0 warnings/errors",
-  "log": "/Volumes/SSD/agents-cp.runlumi/test-results/stop-retirement-independent-joined.log",
+  "log": "$REPO_ROOT/test-results/stop-retirement-independent-joined.log",
   "log_sha256": "a1f6f6053edc4ad47c34fadd5dde1e782ccc9efffffa892dd4b7617ef4f1a42c",
   "source_sha256": {
     "packages/desktop/src/main/lumiManagedAutomationActivation.ts": "09cebfccae4bc09a070081d843a10f657f1be1ece3e0c88aaae49c3c8550953e",

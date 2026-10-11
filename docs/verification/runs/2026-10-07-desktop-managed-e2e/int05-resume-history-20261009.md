@@ -202,7 +202,7 @@ Recovery96645 terminal corrections; supervisor regen17533 terminalPASS guards.
 Applied current candidate.patch to NEW review clone exact e7ad897, diffcheckPASS;
 clone exactclient2a49525 created57517 (nohardlinks/detached) separately. Original
 checkout/index/refs unchanged. Candidate-only Rust format/test/clippy/WASM gates
-launched on separate /private/tmp/lumi-recovery-review-target; logs recovery-
+launched on separate $TMPDIR/lumi-recovery-review-target; logs recovery-
 exact-candidate-*. No later-phase source masking. Read returned handle before
 candidate edits/builds. No Worker/Electron currently. Primary race29724 live
 fixing mandatory profile isolation; old globalHOME evidence cannot certify E2E.
@@ -221,7 +221,7 @@ Recovery96645 independently polled live on candidate-only doc/client archive.
 Stored offline Electron local-preservation PASS JSON/log and snapshot-reader
 controls in evidence, scoped noWorker only. Primary59646 output trace and96645
 recovery docs/exactclient fixes still polled live. Coordinator prepares NEW
-/private/tmp/lumi-recovery-review-repo clone --no-hardlinks, exact e7ad897 ancestry
+$TMPDIR/lumi-recovery-review-repo clone --no-hardlinks, exact e7ad897 ancestry
 on codex/e2e-phase01-recovery for independent candidate gates/phasePR. Original
 index/checkout untouched; no archive-as-new-root baseline for realPR. Do not apply
 stale patch while primary candidate mutates; wait regeneration/checkpoint. No
@@ -309,7 +309,7 @@ source/index/branch edits or build until coordination, candidate not proven.
 31770 actual scheduler-policy-fixed verified live (28migration setup; runtime
 pending). Useful disjoint PRIMARY Claude46454 recovery candidate preparation
 launched fresh bounded context, log claude-primary-recovery-candidate.jsonl.
-Ownership ONLY /private/tmp/lumi-recovery-phase-candidate + one proposed recovery
+Ownership ONLY $TMPDIR/lumi-recovery-phase-candidate + one proposed recovery
 note; assemble exact e7ad897 P1b hunk patch/exactclient2a49525, no original source/
 index/branch writes, no Cargo/build while31770live. Supervisor independently
 reviews/validates before phasePR publishing. Original WIP preserved; no merge.
@@ -367,7 +367,7 @@ Need deliberate policy binding fault and exact snapshot propagation proof.
 
 Independent Node24 actual-due projection reproducer now FAIL automation_wire_invalid
 (evidence/actual-due-wire-reproducer.log). Selected required due fields read only
-from retained real D1 dispatching row; private temp /private/tmp/lumi-real-due-wire
+from retained real D1 dispatching row; private temp $TMPDIR/lumi-real-due-wire
 json and lumi-real-due-reproducer.mts use production listDue decoder. This is
 transport fixture proof grounded in actual rows, not HTTP runtime authority.
 Re-run same command after repair. Primary33683 independently polled live reading
@@ -591,7 +591,7 @@ retains acceptance, phase publishing and independent checks. No active runtime.
 Latest human goal update: Claude is PRIMARY implementer, Codex supervises and
 independently checks feedback. Create focused PRs for parent AND independent
 submodule by phase to retain detailed Git history; no single opaque mega-commit.
-Claude47723 launched/verified running, handoff /private/tmp/lumi-claude-primary-
+Claude47723 launched/verified running, handoff $TMPDIR/lumi-claude-primary-
 handoff.txt; log original test-results/claude-primary-producer.jsonl/stderr.
 First ownership parent lib.rs and focused data_governance queue projection/tests;
 Codex owns checkpoint/acceptance. Read/design while5428 runtime live; no product

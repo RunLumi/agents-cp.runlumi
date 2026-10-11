@@ -19,13 +19,13 @@
 
 ✖ failing tests:
 
-test at ../../../../../../../../../../private/tmp/lumi-lost-start-reproducer.test.ts:2:11777
+test at ../../../../../../../../../..$TMPDIR/lumi-lost-start-reproducer.test.ts:2:11777
 ✖ lost start response never attempts a pre-start release (1.176625ms)
   AssertionError [ERR_ASSERTION]: server start committed; release is not a proven pre-start operation
-  
+
   true !== false
-  
-      at TestContext.<anonymous> (/private/tmp/lumi-lost-start-reproducer.test.ts:361:9)
+
+      at TestContext.<anonymous> ($TMPDIR/lumi-lost-start-reproducer.test.ts:361:9)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: false,

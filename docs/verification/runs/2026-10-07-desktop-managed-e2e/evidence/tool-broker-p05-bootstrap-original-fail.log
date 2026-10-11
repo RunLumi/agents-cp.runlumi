@@ -5,19 +5,19 @@ FAIL  smoke bootstrap or finalization — Worker exited during startup.
 ───────────────────────────────────────────────
 [custom build] Running: worker-build --release
 [custom build] /bin/sh: worker-build: command not found
-[custom build] 
+[custom build]
 [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mk [Error]: Process exited with non-zero status (127)[0m
 
-      at I2._waitForOutput (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:156790:98)
-      at async runCommand (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184624:26)
-      at async runCustomBuild (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184652:5)
-      at async getEntry (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:198403:3)
-      at async resolveConfig (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206166:17)
-      at async #updateConfig (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206500:68)
-      at async setupDevEnv (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367884:3)
-      at async startDev (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367828:7)
-      at async Object.handler (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:185919:29)
-      at async /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrang
+      at I2._waitForOutput ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:156790:98)
+      at async runCommand ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184624:26)
+      at async runCustomBuild ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184652:5)
+      at async getEntry ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:198403:3)
+      at async resolveConfig ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206166:17)
+      at async #updateConfig ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206500:68)
+      at async setupDevEnv ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367884:3)
+      at async startDev ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367828:7)
+      at async Object.handler ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:185919:29)
+      at async $REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrang
 
 P05 smoke: 1 checks passed; 1 failures; 0 limitations
 {
@@ -26,7 +26,7 @@ P05 smoke: 1 checks passed; 1 failures; 0 limitations
   "failures": [
     {
       "name": "smoke bootstrap or finalization",
-      "message": "Worker exited during startup.\n\n ⛅️ wrangler 4.137.0 (update available 4.148.0)\n───────────────────────────────────────────────\n[custom build] Running: worker-build --release\n[custom build] /bin/sh: worker-build: command not found\n[custom build] \n\u001b[31m✘ \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mk [Error]: Process exited with non-zero status (127)\u001b[0m\n\n      at I2._waitForOutput (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:156790:98)\n      at async runCommand (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184624:26)\n      at async runCustomBuild (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184652:5)\n      at async getEntry (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:198403:3)\n      at async resolveConfig (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206166:17)\n      at async #updateConfig (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206500:68)\n      at async setupDevEnv (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367884:3)\n      at async startDev (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367828:7)\n      at async Object.handler (/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:185919:29)\n      at async /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrang"
+      "message": "Worker exited during startup.\n\n ⛅️ wrangler 4.137.0 (update available 4.148.0)\n───────────────────────────────────────────────\n[custom build] Running: worker-build --release\n[custom build] /bin/sh: worker-build: command not found\n[custom build] \n\u001b[31m✘ \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mk [Error]: Process exited with non-zero status (127)\u001b[0m\n\n      at I2._waitForOutput ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:156790:98)\n      at async runCommand ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184624:26)\n      at async runCustomBuild ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:184652:5)\n      at async getEntry ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:198403:3)\n      at async resolveConfig ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206166:17)\n      at async #updateConfig ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:206500:68)\n      at async setupDevEnv ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367884:3)\n      at async startDev ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:367828:7)\n      at async Object.handler ($REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrangler-dist/cli.js:185919:29)\n      at async $REPO_ROOT/node_modules/.pnpm/wrangler@4.137.0_@types+node@24.13.6/node_modules/wrangler/wrang"
     }
   ],
   "limitations": [],

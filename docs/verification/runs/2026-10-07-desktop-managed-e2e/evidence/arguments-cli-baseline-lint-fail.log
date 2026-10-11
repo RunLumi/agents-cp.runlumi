@@ -1,6 +1,6 @@
 
   x eslint(max-lines): File has too many lines (669).
-     ,-[/private/tmp/lumi-argument-baseline-lint/call-runner.ts:738:2]
+     ,-[$TMPDIR/lumi-argument-baseline-lint/call-runner.ts:738:2]
  737 |   };
  738 | }
      :  ^

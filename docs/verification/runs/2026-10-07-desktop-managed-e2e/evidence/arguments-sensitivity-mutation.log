@@ -33,13 +33,13 @@ test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:
 ✖ an asynchronous managed handler owns an isolated approved input snapshot (0.965625ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     {
   +   operation: 'delete'
   -   operation: 'write'
     }
-  
-      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/argument-binding-sensitivity/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:581:10)
+
+      at TestContext.<anonymous> ($REPO_ROOT/test-results/argument-binding-sensitivity/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:581:10)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: true,

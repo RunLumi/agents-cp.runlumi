@@ -1,13 +1,15 @@
 from pathlib import Path
+import os
 import subprocess,shutil,hashlib,json
-source=Path("/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi")
-root=Path("/Volumes/SSD/agents-cp.runlumi/test-results/capability-guard-sensitivity")
+REPO_ROOT = Path(__file__).resolve().parents[5]
+source = Path(os.environ.get("REPO_ROOT", REPO_ROOT))
+root = Path(os.environ.get("LUMI_E2E_TEST_RESULTS", REPO_ROOT / "test-results" / "capability-guard-sensitivity"))
 root.mkdir(parents=True,exist_ok=False)
 clone=root/"backend"
 subprocess.run(["git","clone","--quiet","--shared",str(source),str(clone)],check=True)
 for name in ["apps/api/src/repositories/tools.rs","apps/api/scripts/p05-capability-claim-guard.py"]:
  target=clone/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source/name,target)
-fixture="/Volumes/SSD/agents-cp.runlumi/test-results/tool-execution-claim-p05-repaired-d1/v3/d1/miniflare-D1DatabaseObject/e7352547963de7050bd7d94658afc4fe78b61811b7815da12d90be8e863abf4d.sqlite"
+fixture=REPO_ROOT / "test-results/tool-execution-claim-p05-repaired-d1/v3/d1/miniflare-D1DatabaseObject/e7352547963de7050bd7d94658afc4fe78b61811b7815da12d90be8e863abf4d.sqlite"
 def run(name):
  with (root/(name+".log")).open("w") as output:
   return subprocess.run(["python3","apps/api/scripts/p05-capability-claim-guard.py",fixture],cwd=clone,stdout=output,stderr=subprocess.STDOUT).returncode

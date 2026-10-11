@@ -45,7 +45,7 @@
         }
       ],
       "notes": [],
-      "error": "Error: UI timeout: menu closed\n    at Object.wait (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/lumi-desktop-app.mjs:28:11)\n    at async Object.dismissMenu (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-ui.mjs:213:5)\n    at async adoptStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-adopt.mjs:160:3)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:170:3"
+      "error": "Error: UI timeout: menu closed\n    at Object.wait (file://$REPO_ROOT/tests/integration/lib/lumi-desktop-app.mjs:28:11)\n    at async Object.dismissMenu (file://$REPO_ROOT/tests/integration/lib/automation-ui.mjs:213:5)\n    at async adoptStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-adopt.mjs:160:3)\n    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:170:3"
     },
     "schedule": {
       "status": "UNPROVEN",
@@ -130,7 +130,7 @@
       "status": 422,
       "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_1184f35bc5404bd99c4860e64a090b37\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
     },
-    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-6RUwVi",
+    "profileA": "$REPO_ROOT/test-results/t/lumi-automation-a-6RUwVi",
     "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
   }
 }

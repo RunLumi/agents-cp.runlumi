@@ -15,6 +15,6 @@
   "pinned_lumi_agents_sha": "21d2e11f134e1d77d165a076b1754697bad53825",
   "override": false,
   "reproducible": true,
-  "error": "/Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node: 1",
+  "error": "$NODE24_BIN: 1",
   "completed_at": "2026-10-07T07:20:05.676Z"
 }

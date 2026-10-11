@@ -19,13 +19,13 @@
 test at packages/services/src/lumi-account/automationAdoptionTransport.test.ts:1:6706
 ✖ whole-automation conflicts with a null subject remain blocked rather than malformed (0.146708ms)
   Error [LumiAccountError]: lumi_response_invalid
-      at text (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/lumi-account/automationAdoptionTransport.ts:55:11)
-      at <anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/lumi-account/automationAdoptionTransport.ts:143:18)
+      at text ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:55:11)
+      at <anonymous> ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:143:18)
       at Array.map (<anonymous>)
-      at <anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/lumi-account/automationAdoptionTransport.ts:141:40)
+      at <anonymous> ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:141:40)
       at Array.map (<anonymous>)
-      at LumiAutomationAdoptionHostTransport.previewImport (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/lumi-account/automationAdoptionTransport.ts:131:29)
-      at async TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/lumi-account/automationAdoptionTransport.test.ts:228:18)
+      at LumiAutomationAdoptionHostTransport.previewImport ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:131:29)
+      at async TestContext.<anonymous> ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.test.ts:228:18)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     code: 'lumi_response_invalid',

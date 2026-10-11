@@ -1,4 +1,4 @@
-   Compiling lumi-agents-control-plane-api v0.1.0 (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api)
+   Compiling lumi-agents-control-plane-api v0.1.0 ($REPO_ROOT/apps/api)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 20.08s
      Running unittests src/lib.rs (target/debug/deps/lumi_agents_control_plane_api-70a99ecb46a025f8)
 

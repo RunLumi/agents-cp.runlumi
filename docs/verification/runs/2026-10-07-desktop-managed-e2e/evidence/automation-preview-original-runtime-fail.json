@@ -21,7 +21,7 @@
         }
       ],
       "notes": [],
-      "error": "Error: dialog never reached ready (positive control: a preview that can be confirmed); phase=preview_failed; text=Hand over to Lumi\n\nLumi runs this automation on its schedule. The original stays on this device, unchanged, and stops running here while it is managed.\n\nThat did not work. Check the state shown on the automation card before trying again. lumi_response_invalid\n\nClose\nClose\n    at Object.waitPhase (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-ui.mjs:151:11)\n    at async adoptStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-adopt.mjs:49:3)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:170:3"
+      "error": "Error: dialog never reached ready (positive control: a preview that can be confirmed); phase=preview_failed; text=Hand over to Lumi\n\nLumi runs this automation on its schedule. The original stays on this device, unchanged, and stops running here while it is managed.\n\nThat did not work. Check the state shown on the automation card before trying again. lumi_response_invalid\n\nClose\nClose\n    at Object.waitPhase (file://$REPO_ROOT/tests/integration/lib/automation-ui.mjs:151:11)\n    at async adoptStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-adopt.mjs:49:3)\n    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:170:3"
     },
     "schedule": {
       "status": "UNPROVEN",
@@ -105,7 +105,7 @@
       "status": 422,
       "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_b33e572539ce42e592cc5c55cc150307\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
     },
-    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-aqiXkF",
+    "profileA": "$REPO_ROOT/test-results/t/lumi-automation-a-aqiXkF",
     "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
   }
 }

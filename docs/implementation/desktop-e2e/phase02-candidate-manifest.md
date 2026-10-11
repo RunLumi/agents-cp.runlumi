@@ -33,7 +33,7 @@ against `e7ad897`. They touch no file that PR52 touches, so they should apply on
 | Parent branch / HEAD | `codex/desktop-backend-e2e` @ `e7ad897a7f400048df17100594ef86b3788ea0f1` (PR51 head) |
 | Parent PRs (LEDGER) | PR51 `e7ad897` draft; **PR52** `4f730a52c6ad8b0abde8f204f473315cf399d796` draft, stacked on PR51, carries recovery (migration 0025, P03-CR-002). Coordinator live refresh: PR52 now head `fe3d6e13c6cb6083cc9fa5ca2e67fefcaa0f83d7`; hosted quality run `37915576559` and default adoption run `37915576667` both SUCCESS. Original socket failures remain preserved; async D1/owned subprocess repair is published. The original `4f730a5` entry describes the recovery commit, not the current PR head. |
 | PR52 object locally | **absent**: `git cat-file -t 4f730a5…` fails in this checkout. The base for Phase 2 cannot be diffed locally. |
-| Child repo | gitdir `/Volumes/SSD/agents-cp.runlumi/.git/worktrees/agents-cp.runlumi1/modules/integrations/lumi-agents`. Its `HEAD` file reads `ref: refs/heads/codex/lumi-control-plane-e2e`. |
+| Child repo | gitdir `$REPO_ROOT/.git/worktrees/agents-cp.runlumi1/modules/integrations/lumi-agents`. Its `HEAD` file reads `ref: refs/heads/codex/lumi-control-plane-e2e`. |
 | Child commits (reflog) | `d78e8d5` (= `origin/main`) then eight commits to `2a49525` (PR39, LEDGER). No commit after `2a49525`. |
 | Parent gitlink | HEAD `fd977fd`; index `2a49525` (staged); child HEAD `2a49525`. `git status --porcelain=v2` shows `S.MU`: the child has modified tracked content and untracked files. |
 | Child git access | `git -C`, `--git-dir=`, `gh`, `ls-remote`, `hash-object`, `apply --cached` all need approval here. Child scope below comes from (a) reading the child `index` and `logs/HEAD` with Read/Grep, (b) the parent `status`, (c) mtime, (d) handoff docs. Treat the child file lists as **UNVERIFIED** until `git -C integrations/lumi-agents status` is run. |
@@ -52,7 +52,7 @@ P03-CG paragraph for CR-003.
 Never use the original checkout's index or `git add -A`. Per standing instruction and the PR52
 precedent, build each phase in an **independent clone outside the product checkout**.
 
-1. `git clone` the parent into e.g. `/Volumes/SSD/agents-cp.runlumi/test-results/phase02-server-repo`
+1. `git clone` the parent into e.g. `$REPO_ROOT/test-results/phase02-server-repo`
    and check out the PR52 head `4f730a5` as base. Re-read the remote SHA first. If PR52 has
    already merged, base on the merged `main` and re-derive section 3, because the
    `devices.rs`, `tenant_audit.rs`, `P03-CG.md`, `schema-migration-map.md` and

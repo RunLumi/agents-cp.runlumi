@@ -17,7 +17,7 @@ import { createOutboundForwarder } from "./lib/provider-http-forwarder.mjs";
 import { startProviderFixture } from "./lib/provider-http-fixture.mjs";
 
 const PUBLIC_HOST = "provider-http-fixture.example";
-const SECRET = "sk-platform-probe-secret";
+const FIXTURE_CREDENTIAL = "platform-probe-credential-canary";
 
 const WORKER_SOURCE = `
 const endpoint = (host, scenario) => "https://" + host + "/v1/" + scenario + "/v1/chat/completions";
@@ -31,7 +31,7 @@ export default {
     const init = {
       method: u.searchParams.get("method") ?? "POST",
       redirect: u.searchParams.get("redirect") ?? "manual",
-      headers: { "content-type": "application/json", authorization: "Bearer " + env.SECRET },
+      headers: { "content-type": "application/json", authorization: "Bearer " + env.FIXTURE_CREDENTIAL },
     };
     if (init.method === "POST") {
       init.body = JSON.stringify({ model: "m", stream, max_tokens: 8, messages: [{ role: "user", content: "platform probe" }] });
@@ -67,7 +67,7 @@ let fixture;
 let worker;
 try {
   writeFileSync(join(dir, "worker.mjs"), WORKER_SOURCE);
-  fixture = await startProviderFixture({ expectedSecret: SECRET });
+  fixture = await startProviderFixture({ expectedSecret: FIXTURE_CREDENTIAL });
   const forwarder = createOutboundForwarder({
     permittedHost: PUBLIC_HOST,
     targetOrigin: fixture.origin,
@@ -86,7 +86,7 @@ try {
     compatibilityDate: "2026-09-24",
     bindings: {
       PUBLIC_HOST: { type: "plain_text", value: PUBLIC_HOST },
-      SECRET: { type: "plain_text", value: SECRET },
+      FIXTURE_CREDENTIAL: { type: "plain_text", value: FIXTURE_CREDENTIAL },
     },
     dev: {
       server: { hostname: "127.0.0.1", port: 0 },
@@ -146,7 +146,7 @@ try {
       ok[0].body.stream === false &&
       ok[1].body.stream === true &&
       ok[0].body.model === "m" &&
-      fixture.holdsNoSecret(SECRET),
+      fixture.holdsNoSecret(FIXTURE_CREDENTIAL),
     JSON.stringify(ok),
   );
   check("no denial was recorded by the positive controls", forwarder.denials().length === 0);
@@ -276,7 +276,7 @@ try {
   }
   check("no denied destination reached the fixture", fixture.count() === fixtureBefore);
   check("fixture saw no request on an unexpected path", fixture.count("unknown") === 0);
-  check("redaction held for the whole run", fixture.holdsNoSecret(SECRET));
+  check("redaction held for the whole run", fixture.holdsNoSecret(FIXTURE_CREDENTIAL));
 } catch (error) {
   console.log(`\nBLOCKED/ERROR: ${error?.stack ?? error}`);
   process.exitCode = 2;

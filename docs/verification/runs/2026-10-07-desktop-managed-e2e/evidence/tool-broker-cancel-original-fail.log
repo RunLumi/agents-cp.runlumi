@@ -24,10 +24,10 @@
 test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:11601
 ✖ a broker resolving after cancellation cannot enter the real file handler (2.348667ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
+
   1 !== 0
-  
-      at TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:503:12)
+
+      at TestContext.<anonymous> ($LUMI_AGENTS_DIR/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:503:12)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: true,

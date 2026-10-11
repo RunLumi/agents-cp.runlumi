@@ -368,7 +368,7 @@ no tool PASS or PR/merge. Re-poll actual live CLI/background process.
 
 Tool runtime bhwzkxzez terminal exit1: UI navigation fixed and managed run created,
 but public approvals list remained empty for120s. No tool execution PASS.
-Retained profile /Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-electron-account-tNyd8Z;
+Retained profile $REPO_ROOT/test-results/t/lumi-electron-account-tNyd8Z;
 failure in Claude task bhwzkxzez.output (same parent task path). Claude87977
 verified live, inspecting this profile's app log for root cause. Preserve
 pending/no-effect evidence and do not retry until failing boundary identified.
@@ -403,7 +403,7 @@ Coordinator inspected current bounded parser constants and recorded exact wire
 limits in P04-CR-002 (128calls/128byte IDs+names/256KiB per-call args/512KiB
 aggregate); stricter managed executor limits remain independent. No actual tool
 runtime verdict yet. Agent-owned background baseline output retained at
-/private/tmp/claude-501/-Volumes-SSD-symlinks-james-home-codex-worktrees-desktop-e2e-agents-cp-runlumi/f19336ce-749a-4fa2-ba3b-ebe17726ae13/tasks/b2qwhypkc.output.
+$TMPDIR/claude-501/-Volumes-SSD-symlinks-james-home-codex-worktrees-desktop-e2e-agents-cp-runlumi/f19336ce-749a-4fa2-ba3b-ebe17726ae13/tasks/b2qwhypkc.output.
 Do not reuse this text-only baseline as tool/snapshot publisher runtime proof;
 desktop bundle predates latest coordinator publisher extraction. Need rebuild
 client before trusting final tool proof. No PR/merge.
@@ -611,7 +611,7 @@ Claude Code requested by user: native launcher repaired to official2.1.293,
 old broken symlink preserved. Delegated run37642 terminal exit1: OAuth expired
 and refresh failed before work. Official auth login session89838 currently live,
 awaiting human browser/code completion. Never treat auth status loggedIn as proof
-of usable inference. Handoff /private/tmp/lumi-claude-goal-handoff.txt preserves
+of usable inference. Handoff $TMPDIR/lumi-claude-goal-handoff.txt preserves
 full goal, scope and permissions. No permission bypass enabled.
 
 Heartbeat runtime92497 terminal exit1: lumi_capability_report_invalid before
@@ -777,7 +777,7 @@ MCP registration ID in this projection remains local correlation, not server
 approval; the P05 broker still resolves registration by fingerprint/current scope.
 
 All handles terminal: runtime27993 and client72581 exit0; unit catalog command
-completed exit0. Fresh D1 /Volumes/SSD/agents-cp.runlumi/test-results/reviewed-catalog-d1.
+completed exit0. Fresh D1 $REPO_ROOT/test-results/reviewed-catalog-d1.
 Dirty HEAD pair unchanged, no PR/merge. No new Electron build/runtime after these
 source edits. Prior Main/CLI gate failures and all original A–E obligations remain.
 
@@ -828,7 +828,7 @@ in the dated directory, exact source hashes and scope recorded.
 
 All handles terminal: controls78325, client26380, Core/bootstrap62071 exit0;
 original runtime11471 exit1; repaired runtime67651 and mutation94450 exit0.
-Fresh D1 /Volumes/SSD/agents-cp.runlumi/test-results/core-approval-wait-repaired-d1.
+Fresh D1 $REPO_ROOT/test-results/core-approval-wait-repaired-d1.
 No new Desktop/CLI stage after these edits; rebuild before any Electron runtime
 claim. Previous Electron regression is historical for prior source. Dirty parent/
 client HEADs unchanged; no PR/merge. Full original A–E scope remains active.
@@ -880,8 +880,8 @@ PASS, active source unchanged. Use bounded sensitivity logs only.
 Actual rebuilt Electron regression handle29490 TERMINAL exit0, PASS, zero
 observation retries: login/enroll/managed text/inference attribution, session/device
 restart, reversible binding/rebind, revoke and logout. Profile
-/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-electron-account-EhVhT3;
-D1 /Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-electron-d1.
+$REPO_ROOT/test-results/t/lumi-electron-account-EhVhT3;
+D1 $REPO_ROOT/test-results/automatic-result-electron-d1.
 No tool invocation in that Electron flow: model-driven automatic reporting remains
 UNPROVEN. Parent/client dirty HEADs unchanged, no PR/merge. All recent build/check/
 runtime handles terminal; no stale handle is being restarted. Evidence saved as
@@ -931,7 +931,7 @@ Prior explicit result transport logs are preserved under client-tool-result-*.
 
 All handles terminal: format/check89889, runtime98223, Rust83226, mutation78601,
 clippy30673 exit0. Fresh runtime D1 at
-/Volumes/SSD/agents-cp.runlumi/test-results/tool-result-cas-d1.
+$REPO_ROOT/test-results/tool-result-cas-d1.
 Parent/client dirty HEADs unchanged e7ad897a7f400048df17100594ef86b3788ea0f1 /
 2a495254f0018644d24c9c1e5c5210bb7a30075c. No PR/merge. No rollback of WIP.
 
@@ -970,7 +970,7 @@ Rust1042+11, clippy, WASM, schema verifier syntax and diff checks PASS. Sources 
 evidence under capability-claim-* in the existing dated directory. Dirty HEADs
 unchanged, no PR/merge. All handles terminal: formatting2808, tests96551,
 quality70849, runtime47592 exit0. D1 at
-/Volumes/SSD/agents-cp.runlumi/test-results/capability-claim-runtime-d1.
+$REPO_ROOT/test-results/capability-claim-runtime-d1.
 
 Next required product work remains reviewed catalog/capability identity mapping,
 approval waiting, automatic bounded terminal result reporting via reverse RPC/
@@ -1006,7 +1006,7 @@ Automatic result reporting/approval waiting remain unwired. The probe reports a
 terminal result explicitly; do not represent it as production automatic reporting.
 
 All this continuation's handles TERMINAL: typecheck27624/runtime2712/mutation37830
-exit0. Fresh runtime D1 /Volumes/SSD/agents-cp.runlumi/test-results/client-tool-admission-d1.
+exit0. Fresh runtime D1 $REPO_ROOT/test-results/client-tool-admission-d1.
 Exact source/bundle SHA256 and dirty parent/client pair in client-admission-result.json;
 original HEADs unchanged, no PR/merge. Emitting typecheck replaced Host out artifacts;
 rebuild Desktop before any later Electron proof. Existing failed Electron evidence
@@ -1052,7 +1052,7 @@ WASM and formatting/syntax/diff checks PASS for current backend source.
 Evidence execution-claim-* records exact source hashes, scoped verdict and limits.
 
 All handles TERMINAL: admission probe52399 exit0, Rust71079 exit0, quality84597
-exit0. Fresh state at /Volumes/SSD/agents-cp.runlumi/test-results/tool-execution-claim-p05-ack-d1.
+exit0. Fresh state at $REPO_ROOT/test-results/tool-execution-claim-p05-ack-d1.
 Dirty pair unchanged; no PR/merge. Prior short SSD temp Electron handle56320
 TERMINAL exit1 before app: Wrangler ENOSPC writing internal Preferences registry.
 This is distinct from earlier SQLite/Chromium/CDP failures. The admission probe
@@ -1095,7 +1095,7 @@ first restart failed SQLite open_failed errcode14, profile zwgT95. Internal disk
 255 MiB free observed, cause UNPROVEN. SSD control handle 38198 TERMINAL exit1:
 same run plus restart/rollback/rebind passed; next restart failed CDP WebSocket
 ErrorEvent, Chromium logged Failed to create socket directory. Profile
-/Volumes/SSD/agents-cp.runlumi/test-results/desktop-clean-elaprn7t/tmp/lumi-electron-account-Vdg42D.
+$REPO_ROOT/test-results/desktop-clean-elaprn7t/tmp/lumi-electron-account-Vdg42D.
 Both reports/logs retained. New-source full Electron verdict FAIL; do not inherit
 older PASS. All task handles terminal. No PR/merge; dirty HEADs unchanged.
 
@@ -1133,8 +1133,8 @@ Main typecheck FAIL remains an owed broader gate, not a verified baseline.
 
 Latest Electron handle 46273 is TERMINAL exit 0, actual serialized runtime PASS,
 zero observation retries, profile /var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-9gZqcL,
-D1 /Volumes/SSD/agents-cp.runlumi/test-results/tool-broker-serialized-electron-d1.
-Report at /Volumes/SSD/agents-cp.runlumi/test-results/tool-broker-serialized-electron-report.json.
+D1 $REPO_ROOT/test-results/tool-broker-serialized-electron-d1.
+Report at $REPO_ROOT/test-results/tool-broker-serialized-electron-report.json.
 Both dirty HEADs unchanged. No PR/merge. All task-owned handles are terminal.
 Evidence under the existing dated directory with tool-broker-* filenames.
 Preserve earlier overwrite FAIL: emitting root typecheck writes out/host/index.js
@@ -1181,7 +1181,7 @@ quality, clean bootstrap/CI, focused PRs and authorized merge.
 Native reproducer extends write surface to CLI bootstrap app/node-repl-browser-broker.ts
 and focused socket test. Actual Electron report-port run on a long SSD TMPDIR
 failed with Unix socket EINVAL before Agent initialization; report port itself
-correctly wrote FAIL. Preserve /Volumes/SSD/agents-cp.runlumi/test-results/desktop-report-port-result.json
+correctly wrote FAIL. Preserve $REPO_ROOT/test-results/desktop-report-port-result.json
 and synthetic profile vw7GMA. Keep browser socket token/auth unchanged and
 choose a short system-temp socket path when TMPDIR exceeds native path budget.
 Verify live socket auth and cleanup before rerunning Electron from the same long
@@ -1193,7 +1193,7 @@ made implementation/proof progress, not no-progress. All task-owned probes are
 terminal. Current evidence README and JSON/logs are under
 docs/verification/runs/2026-10-07-desktop-managed-e2e/.
 
-Electron after per-turn tool context changes PASS: /private/tmp/lumi-electron-account-W4BQKt,
+Electron after per-turn tool context changes PASS: $TMPDIR/lumi-electron-account-W4BQKt,
 fresh D1 persist-18, both dirty heads. Missing managed broker now refuses actual
 ToolExecutor file-backed handler through both scheduling paths. Ten focused
 tests pass; disposable forwarding omission yields one intended failing test
@@ -1210,8 +1210,8 @@ not established by missing logs. No HTTP fault PASS; mock inference stays scoped
 
 New one-command desktop bootstrap is syntax/formatted and implemented. Disposable
 clean local commits ca66e8820eb41bd9c506b1932da4775eded5ff95 / 21d2e11f134e1d77d165a076b1754697bad53825
-are at /Volumes/SSD/agents-cp.runlumi/test-results/desktop-clean-elaprn7t/control-plane.
-Do not confuse them with published commits. Initial /private/tmp install hit
+are at $REPO_ROOT/test-results/desktop-clean-elaprn7t/control-plane.
+Do not confuse them with published commits. Initial $TMPDIR install hit
 ENOSPC; the owned clone moved to SSD with SHA/status readback. Offline install
 fails on uncached semver@6.3.1. Online install showed many registry timeouts;
 only its verified task-owned process was SIGTERM'd at 4m48s and exit 2 report
@@ -1249,7 +1249,7 @@ re-runs. No production egress/allowlist change is authorized by this correction.
 
 Latest continuation: the rollback/rebind gate now PASSes on both dirty HEADs.
 Durable evidence is docs/verification/runs/2026-10-07-desktop-managed-e2e/.
-Report originates at /private/tmp/lumi-electron-account-Y9FZr6, D1 persist-17,
+Report originates at $TMPDIR/lumi-electron-account-Y9FZr6, D1 persist-17,
 zero observation retries. P03-CR-003/ADR0012 retains removed binding history;
 P08-CR-002 provides explicit versioned rebind and stage-zero unbind. Active
 binding refusal is runtime-proven with no new session row. Whole accounting/audit
@@ -1276,7 +1276,7 @@ The actual Electron UI now sends and renders a managed response through the
 real Agent CLI, private per-attempt Main auth and Worker. D1 proves completed
 P04 request/usage with P05 run/session/device/project attribution; P02 login
 session is separately asserted. Main closes the one-shot session on terminal.
-Report /private/tmp/lumi-electron-account-nrITNi/evidence/result.json retains
+Report $TMPDIR/lumi-electron-account-nrITNi/evidence/result.json retains
 these assertions but is FAIL because post-restart rollback gets 409.
 
 Runtime repairs: Host aliases bootstrap the child CLI Registry in memory;
@@ -1295,15 +1295,15 @@ historical runs/automations restrict physical DELETE. Migration 0026, active
 repository lookups/lists/counts and automation eligibility now exclude removed
 bindings. Admin deletion moves into its existing idempotency/audit batch.
 WASM check passed. Actual Electron reproducer is currently running as tool
-session 11408 with fresh D1 at /private/tmp/lumi-electron-account-persist-11.
+session 11408 with fresh D1 at $TMPDIR/lumi-electron-account-persist-11.
 Do not restart it based on an observation timeout; poll its handle. Harness
 now asserts historical binding/run preservation after rollback.
 
 Usable toolchain: RUSTUP_HOME points to the existing lumi-integration checkout
-test-results/toolchain/rustup; CARGO_HOME=/private/tmp/lumi-e2e-cargo; PATH adds
+test-results/toolchain/rustup; CARGO_HOME=$TMPDIR/lumi-e2e-cargo; PATH adds
 that toolchain cargo/bin and bundled Node 24.19.0. Use the desktop-e2e target
 cache to avoid another large build. One run hit ENOSPC; current owned profiles
-and evidence are retained. Do not delete unrelated /private/tmp projects.
+and evidence are retained. Do not delete unrelated $TMPDIR projects.
 
 Remaining: rollback proof, removed-binding refusal/rebind, current full quality
 and source formatting, honest prompt-absence storage proof (selected metadata
@@ -1437,7 +1437,7 @@ claimed.
 ## Resume checkpoint
 
 2026-10-07: Re-read the prior checkpoint and both worktrees. Parent is
-`/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi`
+`$REPO_ROOT`
 at `e7ad897a7f400048df17100594ef86b3788ea0f1` (dirty); submodule is at
 `2a495254f0018644d24c9c1e5c5210bb7a30075c` (dirty). No integration process was
 left running. The earlier Electron report is retained at

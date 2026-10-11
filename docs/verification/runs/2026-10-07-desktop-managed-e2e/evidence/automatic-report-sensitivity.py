@@ -1,17 +1,19 @@
 from pathlib import Path
+import os
 import subprocess,shutil,json,hashlib,os
-source=Path("/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents")
-root=Path("/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded")
+REPO_ROOT = Path(__file__).resolve().parents[5]
+source = Path(os.environ.get("LUMI_AGENTS_DIR", REPO_ROOT / "integrations/lumi-agents"))
+root = Path(os.environ.get("LUMI_E2E_TEST_RESULTS", REPO_ROOT / "test-results" / "automatic-result-core-sensitivity-bounded"))
 root.mkdir(parents=True,exist_ok=False)
 clone=root/"client"
 subprocess.run(["git","clone","--quiet","--shared",str(source),str(clone)],check=True)
 shutil.copytree(source/"apps/zcode-cli/packages/core/src",clone/"apps/zcode-cli/packages/core/src",dirs_exist_ok=True)
 (clone/"node_modules").symlink_to(source/"node_modules",target_is_directory=True)
 (clone/"apps/zcode-cli/packages/core/node_modules").symlink_to(source/"apps/zcode-cli/packages/core/node_modules",target_is_directory=True)
-env=dict(os.environ);env["PATH"]="/Users/james/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:"+env["PATH"];env["TMPDIR"]="/Volumes/SSD/agents-cp.runlumi/test-results/t"
+env=dict(os.environ);env["PATH"]=os.environ.get("NODE24_BIN", "node").rsplit("/", 1)[0] + ":" + env["PATH"] if "/" in os.environ.get("NODE24_BIN", "node") else env["PATH"];env["TMPDIR"]=str(root / "tmp");Path(env["TMPDIR"]).mkdir(parents=True,exist_ok=True)
 def run(name):
  with (root/(name+".log")).open("w") as out:
-  return subprocess.run(["node","--import","tsx","--test","apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts"],cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode
+  return subprocess.run([os.environ.get("NODE24_BIN", "node"),"--import","tsx","--test","apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts"],cwd=clone,env=env,stdout=out,stderr=subprocess.STDOUT).returncode
 baseline=run("baseline");assert baseline==0,"no verdict without valid baseline"
 target=clone/"apps/zcode-cli/packages/core/src/tool/executor/managed-handler.ts";original=target.read_text()
 needle="await gate.reportResult?.(status);";assert original.count(needle)==1

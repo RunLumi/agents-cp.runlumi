@@ -1,8 +1,8 @@
 [2026-10-07 15:56:32.187] [pid:82404] [main] [crash-capture] configured remoteCrashReporterEnabled=true stagingDir=/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-tPK7ZJ/home/.zcode/v2/crash/live archiveDir=/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-tPK7ZJ/home/.zcode/v2/crash/archive
 [2026-10-07 15:56:32.204] [pid:82404] [main] [deep-link] 注册协议成功（defaultApp） {
   scheme: 'zcode',
-  execPath: '/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
-  entry: '/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop'
+  execPath: '$LUMI_AGENTS_DIR/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+  entry: '$LUMI_AGENTS_DIR/packages/desktop'
 }
 
 DevTools listening on ws://127.0.0.1:58387/devtools/browser/3d1098e1-9c8e-4d78-9433-e67bb98cd07d
@@ -24,7 +24,7 @@ DevTools listening on ws://127.0.0.1:58387/devtools/browser/3d1098e1-9c8e-4d78-9
 [2026-10-07 15:56:33.192] [pid:82404] [main] [createWindow] dom-ready fired (local-1)
 [2026-10-07 15:56:33.193] [pid:82404] [main] [desktop-context-prompt] first host spawn decision resolved { enabled: true, configVersion: 'desktop-sp-v1' }
 [2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] forked host process for (local-1), pid=undefined
-[2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] host module path: /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/out/host/index.js
+[2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] host module path: $LUMI_AGENTS_DIR/packages/desktop/out/host/index.js
 [2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] glm binary path: <not found>
 [2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] BIGMODEL_OAUTH_APP_SECRET source: fallback
 [2026-10-07 15:56:33.195] [pid:82404] [main] [task-realtime] registered host {
@@ -37,7 +37,7 @@ node:internal/modules/esm/resolve:276
     throw new ERR_MODULE_NOT_FOUND(
           ^
 
-Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/out/host/hostDatabaseStartup.js' imported from /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/out/host/index.js
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '$LUMI_AGENTS_DIR/packages/desktop/out/host/hostDatabaseStartup.js' imported from $LUMI_AGENTS_DIR/packages/desktop/out/host/index.js
     at finalizeResolution (node:internal/modules/esm/resolve:276:11)
     at moduleResolve (node:internal/modules/esm/resolve:892:10)
     at defaultResolve (node:internal/modules/esm/resolve:1019:11)
@@ -49,7 +49,7 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Volumes/SSD/symlinks/james-ho
     at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)
     at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {
   code: 'ERR_MODULE_NOT_FOUND',
-  url: 'file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/desktop/out/host/hostDatabaseStartup.js'
+  url: 'file://$LUMI_AGENTS_DIR/packages/desktop/out/host/hostDatabaseStartup.js'
 }
 
 Node.js v24.21.0

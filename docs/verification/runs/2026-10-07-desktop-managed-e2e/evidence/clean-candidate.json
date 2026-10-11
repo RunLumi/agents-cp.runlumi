@@ -1,5 +1,5 @@
 {
-  "directory": "/private/tmp/lumi-desktop-clean-elaprn7t/control-plane",
+  "directory": "$TMPDIR/lumi-desktop-clean-elaprn7t/control-plane",
   "parent_sha": "ca66e8820eb41bd9c506b1932da4775eded5ff95",
   "client_sha": "21d2e11f134e1d77d165a076b1754697bad53825",
   "remote_publication": false,

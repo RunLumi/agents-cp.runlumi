@@ -5,13 +5,12 @@ Cargo workspace. See [ADR 0011](../adr/0011-pinned-cross-repository-integration.
 
 ## Current client source pin
 
-The parent pin selects the LumiAgents main merge that includes desktop
-E2E source PRs [#41](https://github.com/RunLumi/LumiAgents/pull/41) and
-[#40](https://github.com/RunLumi/LumiAgents/pull/40):
-`d533b4ce22c16dbc8ce93f0d175d1403d05fd75e`. Keep this full SHA as the parent
-gitlink; do not make the integration gate float to child `main`. The pin is
-reproducible; the runtime adoption gate must still pass before claiming a tested
-parent/client pair.
+The gitlink selects LumiAgents main `ac011fce8d6273a1218022de17fdeafec7a59ba9`,
+including [PR #48](https://github.com/RunLumi/LumiAgents/pull/48), whose resolution
+preserves the newer v3.15.1 and session/vault/paging fixes. Integration uses this
+exact commit; updating the pin requires a new paired runtime test. The source pin
+does not certify the full Electron E2E goal. See the
+[PR #59 review record](../verification/pr59-reconciliation-20261011.md).
 
 ## One command from a clean checkout
 

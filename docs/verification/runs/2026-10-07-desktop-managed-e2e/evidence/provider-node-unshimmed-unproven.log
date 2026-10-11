@@ -4,10 +4,10 @@
 Updating config... undefined undefined
 local dev variables file not found at ".dev.vars.development". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
 local dev variables file not found at ".dev.vars". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
-.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
-.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
-.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env.development". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
-.env file not found at "/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.env.development.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "$REPO_ROOT/apps/api/.env". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "$REPO_ROOT/apps/api/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "$REPO_ROOT/apps/api/.env.development". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+.env file not found at "$REPO_ROOT/apps/api/.env.development.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
 No experimental flag store instantiated
 Attempted to use flag "MULTIWORKER" which has not been instantiated
 Your Worker has access to the following bindings:
@@ -27,7 +27,7 @@ No experimental flag store instantiated
 Attempted to use flag "MULTIWORKER" which has not been instantiated
 [wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/pause 204 No Content (0ms)
 [wrangler-ProxyWorker:info] GET /cdn-cgi/ProxyWorker/pause 204 No Content (1ms)
-Writing additional module to output /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/apps/api/.wrangler/tmp/dev-XHk7pp/50a5b9a880c4fc6f2d05df6c2233b03df75321a1-index_bg.wasm
+Writing additional module to output $REPO_ROOT/apps/api/.wrangler/tmp/dev-XHk7pp/50a5b9a880c4fc6f2d05df6c2233b03df75321a1-index_bg.wasm
 RemoteRuntimeController teardown beginning...
 RemoteRuntimeController teardown complete
 ⎔ Starting local server...
