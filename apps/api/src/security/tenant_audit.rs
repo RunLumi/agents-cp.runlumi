@@ -722,6 +722,14 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
 /// mislabel here cannot survive.
 const MECHANICAL: &[(&str, Class)] = &[
     (
+        "repositories/migration.rs::ASSERT_LIVE_BINDING_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::PINNED_BINDING_LIVE_SQL",
+        Class::OrgBound,
+    ),
+    (
         "repositories/devices.rs::INSERT_RECOVERY_CHALLENGE_SQL",
         Class::OrgBound,
     ),

@@ -23,12 +23,14 @@ use crate::{
     consumers::webhooks::{EnvelopeError, JobHandler, JobOutcome, QueueJobEnvelope},
     core::Timestamp,
     jobs::automations::{
-        JOB_LEASE_SECONDS, deterministic_job_id, run_due_occurrence_sweep, run_lease_expiry_sweep,
+        DispatchPlan, JOB_LEASE_SECONDS, deterministic_job_id, dispatch_occurrence_statements,
+        load_revision, read_dispatch_eligibility, resolve_dispatch_plan, run_due_occurrence_sweep,
+        run_lease_expiry_sweep,
     },
     modules::outbox::{FailureCode, HandlerFailure},
     repositories::{
-        AutomationStoreError, JobType, NewQueueJobInput, QueueJobRecord, QueueJobState,
-        WebhookRepository,
+        AutomationStoreError, AutomationsRepository, JobType, NewQueueJobInput, QueueJobRecord,
+        QueueJobState, WebhookRepository,
     },
 };
 
@@ -280,6 +282,171 @@ impl<'a> AutomationJobHandler<'a> {
         }
     }
 
+    /// Dispatch ONE persisted occurrence, scoped to the job's subject.
+    ///
+    /// The durable job row is the authority for tenant and subject; the message only has to
+    /// agree with it. The occurrence, its automation and the dispatch-time eligibility are
+    /// re-read here, and the job claim, the occurrence transition (guarded on its
+    /// `state_version`), the lifecycle event and the job completion commit in ONE batch, so a
+    /// refused guard rolls all of it back and the job stays retryable.
+    async fn run_dispatch(
+        &self,
+        envelope: &QueueJobEnvelope,
+        record: &QueueJobRecord,
+        transition: JobTransition,
+        now: &Timestamp,
+    ) -> Result<Outcome, HandlerFailure> {
+        let scope_mismatch = || failure("queue_job_scope_mismatch", false);
+        let Some(org_id) = record.org_id.as_deref() else {
+            return Err(scope_mismatch());
+        };
+        // A message that disagrees with the row is refused WITHOUT touching the row: a forged
+        // message must not be able to dead-letter a legitimate job.
+        if envelope.tenant_org_id().is_some_and(|hint| hint != org_id)
+            || envelope
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.get("occurrence_id"))
+                .and_then(Value::as_str)
+                .is_some_and(|subject| subject != record.subject_id)
+        {
+            return Err(scope_mismatch());
+        }
+        let repository = AutomationsRepository::new(self.database);
+        let unavailable = |_| failure("automation_job_store_unavailable", true);
+        let occurrence = if record.subject_type == AUTOMATION_JOB_SUBJECT_TYPE {
+            repository
+                .find_occurrence(org_id, &record.subject_id)
+                .await
+                .map_err(unavailable)?
+        } else {
+            None
+        };
+        let Some(occurrence) = occurrence else {
+            return self
+                .settle_dead_letter(record, transition, "automation_occurrence_missing", now)
+                .await;
+        };
+        if occurrence.state != "pending" {
+            // Already dispatched, claimed, finished or superseded: the job is done and writes
+            // nothing to the occurrence.
+            return self
+                .commit(
+                    vec![transition.claim, transition.complete],
+                    Outcome::Applied,
+                )
+                .await;
+        }
+        let Some(automation) = repository
+            .find_automation(org_id, &occurrence.automation_id)
+            .await
+            .map_err(unavailable)?
+        else {
+            return self
+                .settle_dead_letter(record, transition, "automation_definition_missing", now)
+                .await;
+        };
+        let revision = load_revision(&repository, &automation)
+            .await
+            .map_err(store_failure)?;
+        let eligibility = read_dispatch_eligibility(self.database, &automation, now)
+            .await
+            .map_err(store_failure)?;
+        let plan = resolve_dispatch_plan(
+            &repository,
+            &automation,
+            &occurrence,
+            &revision,
+            &eligibility,
+            now,
+        )
+        .await
+        .map_err(store_failure)?;
+        // A queued successor stays `pending` behind its predecessor, so the job is retried on
+        // a bounded delay instead of being completed.
+        let deferred = matches!(
+            plan,
+            DispatchPlan::QueueOne { .. } | DispatchPlan::CancelPrevious { .. }
+        );
+        let domain = dispatch_occurrence_statements(
+            self.database,
+            &repository,
+            &automation,
+            &occurrence,
+            plan,
+            &eligibility,
+            now,
+        )
+        .await
+        .map_err(store_failure)?;
+        let mut statements = Vec::with_capacity(domain.len() + 2);
+        statements.push(transition.claim);
+        statements.extend(domain);
+        if deferred {
+            // The successor waits behind its predecessor and stays `pending`. The job goes back to
+            // `queued` with a later `next_attempt_at` and an UNCHANGED attempt count, so waiting never
+            // consumes the bounded failure budget (a long-running predecessor must not strand the
+            // successor as an exhausted job). The overlap policy's own max-age ends the wait.
+            let next_attempt_at =
+                crate::adapters::add_seconds(now, AUTOMATION_JOB_RETRY_DELAY_SECONDS)
+                    .map_err(|_| failure("automation_job_store_unavailable", true))?;
+            statements.push(
+                WebhookRepository::new(self.database)
+                    .complete_job_statement(
+                        &record.job_id,
+                        QueueJobState::Queued,
+                        Some(next_attempt_at.as_str()),
+                        Some("automation_dispatch_deferred"),
+                        transition.expected_lease_version,
+                        now,
+                    )
+                    .map_err(|_| failure("automation_job_store_unavailable", true))?,
+            );
+            return self.commit(statements, Outcome::Duplicate).await;
+        }
+        statements.push(transition.complete);
+        self.commit(statements, Outcome::Applied).await
+    }
+
+    /// Record a terminal job failure caused by the job's own durable row, in one batch with
+    /// the claim, so the producer stops republishing it.
+    async fn settle_dead_letter(
+        &self,
+        record: &QueueJobRecord,
+        transition: JobTransition,
+        code: &'static str,
+        now: &Timestamp,
+    ) -> Result<Outcome, HandlerFailure> {
+        let dead = dead_letter_statement(
+            self.database,
+            &record.job_id,
+            transition.expected_lease_version,
+            code,
+            now,
+        )
+        .map_err(store_failure)?;
+        self.commit(vec![transition.claim, dead], Outcome::Applied)
+            .await?;
+        Err(failure(code, false))
+    }
+
+    async fn commit(
+        &self,
+        statements: Vec<D1PreparedStatement>,
+        outcome: Outcome,
+    ) -> Result<Outcome, HandlerFailure> {
+        match self.database.batch(statements).await {
+            Ok(_) => Ok(outcome),
+            // A refused guard rolled everything back: another worker won, or the occurrence
+            // moved. The next delivery re-reads the durable state.
+            Err(error) if crate::repositories::is_guard_violation(&error) => {
+                worker::console_error!("p06_automation_dispatch_guard_refused");
+                Ok(Outcome::Duplicate)
+            }
+            Err(_) => Err(failure("automation_job_store_unavailable", true)),
+        }
+    }
+
     async fn run_sweep(
         &self,
         envelope: &QueueJobEnvelope,
@@ -301,20 +468,37 @@ impl<'a> AutomationJobHandler<'a> {
             // The message claims a different job type than the durable row.
             return Err(failure("queue_job_dedupe_conflict", false));
         }
+        // A deferred dispatch job carries a future `next_attempt_at`. A message that was already
+        // in flight when the job was rescheduled must not re-evaluate it early (at-least-once
+        // delivery would otherwise turn every republish into another evaluation); it is
+        // acknowledged and the producer republishes once the job is due.
+        if matches!(job_type, JobType::Dispatch)
+            && matches!(
+                QueueJobState::parse(&record.state),
+                Some(QueueJobState::Queued | QueueJobState::RetryWait)
+            )
+            && record
+                .next_attempt_at
+                .as_deref()
+                .is_some_and(|due| due > now.as_str())
+        {
+            return Ok(Outcome::Duplicate);
+        }
         let Some(transition) =
             stage_job_transition(self.database, &record, now).map_err(store_failure)?
         else {
             return Ok(Outcome::Duplicate);
         };
+        if matches!(job_type, JobType::Dispatch) {
+            return self.run_dispatch(envelope, &record, transition, now).await;
+        }
         let report = match job_type {
             JobType::GenerateOccurrence => run_due_occurrence_sweep(self.database, now, self.limit)
                 .await
                 .map_err(store_failure)?,
-            JobType::Dispatch | JobType::ExpireLease => {
-                run_lease_expiry_sweep(self.database, now, self.limit)
-                    .await
-                    .map_err(store_failure)?
-            }
+            JobType::ExpireLease => run_lease_expiry_sweep(self.database, now, self.limit)
+                .await
+                .map_err(store_failure)?,
             _ => return Err(failure("queue_job_type_unsupported", false)),
         };
         let mut statements = Vec::with_capacity(report_batch_size(report) + 2);

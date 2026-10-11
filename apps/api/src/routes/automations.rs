@@ -2495,6 +2495,8 @@ pub async fn claim_occurrence(
     let retry = automation
         .execution_retry()
         .map_err(|error| domain_failure(&context, error))?;
+    // Refused before the attempt counter or any lease exists (P03-CR-003).
+    require_pinned_binding_live(&context, &repository, &access, &automation).await?;
     // V01-025. The claim and the start must agree on what "dispatchable" means, and the claim is the
     // only place this can be enforced for free.
     //
@@ -2602,7 +2604,16 @@ pub async fn claim_occurrence(
             recorded_at: context.received_at.as_str(),
         })
         .map_err(|error| database_error(&context, error))?;
-    let mut writes = vec![claim, cas, lease, record];
+    // Leads the batch so an unbind that commits after the read above aborts the
+    // lease, attempt and CAS writes instead of leaving a lease on a removed binding.
+    let binding_guard = repository
+        .assert_pinned_binding_live_statement(
+            &access.device.org_id,
+            &access.device.device_id,
+            automation.target_workspace_binding_id.as_deref(),
+        )
+        .map_err(|error| database_error(&context, error))?;
+    let mut writes = vec![binding_guard, claim, cas, lease, record];
     if crate::repositories::claim_performs_dispatch(current_state) {
         // The claim also performed the `pending -> dispatching` edge, so the
         // frozen `dispatched` event is emitted in the same batch.
@@ -2638,7 +2649,9 @@ pub async fn claim_occurrence(
         Err(error) if crate::repositories::is_guard_violation(&error) => {
             // A losing concurrent claim re-reads the winner's projection. The
             // stable reason is `occurrence_already_claimed` and the raw lease
-            // token for this attempt is discarded, never returned.
+            // token for this attempt is discarded, never returned. A guard tripped by an
+            // unbind is reported as that, not as a competing claim.
+            require_pinned_binding_live(&context, &repository, &access, &automation).await?;
             return Err(claim_conflict(&context, database, &access, &occurrence).await);
         }
         Err(_) => return Err(service_unavailable(&context)),
@@ -2660,6 +2673,38 @@ pub async fn claim_occurrence(
         })),
     )
         .into_response())
+}
+
+/// P03-CR-003 / ADR 0012: an unbound workspace binding keeps its row, so a pinned
+/// automation target is authority only while the binding is live on THIS device.
+/// Checked at claim and start; the same predicate guards the write batch.
+async fn require_pinned_binding_live(
+    context: &RequestContext,
+    repository: &AutomationsRepository<'_>,
+    access: &DeviceAccess,
+    automation: &AutomationDefinitionRecord,
+) -> Result<(), ApiError> {
+    let live = repository
+        .pinned_binding_live(
+            &access.device.org_id,
+            &access.device.device_id,
+            automation.target_workspace_binding_id.as_deref(),
+        )
+        .await
+        .map_err(|_| service_unavailable(context))?;
+    if live {
+        Ok(())
+    } else {
+        Err(pinned_binding_removed(context))
+    }
+}
+
+fn pinned_binding_removed(context: &RequestContext) -> ApiError {
+    conflict(
+        context,
+        "workspace_binding_conflict",
+        "The automation's pinned workspace binding is no longer active on this device.",
+    )
 }
 
 async fn claim_conflict(
@@ -2908,6 +2953,8 @@ pub async fn start_occurrence(
         .await
         .map_err(|_| service_unavailable(&context))?
         .ok_or_else(|| not_found(&context, "automation_not_found"))?;
+    // No P05 run may be created for a binding that was unbound after the claim.
+    require_pinned_binding_live(&context, &repository, &access, &automation).await?;
     let project_id = automation
         .project_id
         .clone()
@@ -3000,6 +3047,13 @@ pub async fn start_occurrence(
             eligibility.license_state.as_deref().unwrap_or("active"),
         )
         .map_err(|error| database_error(&context, error))?;
+    let binding_guard = repository
+        .assert_pinned_binding_live_statement(
+            &access.device.org_id,
+            &access.device.device_id,
+            automation.target_workspace_binding_id.as_deref(),
+        )
+        .map_err(|error| database_error(&context, error))?;
     let session = repository
         .insert_automation_session_statement(&run_input)
         .map_err(|error| database_error(&context, error))?;
@@ -3085,6 +3139,7 @@ pub async fn start_occurrence(
             occurrence_guard,
             link_absent,
             eligibility_guard,
+            binding_guard,
             session,
             run,
             link,
@@ -3098,6 +3153,7 @@ pub async fn start_occurrence(
         Ok(_) => {}
         Err(error) if crate::repositories::is_guard_violation(&error) => {
             // A concurrent start already created the link; return its projection.
+            // Without one, an unbind that raced this batch is reported as such.
             return match repository
                 .find_run_link(&occurrence.occurrence_id, lease.attempt)
                 .await
@@ -3122,6 +3178,8 @@ pub async fn start_occurrence(
                         .into_response())
                 }
                 None => {
+                    require_pinned_binding_live(&context, &repository, &access, &automation)
+                        .await?;
                     // V01-010's shape, and the reason this arm can be trusted at all: a batch failure
                     // that is NOT a guard violation is mapped to `lease_fence_invalid` here, and the
                     // error's own text was discarded. `worker::Error` carries SQLite's message and the

@@ -361,6 +361,9 @@ LIMIT ?6
 /// The predecessor the overlap decision reads: the newest occurrence of the
 /// same automation that is still able to overlap a new slot. `ambiguous` is
 /// included because an ambiguous predecessor is never safe to overlap.
+/// A predecessor is an OLDER open occurrence of the same automation. Without the age bound two pending
+/// occurrences each saw the other as predecessor, so `skip` skipped both and `queue_one` deferred both
+/// and nothing ever dispatched; the oldest open occurrence has no predecessor and goes first.
 const PREDECESSOR_SQL: &str = r#"
 SELECT o.occurrence_id, o.automation_id, o.org_id, o.project_id, o.schedule_rule_id, o.kind,
        o.scheduled_for_utc, o.trigger_key_digest, o.execution_principal_kind,
@@ -372,7 +375,12 @@ FROM automation_occurrences o
 JOIN automation_schedule_rules r ON r.schedule_rule_id = o.schedule_rule_id
 WHERE o.automation_id = ?1
   AND o.state IN ('pending', 'dispatching', 'leased', 'started', 'ambiguous')
-  AND (?2 = '' OR o.occurrence_id <> ?2)
+  AND (?2 = '' OR EXISTS (
+        SELECT 1 FROM automation_occurrences s
+        WHERE s.occurrence_id = ?2 AND s.automation_id = o.automation_id
+          AND (o.created_at < s.created_at
+               OR (o.created_at = s.created_at AND o.occurrence_id < s.occurrence_id))
+      ))
 ORDER BY COALESCE(o.scheduled_for_utc, o.queued_at, o.created_at) DESC, o.occurrence_id DESC
 LIMIT 1
 "#;
@@ -419,14 +427,32 @@ WHERE o.org_id = ?2
   AND (d.target_workspace_binding_id IS NULL OR EXISTS (
         SELECT 1 FROM workspace_bindings b
         WHERE b.binding_id = d.target_workspace_binding_id
-          AND b.device_id = ?1 AND b.org_id = o.org_id
+          AND b.device_id = ?1 AND b.org_id = o.org_id AND b.removed_at IS NULL
       ))
   AND NOT EXISTS (
       SELECT 1 FROM automation_leases l
       WHERE l.occurrence_id = o.occurrence_id AND l.state = 'active'
   )
-ORDER BY o.scheduled_for_ ASC, o.occurrence_id ASC
+ORDER BY o.scheduled_for_utc ASC, o.occurrence_id ASC
 LIMIT ?4
+"#;
+
+/// Batch guard form of [`PINNED_BINDING_LIVE_SQL`]; a `NULL` pin holds vacuously.
+const ASSERT_PINNED_BINDING_LIVE_SQL: &str = guard!(
+    "SELECT 1 WHERE ?1 IS NULL OR EXISTS (
+       SELECT 1 FROM workspace_bindings b
+       WHERE b.binding_id = ?1 AND b.org_id = ?2 AND b.device_id = ?3
+         AND b.removed_at IS NULL
+     )"
+);
+
+/// A pinned workspace binding is live only for the device and organization that
+/// own it and only while it has not been unbound (ADR 0012). A removed binding
+/// keeps its row for run attribution, so presence alone is never authority.
+const PINNED_BINDING_LIVE_SQL: &str = r#"
+SELECT 1 FROM workspace_bindings
+WHERE binding_id = ?1 AND org_id = ?2 AND device_id = ?3 AND removed_at IS NULL
+LIMIT 1
 "#;
 
 /// `attempt` is COALESCE'd rather than assigned.
@@ -2117,6 +2143,32 @@ WHERE automation_id = ?1 AND org_id = ?2
             .is_some())
     }
 
+    /// Whether the automation's pinned workspace binding is still live on the
+    /// authenticated device. `None` (no pin) is always live.
+    pub async fn pinned_binding_live(
+        &self,
+        org_id: &str,
+        device_id: &str,
+        binding_id: Option<&str>,
+    ) -> worker::Result<bool> {
+        let Some(binding_id) = binding_id else {
+            return Ok(true);
+        };
+        Ok(self
+            .database
+            .prepare(
+                PINNED_BINDING_LIVE_SQL,
+                &[
+                    BindValue::Text(binding_id),
+                    BindValue::Text(org_id),
+                    BindValue::Text(device_id),
+                ],
+            )?
+            .first::<Value>(None)
+            .await?
+            .is_some())
+    }
+
     /// The effective integer entitlement. `None` means "no current value", and
     /// the caller must fail closed for a protected capability rather than assume
     /// a default.
@@ -2347,6 +2399,26 @@ WHERE automation_id = ?1 AND org_id = ?2
         )
     }
 
+    /// Refuse a claim or start whose pinned workspace binding was unbound after
+    /// the route read it. Composed into the same batch as the lease/run writes so
+    /// a removal that commits in between aborts them (ADR 0012). A `NULL` pin has
+    /// nothing to guard and always holds.
+    pub fn assert_pinned_binding_live_statement(
+        &self,
+        org_id: &str,
+        device_id: &str,
+        binding_id: Option<&str>,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            ASSERT_PINNED_BINDING_LIVE_SQL,
+            &[
+                binding_id.map_or(BindValue::Null, BindValue::Text),
+                BindValue::Text(org_id),
+                BindValue::Text(device_id),
+            ],
+        )
+    }
+
     /// `queue_one` permits at most ONE open successor.
     pub fn assert_single_queued_successor_statement(
         &self,
@@ -2423,6 +2495,12 @@ struct AutomationSessionRow {
 /// invents a state the domain did not decide, and the claim response can tell a
 /// device whether this claim was also the dispatch.
 pub fn claim_target_state(current: OccurrenceState) -> Result<OccurrenceState, DomainError> {
+    // A retry that observes a live lease is the losing side of the same claim
+    // race as a conditional-write conflict. Keep its stable error identical;
+    // callers must not infer whether the winner reached the storage guard.
+    if matches!(current, OccurrenceState::Leased | OccurrenceState::Started) {
+        return Err(DomainError::OccurrenceAlreadyClaimed);
+    }
     let dispatched = match current {
         OccurrenceState::Pending => transition(
             current,
@@ -2532,9 +2610,19 @@ mod tests {
     }
 
     #[test]
-    fn a_started_or_ambiguous_occurrence_can_never_be_claimed_again() {
+    fn an_active_claim_has_the_frozen_loser_reason() {
+        for state in [OccurrenceState::Leased, OccurrenceState::Started] {
+            assert_eq!(
+                claim_target_state(state),
+                Err(DomainError::OccurrenceAlreadyClaimed),
+                "{state:?} did not use the frozen losing-claim reason"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ambiguous_or_terminal_occurrence_cannot_be_claimed() {
         for state in [
-            OccurrenceState::Started,
             OccurrenceState::Ambiguous,
             OccurrenceState::Succeeded,
             OccurrenceState::Cancelled,
@@ -2689,6 +2777,46 @@ mod tests {
         assert!(lease.matches_token("sha256:super-secret-fingerprint"));
         assert!(!lease.matches_token("sha256:other"));
         assert!(!lease.matches_token("sha256:"));
+    }
+
+    /// P03-CR-003: a removed binding keeps its row for run attribution, so the due-work
+    /// predicate must not treat a pinned target that was unbound as eligible.
+    #[test]
+    fn due_work_pinned_to_a_removed_binding_is_never_offered() {
+        let pinned = DEVICE_DUE_OCCURRENCES_SQL
+            .split("d.target_workspace_binding_id IS NULL OR EXISTS")
+            .nth(1)
+            .and_then(|rest| rest.split("AND NOT EXISTS").next())
+            .expect("the pinned-binding predicate is present");
+        assert!(
+            pinned.contains("b.binding_id = d.target_workspace_binding_id")
+                && pinned.contains("b.removed_at IS NULL"),
+            "the pinned binding must be live"
+        );
+    }
+
+    /// The due-work query shipped with `ORDER BY o.scheduled_for_`, a column that does not exist,
+    /// so SQLite refused it at prepare and every due poll failed (phase-02 hostile S5T6).
+    #[test]
+    fn due_work_orders_by_a_real_occurrence_column() {
+        assert!(DEVICE_DUE_OCCURRENCES_SQL.contains("ORDER BY o.scheduled_for_utc ASC"));
+        assert!(!DEVICE_DUE_OCCURRENCES_SQL.contains("scheduled_for_ "));
+    }
+
+    /// P03-CR-003: claim and start must refuse a removed pin for the authenticated device, and the
+    /// batch guard must abort (no row) rather than pass when the binding is gone.
+    #[test]
+    fn pinned_binding_guards_require_a_live_binding_on_the_calling_device() {
+        for sql in [PINNED_BINDING_LIVE_SQL, ASSERT_PINNED_BINDING_LIVE_SQL] {
+            assert!(sql.contains("removed_at IS NULL"), "{sql}");
+            assert!(sql.contains("org_id = ?2"), "{sql}");
+            assert!(sql.contains("device_id = ?3"), "{sql}");
+        }
+        assert!(
+            ASSERT_PINNED_BINDING_LIVE_SQL
+                .contains("WHERE NOT EXISTS (SELECT 1 WHERE ?1 IS NULL OR EXISTS")
+        );
+        assert!(ASSERT_PINNED_BINDING_LIVE_SQL.contains("INSERT INTO idempotency_records"));
     }
 }
 

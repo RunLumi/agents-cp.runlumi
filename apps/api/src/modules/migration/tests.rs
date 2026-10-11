@@ -536,7 +536,7 @@ fn the_full_staged_adoption_path_is_walkable_end_to_end() {
 }
 
 #[test]
-fn a_rollback_is_reachable_from_every_stage_and_never_from_stage_zero() {
+fn a_rollback_is_reachable_from_every_stage_but_refuses_fully_unbound_local_state() {
     for stage in [
         AdoptionStage::AccountOptional,
         AdoptionStage::DeviceEnrolled,
@@ -558,6 +558,14 @@ fn a_rollback_is_reachable_from_every_stage_and_never_from_stage_zero() {
         rollback(&AdoptionState::local()),
         Err(AdoptionError::AlreadyLocal)
     );
+    let mut bound_local = AdoptionState::local();
+    bound_local.bound_project_id = Some("project-reference".to_owned());
+    bound_local.bound_device_id = Some("device-reference".to_owned());
+    let change = rollback(&bound_local).expect("reviewed stage-zero metadata can be unbound");
+    assert_eq!(change.from, AdoptionStage::LocalUnmanaged);
+    assert_eq!(change.to, AdoptionStage::LocalUnmanaged);
+    assert_eq!(change.ownership, Ownership::LocalUnmanaged);
+    assert!(change.rolled_back);
 }
 
 #[test]

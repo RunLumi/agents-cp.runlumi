@@ -289,7 +289,9 @@ async fn consume_p06_jobs(batch: &MessageBatch<serde_json::Value>, env: &Env) ->
                             message.retry();
                             None
                         }
-                        Ok(_) => {
+                        Ok(other) => {
+                            // Outcome name only: no job id, tenant or subject in the line.
+                            console_error!("p06_job_outcome:{other:?}");
                             message.ack();
                             None
                         }
@@ -529,10 +531,23 @@ async fn dispatch_due_data_jobs(database: &D1Adapter, env: &Env, now: &str) -> R
         return Ok(());
     }
     for row in rows {
+        if row.job_type == "automation.dispatch" {
+            // The producer half of the frozen automation dispatch job. The subject-scoped
+            // consumer claims the durable row on arrival, so a republish while the row is still
+            // due is absorbed rather than double-run.
+            match automation_dispatch_body(&row, now) {
+                Some(body) => {
+                    if let Err(error) = queue.send(body).await {
+                        console_error!("p06_job_dispatch_failed:{}", error.to_string().as_str());
+                    }
+                }
+                None => console_error!("p06_job_dispatch_skipped:queue_job_envelope_invalid"),
+            }
+            continue;
+        }
         if !is_data_job_type(row.job_type.as_str()) {
-            // Only the data jobs have a producer. The automation and webhook job
-            // types are dispatched by their own subsystems; routing them through
-            // here would double-deliver.
+            // The webhook job types are dispatched by their own subsystems; routing them
+            // through here would double-deliver.
             continue;
         }
         let message = match row.to_message() {
@@ -556,6 +571,83 @@ async fn dispatch_due_data_jobs(database: &D1Adapter, env: &Env, now: &str) -> R
     Ok(())
 }
 
+/// The frozen `QueueJobEnvelope` for one due `automation.dispatch` row.
+///
+/// Returned as the typed struct, NOT as a `serde_json::Value`: `Queue::send` serializes a
+/// `Value::Object` to a JS `Map`, which the queue delivers to the consumer as `{}` (measured: the
+/// consumer saw an empty body and acknowledged it), while a struct serializes to a plain object. The
+/// payload is omitted for the same reason; tenant scope and the subject come from the persisted row,
+/// which the consumer re-reads and treats as the only authority.
+fn automation_dispatch_body(
+    row: &repositories::QueueEnvelopeDispatchRow,
+    now: &str,
+) -> Option<consumers::QueueJobEnvelope> {
+    serde_json::from_value(serde_json::json!({
+        "job_id": row.job_id,
+        "job_type": row.job_type,
+        "schema_version": row.schema_version,
+        "dedupe_key": row.dedupe_key,
+        "event_id": row.event_id,
+        "occurred_at": now,
+        "attempt": row.attempt,
+        "correlation_id": row.correlation_id,
+        "tenant_scope": { "org_id": row.org_id },
+        "payload_ref": row.payload_ref,
+    }))
+    .ok()
+}
+
 fn outbox_retry_policy() -> modules::outbox::RetryPolicy {
     modules::outbox::RetryPolicy::new(6, 30, 900, 25).expect("static outbox retry policy is valid")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dispatch_row() -> repositories::QueueEnvelopeDispatchRow {
+        repositories::QueueEnvelopeDispatchRow {
+            job_id: "job_0123456789abcdef0123456789abcdef".to_owned(),
+            job_type: "automation.dispatch".to_owned(),
+            schema_version: 1,
+            org_id: Some("org_0123456789abcdef0123456789abcdef".to_owned()),
+            subject_type: "automation_occurrence".to_owned(),
+            subject_id: "occ_0123456789abcdef0123456789abcdef".to_owned(),
+            dedupe_key: "automation.dispatch:occ_0123456789abcdef0123456789abcdef:0".to_owned(),
+            event_id: None,
+            request_id: Some("req_0123456789abcdef0123456789abcdef".to_owned()),
+            correlation_id: None,
+            payload_ref: Some(
+                "d1:automation_occurrences/occ_0123456789abcdef0123456789abcdef".to_owned(),
+            ),
+            state: "queued".to_owned(),
+            attempt: 1,
+            next_attempt_at: Some("2026-10-09T00:00:00.000Z".to_owned()),
+        }
+    }
+
+    #[test]
+    fn the_dispatch_message_carries_the_row_tenant_and_decodes_as_the_frozen_envelope() {
+        let body = automation_dispatch_body(&dispatch_row(), "2026-10-09T00:00:01.000Z")
+            .expect("a well-formed row builds an envelope");
+        assert_eq!(body.job_type, "automation.dispatch");
+        assert_eq!(
+            body.tenant_org_id(),
+            Some("org_0123456789abcdef0123456789abcdef")
+        );
+        // The wire form is an object with only frozen fields (unknown fields are rejected).
+        let wire = serde_json::to_value(&body).unwrap();
+        assert!(serde_json::from_value::<consumers::QueueJobEnvelope>(wire).is_ok());
+    }
+
+    #[test]
+    fn a_row_that_cannot_form_an_envelope_is_skipped_not_published() {
+        assert!(automation_dispatch_body(&dispatch_row(), "not a timestamp").is_none());
+    }
+
+    #[test]
+    fn only_the_dispatch_job_type_is_published_by_the_automation_branch() {
+        assert!(is_automation_job_type("automation.dispatch"));
+        assert!(!is_data_job_type("automation.dispatch"));
+    }
 }

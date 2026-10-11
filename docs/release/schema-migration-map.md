@@ -3,11 +3,13 @@
 Generated from `apps/api/migrations/`. `security::release_docs` asserts this file
 names every migration in apply order, so it cannot fall behind the schema.
 
-**25 migrations · 109 tables · 197 indexes · 73 triggers** (final state).
+**26 migrations · 109 tables · 197 indexes · 73 triggers** (final state).
 
-Final state means the `sqlite_master` table, index and trigger counts after applying all 25
-migrations in order to an empty in-memory SQLite database (measured independently on
-2026-10-09; the log is `recovery-candidate-schema-independent.log`). The per-migration columns
+Final state means the `sqlite_master` table, index and trigger counts after applying all
+migrations in order to an empty in-memory SQLite database. The 25-migration counts were measured
+independently on 2026-10-09 (the log is `recovery-candidate-schema-independent.log`). `0026` adds
+one nullable column and drops and recreates one existing index under the same name, so it adds no
+table, index or trigger. Coordinator measured the full 26-migration ledger on 2026-10-09 using an in-memory SQLite database: 109 tables, 197 indexes and 73 triggers. The log is `phase02-server-schema-measured.log`; this is structural SQLite proof, not Worker/D1 runtime certification. The per-migration columns
 in [The table](#the-table) are different: they count the `CREATE` statements each migration
 authors, so a rebuilt or recreated object is not a net addition. They are not re-measured
 here, and summing them (leaving out the rebuilt and recreated figures in `0021` and `0022`)
@@ -178,6 +180,7 @@ explicitly so the gap cannot reopen unnoticed.
 | `0023_p05_capability_catalogue_seed.sql` | 0 | 0 | 0 | **P05 / V04-010 repair.** No new tables — seeds two platform-wide `capability_definitions` rows (`browser`, `computer`; org_id NULL) so the tool-policy evaluator's capability check can pass and the FR-F13-005/006 controls are reachable. `INSERT OR IGNORE`, deterministic ids. |
 | `0024_p03_device_policy_version.sql` | 0 | 0 | 0 | **P03 / V04-008 repair.** No new tables — `ALTER TABLE org_device_policy_settings ADD COLUMN version` for the optimistic concurrency of the new `PUT /api/v1/orgs/{org_id}/device-policy` lever. SQLite supports `ADD COLUMN` with a constant DEFAULT; the table was previously unwritten. |
 | `0025_p03_device_token_recovery_challenges.sql` | 1 | 2 | 0 | **P03-CR-002.** Additive one-time, human-authorized device-token recovery challenges; stores challenge hashes only. One-pending-per-device partial unique index. |
+| `0026_p03_workspace_binding_removal.sql` | 0 | 0 (1 recreated) | 0 | **P03-CR-003 / ADR 0012.** Unbind tombstones retain run and automation FKs. Adds nullable `workspace_bindings.removed_at`; recreates `ux_workspace_bindings_device_identity` as a partial unique index over live rows. Active queries exclude removal; rollback requires a removal-aware backend. |
 
 ## `0022` — `security_events.actor_type` gains `staff`
 

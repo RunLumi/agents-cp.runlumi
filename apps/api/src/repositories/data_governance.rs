@@ -460,12 +460,17 @@ ON CONFLICT DO NOTHING
 /// sent?", because nothing sent it. The P06 job queue has a consumer and a handler
 /// and no producer, so an export or deletion job was written, never dispatched, and
 /// never ran in any environment. See VFY-009.
+/// Only the job types this sweep publishes. Rows of a type with no producer here (`webhook.deliver`,
+/// `notification.deliver`, ...) stay `queued` until their own subsystem takes them; read unfiltered
+/// under `LIMIT`, enough of them ahead of a dispatch row starved it (a planted dispatch job stayed
+/// `queued` through 14 sweeps in the S6 probe).
 const QUEUE_ENVELOPES_DUE_SQL: &str = r#"
 SELECT job_id, job_type, schema_version, org_id, subject_type, subject_id,
        dedupe_key, event_id, request_id, correlation_id, payload_ref,
        state, attempt, next_attempt_at
 FROM queue_job_envelopes
 WHERE state IN ('queued', 'retry_wait')
+  AND job_type IN ('export.run', 'deletion.run', 'automation.dispatch')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
 ORDER BY created_at ASC
 LIMIT ?2

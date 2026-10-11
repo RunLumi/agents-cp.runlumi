@@ -127,7 +127,8 @@ export class SmokeHarness {
     if (value === undefined) return "(no body)";
     if (value === null) return "null";
     const text = typeof value === "string" ? value : JSON.stringify(value);
-    return text === undefined ? String(value) : text.slice(0, max);
+    // Redacted BEFORE it is cut: a registered credential split by the slice would no longer match.
+    return text === undefined ? this.redact(String(value)) : this.redact(text).slice(0, max);
   }
 
   redact(value) {
@@ -163,7 +164,7 @@ export class SmokeHarness {
 
   pass(name, detail = "") {
     this.passes.push(name);
-    console.log(`  PASS  ${name}${detail ? `  — ${detail}` : ""}`);
+    console.log(`  PASS  ${name}${detail ? `  — ${this.redact(detail)}` : ""}`);
   }
 
   fail(name, detail = "") {
@@ -174,7 +175,7 @@ export class SmokeHarness {
   /** Record a limitation rather than a pass or a failure. */
   skip(name, reason) {
     this.skipped.push({ name, reason });
-    console.log(`  SKIP  ${name}  — ${reason}`);
+    console.log(`  SKIP  ${name}  — ${this.redact(reason)}`);
   }
 
   expect(name, condition, detail = "") {
@@ -299,6 +300,9 @@ export class SmokeHarness {
         payload = undefined;
       }
     }
+    // Every credential the server mints is registered BEFORE the response reaches a caller, so no
+    // `brief(...)`, assertion detail or failure message can print it, whichever probe or route asked.
+    this.registerMintedCredentials(payload);
     return {
       method,
       path: routePath,
@@ -307,6 +311,18 @@ export class SmokeHarness {
       text,
       headers: response.headers,
     };
+  }
+
+  /** Register credential-shaped string fields (`*_token`, `token`, `*secret`) up to two levels deep. */
+  registerMintedCredentials(value, depth = 0) {
+    if (!value || typeof value !== "object" || depth > 2) return;
+    for (const [key, entry] of Object.entries(value)) {
+      if (typeof entry === "string") {
+        if (/(^|_)(token|secret)$/i.test(key) && entry.length >= 16) this.registerSecret(entry);
+      } else {
+        this.registerMintedCredentials(entry, depth + 1);
+      }
+    }
   }
 
   browserHeaders(jar, extra = {}) {

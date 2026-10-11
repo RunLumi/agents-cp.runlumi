@@ -447,8 +447,9 @@ check("is_guard_abort actually reads the list this probe verifies", () => {
 // assumed: this campaign has now shipped four comparisons that held on empty or identical inputs,
 // and a polarity test that passes because the predicate is constant would be the fifth.
 //
-// The nine conditions are read out of the repository source rather than restated here, so this
-// matrix cannot drift from the code it grades: a tenth `guard!` fails the count.
+// The ten conditions are read out of the repository source rather than restated here, so this
+// matrix cannot drift from the code it grades: an eleventh `guard!` fails the count. The tenth is
+// ASSERT_PINNED_BINDING_LIVE_SQL (ADR 0012), pinned by its own case below.
 // Resolved the way the rest of this probe resolves its sources -- from the script's own directory,
 // not the working directory. `pnpm --filter` runs with `apps/api` as the cwd, and a hard-coded
 // repo-relative path fails there while passing when the file is run by hand from the root. Two of
@@ -472,7 +473,8 @@ function guardConditions() {
 function guardOwners() {
   const source = readFileSync(AUTOMATIONS_REPO, "utf8");
   const out = [];
-  const re = /pub fn (assert_[a-z_]+)_statement[\s\S]*?guard!\(/g;
+  const re =
+    /pub fn (assert_[a-z_]+)_statement[\s\S]*?(?:guard!\(|prepare\(\s*ASSERT_[A-Z_]+_SQL)/g;
   let match;
   while ((match = re.exec(source)) !== null) {
     out.push(match[1]);
@@ -483,16 +485,16 @@ function guardOwners() {
 check("V01-023: the polarity matrix covers every guard! in the automations repository", () => {
   const conditions = guardConditions();
   const owners = guardOwners();
-  if (conditions.length !== 9) {
+  if (conditions.length !== 10) {
     return (
-      `found ${conditions.length} guard! sites and expected 9. Either a guard was added -- in ` +
+      `found ${conditions.length} guard! sites and expected 10. Either a guard was added -- in ` +
       `which case its polarity is unpinned and this matrix is a false pass -- or one was removed, ` +
       `in which case this count is stale. Read ${AUTOMATIONS_REPO} and decide deliberately.`
     );
   }
-  if (owners.length !== 9) {
+  if (owners.length !== 10) {
     return (
-      `attributed ${owners.length} of the 9 guard! sites to a named function, so a failure ` +
+      `attributed ${owners.length} of the 10 guard! sites to a named function, so a failure ` +
       `below could not be traced to a symbol`
     );
   }
@@ -582,6 +584,108 @@ check(
           `the guard aborted, but with an unrecognised text, so the route would answer 503 ` +
           `instead of a deliberate refusal: ${aborted}`
         );
+      }
+      return null;
+    } finally {
+      cleanup();
+    }
+  },
+);
+
+check(
+  "ADR 0012: ASSERT_PINNED_BINDING_LIVE_SQL permits a live pinned binding or no pin and aborts a removed, foreign or missing one",
+  () => {
+    const source = readFileSync(AUTOMATIONS_REPO, "utf8");
+    const start = source.indexOf("const ASSERT_PINNED_BINDING_LIVE_SQL");
+    const condition = /guard!\(\s*"([\s\S]*?)"\s*,?\s*\)/
+      .exec(source.slice(start))?.[1]
+      ?.replace(/\s+/g, " ")
+      .trim();
+    if (start < 0 || !condition) {
+      return "ASSERT_PINNED_BINDING_LIVE_SQL is gone or unreadable; if it was renamed, this matrix must follow";
+    }
+    const { db, cleanup } = freshDatabase();
+    try {
+      db.exec("PRAGMA foreign_keys = OFF");
+      const stamp = "2026-01-01T00:00:00.000Z";
+      const bind = (id, org, device, removedAt) =>
+        db.exec(
+          `INSERT INTO workspace_bindings (binding_id, org_id, project_id, device_id, workspace_identity, display_name, environment_type, created_at, updated_at, removed_at)
+           VALUES ('${id}', '${org}', 'prj_x', '${device}', 'ws-${id}', 'n', 'local', '${stamp}', '${stamp}', ${removedAt ? `'${removedAt}'` : "NULL"})`,
+        );
+      bind("wsb_live", "org_a", "dvc_a", null);
+      bind("wsb_gone", "org_a", "dvc_a", "2026-01-02T00:00:00.000Z");
+      const guardFor = (pin, org, device) => {
+        const lit = (v) => (v === null ? "NULL" : `'${v}'`);
+        return `INSERT INTO idempotency_records (
+          principal_id, organization_id, method, path, key_digest, request_fingerprint,
+          state, response_status, response_body, expires_at, claim_token
+        ) ${SENTINEL_ROW} WHERE NOT EXISTS (${condition.replaceAll("?1", lit(pin)).replaceAll("?2", lit(org)).replaceAll("?3", lit(device))})`;
+      };
+      const permit = [
+        ["no pin (vacuous by design)", null, "org_a", "dvc_a"],
+        ["live binding on its own device and org", "wsb_live", "org_a", "dvc_a"],
+      ];
+      const abort = [
+        ["removed binding (tombstone keeps the row)", "wsb_gone", "org_a", "dvc_a"],
+        ["live binding presented by another device", "wsb_live", "org_a", "dvc_b"],
+        ["live binding presented by another org", "wsb_live", "org_b", "dvc_a"],
+        ["binding that does not exist", "wsb_nope", "org_a", "dvc_a"],
+      ];
+      for (const [name, ...args] of permit) {
+        const error = captureError(db, guardFor(...args));
+        if (error !== null)
+          return `the guard ABORTED for ${name}, so legitimate work would be refused: ${error}`;
+      }
+      for (const [name, ...args] of abort) {
+        const error = captureError(db, guardFor(...args));
+        if (error === null)
+          return `the guard did NOT abort for ${name}, so it would authorize on presence alone`;
+        if (!isRecognised(error, guardAbortTexts()))
+          return `the guard aborted for ${name} with an unrecognised text: ${error}`;
+      }
+      return null;
+    } finally {
+      cleanup();
+    }
+  },
+);
+
+check(
+  "P06-CR-009: the published-job read filters on the published types BEFORE its LIMIT, so unpublished rows cannot starve a dispatch row",
+  () => {
+    const source = readFileSync(join(apiDir, "src/repositories/data_governance.rs"), "utf8");
+    const sql = /const QUEUE_ENVELOPES_DUE_SQL: &str = r#"([\s\S]*?)"#;/.exec(source)?.[1];
+    if (!sql)
+      return "QUEUE_ENVELOPES_DUE_SQL is gone or unreadable; if it was renamed, this case must follow";
+    const { db, cleanup } = freshDatabase();
+    try {
+      db.exec("PRAGMA foreign_keys = OFF");
+      const stamp = "2026-01-01T00:00:00.000Z";
+      let n = 0;
+      const insert = (type, createdAt) => {
+        n += 1;
+        const id = `job_${String(n).padStart(32, "0")}`;
+        db.exec(
+          `INSERT INTO queue_job_envelopes (job_id, job_type, schema_version, org_id, subject_type, subject_id, subject_version, dedupe_key, event_id, request_id, correlation_id, payload_ref, state, attempt, lease_version, lease_expires_at, next_attempt_at, last_error_code, replay_of_job_id, generation, version, created_at, updated_at)
+           VALUES ('${id}', '${type}', 1, 'org_a', 'subject', 'sub_${n}', 1, 'dk_${n}', NULL, NULL, NULL, 'ref', 'queued', 1, 0, NULL, '${stamp}', NULL, NULL, 0, 1, '${createdAt}', '${createdAt}')`,
+        );
+        return id;
+      };
+      // 150 OLDER due rows of a type this sweep never publishes, then ONE dispatch row behind them.
+      for (let i = 0; i < 150; i += 1)
+        insert("webhook.deliver", `2025-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z`);
+      const dispatch = insert("automation.dispatch", "2025-06-01T00:00:00.000Z");
+      const rows = db.prepare(sql).all("2026-02-01T00:00:00.000Z", 100);
+      if (!rows.some((row) => row.job_id === dispatch)) {
+        return `the dispatch row behind 150 unpublished rows was NOT returned (got ${rows.length} rows of ${[...new Set(rows.map((r) => r.job_type))].join(",")}); the LIMIT starves it`;
+      }
+      if (
+        rows.some(
+          (row) => !["export.run", "deletion.run", "automation.dispatch"].includes(row.job_type),
+        )
+      ) {
+        return "the read returned a job type this sweep does not publish";
       }
       return null;
     } finally {
