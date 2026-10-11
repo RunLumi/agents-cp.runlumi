@@ -356,6 +356,7 @@ try {
         orgId: org.orgId,
         adoptionStateId: adoption.adoptionStateId,
         stage,
+        credentialMode: adoptionState.credentialMode,
         version: adoptionState.version,
         clientAppVersion: "3.14.3",
       },

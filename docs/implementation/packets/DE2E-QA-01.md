@@ -20,8 +20,8 @@ Pin the newly added dispatch-time organization, membership and license guard int
 
 - Count and attribute the tenth automation-repository `guard!` site.
 - Run a positive active-authorization control and negative suspended-org, suspended-membership, stale-license and expired-grace cases against the real migration schema.
-- Install both the contract and services workspace dependency closures used by the adoption-account-device integration fixtures.
-- Update the runtime-proof catalog with the newly measured claim.
+- Keep the clean adoption-account-device integration fixture wired to both contract and services package closures, including every required server-projected field.
+- Update the runtime-proof catalog with the newly measured claims.
 
 ## Explicitly out of scope
 
@@ -32,6 +32,8 @@ Pin the newly added dispatch-time organization, membership and license guard int
 
 ```text
 apps/api/scripts/p02-guard-probe.mjs
+scripts/integration/lumi-agents.mjs
+tests/integration/lumi-account.mjs
 docs/verification/runtime-proofs.md
 docs/implementation/packets/DE2E-QA-01.md
 ```
@@ -45,6 +47,7 @@ docs/implementation/packets/DE2E-QA-01.md
 
 - [x] Mutation of the new dispatch guard polarity is observed by a real SQLite control/attack pair.
 - [x] Test asserts positive control and separate org, membership, license-state and grace-expiry refusals.
+- [x] Adoption stage advancement passes the current server-projected credential mode; the client rejects an omitted mode before HTTP.
 - [ ] Clean exact-SHA adoption-account-device integration bundles the real client service transport without unresolved workspace aliases.
 - [x] Runtime proof documentation reflects the ten measured guard sites.
 
