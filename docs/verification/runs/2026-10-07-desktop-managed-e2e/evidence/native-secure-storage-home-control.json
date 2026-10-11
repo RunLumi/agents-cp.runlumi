@@ -1,0 +1,41 @@
+{
+  "scope": "minimal native availability only; no Agent/transcript/encryption/fallback",
+  "observations": [
+    {
+      "mode": "inherited_home",
+      "timed_out": false,
+      "exit": 0,
+      "signals": [
+        {
+          "stage": "loaded"
+        },
+        {
+          "stage": "before_availability"
+        },
+        {
+          "stage": "result",
+          "platform": "darwin",
+          "available": true
+        }
+      ]
+    },
+    {
+      "mode": "isolated_home",
+      "timed_out": false,
+      "exit": 0,
+      "signals": [
+        {
+          "stage": "loaded"
+        },
+        {
+          "stage": "before_availability"
+        },
+        {
+          "stage": "result",
+          "platform": "darwin",
+          "available": false
+        }
+      ]
+    }
+  ]
+}

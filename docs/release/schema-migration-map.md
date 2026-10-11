@@ -3,7 +3,12 @@
 Generated from `apps/api/migrations/`. `security::release_docs` asserts this file
 names every migration in apply order, so it cannot fall behind the schema.
 
-**22 migrations · 111 tables · 200 indexes · 73 triggers.**
+**28 migrations · 109 user tables · 197 explicit indexes · 76 triggers.**
+
+Counts are measured by applying the full ledger to SQLite and reading
+sqlite_master, excluding sqlite_% objects. Earlier headline counts used a
+different/unverified convention; migration names and executable schema remain
+authoritative.
 
 ## Why the trigger count is the headline
 
@@ -11,7 +16,7 @@ An invariant enforced only in application code is one code path away from being
 bypassed by a migration, a script, a console session, or a future packet. A trigger
 is the only thing that still holds when nobody remembers the Rust.
 
-That is what the 73 triggers are for, and why the schema harness
+That is what the 76 triggers are for, and why the schema harness
 (`apps/api/scripts/p07-schema-invariants.mjs`) asserts each one is **rejected by
 the database** rather than by a code path. The shape of those invariants:
 
@@ -200,3 +205,8 @@ columns. **The authority for a rebuild's shape is the live schema; the ledger on
 that silently dropped that guarantee would be a far worse finding than the one it repairs. Both
 `BEFORE UPDATE` and `BEFORE DELETE` still abort, and the standalone check for the reconstruction is in
 `security::actor_type_correspondence`, which reads the writer and the ledger and compares them.
+
+| 0025_p03_device_token_recovery_challenges.sql | additive one-time, human-authorized device-token recovery challenges; stores challenge hashes only |
+| 0026_p03_workspace_binding_removal.sql | unbind tombstones retain run/automation FKs; active queries exclude removal; rollback requires removal-aware backend (ADR 0012) |
+| 0027_p05_tool_execution_claim.sql | immutable once-only execution admission on ToolCallRef; pre-execution approval consume requires claim-aware backend (ADR 0013); 3 triggers |
+| 0028_desktop_runtime_capabilities.sql | four platform capability rows (filesystem/process/network/MCP) use runtime-derived stable IDs; missing/false device toggles remain unsupported; no tables/indexes/triggers added (P03-CR-004) |

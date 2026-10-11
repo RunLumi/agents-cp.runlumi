@@ -1,0 +1,136 @@
+{
+  "verdict": "FAIL",
+  "until": "adopt",
+  "stages": {
+    "onboard": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI: Lumi sign-in, device enrollment, opaque binding and managed-policy workspace"
+        }
+      ],
+      "notes": []
+    },
+    "adopt": {
+      "status": "FAIL",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI lists the seeded local originals, none with a hand-over badge"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "real server conflict is shown with no Confirm or stored effects before entitlement"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "preview then Cancel: local tasks-index hash, marker table and D1 definition/occurrence/lease/run/link/audit counts are identical"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "bounded-run automation previews as not adoptable with its reason, no Confirm action, and no local or server mutation"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "explicit Hand over with a chosen agent and model completes in the actual UI"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "D1 shows one active managed definition for the chosen project/agent/alias and the prompt body appears in no server table"
+        }
+      ],
+      "notes": [],
+      "error": "Error: UI timeout: menu closed\n    at Object.wait (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/lumi-desktop-app.mjs:28:11)\n    at async Object.dismissMenu (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-ui.mjs:213:5)\n    at async adoptStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-adopt.mjs:160:3)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:170:3"
+    },
+    "schedule": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "race": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "restart": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "faults": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    }
+  },
+  "unprovenStages": [
+    "adopt",
+    "schedule",
+    "race",
+    "restart",
+    "faults"
+  ],
+  "scope": "scoped diagnostic through adopt; not journey E certification",
+  "provenance": {
+    "bundles": [
+      {
+        "name": "main",
+        "files": 21,
+        "sha256": "bb20423d8fb603200b5fef7ff84097f1393b4bf3625993e3f7a9dec031fbb82a",
+        "newest": "2026-10-08T14:08:10.629Z"
+      },
+      {
+        "name": "host",
+        "files": 18,
+        "sha256": "bd54fa83b5a56a9ab76c883b26b1c5d75c4fbcbbea6b5ae4df60c1c327f7398a",
+        "newest": "2026-10-08T14:08:10.613Z"
+      },
+      {
+        "name": "scheduler",
+        "files": 3,
+        "sha256": "f8d7a4c4819a087f095b2875ab651d6c4c0b720fbb81117361f3fe87c789f566",
+        "newest": "2026-10-08T14:08:10.580Z"
+      },
+      {
+        "name": "renderer",
+        "files": 4118,
+        "sha256": "9471c0b475fbccbc448ef4682a3b04834b56d8c63f288c54a84d2d52848ee0f8",
+        "newest": "2026-10-08T14:08:17.464Z"
+      },
+      {
+        "name": "preload",
+        "files": 6,
+        "sha256": "3d8f5f33561ae142b501e322338708e57227885e878a3134ebc3f74cd5826a7e",
+        "newest": "2026-10-08T14:08:10.550Z"
+      }
+    ],
+    "newestSource": "2026-10-08T14:06:10.381Z",
+    "oldestBundle": "2026-10-08T14:08:10.550Z",
+    "buildStale": false,
+    "parentHead": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+    "clientHead": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+    "pairedGitlink": "fd977fd06c6d11c0202554d0ae693825a8217879",
+    "parentDirtyFiles": 73,
+    "clientDirtyFiles": 164,
+    "parentDirtyHash": "898363bc797a97c545811bfe2b36de0b3752462be7a894c3bc1895aa4071d41a",
+    "clientDirtyHash": "f0a1a6e062c2b325016667141f7a4c9e61574f664b1911bdcd1afc146020102b",
+    "node": "v24.19.0"
+  },
+  "fixtures": {
+    "orgId": "org_c67a338eebc7019bbfbdb5fe5080f290",
+    "projectId": "prj_fbb0773549084ce0a42be06304ab5308",
+    "deviceA": "dvc_3df2e90d4420458fb03ecc57a69fe092",
+    "managedAutomationId": "aut_8adbbd1ae24741b385766cbe20169b87",
+    "entitlements": {
+      "status": 422,
+      "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_1184f35bc5404bd99c4860e64a090b37\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
+    },
+    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-6RUwVi",
+    "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
+  }
+}

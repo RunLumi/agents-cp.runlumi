@@ -1,0 +1,34 @@
+{
+  "scope": "production private DeviceToken adapter with real Worker/D1 plus harness-owned file effects; not Electron Core tool runtime",
+  "verdict": "PASS",
+  "claims": [
+    "production client preserves pending approval without handler I/O",
+    "production client releases only one permit after backend claim",
+    "production client observes claim and grant consumed before side effect",
+    "production client admitted real file side effect",
+    "production client replay refuses after execution claim",
+    "production client call terminal result"
+  ],
+  "whole_p05_verdict": "PENDING",
+  "checks_passed": 218,
+  "limitations": [
+    "public CUA: this Worker exposes policy decisions and result metadata only; no public computer/browser execution endpoint or UI execution evidence is claimed",
+    "public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke",
+    "privileged browser decision and approval boundary: browser tool did not return an approval-required decision (decision=deny reason=none) {\"method\":\"POST\",\"path\":\"/api/v1/runs/run_098329cb5dfe4db48ee74798deb6871f/tool-decisions\",\"status\":200,\"request_id\":\"req_86569473486c459abd63f49ed54f854e\",\"error_code\":null,\"reason\":null,\"body\":{\"approval_expires_at\":null,\"approval_id\":null,\"approval_mode\":null,\"arguments_hash\":\"[redacted]\",\"decision\":\"deny\",\"policy_state\":\"ok\",\"policy_version\":3,\"reason\":\"capability_not_defined\",\"risk_class\":\"browser\",\"run_id\":\"run_098329cb5dfe4db48ee74798deb6871f\",\"tool_call_id\":\"tcl_bfb11576e50b764074de8023b5d9ffea\",\"tool_fingerprint\":\"p05-browser-2f0c8b9994d2\",\"tool_id\":\"tool_5788e748246002710dbea4b2e0bc0d91\"}}",
+    "generic privileged tool approval, result, and replay: privileged result is blocked before approval did not fail closed (reason=tool_execution_not_started) {\"method\":\"POST\",\"path\":\"/api/v1/devices/runs/run_098329cb5dfe4db48ee74798deb6871f/tool-calls/tcl_1a1898084eaa1b703dcf18530dc3b857/result\",\"status\":422,\"request_id\":\"req_1212d5bb3916434f9f4c8e0ff325c911\",\"error_code\":\"validation_failed\",\"reason\":\"tool_execution_not_started\",\"body\":{\"error\":{\"code\":\"validation_failed\",\"message\":\"The tool has no execution claim.\",\"request_id\":\"req_1212d5bb3916434f9f4c8e0ff325c911\",\"details\":{\"reason\":\"tool_execution_not_started\"}}}}",
+    "MCP approval and fingerprint-expansion denial: MCP tool result (expected 200) {\"method\":\"POST\",\"path\":\"/api/v1/devices/runs/run_098329cb5dfe4db48ee74798deb6871f/tool-calls/tcl_e163cd4373c13c1cf114b352cb45feb9/result\",\"status\":422,\"request_id\":\"req_64935622a48b4f999d7441ca5efb4e03\",\"error_code\":\"validation_failed\",\"reason\":\"tool_execution_not_started\",\"body\":{\"error\":{\"code\":\"validation_failed\",\"message\":\"The tool has no execution claim.\",\"request_id\":\"req_64935622a48b4f999d7441ca5efb4e03\",\"details\":{\"reason\":\"tool_execution_not_started\"}}}}",
+    "passive downstream disconnect: no request_cancelled D1 row was observed; no cancellation success is claimed"
+  ],
+  "parent_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "client_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "dirty_pair": true,
+  "source_sha256": {
+    "tests/integration/tool-admission.mjs": "ba1691f20c82cdab3efad75eabf32b7f92ef197b7d4835d058f8de4f3345f3b5",
+    "apps/api/scripts/p05-smoke.mjs": "e3569c347b74f3fc35b288a0645d91dc6514d64679157e121e678db5df42024c",
+    "integrations/lumi-agents/packages/services/src/lumi-account/managedToolTransport.ts": "c45e93bff2112137e7788ead6971b30fa9498c5ec2d40da1538a1e3c557063cb",
+    "integrations/lumi-agents/packages/services/src/lumi-account/deviceTransport.ts": "1fcd2133575c3d7e08e6422a0c910f4fdd57509b882fe64e6de51d0b19a55e18",
+    "integrations/lumi-agents/packages/services/src/lumi-account/managedToolTransport.test.ts": "f4b54438163cfc3df20a8e386d35e1bd67c154243eb7799a0cdb8ec3041c7277",
+    "integrations/lumi-agents/packages/services/src/lumi-account/managedToolAdmission.test.ts": "0a48860094969b73295a4ba1902b989d477a55478075129bb89a2bc33be8aac9",
+    "test-results/client-tool-admission/device.mjs": "86b9a6050bf1f058dd4a4421309d17eb5692a8f94dfd0511db29a577a8e6c9b0"
+  }
+}

@@ -149,11 +149,15 @@ pub fn validate_app_version(app_version: &str) -> Result<(), CoreError> {
 /// Bounded capability keys a device may report (F19-003). Values are typed:
 /// booleans for runtime toggles, short strings for versions, and an array of
 /// short strings for policy schema versions.
-const CAPABILITY_BOOL_KEYS: [&str; 4] = [
+const CAPABILITY_BOOL_KEYS: [&str; 8] = [
     "browser_use",
     "computer_use",
     "remote_environment",
     "automation_eligible",
+    "filesystem_write",
+    "process_execution",
+    "network_access",
+    "mcp_execution",
 ];
 
 const CAPABILITY_STRING_KEYS: [&str; 1] = ["runtime_version"];
@@ -297,6 +301,19 @@ mod tests {
         )
         .unwrap();
         assert!(ok.contains("browser_use"));
+        for key in [
+            "filesystem_write",
+            "process_execution",
+            "network_access",
+            "mcp_execution",
+        ] {
+            for supported in [true, false] {
+                let report = format!(r#"{{"{key}":{supported}}}"#);
+                assert!(validate_capability_report(&report).is_ok());
+            }
+            assert!(validate_capability_report(&format!(r#"{{"{key}":"yes"}}"#)).is_err());
+            assert!(validate_capability_report(&format!(r#"{{"{key}":1}}"#)).is_err());
+        }
         assert!(validate_capability_report(r#"{"process_list":["a","b"]}"#).is_err());
         assert!(validate_capability_report(r#"{"browser_use":"yes"}"#).is_err());
         assert!(

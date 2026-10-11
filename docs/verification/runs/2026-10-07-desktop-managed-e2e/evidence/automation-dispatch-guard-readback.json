@@ -1,0 +1,53 @@
+{
+  "scope": "actual D1 read-only guard clauses",
+  "observations": [
+    {
+      "occurrence": "occ_8d7f83a67ed33255d81620e825caeabc",
+      "state": "pending",
+      "org": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "license": "active",
+      "eligibility_guard_matches": 1,
+      "automation_status": "active"
+    },
+    {
+      "occurrence": "occ_8d7f83a67ed3325558a9551d1a99324f",
+      "state": "pending",
+      "org": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "license": "active",
+      "eligibility_guard_matches": 1,
+      "automation_status": "active"
+    },
+    {
+      "occurrence": "occ_ec36af91f6a3bf76dd92193234b221d4",
+      "state": "pending",
+      "org": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "license": "active",
+      "eligibility_guard_matches": 1,
+      "automation_status": "active"
+    },
+    {
+      "occurrence": "occ_ec36af91f6a3bf76749a6d67c79494a7",
+      "state": "pending",
+      "org": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "license": "active",
+      "eligibility_guard_matches": 1,
+      "automation_status": "active"
+    },
+    {
+      "occurrence": "occ_ec36af91f6a3bf76d2f4799ca91f4d7a",
+      "state": "pending",
+      "org": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "license": "active",
+      "eligibility_guard_matches": 1,
+      "automation_status": "active"
+    },
+    {
+      "occurrence": "occ_ec36af91f6a3bf7669620cc77436b1cd",
+      "state": "pending",
+      "org": "org_deea1e10c48d6e042b5bce3e51f191c5",
+      "license": "active",
+      "eligibility_guard_matches": 1,
+      "automation_status": "active"
+    }
+  ]
+}

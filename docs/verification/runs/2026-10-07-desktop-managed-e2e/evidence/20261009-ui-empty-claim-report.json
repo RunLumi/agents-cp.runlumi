@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "startedAt": "2026-10-09T12:43:08.068Z",
+    "source": {
+      "head": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+      "branch": "codex/e2e-phase02-lumi-workspace",
+      "files": {
+        "packages/ui/src/lumi/LumiEntryPanel.tsx": "acda705a99ece2f9e5d2b5d97422e7e5593ec6659b2d2f8ec85b5db528cc782c",
+        "packages/ui/src/lumi/useLumiAccountFlow.ts": "f1fe861accd1f30bc8b642debf0592bbfeb84d964b8d4f3070aa3969cfd8b131",
+        "packages/ui/src/lumi/lumiAccountFlow.ts": "2f1bf82ccbb76819103f537420101cd35acf790fbeffa6d9ef83c4d55793e359",
+        "packages/ui/src/lumi/lumiRestore.ts": "7396ac5d2bc9cb441bc6036f1888fa3244e9e16a72a0a4be3bae3ba9dd1aeada",
+        "packages/ui/src/lumi/lumiErrorCopy.ts": "2eb3066398027904fca7fe1e2cf43c6cd19f40d5c3111bf40e7b72c4a9a199d6",
+        "packages/ui/src/settings/LumiWorkspaceSection.tsx": "4ac159a88546b80b03b94d62bcc03b13f9ba5c11b4f3b81defb9eb12df6db548",
+        "packages/ui/src/settings/LumiWorkspaceCredentialChoice.tsx": "402e4956bdee2594363919181041aeea024079aacf8862216c94536bbfa968d8",
+        "packages/ui/src/styles.css": "74274719daf1e4c70077010279bf79e38a35b65c09696f75cb83aa2d27329a5e",
+        "packages/ui/src/i18n/locales/en-US.ts": "b19165795f49cc65d98e90d3a58426eb4e435914283238e0e8fb6a2812f1191b",
+        "packages/ui/src/i18n/locales/zh-CN.ts": "dc8640698b41a4f372a3aab5ec5af4779d8c7fc8db89549df078d5b464793693"
+      }
+    },
+    "browser": "154.0.8037.98 (/Applications/Google Chrome.app/Contents/MacOS/Google Chrome)",
+    "fixtureUrl": "http://127.0.0.1:60141",
+    "argv": [
+      "--only=nonexistent-proof-prefix"
+    ],
+    "node": {
+      "version": "v24.19.0",
+      "execPath": "/Volumes/SANDISK-Data/symlinks/james-home/dot-cache-offload-20261007-224250/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+    },
+    "mutation": null
+  },
+  "counts": {},
+  "results": [],
+  "screenshots": []
+}

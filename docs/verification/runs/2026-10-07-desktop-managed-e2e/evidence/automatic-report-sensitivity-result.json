@@ -1,0 +1,9 @@
+{
+  "scope": "actual Core handler reporter/ACK tests; not full Electron mutation",
+  "mutation": "omit automatic result report after handler",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "source_unchanged": true,
+  "source_sha256": "434417ad384d31e03ec23e56a2f7d9e367907dd02bb90590ca2b46fc5019deb6"
+}

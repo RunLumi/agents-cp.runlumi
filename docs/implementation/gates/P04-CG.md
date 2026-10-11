@@ -6,6 +6,7 @@
 - Contract version: `p04-cg-v1`
 - Inputs: Plan00, Plan04, F09, F10, F11, F12 foundations, F21, F23, ADR 0001–0005, P02-CG `p02-cg-v1`, P02 downstream handoff
 - Additive clarification: `docs/implementation/change-requests/P04-CR-002.md`
+- Mechanism clarification (redirect refusal via `manual`, same contract): `docs/implementation/change-requests/P04-CR-003.md`
 - Shared-file owner: P04 coordinator
 - Previous phase: P02 complete; P03 may extend project/device/policy contracts without changing the definitions below
 
@@ -165,6 +166,52 @@ The server creates `request_id`; callers cannot choose it as an authority or ide
 Every event carries the same `request_id`, alias, route version, and (after selection) provider/model IDs. The gateway emits metadata only in normal logs and never logs prompts, responses, tool arguments, or credential values.
 
 The OpenAI-compatible subset supports `model`, `messages` with string or text-part content, `stream`, `temperature`, `max_tokens`/`max_completion_tokens`, and `tools` as an opaque validated array. Unsupported fields are rejected rather than silently forwarded.
+
+## P05 managed-run correlation — P04-CR-001
+
+The OpenAI-compatible adapter may carry P05 run context in the optional
+`X-Project-ID`, `X-Device-ID`, `X-Agent-Session-ID`, `X-Run-ID`,
+`X-Agent-Definition-ID`, `X-Agent-Definition-Version`, and
+`X-Lumi-Execution-Mode: managed` headers. These are untrusted lookup hints, not
+authority. If any P05 context header is present, the complete required set,
+including `X-Org-ID`, must be present. Body/header duplicates must match.
+
+The caller is still authenticated as a P02 user by the Lumi session cookie or
+Bearer session accepted by `require_session`, and must hold `inference.use`.
+P04 resolves the supplied run against D1 and checks that the current principal,
+org, stable model alias, agent session, project, device, agent definition/version,
+P03 binding, active lifecycle and current policy all match. The server derives
+those fields back from stored rows before route selection. Any missing, malformed
+or mismatched field is refused before provider dispatch. `X-Correlation-ID`
+remains diagnostic only; P04 generates its own immutable `request_id`.
+Requests with no P05 context retain the existing P04 behavior.
+
+The P05 DeviceToken is never sent to P04 inference. A managed desktop call uses
+its current P02 user session for P04 authentication; P05 device/session/run
+authority is separately resolved from D1.
+
+## P05 managed-run correlation — P04-CR-001
+
+The OpenAI-compatible adapter may carry P05 run context in the optional
+`X-Project-ID`, `X-Device-ID`, `X-Agent-Session-ID`, `X-Run-ID`,
+`X-Agent-Definition-ID`, `X-Agent-Definition-Version`, and
+`X-Lumi-Execution-Mode: managed` headers. These are untrusted lookup hints, not
+authority. If any P05 context header is present, the complete required set and
+`X-Org-ID` must be present. Body/header duplicates must match.
+
+The caller remains authenticated as a P02 user by the Lumi session cookie or
+Bearer session accepted by `require_session`, and must hold `inference.use`.
+P04 resolves the supplied run against D1 and checks that the current principal,
+org, stable model alias, agent session, project, device, agent definition/version,
+P03 binding, active lifecycle and current policy all match. The server derives
+these fields back from stored rows before route selection. Missing, malformed,
+or mismatched fields are refused before provider dispatch.
+`X-Correlation-ID` remains diagnostic only; P04 generates its own immutable
+`request_id`. Requests with no P05 context retain current P04 behavior.
+
+The P05 DeviceToken is never sent to P04 inference. A managed desktop call uses
+its current P02 user session for P04 authentication; P05 device/session/run
+authority is separately resolved from D1.
 
 ## Provider adapter contract
 

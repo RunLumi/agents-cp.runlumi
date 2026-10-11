@@ -1,0 +1,21 @@
+{
+  "tests/lumi-ui-proof/run.mjs": "363b4015f85c81683f681fafeac691260571906a2f80fe6b124cf33d7ca3b23e",
+  "tests/lumi-ui-proof/index.html": "7b8a3d590e3a5ad6ccdd873432bfcf361e012b9e4fe7aaf2f123afd90c925c03",
+  "tests/lumi-ui-proof/harness.mjs": "863793e6e034d427a106d1933b1ca14aeef2720d42895418a6c5c271f8b15ad0",
+  "tests/lumi-ui-proof/sensitivity.mjs": "e29de4b20854921b87d3ce67edfd2baca2c683ceb2b79a7abf8bf4b1dc29787f",
+  "tests/lumi-ui-proof/tsconfig.json": "ea2a34f152794030c28a8d08c76c08e3ad4aaba4d6d43f164512b17947efec22",
+  "tests/lumi-ui-proof/vite.config.ts": "3090a863cf334881625450fbc248a5402b48e9158ecf22c749c0df8161d9afe9",
+  "tests/lumi-ui-proof/patches.mjs": "05d4d451682f2bcc3aa833ef47144f4dcfa80e403f9f58c3462555698514064b",
+  "tests/lumi-ui-proof/lib/data.mjs": "4655c7c0bf474f56258b49e2ac7c7e36ee546fccd711f22478d54598a5336be0",
+  "tests/lumi-ui-proof/lib/workspaceBehaviors.mjs": "ae3f38a44ee8f0c4d6f868fda0835ff3ac3559928221b8d693694059366d16f7",
+  "tests/lumi-ui-proof/lib/ui.mjs": "279c600e5f431016cac02f785f39a8d6b1fea14b5be68c9d71bc0464d83e43d6",
+  "tests/lumi-ui-proof/lib/workspaceHelpers.mjs": "1f6c5e6d145d163bdbbebbf1ff2d8350dfbb682edc5d277d0f77107e2c1776e9",
+  "tests/lumi-ui-proof/lib/report.mjs": "d27a80499a86feaf5620f3e0b280b8c0dc8df8164696dd8a998faed63d866aa7",
+  "tests/lumi-ui-proof/lib/keyboard.mjs": "89daabe63d1db1782cfa7c10d294e91c3c781b09bc54bff30dc84ff7e4a0882b",
+  "tests/lumi-ui-proof/lib/states.mjs": "34feebd6a2451e4ddbba91ebd34e6ab7e757341a62b66ce293be6650bcedab3f",
+  "tests/lumi-ui-proof/lib/entryBehaviors.mjs": "3711569ca496289210236aa82ac41b4685b4aff386f2725407afb655cbc75806",
+  "tests/lumi-ui-proof/lib/credentialBehaviors.mjs": "e81990eef22bdf3ea154da57506fafab3356053cec861ff55570352fb9144e51",
+  "tests/lumi-ui-proof/src/main.tsx": "478a17fa0d90f4fc6e0e77f8b76892fc244a4c6070d8f75d7f517afdfc6169ad",
+  "tests/lumi-ui-proof/src/env.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+  "tests/lumi-ui-proof/src/proofBridge.ts": "3b660c1746678557e5575d028de0236cfabca15f51a783fb27179de4ea3e0d19"
+}

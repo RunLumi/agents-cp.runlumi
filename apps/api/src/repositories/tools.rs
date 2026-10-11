@@ -235,7 +235,7 @@ INSERT INTO tool_call_refs (
 
 const TOOL_CALL_REF_BY_ID_SQL: &str = r#"
 SELECT tool_call_id, org_id, project_id, run_id, tool_id, tool_fingerprint, risk_class,
-       arguments_summary, status, created_at, updated_at
+       arguments_summary, status, created_at, updated_at, execution_started_at, execution_device_id, execution_policy_version
 FROM tool_call_refs
 WHERE run_id = ?1 AND tool_call_id = ?2
 LIMIT 1
@@ -250,13 +250,127 @@ SET status = ?3, updated_at = ?4
 WHERE run_id = ?1 AND tool_call_id = ?2 AND status IN ('requested', 'allowed')
 "#;
 
+const ASSERT_TOOL_RESULT_STATUS_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE NOT EXISTS (
+    SELECT 1 FROM tool_call_refs
+    WHERE org_id = ?1 AND run_id = ?2 AND tool_call_id = ?3
+      AND status = ?4 AND status IN ('requested', 'allowed')
+)
+"#;
+
+/// Abort the whole admission batch if any observed authority changed or another
+/// request already claimed the call. Each policy layer has its own version.
+const ASSERT_TOOL_EXECUTION_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE NOT EXISTS (
+ SELECT 1 FROM tool_call_refs c
+ JOIN runs r ON r.run_id = c.run_id AND r.org_id = c.org_id AND r.project_id = c.project_id
+ JOIN devices d ON d.device_id = r.device_id AND d.org_id = r.org_id
+ JOIN organizations o ON o.org_id = r.org_id
+ JOIN memberships m ON m.org_id = r.org_id AND m.user_id = r.principal_user_id
+ JOIN projects p ON p.project_id = r.project_id AND p.org_id = r.org_id
+ JOIN workspace_bindings w ON w.binding_id = r.workspace_binding_id AND w.org_id = r.org_id
+ JOIN agent_sessions s ON s.agent_session_id = r.agent_session_id AND s.org_id = r.org_id
+ JOIN agent_definitions a ON a.agent_definition_id = r.agent_definition_id AND a.org_id = r.org_id
+ JOIN tool_definitions t ON t.tool_id = c.tool_id AND t.org_id = c.org_id
+ WHERE c.org_id = ?1 AND c.run_id = ?2 AND c.tool_call_id = ?3
+   AND c.status = 'allowed' AND c.execution_started_at IS NULL
+   AND c.tool_id = ?4 AND c.tool_fingerprint = ?5 AND c.arguments_summary = ?6
+   AND r.state IN ('running', 'waiting_approval') AND r.version = ?7
+   AND r.device_id = ?8 AND d.status = 'active' AND d.updated_at = ?9
+   AND EXISTS (SELECT 1 FROM device_tokens dt WHERE dt.device_id = ?8 AND dt.token_hash = ?20 AND dt.expires_at > ?13)
+   AND o.state = 'active' AND m.status = 'active' AND m.role IN ('owner', 'admin', 'member')
+   AND p.archived_at IS NULL AND w.removed_at IS NULL
+   AND w.project_id = r.project_id AND w.device_id = r.device_id
+   AND s.lifecycle = 'active' AND s.project_id = r.project_id AND s.device_id = r.device_id
+   AND a.lifecycle = 'active' AND a.version = ?10 AND r.agent_definition_version = a.version
+   AND t.lifecycle = 'active' AND t.version = ?11 AND t.fingerprint = c.tool_fingerprint
+   AND (p.visibility = 'org' OR m.role IN ('owner', 'admin') OR EXISTS (
+     SELECT 1 FROM project_access_grants g WHERE g.org_id = r.org_id AND g.project_id = p.project_id
+       AND (g.member_id = m.membership_id OR EXISTS (
+         SELECT 1 FROM team_members tm JOIN teams team ON team.team_id = tm.team_id
+         WHERE tm.team_id = g.team_id AND tm.membership_id = m.membership_id AND team.org_id = r.org_id
+       ))
+   ))
+
+)
+"#;
+
+const ASSERT_TOOL_EXECUTION_POLICY_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE NOT EXISTS (
+ SELECT 1 FROM runs r WHERE r.org_id = ?1 AND r.run_id = ?2
+   AND COALESCE((SELECT policy_id FROM policy_snapshots WHERE org_id = ?1 ORDER BY policy_version DESC LIMIT 1), '') = ?12
+   AND EXISTS (SELECT 1 FROM policy_snapshots ps WHERE ps.org_id = ?1 AND ps.policy_id = ?12 AND ps.expires_at > ?13)
+   AND EXISTS (SELECT 1 FROM policy_acks pa JOIN policy_snapshots ps ON ps.policy_id = ?12 AND ps.org_id = ?1
+               WHERE pa.org_id = ?1 AND pa.device_id = ?8 AND pa.policy_version = ps.policy_version)
+   AND COALESCE((SELECT tool_policy_id FROM tool_policies WHERE org_id = ?1 AND project_id IS NULL), '') = ?14
+   AND COALESCE((SELECT version FROM tool_policies WHERE org_id = ?1 AND project_id IS NULL), 0) = ?15
+   AND COALESCE((SELECT tool_policy_id FROM tool_policies WHERE org_id = ?1 AND project_id = r.project_id), '') = ?16
+   AND COALESCE((SELECT version FROM tool_policies WHERE org_id = ?1 AND project_id = r.project_id), 0) = ?17
+   AND COALESCE((SELECT mcp_registration_id FROM mcp_registrations WHERE org_id = ?1 AND tool_fingerprint = ?5 LIMIT 1), '') = ?18
+   AND COALESCE((SELECT version FROM mcp_registrations WHERE org_id = ?1 AND tool_fingerprint = ?5 LIMIT 1), 0) = ?19
+)
+"#;
+
+const CLAIM_TOOL_EXECUTION_SQL: &str = r#"
+UPDATE tool_call_refs
+SET execution_started_at = ?4, execution_device_id = ?5, execution_policy_version = ?6, updated_at = ?4
+WHERE org_id = ?1 AND run_id = ?2 AND tool_call_id = ?3 AND status = 'allowed' AND execution_started_at IS NULL
+"#;
+
+const ASSERT_TOOL_APPROVAL_EXECUTION_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE NOT EXISTS (
+ SELECT 1 FROM approval_requests
+ WHERE org_id = ?1 AND approval_id = ?2 AND run_id = ?3 AND tool_call_id = ?4
+   AND tool_id = ?5 AND tool_fingerprint = ?6 AND arguments_hash = ?7
+   AND requested_by_device_id = ?8 AND policy_version = ?9 AND version = ?10
+   AND status = 'approved' AND expires_at > ?11
+   AND (approval_mode = 'session' OR (approval_mode = 'per_use' AND consumed_at IS NULL))
+)
+"#;
+
 const CAPABILITIES_FOR_ORG_SQL: &str = r#"
 SELECT capability_id, org_id, capability_key, display_name, risk_class, metadata_json,
        version, created_at, updated_at
 FROM capability_definitions
 WHERE org_id IS NULL OR org_id = ?1
-ORDER BY capability_key ASC
+ORDER BY capability_key ASC, capability_id ASC
 LIMIT ?2
+"#;
+
+const ASSERT_TOOL_EXECUTION_CAPABILITIES_SQL: &str = r#"
+INSERT INTO idempotency_records (
+    principal_id, organization_id, method, path, key_digest, request_fingerprint,
+    state, response_status, response_body, expires_at, claim_token
+)
+SELECT NULL, '', '', '', '', '', 'pending', NULL, NULL, '', NULL
+WHERE ?2 <> COALESCE((
+    SELECT json_group_array(json_array(capability_id, capability_key, risk_class, version))
+    FROM (
+        SELECT capability_id, capability_key, risk_class, version FROM capability_definitions
+        WHERE org_id IS NULL OR org_id = ?1
+        ORDER BY capability_key ASC, capability_id ASC LIMIT 500
+    )
+), '[]')
 "#;
 
 const DEVICE_FOR_TOKEN_SQL: &str = r#"
@@ -495,6 +609,25 @@ pub struct ToolCallRefRecord {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    pub execution_started_at: Option<String>,
+    pub execution_device_id: Option<String>,
+    pub execution_policy_version: Option<i64>,
+}
+
+pub struct ToolExecutionClaim<'a> {
+    pub run: &'a super::runs::RunRecord,
+    pub call: &'a ToolCallRefRecord,
+    pub device: &'a DeviceRecord,
+    pub agent_version: i64,
+    pub tool_version: i64,
+    pub policy_id: &'a str,
+    pub organization_policy: Option<&'a ToolPolicyRecord>,
+    pub project_policy: Option<&'a ToolPolicyRecord>,
+    pub mcp: Option<&'a McpRegistrationRecord>,
+    pub effective_policy_version: i64,
+    pub now: &'a Timestamp,
+    pub token_hash: &'a str,
+    pub capability_binding: &'a str,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1096,6 +1229,80 @@ impl<'a> ToolRepository<'a> {
             ],
         )
     }
+
+    pub fn assert_result_status_statement(
+        &self,
+        call: &ToolCallRefRecord,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            ASSERT_TOOL_RESULT_STATUS_SQL,
+            &[
+                BindValue::Text(&call.org_id),
+                BindValue::Text(&call.run_id),
+                BindValue::Text(&call.tool_call_id),
+                BindValue::Text(&call.status),
+            ],
+        )
+    }
+
+    pub fn execution_claim_statements(
+        &self,
+        input: &ToolExecutionClaim<'_>,
+    ) -> worker::Result<Vec<D1PreparedStatement>> {
+        let values = [
+            BindValue::Text(&input.run.org_id),
+            BindValue::Text(&input.run.run_id),
+            BindValue::Text(&input.call.tool_call_id),
+            BindValue::Text(&input.call.tool_id),
+            BindValue::Text(&input.call.tool_fingerprint),
+            BindValue::Text(&input.call.arguments_summary),
+            BindValue::Int64(input.run.version),
+            BindValue::Text(&input.device.device_id),
+            BindValue::Text(&input.device.updated_at),
+            BindValue::Int64(input.agent_version),
+            BindValue::Int64(input.tool_version),
+            BindValue::Text(input.policy_id),
+            BindValue::Text(input.now.as_str()),
+            BindValue::Text(
+                input
+                    .organization_policy
+                    .map_or("", |p| p.tool_policy_id.as_str()),
+            ),
+            BindValue::Int64(input.organization_policy.map_or(0, |p| p.version)),
+            BindValue::Text(
+                input
+                    .project_policy
+                    .map_or("", |p| p.tool_policy_id.as_str()),
+            ),
+            BindValue::Int64(input.project_policy.map_or(0, |p| p.version)),
+            BindValue::Text(input.mcp.map_or("", |p| p.mcp_registration_id.as_str())),
+            BindValue::Int64(input.mcp.map_or(0, |p| p.version)),
+            BindValue::Text(input.token_hash),
+        ];
+        let guard = self.database.prepare(ASSERT_TOOL_EXECUTION_SQL, &values)?;
+        let policy_guard = self
+            .database
+            .prepare(ASSERT_TOOL_EXECUTION_POLICY_SQL, &values[..19])?;
+        let capability_guard = self.database.prepare(
+            ASSERT_TOOL_EXECUTION_CAPABILITIES_SQL,
+            &[
+                BindValue::Text(&input.run.org_id),
+                BindValue::Text(input.capability_binding),
+            ],
+        )?;
+        let claim = self.database.prepare(
+            CLAIM_TOOL_EXECUTION_SQL,
+            &[
+                BindValue::Text(&input.run.org_id),
+                BindValue::Text(&input.run.run_id),
+                BindValue::Text(&input.call.tool_call_id),
+                BindValue::Text(input.now.as_str()),
+                BindValue::Text(&input.device.device_id),
+                BindValue::Int64(input.effective_policy_version),
+            ],
+        )?;
+        Ok(vec![guard, policy_guard, capability_guard, claim])
+    }
 }
 
 /// Approval request persistence and the version-guarded resolution path.
@@ -1106,6 +1313,30 @@ pub struct ApprovalRepository<'a> {
 impl<'a> ApprovalRepository<'a> {
     pub fn new(database: &'a D1Adapter) -> Self {
         Self { database }
+    }
+
+    pub fn assert_execution_statement(
+        &self,
+        approval: &ApprovalRequestRecord,
+        claim: &ToolExecutionClaim<'_>,
+        arguments_hash: &str,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            ASSERT_TOOL_APPROVAL_EXECUTION_SQL,
+            &[
+                BindValue::Text(&claim.run.org_id),
+                BindValue::Text(&approval.approval_id),
+                BindValue::Text(&claim.run.run_id),
+                BindValue::Text(&claim.call.tool_call_id),
+                BindValue::Text(&claim.call.tool_id),
+                BindValue::Text(&claim.call.tool_fingerprint),
+                BindValue::Text(arguments_hash),
+                BindValue::Text(&claim.device.device_id),
+                BindValue::Int64(claim.effective_policy_version),
+                BindValue::Int64(approval.version),
+                BindValue::Text(claim.now.as_str()),
+            ],
+        )
     }
 
     /// Consume an approved per-use grant exactly once. Session-scoped grants

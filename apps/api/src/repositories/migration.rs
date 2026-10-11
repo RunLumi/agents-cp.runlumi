@@ -91,6 +91,25 @@ const UPDATE_ADOPTION_ROLLBACK_SQL: &str = "UPDATE workspace_adoption_states SET
      reversion_count = reversion_count + 1, version = version + 1, updated_at = ?2 \
      WHERE adoption_state_id = ?3 AND org_id = ?4 AND version = ?5";
 
+const ASSERT_LIVE_BINDING_SQL: &str = r#"
+INSERT INTO idempotency_records
+    (principal_id, organization_id, method, path, key_digest,
+     request_fingerprint, state, expires_at)
+SELECT NULL, '', '', '', '', '', 'pending', ''
+WHERE NOT EXISTS (
+    SELECT 1 FROM workspace_adoption_states a
+    JOIN workspace_bindings b ON b.org_id = a.org_id
+        AND b.project_id = a.bound_project_id AND b.device_id = a.bound_device_id
+        AND b.workspace_identity = a.external_workspace_key AND b.removed_at IS NULL
+    JOIN devices d ON d.device_id = b.device_id
+        AND d.org_id = a.org_id AND d.status = 'active'
+    JOIN projects p ON p.project_id = b.project_id
+        AND p.org_id = a.org_id AND p.archived_at IS NULL
+    JOIN organizations o ON o.org_id = a.org_id AND o.state = 'active'
+    WHERE a.adoption_state_id = ?1 AND a.org_id = ?2 AND a.version = ?3
+)
+"#;
+
 /// A concurrent-writer guard that violates a `NOT NULL` constraint on purpose
 /// when its `WHERE NOT EXISTS` predicate does not hold, aborting the surrounding
 /// D1 batch. This is the same trick P05 and P06 use for a compare-and-set: a
@@ -558,6 +577,23 @@ impl<'a> AdoptionRepository<'a> {
         expected_version: i64,
     ) -> worker::Result<D1PreparedStatement> {
         assert_version_statement(self.database, adoption_state_id, org_id, expected_version)
+    }
+
+    /// Rebind must still reference one live P03 binding when the D1 batch commits.
+    pub fn assert_live_binding_statement(
+        &self,
+        adoption_state_id: &str,
+        org_id: &str,
+        expected_version: i64,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            ASSERT_LIVE_BINDING_SQL,
+            &[
+                BindValue::Text(adoption_state_id),
+                BindValue::Text(org_id),
+                BindValue::Int64(expected_version),
+            ],
+        )
     }
 
     pub fn insert_statement(

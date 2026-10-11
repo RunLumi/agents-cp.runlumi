@@ -37,8 +37,8 @@ use crate::{
         EVENT_OCCURRENCE_AMBIGUOUS, EVENT_OCCURRENCE_DISPATCHED, EVENT_OCCURRENCE_FAILED,
         EVENT_OCCURRENCE_LEASE_EXPIRED, EVENT_OCCURRENCE_SKIPPED, ExecutionLeaseRecord, JobType,
         NewAttemptInput, NewOccurrenceInput, NewQueueJobInput, OccurrenceTransition,
-        OutboxRepository, StoredScheduleRevision, WebhookRepository, is_guard_violation,
-        missed_target_state, predecessor_view, skip_target_state,
+        OutboxRepository, QueueJobRecord, StoredScheduleRevision, WebhookRepository,
+        is_guard_violation, missed_target_state, predecessor_view, skip_target_state,
     },
 };
 
@@ -257,10 +257,14 @@ pub fn plan_due_occurrences(
         .filter(ScheduleInstant::is_due)
         .collect();
     let missed_slots = due.len();
-    // `skip` produces no occurrence. A DST-skipped slot is an explicit decision
+    // A once-per-minute sweep is normally a few seconds after the slot. Skip
+    // missed history, not the current tick; otherwise this policy never runs.
+    // A DST-skipped slot is an explicit decision
     // about a slot that exists, so it is always recorded.
     let keep = match rule.missed_policy() {
-        MissedPolicy::Skip => 0,
+        MissedPolicy::Skip => usize::from(due.last().is_some_and(|instant| {
+            now_epoch_seconds.saturating_sub(instant.scheduled_for_utc) < 60
+        })),
         MissedPolicy::RunOnce => 1,
         MissedPolicy::CatchUp => usize::from(
             rule.catch_up_limit()
@@ -939,6 +943,10 @@ pub async fn read_dispatch_eligibility(
         .current_policy_version(&automation.org_id)
         .await
         .map_err(|_| AutomationStoreError::Unavailable)?;
+    let policy_snapshot = repository
+        .latest_policy_snapshot(&automation.org_id)
+        .await
+        .map_err(|_| AutomationStoreError::Unavailable)?;
     let (license_state, license_grace_expires_at) = match repository
         .license_state(&automation.org_id)
         .await
@@ -963,6 +971,7 @@ pub async fn read_dispatch_eligibility(
         organization_state,
         principal_membership_active,
         current_policy_version,
+        policy_snapshot,
         license_state,
         license_grace_expires_at,
         max_active_automations,
@@ -1055,7 +1064,7 @@ pub async fn dispatch_occurrence_statements(
     let effective = match plan {
         DispatchPlan::Dispatch => match dispatch_block(automation, eligibility) {
             Some(block) => DispatchPlan::Blocked(block.code()),
-            None => DispatchPlan::Dispatch,
+            None => policy_gated_plan(DispatchPlan::Dispatch, eligibility),
         },
         other => other,
     };
@@ -1064,6 +1073,21 @@ pub async fn dispatch_occurrence_statements(
         DispatchPlan::Dispatch => {
             let next = transition(current, OccurrenceEvent::Dispatch)
                 .map_err(|_| AutomationStoreError::InvalidRow)?;
+            // 修复依据 P06-CR-007：契约规定 occurrence 保存服务端解析的 policy 快照/版本，
+            // 而之前只有 `None` 被写入，导致 due/claim 线上值为 null、客户端严格解码拒绝。
+            // 在 pending→dispatching 的同一批里绑定「此刻」最新发布的快照；
+            // 上面的 policy_gated_plan 已保证此处一定存在，否则不会走到 Dispatch。
+            if let Some(snapshot) = eligibility.policy_snapshot.as_ref() {
+                statements.push(
+                    repository
+                        .bind_occurrence_policy_statement(
+                            &occurrence.occurrence_id,
+                            &occurrence.org_id,
+                            snapshot,
+                        )
+                        .map_err(|_| AutomationStoreError::Unavailable)?,
+                );
+            }
             statements.push(occurrence_transition(
                 repository, occurrence, next, None, None, None, None, now,
             )?);
@@ -1154,6 +1178,195 @@ pub async fn dispatch_occurrence_statements(
         }
     }
     Ok(statements)
+}
+
+// -----------------------------------------------------------------------------
+// `automation.dispatch` job (P06-CR-006)
+// -----------------------------------------------------------------------------
+
+/// The stable reason recorded when an occurrence is dispatched while its
+/// automation is no longer `active`. A pause stops NEW dispatch; the slot is kept
+/// as a visible `skipped` occurrence and never replayed after a later resume.
+pub const REASON_AUTOMATION_NOT_ACTIVE: &str = "automation_not_active";
+/// Failure codes for a job row that cannot name a dispatchable occurrence. The
+/// row is dead-lettered with one of these so the producer stops re-sending it.
+pub const JOB_REFUSED_SCOPE: &str = "queue_job_scope_mismatch";
+pub const JOB_REFUSED_OCCURRENCE: &str = "automation_occurrence_not_found";
+pub const JOB_REFUSED_AUTOMATION: &str = "automation_not_found";
+
+/// What one `automation.dispatch` job decided, before it is committed.
+pub enum DispatchJobDecision {
+    /// The durable job row does not name a dispatchable occurrence in its own
+    /// organization. Nothing about the occurrence is written; the job is
+    /// dead-lettered with this stable code.
+    Refused(&'static str),
+    /// The occurrence already left `pending` (claimed directly, dispatched by an
+    /// earlier delivery, or terminal). Only the job completes.
+    AlreadySettled,
+    /// The dispatch decision and its statements, to commit in the SAME batch as
+    /// the job's claim and completion.
+    Apply {
+        statements: Vec<D1PreparedStatement>,
+        kind: DispatchKind,
+    },
+}
+
+/// A bounded name for the decision a dispatch job applied, for one log line. It
+/// carries no identifier and no reason text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DispatchKind {
+    Dispatched,
+    Queued,
+    Skipped,
+    Blocked,
+    Missed,
+}
+
+impl DispatchKind {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Dispatched => "dispatched",
+            Self::Queued => "queued",
+            Self::Skipped => "skipped",
+            Self::Blocked => "blocked",
+            Self::Missed => "missed",
+        }
+    }
+
+    pub fn of(plan: &DispatchPlan) -> Self {
+        match plan {
+            DispatchPlan::Dispatch => Self::Dispatched,
+            DispatchPlan::QueueOne { .. } | DispatchPlan::CancelPrevious { .. } => Self::Queued,
+            DispatchPlan::Skip(_) => Self::Skipped,
+            DispatchPlan::Blocked(_) => Self::Blocked,
+            DispatchPlan::Missed => Self::Missed,
+        }
+    }
+}
+
+/// The scope the durable job row must carry. The queue message is a hint and is
+/// never consulted: this reads only the stored row.
+pub fn job_scope_refusal(record: &QueueJobRecord) -> Option<&'static str> {
+    let subject_ok = record.subject_type
+        == crate::consumers::automations::AUTOMATION_JOB_SUBJECT_TYPE
+        && crate::core::ResourceId::new(&record.subject_id).is_ok_and(|id| id.prefix() == "occ");
+    let org_ok = record
+        .org_id
+        .as_deref()
+        .is_some_and(|org| crate::core::OrganizationId::new(org).is_ok());
+    (!(subject_ok && org_ok)).then_some(JOB_REFUSED_SCOPE)
+}
+
+/// The stable reason recorded when an occurrence cannot be dispatched because the org
+/// has published no policy snapshot, so there is nothing authoritative to bind.
+pub const REASON_POLICY_SNAPSHOT_UNAVAILABLE: &str = "policy_snapshot_unavailable";
+
+/// A plan that would hand the occurrence to a device is only valid when a policy
+/// snapshot exists to bind. Everything else (a hold, a skip, a block, a miss) never
+/// reaches a device and needs no policy, so it passes through unchanged. Fails closed:
+/// no snapshot means `Blocked`, never a dispatch with a `NULL` policy.
+pub fn policy_gated_plan(plan: DispatchPlan, eligibility: &DispatchEligibility) -> DispatchPlan {
+    match plan {
+        DispatchPlan::Dispatch if eligibility.policy_snapshot.is_none() => {
+            DispatchPlan::Blocked(REASON_POLICY_SNAPSHOT_UNAVAILABLE)
+        }
+        other => other,
+    }
+}
+
+/// Only a `pending` occurrence is dispatched by the job. Every other state has
+/// already been decided (claimed, started, `ambiguous`, terminal) and is left
+/// exactly as stored.
+pub const fn needs_dispatch(state: OccurrenceState) -> bool {
+    matches!(state, OccurrenceState::Pending)
+}
+
+/// Fold the automation's own status into a plan. A slot past its missed window
+/// stays `Missed`; anything else that would start or queue work for an automation
+/// that is no longer `active` is recorded as blocked instead, so a pause cannot
+/// be bypassed by a slot generated before it.
+pub fn effective_dispatch_plan(plan: DispatchPlan, automation_status: &str) -> DispatchPlan {
+    match plan {
+        DispatchPlan::Missed => DispatchPlan::Missed,
+        _ if automation_status != "active" => DispatchPlan::Blocked(REASON_AUTOMATION_NOT_ACTIVE),
+        other => other,
+    }
+}
+
+/// Decide one `automation.dispatch` job from durable rows only.
+///
+/// Tenant, subject, automation, schedule revision and eligibility are all re-read
+/// here; the envelope contributes nothing. The occurrence's OWN schedule revision
+/// supplies the overlap policy, because a policy change is a new revision and a
+/// new logical slot.
+pub async fn decide_dispatch_job(
+    database: &D1Adapter,
+    record: &QueueJobRecord,
+    now: &Timestamp,
+) -> Result<DispatchJobDecision, AutomationStoreError> {
+    if let Some(code) = job_scope_refusal(record) {
+        return Ok(DispatchJobDecision::Refused(code));
+    }
+    let Some(org_id) = record.org_id.as_deref() else {
+        return Ok(DispatchJobDecision::Refused(JOB_REFUSED_SCOPE));
+    };
+    let repository = AutomationsRepository::new(database);
+    let Some(occurrence) = repository
+        .find_occurrence(org_id, &record.subject_id)
+        .await
+        .map_err(|_| AutomationStoreError::Unavailable)?
+    else {
+        // Also the answer for another tenant's occurrence: the lookup binds the
+        // job row's organization, so a foreign ID is indistinguishable from a
+        // missing one.
+        return Ok(DispatchJobDecision::Refused(JOB_REFUSED_OCCURRENCE));
+    };
+    let current = occurrence
+        .state()
+        .map_err(|_| AutomationStoreError::InvalidRow)?;
+    if !needs_dispatch(current) {
+        return Ok(DispatchJobDecision::AlreadySettled);
+    }
+    let Some(automation) = repository
+        .find_automation(org_id, &occurrence.automation_id)
+        .await
+        .map_err(|_| AutomationStoreError::Unavailable)?
+    else {
+        return Ok(DispatchJobDecision::Refused(JOB_REFUSED_AUTOMATION));
+    };
+    let rule = repository
+        .find_schedule_rule(org_id, &occurrence.schedule_rule_id)
+        .await
+        .map_err(|_| AutomationStoreError::Unavailable)?
+        .ok_or(AutomationStoreError::InvalidRow)?;
+    let revision = StoredScheduleRevision::from_canonical_json(&rule.canonical_json)
+        .map_err(|_| AutomationStoreError::InvalidRow)?;
+    let eligibility = read_dispatch_eligibility(database, &automation, now).await?;
+    let plan = resolve_dispatch_plan(
+        &repository,
+        &automation,
+        &occurrence,
+        &revision,
+        &eligibility,
+        now,
+    )
+    .await?;
+    let plan = policy_gated_plan(
+        effective_dispatch_plan(plan, &automation.status),
+        &eligibility,
+    );
+    let kind = DispatchKind::of(&plan);
+    let statements = dispatch_occurrence_statements(
+        database,
+        &repository,
+        &automation,
+        &occurrence,
+        plan,
+        &eligibility,
+        now,
+    )
+    .await?;
+    Ok(DispatchJobDecision::Apply { statements, kind })
 }
 
 /// `cancel_previous` records the cancellation reason on the predecessor in the
@@ -1550,7 +1763,7 @@ mod tests {
     use crate::modules::automations::{
         DomDowMode, DstPolicy, MissedPolicy, OverlapPolicy, ScheduleKind,
     };
-    use crate::repositories::claim_target_state;
+    use crate::repositories::{PolicySnapshotRef, claim_target_state};
 
     /// Every test automation uses the frozen `automations.max_active` budget and
     /// a `queue_one`-free policy unless the test names one explicitly.
@@ -1649,11 +1862,56 @@ mod tests {
             organization_state: Some("active".into()),
             principal_membership_active: true,
             current_policy_version: 4,
+            policy_snapshot: Some(PolicySnapshotRef {
+                policy_id: "pol_0123456789abcdef0123456789abcdef".into(),
+                policy_version: 4,
+            }),
             license_state: Some("active".into()),
             license_grace_expires_at: None,
             max_active_automations: Some(100),
             active_automation_count: 7,
             now: Some("2026-09-25T16:00:00.000Z".into()),
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // P06-CR-007: the dispatch edge binds the server-resolved policy.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn a_dispatch_with_no_published_policy_snapshot_fails_closed() {
+        // Nothing authoritative to bind means the occurrence must NOT reach a device
+        // with a NULL policy (the strict client refuses it, and P05 admission could
+        // never admit its run).
+        let mut facts = eligibility();
+        facts.policy_snapshot = None;
+        assert_eq!(
+            policy_gated_plan(DispatchPlan::Dispatch, &facts),
+            DispatchPlan::Blocked(REASON_POLICY_SNAPSHOT_UNAVAILABLE)
+        );
+        // Positive control: with a snapshot the same plan dispatches.
+        assert_eq!(
+            policy_gated_plan(DispatchPlan::Dispatch, &eligibility()),
+            DispatchPlan::Dispatch
+        );
+    }
+
+    #[test]
+    fn plans_that_never_reach_a_device_need_no_policy() {
+        let mut facts = eligibility();
+        facts.policy_snapshot = None;
+        for plan in [
+            DispatchPlan::Missed,
+            DispatchPlan::Skip("automation_overlap_policy"),
+            DispatchPlan::Blocked("organization_suspended"),
+            DispatchPlan::QueueOne {
+                predecessor_id: "occ_x".to_owned(),
+            },
+            DispatchPlan::CancelPrevious {
+                predecessor_id: "occ_x".to_owned(),
+            },
+        ] {
+            assert_eq!(policy_gated_plan(plan.clone(), &facts), plan);
         }
     }
 
@@ -1737,6 +1995,50 @@ mod tests {
                 .filter(|instant| instant.is_due())
                 .count()
                 <= 3
+        );
+    }
+
+    #[test]
+    fn skip_missed_policy_keeps_the_current_tick_but_drops_offline_backlog() {
+        let rule = ScheduleRule::cron(
+            "* * * * *",
+            "UTC",
+            DomDowMode::Or,
+            DstPolicy::SkipDuplicate,
+            OverlapPolicy::Skip,
+            MissedPolicy::Skip,
+            None,
+        )
+        .unwrap();
+        let zone = ZoneOffsets::fixed(0).unwrap();
+        let slot = epoch("2026-10-08T14:39:00.000Z");
+        for late_by in [0, 6, 59] {
+            let plan = plan_due_occurrences(&rule, &zone, slot - 300, slot + late_by).unwrap();
+            let due: Vec<_> = plan
+                .instants
+                .iter()
+                .filter(|instant| instant.is_due())
+                .collect();
+            assert_eq!(
+                due.len(),
+                1,
+                "current minute must execute, backlog must not"
+            );
+            assert_eq!(due[0].scheduled_for_utc, slot);
+        }
+        let once = ScheduleRule::one_time(
+            "2026-10-08T14:39:00.000Z",
+            OverlapPolicy::Skip,
+            MissedPolicy::Skip,
+            None,
+        )
+        .unwrap();
+        assert!(
+            plan_due_occurrences(&once, &zone, slot - 1, slot + 60)
+                .unwrap()
+                .instants
+                .is_empty(),
+            "a slot one full tick late is missed and must not be replayed"
         );
     }
 
@@ -2273,5 +2575,172 @@ mod tests {
         assert_eq!(report.occurrences_created, 3);
         assert_eq!(report.jobs_enqueued, 2);
         assert_eq!(report.leases_ambiguous, 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // P06-CR-006: the `automation.dispatch` job decides one occurrence.
+    // -------------------------------------------------------------------------
+
+    fn dispatch_job_row() -> QueueJobRecord {
+        QueueJobRecord {
+            job_id: "job_66666666666666666666666666666666".to_owned(),
+            job_type: "automation.dispatch".to_owned(),
+            schema_version: 1,
+            org_id: Some("org_22222222222222222222222222222222".to_owned()),
+            subject_type: "automation_occurrence".to_owned(),
+            subject_id: "occ_55555555555555555555555555555555".to_owned(),
+            subject_version: Some(1),
+            dedupe_key: "automation.dispatch:occ_55555555555555555555555555555555:0".to_owned(),
+            event_id: None,
+            request_id: None,
+            correlation_id: None,
+            payload_ref: None,
+            state: "queued".to_owned(),
+            attempt: 1,
+            lease_version: 0,
+            lease_expires_at: None,
+            next_attempt_at: None,
+            last_error_code: None,
+            replay_of_job_id: None,
+            generation: 0,
+            version: 1,
+            created_at: "2026-09-25T16:00:00.000Z".to_owned(),
+            updated_at: "2026-09-25T16:00:00.000Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_well_formed_durable_job_row_has_no_scope_refusal() {
+        assert_eq!(job_scope_refusal(&dispatch_job_row()), None);
+    }
+
+    #[test]
+    fn a_job_row_that_cannot_name_an_occurrence_in_its_org_is_refused() {
+        type Corruption = fn(&mut QueueJobRecord);
+        let cases: [(&str, Corruption); 5] = [
+            ("no tenant", |r| r.org_id = None),
+            ("malformed tenant", |r| r.org_id = Some("org_x".to_owned())),
+            ("export subject", |r| {
+                r.subject_type = "export_job".to_owned()
+            }),
+            ("wrong id family", |r| {
+                r.subject_id = "exp_55555555555555555555555555555555".to_owned()
+            }),
+            ("malformed subject", |r| r.subject_id = "occ_".to_owned()),
+        ];
+        for (name, corrupt) in cases {
+            let mut row = dispatch_job_row();
+            corrupt(&mut row);
+            assert_eq!(
+                job_scope_refusal(&row),
+                Some(JOB_REFUSED_SCOPE),
+                "{name} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pause_cannot_be_bypassed_by_a_slot_generated_before_it() {
+        for plan in [
+            DispatchPlan::Dispatch,
+            DispatchPlan::QueueOne {
+                predecessor_id: "occ_x".to_owned(),
+            },
+            DispatchPlan::CancelPrevious {
+                predecessor_id: "occ_x".to_owned(),
+            },
+            DispatchPlan::Skip("automation_overlap_policy"),
+            DispatchPlan::Blocked("organization_suspended"),
+        ] {
+            assert_eq!(
+                effective_dispatch_plan(plan.clone(), "paused"),
+                DispatchPlan::Blocked(REASON_AUTOMATION_NOT_ACTIVE),
+                "{plan:?}"
+            );
+        }
+        // Positive control: an active automation keeps the domain's own decision.
+        assert_eq!(
+            effective_dispatch_plan(DispatchPlan::Dispatch, "active"),
+            DispatchPlan::Dispatch
+        );
+        assert_eq!(
+            effective_dispatch_plan(DispatchPlan::Blocked("organization_suspended"), "active"),
+            DispatchPlan::Blocked("organization_suspended")
+        );
+    }
+
+    #[test]
+    fn a_late_slot_stays_missed_whatever_the_automation_status() {
+        // Never replayed after a resume, and never relabelled as merely paused.
+        assert_eq!(
+            effective_dispatch_plan(DispatchPlan::Missed, "paused"),
+            DispatchPlan::Missed
+        );
+        assert_eq!(
+            effective_dispatch_plan(DispatchPlan::Missed, "active"),
+            DispatchPlan::Missed
+        );
+    }
+
+    #[test]
+    fn each_plan_has_one_bounded_dispatch_kind() {
+        let cases = [
+            (
+                DispatchPlan::Dispatch,
+                DispatchKind::Dispatched,
+                "dispatched",
+            ),
+            (
+                DispatchPlan::QueueOne {
+                    predecessor_id: "occ_x".to_owned(),
+                },
+                DispatchKind::Queued,
+                "queued",
+            ),
+            (
+                DispatchPlan::CancelPrevious {
+                    predecessor_id: "occ_x".to_owned(),
+                },
+                DispatchKind::Queued,
+                "queued",
+            ),
+            (
+                DispatchPlan::Skip("automation_overlap_policy"),
+                DispatchKind::Skipped,
+                "skipped",
+            ),
+            (
+                DispatchPlan::Blocked("organization_suspended"),
+                DispatchKind::Blocked,
+                "blocked",
+            ),
+            (DispatchPlan::Missed, DispatchKind::Missed, "missed"),
+        ];
+        for (plan, kind, code) in cases {
+            assert_eq!(DispatchKind::of(&plan), kind, "{plan:?}");
+            // The reason text inside a plan never reaches the code.
+            assert_eq!(kind.code(), code);
+        }
+    }
+
+    #[test]
+    fn only_a_pending_occurrence_is_ever_dispatched() {
+        // Every other state is `AlreadySettled`: a claimed, started, ambiguous or
+        // terminal occurrence is never rewritten, so an ambiguous one is never
+        // replayed and a second device cannot be handed it.
+        assert!(needs_dispatch(OccurrenceState::Pending));
+        for state in [
+            OccurrenceState::Dispatching,
+            OccurrenceState::Leased,
+            OccurrenceState::Started,
+            OccurrenceState::Ambiguous,
+            OccurrenceState::Succeeded,
+            OccurrenceState::Failed,
+            OccurrenceState::Cancelled,
+            OccurrenceState::Missed,
+            OccurrenceState::Skipped,
+        ] {
+            assert!(!needs_dispatch(state), "{state:?}");
+        }
     }
 }

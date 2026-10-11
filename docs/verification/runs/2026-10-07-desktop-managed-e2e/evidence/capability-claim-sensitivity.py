@@ -1,0 +1,25 @@
+from pathlib import Path
+import subprocess,shutil,hashlib,json
+source=Path("/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi")
+root=Path("/Volumes/SSD/agents-cp.runlumi/test-results/capability-guard-sensitivity")
+root.mkdir(parents=True,exist_ok=False)
+clone=root/"backend"
+subprocess.run(["git","clone","--quiet","--shared",str(source),str(clone)],check=True)
+for name in ["apps/api/src/repositories/tools.rs","apps/api/scripts/p05-capability-claim-guard.py"]:
+ target=clone/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source/name,target)
+fixture="/Volumes/SSD/agents-cp.runlumi/test-results/tool-execution-claim-p05-repaired-d1/v3/d1/miniflare-D1DatabaseObject/e7352547963de7050bd7d94658afc4fe78b61811b7815da12d90be8e863abf4d.sqlite"
+def run(name):
+ with (root/(name+".log")).open("w") as output:
+  return subprocess.run(["python3","apps/api/scripts/p05-capability-claim-guard.py",fixture],cwd=clone,stdout=output,stderr=subprocess.STDOUT).returncode
+baseline=run("baseline");assert baseline==0,"no verdict without positive baseline"
+target=clone/"apps/api/src/repositories/tools.rs"
+original=target.read_text();needle="WHERE ?2 <> COALESCE(("
+assert original.count(needle)==1
+target.write_text(original.replace(needle,"WHERE 0 AND ?2 <> COALESCE((",1))
+try:mutation=run("mutation")
+finally:target.write_text(original)
+restored=run("restored")
+report={"scope":"actual SQL capability guard; memory copies of retained D1, not HTTP race fault injection","mutation":"guard never aborts despite changed capability binding; SQL remains valid","baseline_exit":baseline,"mutation_exit":mutation,"restored_exit":restored,"source_unchanged":target.read_bytes()==(source/"apps/api/src/repositories/tools.rs").read_bytes(),"source_sha256":hashlib.sha256(target.read_bytes()).hexdigest()}
+(root/"result.json").write_text(json.dumps(report,indent=2)+"\n")
+assert mutation!=0 and restored==0 and report["source_unchanged"]
+print(json.dumps(report))

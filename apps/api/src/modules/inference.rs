@@ -1,5 +1,6 @@
 //! P04 vendor-neutral inference envelopes and response safety state machine.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -22,10 +23,32 @@ pub enum ContentPart {
     Text { text: String },
 }
 
+pub const MAX_TOOL_CALLS: usize = 128;
+pub const MAX_TOOL_CALL_ID_BYTES: usize = 128;
+pub const MAX_TOOL_NAME_BYTES: usize = 128;
+pub const MAX_TOOL_ARGUMENTS_BYTES: usize = 256 * 1024;
+/// Aggregate bound for tool-call arguments accumulated from one response.
+pub const MAX_TOOL_ARGUMENTS_TOTAL_BYTES: usize = 512 * 1024;
+
+/// A validated assistant function call. Arguments stay an opaque JSON string:
+/// the gateway transports calls and never interprets or executes them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferenceMessage {
     pub role: MessageRole,
     pub content: Vec<ContentPart>,
+    /// Assistant function calls. Valid only on assistant messages.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    /// Call answered by a tool message. Valid only on tool messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 impl InferenceMessage {
@@ -33,8 +56,169 @@ impl InferenceMessage {
         Self {
             role: MessageRole::User,
             content: vec![ContentPart::Text { text: text.into() }],
+            tool_calls: Vec::new(),
+            tool_call_id: None,
         }
     }
+
+    /// Bytes of caller-supplied content, including tool-call material, for
+    /// the aggregate request limit and token estimate.
+    pub fn content_bytes(&self) -> usize {
+        let text = self.content.iter().fold(0_usize, |total, part| {
+            let ContentPart::Text { text } = part;
+            total.saturating_add(text.len())
+        });
+        self.tool_calls.iter().fold(text, |total, call| {
+            total
+                .saturating_add(call.id.len())
+                .saturating_add(call.name.len())
+                .saturating_add(call.arguments.len())
+        })
+    }
+}
+
+pub fn valid_tool_call_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_TOOL_CALL_ID_BYTES
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b':'))
+}
+
+pub fn valid_tool_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_TOOL_NAME_BYTES && !name.chars().any(char::is_control)
+}
+
+/// A tool-call fragment or message violated the bounded wire contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToolCallError;
+
+#[derive(Debug)]
+struct TrackedCall {
+    id: Option<String>,
+    name: String,
+    arguments: String,
+}
+
+/// Validates and reassembles interleaved streamed tool-call fragments. It is
+/// the single bounds/uniqueness authority for provider output, used by both
+/// the streaming renderer and the buffered response path.
+#[derive(Debug, Default)]
+pub struct ToolCallTracker {
+    calls: BTreeMap<u32, TrackedCall>,
+    argument_bytes: usize,
+}
+
+impl ToolCallTracker {
+    pub fn is_empty(&self) -> bool {
+        self.calls.is_empty()
+    }
+
+    /// An id or name fragment is never invented; a later fragment may omit
+    /// both. A repeated id must match, and ids are unique across indexes.
+    pub fn accept(
+        &mut self,
+        index: u32,
+        id: Option<&str>,
+        name: Option<&str>,
+        arguments_delta: &str,
+    ) -> Result<(), ToolCallError> {
+        if index as usize >= MAX_TOOL_CALLS {
+            return Err(ToolCallError);
+        }
+        if let Some(id) = id {
+            if !valid_tool_call_id(id) {
+                return Err(ToolCallError);
+            }
+            let duplicated_elsewhere = self
+                .calls
+                .iter()
+                .any(|(other, call)| *other != index && call.id.as_deref() == Some(id));
+            if duplicated_elsewhere {
+                return Err(ToolCallError);
+            }
+        }
+        self.argument_bytes = self.argument_bytes.saturating_add(arguments_delta.len());
+        if self.argument_bytes > MAX_TOOL_ARGUMENTS_TOTAL_BYTES {
+            return Err(ToolCallError);
+        }
+        let call = self.calls.entry(index).or_insert_with(|| TrackedCall {
+            id: None,
+            name: String::new(),
+            arguments: String::new(),
+        });
+        if let Some(id) = id {
+            match call.id.as_deref() {
+                Some(existing) if existing != id => return Err(ToolCallError),
+                Some(_) => {}
+                None => call.id = Some(id.to_owned()),
+            }
+        }
+        if let Some(name) = name {
+            call.name.push_str(name);
+            if call.name.len() > MAX_TOOL_NAME_BYTES || call.name.chars().any(char::is_control) {
+                return Err(ToolCallError);
+            }
+        }
+        call.arguments.push_str(arguments_delta);
+        if call.arguments.len() > MAX_TOOL_ARGUMENTS_BYTES {
+            return Err(ToolCallError);
+        }
+        Ok(())
+    }
+
+    /// Terminal check: every started call must have gained an id, a name and
+    /// complete JSON-object arguments.
+    pub fn finish(&self) -> Result<Vec<ToolCall>, ToolCallError> {
+        self.calls
+            .values()
+            .map(|call| match call.id.as_deref() {
+                // Arguments must be a complete JSON object: a truncated or
+                // non-object payload is corrupt output, not a call to forward.
+                Some(id)
+                    if valid_tool_name(&call.name)
+                        && serde_json::from_str::<Value>(&call.arguments)
+                            .is_ok_and(|arguments| arguments.is_object()) =>
+                {
+                    Ok(ToolCall {
+                        id: id.to_owned(),
+                        name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                    })
+                }
+                _ => Err(ToolCallError),
+            })
+            .collect()
+    }
+}
+
+/// Decode a buffered OpenAI `message.tool_calls` array with the same bounds
+/// as the streaming path.
+pub fn decode_message_tool_calls(calls: &[Value]) -> Result<Vec<ToolCall>, ToolCallError> {
+    let mut tracker = ToolCallTracker::default();
+    for (position, call) in calls.iter().enumerate() {
+        if call
+            .get("type")
+            .is_some_and(|kind| kind.as_str() != Some("function"))
+        {
+            return Err(ToolCallError);
+        }
+        let function = call.get("function").ok_or(ToolCallError)?;
+        let text = |value: &Value, key: &str| -> Result<String, ToolCallError> {
+            value
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or(ToolCallError)
+        };
+        tracker.accept(
+            u32::try_from(position).map_err(|_| ToolCallError)?,
+            Some(&text(call, "id")?),
+            Some(&text(function, "name")?),
+            &text(function, "arguments")?,
+        )?;
+    }
+    tracker.finish()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -145,8 +329,12 @@ pub enum ProviderStreamEvent {
     TextDelta {
         text: String,
     },
+    /// One fragment of a streamed function call. `call_id` and `name` are
+    /// present only on the fragments where the provider sent them.
     ToolCallDelta {
-        call_id: String,
+        index: u32,
+        call_id: Option<String>,
+        name: Option<String>,
         arguments_delta: String,
     },
     Usage {
@@ -327,21 +515,14 @@ fn decode_openai_value(value: &Value, state: &mut AdapterStreamState) -> Vec<Pro
             .and_then(Value::as_array)
         {
             for call in tool_calls {
-                let call_id = call
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool_call")
-                    .to_owned();
-                let arguments_delta = call
-                    .get("function")
-                    .and_then(|function| function.get("arguments"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                events.push(ProviderStreamEvent::ToolCallDelta {
-                    call_id,
-                    arguments_delta,
-                });
+                match decode_tool_call_fragment(call) {
+                    Some(event) => events.push(event),
+                    None => {
+                        state.invalid_response = true;
+                        events.push(ProviderStreamEvent::InvalidResponse);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -350,6 +531,41 @@ fn decode_openai_value(value: &Value, state: &mut AdapterStreamState) -> Vec<Pro
         events.push(ProviderStreamEvent::InvalidResponse);
     }
     events
+}
+
+/// Structural decode of one streamed `delta.tool_calls[]` element. Null or
+/// empty id/name/arguments are "absent"; any other wrong type is corrupt.
+fn decode_tool_call_fragment(call: &Value) -> Option<ProviderStreamEvent> {
+    let optional_text = |value: Option<&Value>| -> Option<Option<String>> {
+        match value {
+            None | Some(Value::Null) => Some(None),
+            Some(Value::String(text)) if text.is_empty() => Some(None),
+            Some(Value::String(text)) => Some(Some(text.clone())),
+            Some(_) => None,
+        }
+    };
+    let index = u32::try_from(call.get("index")?.as_u64()?).ok()?;
+    if call
+        .get("type")
+        .is_some_and(|kind| !kind.is_null() && kind.as_str() != Some("function"))
+    {
+        return None;
+    }
+    let call_id = optional_text(call.get("id"))?;
+    let function = match call.get("function") {
+        None | Some(Value::Null) => None,
+        Some(value) if value.is_object() => Some(value),
+        Some(_) => return None,
+    };
+    let name = optional_text(function.and_then(|function| function.get("name")))?;
+    let arguments_delta =
+        optional_text(function.and_then(|function| function.get("arguments")))?.unwrap_or_default();
+    Some(ProviderStreamEvent::ToolCallDelta {
+        index,
+        call_id,
+        name,
+        arguments_delta,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -483,6 +699,174 @@ mod tests {
                 .any(|event| matches!(event, ProviderStreamEvent::InvalidResponse))
         );
         assert!(state.invalid_response);
+    }
+
+    fn tool_chunk(calls: &str) -> Vec<u8> {
+        format!("data: {{\"id\":\"c\",\"choices\":[{{\"delta\":{{\"tool_calls\":{calls}}}}}]}}\n\n")
+            .into_bytes()
+    }
+
+    fn decode_all(chunks: &[Vec<u8>]) -> (Vec<ProviderStreamEvent>, AdapterStreamState) {
+        let mut decoder = SseDecoder::new();
+        let mut state = AdapterStreamState::default();
+        let mut events = Vec::new();
+        for chunk in chunks {
+            events.extend(decoder.push(chunk, &mut state));
+        }
+        (events, state)
+    }
+
+    #[test]
+    fn fragmented_interleaved_calls_keep_index_id_name_and_arguments() {
+        let (events, state) = decode_all(&[
+            tool_chunk(r#"[{"index":0,"id":"call_a","type":"function","function":{"name":"fs_wr","arguments":""}}]"#),
+            tool_chunk(r#"[{"index":1,"id":"call_b","type":"function","function":{"name":"list","arguments":"{"}}]"#),
+            tool_chunk(r#"[{"index":0,"function":{"name":"ite","arguments":"{\"p\":"}}]"#),
+            tool_chunk(r#"[{"index":0,"id":null,"function":{"arguments":"1}"}},{"index":1,"function":{"arguments":"}"}}]"#),
+            b"data: {\"id\":\"c\",\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"id\":\"c\",\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4}}\n\ndata: [DONE]\n\n".to_vec(),
+        ]);
+        assert!(state.may_complete());
+        let mut tracker = ToolCallTracker::default();
+        let mut usage = None;
+        for event in &events {
+            match event {
+                ProviderStreamEvent::ToolCallDelta {
+                    index,
+                    call_id,
+                    name,
+                    arguments_delta,
+                } => tracker
+                    .accept(*index, call_id.as_deref(), name.as_deref(), arguments_delta)
+                    .unwrap(),
+                ProviderStreamEvent::Usage { usage: value } => usage = Some(value.clone()),
+                _ => {}
+            }
+        }
+        assert_eq!(usage.unwrap().output_tokens, Some(4));
+        let calls = tracker.finish().unwrap();
+        assert_eq!(
+            calls,
+            vec![
+                ToolCall {
+                    id: "call_a".to_owned(),
+                    name: "fs_write".to_owned(),
+                    arguments: "{\"p\":1}".to_owned(),
+                },
+                ToolCall {
+                    id: "call_b".to_owned(),
+                    name: "list".to_owned(),
+                    arguments: "{}".to_owned(),
+                },
+            ]
+        );
+        // The first fragment of call 1 keeps the provider's id; later
+        // fragments are not given a substitute id.
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ProviderStreamEvent::ToolCallDelta { index: 0, call_id: None, name: Some(name), .. } if name == "ite"
+        )));
+    }
+
+    #[test]
+    fn corrupt_tool_call_fragments_fail_closed() {
+        for calls in [
+            r#"[{"function":{"name":"x"}}]"#,
+            r#"[{"index":-1}]"#,
+            r#"[{"index":"0"}]"#,
+            r#"[{"index":0,"id":7}]"#,
+            r#"[{"index":0,"type":"custom"}]"#,
+            r#"[{"index":0,"function":"x"}]"#,
+            r#"[{"index":0,"function":{"arguments":{}}}]"#,
+        ] {
+            let (events, state) = decode_all(&[tool_chunk(calls)]);
+            assert!(state.invalid_response, "{calls}");
+            assert!(
+                events
+                    .iter()
+                    .any(|event| matches!(event, ProviderStreamEvent::InvalidResponse)),
+                "{calls}"
+            );
+        }
+    }
+
+    #[test]
+    fn tracker_enforces_bounds_identity_and_completeness() {
+        let mut tracker = ToolCallTracker::default();
+        assert!(tracker.accept(128, Some("a"), Some("n"), "").is_err());
+        assert!(tracker.accept(0, Some("bad id"), Some("n"), "").is_err());
+        assert!(
+            tracker
+                .accept(0, Some(&"x".repeat(129)), Some("n"), "")
+                .is_err()
+        );
+        assert!(
+            tracker
+                .accept(0, Some("a"), Some(&"n".repeat(129)), "")
+                .is_err()
+        );
+
+        let mut tracker = ToolCallTracker::default();
+        tracker.accept(0, Some("a"), Some("n"), "{}").unwrap();
+        assert!(
+            tracker.accept(0, Some("b"), None, "").is_err(),
+            "id changed"
+        );
+        assert!(
+            tracker.accept(1, Some("a"), Some("n"), "").is_err(),
+            "duplicate id"
+        );
+
+        let mut tracker = ToolCallTracker::default();
+        assert!(
+            tracker
+                .accept(
+                    0,
+                    Some("a"),
+                    Some("n"),
+                    &"x".repeat(MAX_TOOL_ARGUMENTS_BYTES + 1)
+                )
+                .is_err()
+        );
+
+        let mut tracker = ToolCallTracker::default();
+        tracker.accept(0, None, Some("n"), "{}").unwrap();
+        assert!(tracker.finish().is_err(), "call never received an id");
+        let mut tracker = ToolCallTracker::default();
+        tracker.accept(0, Some("a"), None, "{}").unwrap();
+        assert!(tracker.finish().is_err(), "call never received a name");
+    }
+
+    #[test]
+    fn truncated_or_non_object_arguments_never_finish_as_a_call() {
+        for arguments in ["{\"file_path\":\"/a", "", "[]", "null", "\"s\""] {
+            let mut tracker = ToolCallTracker::default();
+            tracker.accept(0, Some("a"), Some("n"), arguments).unwrap();
+            assert!(tracker.finish().is_err(), "{arguments:?}");
+        }
+        let truncated = serde_json::json!([{"id":"c","function":{"name":"w","arguments":"{\"a"}}]);
+        assert!(decode_message_tool_calls(truncated.as_array().unwrap()).is_err());
+    }
+
+    #[test]
+    fn buffered_message_tool_calls_share_the_stream_bounds() {
+        let ok = serde_json::json!([{"id":"call_1","type":"function","function":{"name":"w","arguments":"{}"}}]);
+        assert_eq!(
+            decode_message_tool_calls(ok.as_array().unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+        for bad in [
+            serde_json::json!([{"id":"call_1","type":"custom","function":{"name":"w","arguments":"{}"}}]),
+            serde_json::json!([{"type":"function","function":{"name":"w","arguments":"{}"}}]),
+            serde_json::json!([{"id":"c","function":{"name":"w"}}]),
+            serde_json::json!([
+                {"id":"c","function":{"name":"w","arguments":"{}"}},
+                {"id":"c","function":{"name":"w","arguments":"{}"}}
+            ]),
+        ] {
+            assert!(decode_message_tool_calls(bad.as_array().unwrap()).is_err());
+        }
     }
 
     #[test]

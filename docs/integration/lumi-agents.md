@@ -21,11 +21,43 @@ local development Worker on an ephemeral port. It never deploys or migrates
 remote resources. An existing submodule on a different SHA is refused rather
 than reset. Client installation skips lifecycle hooks: this module test needs
 no Electron/native assets (the hoisted lockfile may still install other packages).
+If both exact-version pnpm stores already contain every locked package,
+`LUMI_INTEGRATION_OFFLINE=1` adds pnpm's offline mode; a cache miss is BLOCKED,
+never a product failure or a reason to float dependencies.
 
 ## Proof boundary
 
+## Desktop bootstrap entrypoint
+
+On macOS with native build tools, a display/keychain, Node 24, Rust/WASM and
+worker-build 0.8.x, the desktop mode installs both frozen lockfiles, enables
+required Electron/native hooks, builds current-host runtime assets and both
+apps, then runs the contract, account/device and actual Electron journeys:
+
+```sh
+LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs
+```
+
+Every nested build receives its repository's pinned pnpm binary. Remote-platform
+release archives are outside this local gate. Missing native prerequisites
+produce BLOCKED rather than a skip/PASS. electron-report.json joins the paired
+SHA report. This command's current journey scope is explicit in result.json;
+full A–E tool/fault/automation/compatibility proof remains required by the goal.
+This entrypoint is implemented but clean-install validation is still pending.
+
+For the scoped actual Electron managed-run/rollback/rebind proof, see
+[2026-10-07 evidence](../verification/runs/2026-10-07-desktop-managed-e2e/README.md).
+It runs the production Desktop/Agent code against fresh Worker/D1, uses
+mock:// inference, and records the remaining A–E obligations explicitly.
+This separate prepared-build harness is not yet the clean one-command desktop
+gate required by the full goal.
+
 The actual client wizard discovers compatibility, explicitly registers one
 workspace, advances through four stages to managed_policy, and rolls back.
+The account/device transport probe also covers S256 session auth, real device
+enrollment/refresh, bounded human-authorized token recovery, challenge expiry
+and replay, revocation, and logout. Its standalone `account-report.json` records
+named redacted assertions, both repository HEAD SHAs, and dirty-state flags.
 Each stage is compared with D1. Another organization's rollback must be refused
 and leave the row unchanged; a second workspace must have no cloud record.
 Fixtures use real HTTP auth/org/project/device enrollment with an Ed25519 proof.
