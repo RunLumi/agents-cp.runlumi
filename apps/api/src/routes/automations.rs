@@ -2483,6 +2483,13 @@ pub async fn claim_occurrence(
     let database = database(&state, &context)?;
     let repository = AutomationsRepository::new(database);
     let occurrence = require_device_occurrence(&context, database, &access, &occurrence_id).await?;
+    // A loser that reads the winner's committed lease before attempting its own
+    // write must get the same frozen refusal as a loser rejected by the CAS guard.
+    if occurrence.state == OccurrenceState::Leased.as_str()
+        || occurrence.state == OccurrenceState::Started.as_str()
+    {
+        return Err(claim_conflict(&context, database, &access, &occurrence).await);
+    }
     // Only an occurrence the server already dispatched is claimable. A `pending`
     // occurrence re-enters this path after a proven pre-start lease expiry.
     if occurrence.state != OccurrenceState::Pending.as_str()
