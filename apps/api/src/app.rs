@@ -10,7 +10,7 @@ use crate::adapters::crypto::DEVELOPMENT_CREDENTIAL_KEY_HEX;
 use crate::adapters::webauthn::{WebAuthnAdapter, WebAuthnConfig};
 
 use crate::{
-    adapters::d1::D1Adapter,
+    adapters::{d1::D1Adapter, execution::BackgroundWork},
     http::{json_body_limit, request_boundary},
     routes::{
         account, agents, ai_catalog, approvals, audit, auth, authenticators, automations, billing,
@@ -36,12 +36,14 @@ pub(crate) struct AppState {
     pub(crate) provider_allowlist: Vec<String>,
     pub(crate) allow_local_provider_endpoints: bool,
     pub(crate) webauthn: Option<WebAuthnAdapter>,
+    /// Request-scoped port for work that must outlive the response body (P04-CR-003).
+    pub(crate) background: BackgroundWork,
 }
 
 /// Construct the HTTP router for one Worker request. Public liveness/meta
 /// routes remain available when a storage binding is unavailable; internal
 /// foundation probes exist only in Wrangler's explicit development env.
-pub fn router(env: Env) -> Router {
+pub fn router(env: Env, background: BackgroundWork) -> Router {
     let is_development = env
         .var("ENVIRONMENT")
         .map(|value| value.to_string() == "development")
@@ -127,6 +129,7 @@ pub fn router(env: Env) -> Router {
         provider_allowlist,
         allow_local_provider_endpoints,
         webauthn,
+        background,
     });
 
     let mut routes = Router::<Arc<AppState>>::new()

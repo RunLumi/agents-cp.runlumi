@@ -15,6 +15,10 @@ const client = resolve(process.env.LUMI_AGENTS_DIR || join(root, "integrations/l
 const git = (cwd, ...args) =>
   execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
 const evidence = { verdict: "BLOCKED", started_at: new Date().toISOString() };
+const desktopMode = process.env.LUMI_INTEGRATION_DESKTOP === "1";
+evidence.scope = desktopMode
+  ? "adoption-account-device-plus-electron-managed-stream-rollback-rebind"
+  : "adoption-account-device";
 const env = {
   ...process.env,
   PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`,
@@ -36,13 +40,13 @@ for (const signal of ["SIGINT", "SIGTERM"])
       }
     }
   });
-async function run(command, args, cwd = root) {
+async function run(command, args, cwd = root, runEnv = env) {
   if (interrupted) throw new Error("Interrupted");
   console.log(`[integration] ${command} ${args.join(" ")}`);
   await new Promise((yes, no) => {
     active = spawn(command, args, {
       cwd,
-      env,
+      env: runEnv,
       stdio: "inherit",
       detached: process.platform !== "win32",
     });
@@ -107,19 +111,48 @@ try {
       encoding: "utf8",
     }).trim();
     if (actual !== pin.slice(5)) throw new Error("Pinned pnpm verification failed");
-    return (args) => run(process.execPath, [bin, ...args], repo);
+    const pinnedEnv = {
+      ...env,
+      // Nested build scripts also invoke pnpm. Keep each repo's own exact
+      // binary first, rather than falling back to the host's global version.
+      PATH: `${join(tool, "node_modules/.bin")}${delimiter}${env.PATH}`,
+    };
+    return (args, overrides = {}) =>
+      run(process.execPath, [bin, ...args], repo, { ...pinnedEnv, ...overrides });
   }
   const rootPnpm = await pnpmFor(root);
   const clientPnpm = await pnpmFor(client);
-  await rootPnpm(["install", "--frozen-lockfile"]);
-  await clientPnpm([
-    "--filter",
-    "@zcode/contracts...",
-    "install",
-    "--frozen-lockfile",
-    "--ignore-scripts",
-  ]);
+  const offlineArgs = process.env.LUMI_INTEGRATION_OFFLINE === "1" ? ["--offline"] : [];
+  await rootPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
+  if (desktopMode) {
+    if (process.platform !== "darwin")
+      throw new Error(
+        "Desktop runner currently requires macOS native runtime, display and keychain",
+      );
+    // The actual desktop requires its native/Electron install hooks. A failed
+    // hook stays BLOCKED; the contract-only runner intentionally omits them.
+    await clientPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
+  } else {
+    await clientPnpm([
+      "--filter",
+      "@zcode/contracts...",
+      "--filter",
+      "@zcode/services...",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts",
+      ...offlineArgs,
+    ]);
+  }
   await rootPnpm(["build"]);
+  if (desktopMode) {
+    await clientPnpm(["--filter", "@zcode/desktop", "prepare:runtime-assets"], {
+      // Local Electron gate needs current-host assets; cross-platform remote
+      // release archives have their own compatibility/runtime campaign.
+      ZCODE_SKIP_REMOTE_ASSETS: "1",
+    });
+    await clientPnpm(["--filter", "@zcode/desktop", "build:no-runtime-assets"]);
+  }
   const requireWeb = createRequire(join(root, "apps/web/package.json"));
   const { build } = await import(pathToFileURL(requireWeb.resolve("vite")).href);
   await build({
@@ -160,6 +193,20 @@ try {
   )
     throw new Error("Missing exact-head account/device runtime PASS");
   evidence.account_integration = accountResult;
+  if (desktopMode) {
+    env.LUMI_ELECTRON_REPORT = join(output, "electron-report.json");
+    await run(process.execPath, [join(root, "tests/integration/desktop-account-electron.mjs")]);
+    const desktopResult = JSON.parse(readFileSync(env.LUMI_ELECTRON_REPORT, "utf8"));
+    if (
+      desktopResult.verdict !== "PASS" ||
+      desktopResult.control_plane_sha !== evidence.control_plane.sha ||
+      desktopResult.lumi_agents_sha !== evidence.lumi_agents.sha ||
+      !desktopResult.desktop_assertions?.some((claim) => claim.includes("renders streamed")) ||
+      !desktopResult.desktop_assertions?.some((claim) => claim.includes("explicit rebind"))
+    )
+      throw new Error("Missing paired Electron managed-runtime PASS");
+    evidence.desktop_integration = desktopResult;
+  }
   for (const [path, before] of [
     [root, evidence.control_plane],
     [client, evidence.lumi_agents],

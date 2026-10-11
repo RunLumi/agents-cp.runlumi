@@ -101,7 +101,7 @@ These are not versions but they are assumptions that would break silently:
 |---|---|---|
 | Streaming | Must emit `data: [DONE]` | **Now `upstream_invalid_response`.** See below |
 | Base URL | Must be an `LUMI_PROVIDER_ALLOWLIST` host | `host_not_allowlisted`. The allowlist is operator-owned, exact-host, empty by default |
-| Redirects | Not followed | A 3xx is an error, not a hop |
+| Redirects | Not followed (`manual`, P04-CR-003) | A 3xx is a terminal `upstream_invalid_response`, not a hop and not retried; `Location` is never read. Configure the final endpoint |
 | Error bodies | Discarded at the boundary | A provider that expects its error text echoed will see a stable code instead. Correct, and worth stating |
 
 **The one behaviour change in this release, and it is deliberate.** A provider stream

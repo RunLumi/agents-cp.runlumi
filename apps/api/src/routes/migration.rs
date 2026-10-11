@@ -120,6 +120,8 @@ pub struct RecordAdoptionRequest {
     pub client_protocol_major: i64,
     pub policy_schema_version: i64,
     pub client_app_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rebind_version: Option<i64>,
 }
 
 /// Move one adopted workspace to the next stage, or change only its credential
@@ -440,6 +442,192 @@ pub async fn list_remediations(
 
 // ======================================================== adoption routes ===
 
+struct AdoptionRebind<'a> {
+    state: &'a Arc<AppState>,
+    context: &'a RequestContext,
+    headers: &'a HeaderMap,
+    principal: &'a crate::core::Principal,
+    org_id: &'a str,
+    key: &'a str,
+    body: &'a RecordAdoptionRequest,
+    record: &'a AdoptionStateRecord,
+}
+
+async fn rebind_local_adoption(input: AdoptionRebind<'_>) -> Result<Response<Body>, ApiError> {
+    let AdoptionRebind {
+        state,
+        context,
+        headers,
+        principal,
+        org_id,
+        key,
+        body,
+        record,
+    } = input;
+    let version = body
+        .rebind_version
+        .ok_or_else(|| service_unavailable(context))?;
+    validate_version(context, version)?;
+    let project_id = body
+        .project_id
+        .as_deref()
+        .ok_or_else(|| not_found(context, "workspace_binding_not_found"))?;
+    let device_id = body
+        .device_id
+        .as_deref()
+        .ok_or_else(|| not_found(context, "workspace_binding_not_found"))?;
+    let database = database(state, context)?;
+    let manager = crate::routes::agents::can_manage_projects(state, headers, context, org_id).await;
+    let project = crate::routes::agents::ensure_project_access(
+        database,
+        context,
+        org_id,
+        project_id,
+        principal.user_id.as_str(),
+        manager,
+    )
+    .await?;
+    if project.archived_at.is_some() {
+        return Err(domain_error(
+            context,
+            ApiErrorCode::Conflict,
+            "project_archived",
+            "The project is archived.",
+        ));
+    }
+    let device = crate::repositories::DeviceRepository::new(database)
+        .find_device(device_id)
+        .await
+        .map_err(|error| database_error(context, error))?
+        .filter(|device| device.org_id == org_id && device.status == "active")
+        .ok_or_else(|| not_found(context, "device_not_found"))?;
+    let bindings = crate::repositories::ProjectRepository::new(database)
+        .list_bindings_by_device(&device.device_id, 100)
+        .await
+        .map_err(|error| database_error(context, error))?;
+    if !bindings.iter().any(|binding| {
+        binding.org_id == org_id
+            && binding.project_id == project_id
+            && binding.workspace_identity == record.external_workspace_key
+    }) {
+        return Err(not_found(context, "workspace_binding_not_found"));
+    }
+    let repository = AdoptionRepository::new(database);
+    let body_value = serde_json::to_value(body).map_err(|_| service_unavailable(context))?;
+    let claim = match prepare_mutation(
+        database,
+        context,
+        principal,
+        org_id,
+        key,
+        "POST",
+        BINDINGS_PATH,
+        &body_value,
+    )
+    .await?
+    {
+        PreparedMutation::Replay(success) => return Ok(replay_response(success)),
+        PreparedMutation::Claim(claim) => claim,
+    };
+    // The prepared claim is not written until commit. An identical retry can
+    // replay before evaluating state changed by its original successful commit.
+    if record.stage != "local_unmanaged"
+        || record.ownership != "local_unmanaged"
+        || record.bound_project_id.is_some()
+        || record.bound_device_id.is_some()
+        || body.credential_mode != "local_credential"
+    {
+        return Err(domain_error(
+            context,
+            ApiErrorCode::Conflict,
+            "adoption_rebind_not_allowed",
+            "Only an unbound local workspace can be rebound.",
+        ));
+    }
+    if version != record.version {
+        return Err(domain_error(
+            context,
+            ApiErrorCode::Conflict,
+            "version_conflict",
+            "The adoption changed. Refresh and try again.",
+        ));
+    }
+    let updated = AdoptionStateRecord {
+        bound_project_id: Some(project_id.to_owned()),
+        bound_device_id: Some(device_id.to_owned()),
+        version: version + 1,
+        updated_at: context.received_at.as_str().to_owned(),
+        ..record.clone()
+    };
+    let statements = vec![
+        repository
+            .assert_version_statement(&record.adoption_state_id, org_id, version)
+            .map_err(|error| database_error(context, error))?,
+        repository
+            .advance_statement(&AdvanceStageInput {
+                adoption_state_id: &record.adoption_state_id,
+                org_id,
+                stage: "local_unmanaged",
+                ownership: "local_unmanaged",
+                credential_mode: "local_credential",
+                bound_project_id: Some(project_id),
+                bound_device_id: Some(device_id),
+                client_protocol_major: record.client_protocol_major,
+                policy_schema_version: record.policy_schema_version,
+                client_app_version: &record.client_app_version,
+                now: context.received_at.as_str(),
+                expected_version: version,
+            })
+            .map_err(|error| database_error(context, error))?,
+        repository
+            .assert_live_binding_statement(&record.adoption_state_id, org_id, version + 1)
+            .map_err(|error| database_error(context, error))?,
+        repository
+            .insert_event_statement(&NewStageEventInput {
+                adoption_event_id: &generated_id("ase"),
+                org_id,
+                adoption_state_id: Some(&record.adoption_state_id),
+                device_id: Some(device_id),
+                actor_user_id: Some(principal.user_id.as_str()),
+                stage: "local_unmanaged",
+                result: crate::modules::migration::TelemetryResult::Completed.as_str(),
+                reason_code: None,
+                client_protocol_major: Some(record.client_protocol_major),
+                policy_schema_version: Some(record.policy_schema_version),
+                client_app_version: Some(&record.client_app_version),
+                now: context.received_at.as_str(),
+            })
+            .map_err(|error| database_error(context, error))?,
+        support_security_statement(
+            database,
+            context,
+            org_id,
+            principal,
+            "adoption.rebound",
+            "adoption",
+            &record.adoption_state_id,
+            &json!({"project_id": project_id, "device_id": device_id}),
+        )?,
+    ];
+    let event = outbox_statement(
+        database,
+        context,
+        Some(principal),
+        Some(org_id),
+        EVENT_ADOPTION_RECORDED,
+        &json!({"adoption_state_id": record.adoption_state_id,
+        "org_id": org_id, "stage": "local_unmanaged", "rebound": true}),
+    )?;
+    let success = StoredSuccess::new(200, binding_json(&updated))
+        .map_err(|_| service_unavailable(context))?;
+    if let Some(replay) =
+        commit_mutation(database, context, claim, success, statements, event).await?
+    {
+        return Ok(replay_response(replay));
+    }
+    Ok(Json(binding_json(&updated)).into_response())
+}
+
 /// Adopt one local workspace, or resume an adoption already in progress.
 ///
 /// Idempotent on the client's own external reference: a resumed wizard that
@@ -537,9 +725,25 @@ pub async fn record_adoption(
         .await
         .map_err(|error| database_error(&context, error))?
     {
+        if body.rebind_version.is_some() {
+            return rebind_local_adoption(AdoptionRebind {
+                state: &state,
+                context: &context,
+                headers: &headers,
+                principal: &access.principal,
+                org_id: &org_id,
+                key: &key,
+                body: &body,
+                record: &existing,
+            })
+            .await;
+        }
         // Resume, not re-adopt. Returning the existing record is what makes the
         // wizard resumable across a dropped response.
         return Ok((StatusCode::OK, Json(binding_json(&existing))).into_response());
+    }
+    if body.rebind_version.is_some() {
+        return Err(not_found(&context, "adoption_not_found"));
     }
 
     let body_value = serde_json::to_value(&body).map_err(|_| service_unavailable(&context))?;
@@ -697,7 +901,50 @@ pub async fn advance_adoption_stage(
 
     let database = database(&state, &context)?;
     let repository = AdoptionRepository::new(database);
+    // The record must exist in this organization before anything else is answered, so a
+    // replay is only ever served for a record the caller's organization still owns.
     let record = require_record(&context, &repository, &org_id, &adoption_state_id).await?;
+
+    // The completed-replay lookup comes BEFORE every check against the mutable current
+    // stage. A request that already committed must keep returning what it committed even
+    // after the row has moved on; judging it against today's stage would turn a safe retry
+    // into `migration_stage_invalid`. The lookup also settles key/body conflicts and an
+    // in-flight twin. It writes nothing: the claim is only a prepared statement that joins
+    // the commit batch, so a request refused below leaves no pending claim behind.
+    // The record id is part of the fingerprint because the scope path is a template: the
+    // same key and body sent to a different record must conflict, not replay.
+    let fingerprint_body = json!({
+        "adoption_state_id": adoption_state_id,
+        "request": serde_json::to_value(&body).map_err(|_| service_unavailable(&context))?,
+    });
+    let claim = match prepare_mutation(
+        database,
+        &context,
+        &access.principal,
+        &org_id,
+        &key,
+        "PATCH",
+        BINDING_PATH,
+        &fingerprint_body,
+    )
+    .await?
+    {
+        PreparedMutation::Replay(success) => return Ok(replay_response(success)),
+        PreparedMutation::Claim(claim) => claim,
+    };
+
+    // A new request must name the version the row holds right now. The projection below
+    // is derived from this read, so a guessed future version that a concurrent writer
+    // later reaches must never be accepted against a row this request did not see. The
+    // guard in the commit batch stays as the compare-and-set for the race after this read.
+    if record.version != body.version {
+        return Err(domain_error(
+            &context,
+            ApiErrorCode::Conflict,
+            "conflict",
+            "The request conflicts with current state.",
+        ));
+    }
     let current_stage =
         AdoptionStage::parse(&record.stage).ok_or_else(|| service_unavailable(&context))?;
     let current_ownership =
@@ -725,146 +972,177 @@ pub async fn advance_adoption_stage(
     // stable reason in `details.reason` is what the client acts on.
     .map_err(|error| adoption_failure(&context, error, ApiErrorCode::Conflict))?;
 
-    let body_value = serde_json::to_value(&body).map_err(|_| service_unavailable(&context))?;
-    let claim = match prepare_mutation(
-        database,
-        &context,
-        &access.principal,
-        &org_id,
-        &key,
-        "PATCH",
-        BINDING_PATH,
-        &body_value,
-    )
-    .await?
-    {
-        PreparedMutation::Replay(success) => return Ok(replay_response(success)),
-        PreparedMutation::Claim(claim) => claim,
-    };
-
     let guard = repository
         .assert_version_statement(&adoption_state_id, &org_id, body.version)
         .map_err(|error| database_error(&context, error))?;
     // The guard leads the batch so a stale writer aborts before any row moves.
     let mut statements = vec![guard];
-    let (status, change) = match transition {
-        StageTransition::Unchanged(stage) => {
-            // A credential-mode-only change still writes, because the wizard's
-            // "choose credential mode" step is its own request. The stage is
-            // unchanged and the version still moves, so a stale tab cannot
-            // re-assert an old mode.
-            (
-                200,
-                json!({
-                    "adoption_state_id": adoption_state_id,
-                    "org_id": org_id,
-                    "stage": stage.as_str(),
-                    "ownership": current_ownership.as_str(),
-                    "credential_mode": next_mode.as_str(),
-                    "unchanged_stage": true,
-                    "version": body.version + 1,
-                }),
-            )
-        }
-        StageTransition::Applied(change) => {
-            let update = repository
-                .advance_statement(&AdvanceStageInput {
-                    adoption_state_id: &adoption_state_id,
-                    org_id: &org_id,
-                    stage: change.to.as_str(),
-                    ownership: change.ownership.as_str(),
-                    credential_mode: change.credential_mode.as_str(),
-                    bound_project_id: record.bound_project_id.as_deref(),
-                    bound_device_id: record.bound_device_id.as_deref(),
-                    client_protocol_major: body
-                        .client_protocol_major
-                        .unwrap_or(record.client_protocol_major),
-                    policy_schema_version: body
-                        .policy_schema_version
-                        .unwrap_or(record.policy_schema_version),
-                    client_app_version: body
-                        .client_app_version
-                        .as_deref()
-                        .unwrap_or(&record.client_app_version),
-                    now: context.received_at.as_str(),
-                    expected_version: body.version,
-                })
-                .map_err(|error| database_error(&context, error))?;
-            statements.push(update);
-            (
-                200,
-                json!({
-                    "adoption_state_id": adoption_state_id,
-                    "org_id": org_id,
-                    "from_stage": change.from.as_str(),
-                    "stage": change.to.as_str(),
-                    "ownership": change.ownership.as_str(),
-                    "credential_mode": change.credential_mode.as_str(),
-                    "rolled_back": false,
-                    "version": body.version + 1,
-                }),
-            )
+    // The row this request writes, or `None` when it changes nothing: re-asserting the
+    // current stage with the current mode is a replay-safe no-op, not a version bump.
+    let write = stage_write(&transition, current_ownership, current_mode, next_mode);
+    // What the guarded batch leaves in D1. It is the stored response, so the first
+    // answer, the idempotent replay and a later GET are one projection of one row.
+    let projected = match write {
+        None => record.clone(),
+        Some((stage, ownership, mode)) => {
+            let client_protocol_major = body
+                .client_protocol_major
+                .unwrap_or(record.client_protocol_major);
+            let policy_schema_version = body
+                .policy_schema_version
+                .unwrap_or(record.policy_schema_version);
+            let client_app_version = body
+                .client_app_version
+                .as_deref()
+                .unwrap_or(&record.client_app_version);
+            statements.push(
+                repository
+                    .advance_statement(&AdvanceStageInput {
+                        adoption_state_id: &adoption_state_id,
+                        org_id: &org_id,
+                        stage,
+                        ownership,
+                        credential_mode: mode,
+                        bound_project_id: record.bound_project_id.as_deref(),
+                        bound_device_id: record.bound_device_id.as_deref(),
+                        client_protocol_major,
+                        policy_schema_version,
+                        client_app_version,
+                        now: context.received_at.as_str(),
+                        expected_version: body.version,
+                    })
+                    .map_err(|error| database_error(&context, error))?,
+            );
+            AdoptionStateRecord {
+                stage: stage.to_owned(),
+                ownership: ownership.to_owned(),
+                credential_mode: mode.to_owned(),
+                client_protocol_major,
+                policy_schema_version,
+                client_app_version: client_app_version.to_owned(),
+                ..after_write(&record, body.version, context.received_at.as_str())
+            }
         }
     };
-    statements.push(
+    let outbox = if write.is_none() {
+        // Nothing changed, so nothing is announced: no stage event, audit row or outbox
+        // event. The commit helper still wants a statement in the outbox slot, so the
+        // version guard is asserted a second time. It writes nothing when it holds.
         repository
-            .insert_event_statement(&NewStageEventInput {
-                adoption_event_id: &generated_id("ase"),
-                org_id: &org_id,
-                adoption_state_id: Some(&adoption_state_id),
-                device_id: record.bound_device_id.as_deref(),
-                actor_user_id: Some(access.principal.user_id.as_str()),
-                stage: requested.as_str(),
-                result: crate::modules::migration::TelemetryResult::Completed.as_str(),
-                reason_code: None,
-                client_protocol_major: body.client_protocol_major,
-                policy_schema_version: body.policy_schema_version,
-                client_app_version: body.client_app_version.as_deref(),
-                now: context.received_at.as_str(),
-            })
-            .map_err(|error| database_error(&context, error))?,
-    );
-    statements.push(support_security_statement(
-        database,
-        &context,
-        &org_id,
-        &access.principal,
-        "adoption.stage_changed",
-        "adoption",
-        &adoption_state_id,
-        &json!({ "from": record.stage, "to": requested.as_str() }),
-    )?);
-    let outbox = outbox_statement(
-        database,
-        &context,
-        Some(&access.principal),
-        Some(&org_id),
-        EVENT_ADOPTION_STAGE_CHANGED,
-        &json!({
-            "adoption_state_id": adoption_state_id,
-            "org_id": org_id,
-            "from_stage": record.stage,
-            "to_stage": requested.as_str(),
-        }),
-    )?;
-    let success = StoredSuccess::new(status, change).map_err(|_| service_unavailable(&context))?;
+            .assert_version_statement(&adoption_state_id, &org_id, body.version)
+            .map_err(|error| database_error(&context, error))?
+    } else {
+        statements.push(
+            repository
+                .insert_event_statement(&NewStageEventInput {
+                    adoption_event_id: &generated_id("ase"),
+                    org_id: &org_id,
+                    adoption_state_id: Some(&adoption_state_id),
+                    device_id: record.bound_device_id.as_deref(),
+                    actor_user_id: Some(access.principal.user_id.as_str()),
+                    stage: requested.as_str(),
+                    result: crate::modules::migration::TelemetryResult::Completed.as_str(),
+                    reason_code: None,
+                    client_protocol_major: body.client_protocol_major,
+                    policy_schema_version: body.policy_schema_version,
+                    client_app_version: body.client_app_version.as_deref(),
+                    now: context.received_at.as_str(),
+                })
+                .map_err(|error| database_error(&context, error))?,
+        );
+        // Labels only. The credential mode is a frozen three-value label and never a
+        // secret, and `stage_changed` is false for a credential-mode-only change.
+        let stage_changed = record.stage != requested.as_str();
+        statements.push(support_security_statement(
+            database,
+            &context,
+            &org_id,
+            &access.principal,
+            "adoption.stage_changed",
+            "adoption",
+            &adoption_state_id,
+            &json!({
+                "from": record.stage,
+                "to": requested.as_str(),
+                "from_credential_mode": current_mode.as_str(),
+                "to_credential_mode": next_mode.as_str(),
+                "stage_changed": stage_changed,
+            }),
+        )?);
+        outbox_statement(
+            database,
+            &context,
+            Some(&access.principal),
+            Some(&org_id),
+            EVENT_ADOPTION_STAGE_CHANGED,
+            &json!({
+                "adoption_state_id": adoption_state_id,
+                "org_id": org_id,
+                "from_stage": record.stage,
+                "to_stage": requested.as_str(),
+                "from_credential_mode": current_mode.as_str(),
+                "to_credential_mode": next_mode.as_str(),
+                "stage_changed": stage_changed,
+            }),
+        )?
+    };
+    let success = StoredSuccess::new(200, binding_json(&projected))
+        .map_err(|_| service_unavailable(&context))?;
+    // The committed answer is exactly what the transaction stored. It is not re-read:
+    // a mutation by another writer between this commit and a read would make the first
+    // response describe a newer version than the one a replay of this key returns.
+    // A later GET may legitimately be newer; this response is the version this request
+    // produced.
+    let committed = success.clone();
     if let Some(replay) =
         commit_mutation(database, &context, claim, success, statements, outbox).await?
     {
         return Ok(replay_response(replay));
     }
-    let updated = repository
-        .find_by_id(&adoption_state_id, &org_id)
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    Ok((
-        status_code(status),
-        Json(updated.as_ref().map_or_else(
-            || json!({ "adoption_state_id": adoption_state_id }),
-            binding_json,
+    Ok(replay_response(committed))
+}
+
+/// The stage, ownership and credential mode a PATCH leaves in D1, or `None` when it
+/// changes nothing.
+///
+/// A credential-mode-only change writes, because the wizard's "choose credential mode"
+/// step is its own request: the stage is unchanged and the version still moves, so a
+/// stale tab cannot re-assert an old mode. Re-asserting the current stage with the
+/// current mode writes nothing, so a resumed wizard is safe to replay.
+fn stage_write(
+    transition: &StageTransition,
+    current_ownership: Ownership,
+    current_mode: CredentialMode,
+    next_mode: CredentialMode,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    match transition {
+        StageTransition::Unchanged(_) if next_mode == current_mode => None,
+        StageTransition::Unchanged(stage) => Some((
+            stage.as_str(),
+            current_ownership.as_str(),
+            next_mode.as_str(),
         )),
-    )
-        .into_response())
+        StageTransition::Applied(change) => Some((
+            change.to.as_str(),
+            change.ownership.as_str(),
+            change.credential_mode.as_str(),
+        )),
+    }
+}
+
+/// The row after the guarded `UPDATE`: the version moves by one and `updated_at` is the
+/// request time, exactly what `UPDATE_ADOPTION_STAGE_SQL` stores. Everything the
+/// statement does not touch (bindings, reversion count, creation time) is carried over.
+fn after_write(
+    record: &AdoptionStateRecord,
+    expected_version: i64,
+    now: &str,
+) -> AdoptionStateRecord {
+    AdoptionStateRecord {
+        version: expected_version + 1,
+        updated_at: now.to_owned(),
+        ..record.clone()
+    }
 }
 
 /// Return one adopted workspace to unmanaged local operation.
@@ -1517,10 +1795,6 @@ fn page_limit(requested: Option<i64>, ceiling: usize) -> i64 {
     }
 }
 
-fn status_code(status: u16) -> StatusCode {
-    StatusCode::from_u16(status).unwrap_or(StatusCode::OK)
-}
-
 fn database_error(context: &RequestContext, error: worker::Error) -> ApiError {
     crate::routes::support::database_error(context, error)
 }
@@ -1583,4 +1857,183 @@ fn adoption_failure(
         AdoptionError::ImportTooLarge => "Too many automations were supplied.",
     };
     errors::api_error(context, code, message).with_detail("reason", json!(error.code()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn applied(to: AdoptionStage, ownership: Ownership, mode: CredentialMode) -> StageTransition {
+        StageTransition::Applied(crate::modules::migration::AdoptionChange {
+            from: AdoptionStage::AccountOptional,
+            to,
+            ownership,
+            credential_mode: mode,
+            rolled_back: false,
+        })
+    }
+
+    #[test]
+    fn a_mode_only_change_writes_the_current_stage_with_the_new_mode() {
+        let transition = StageTransition::Unchanged(AdoptionStage::AccountOptional);
+        let write = stage_write(
+            &transition,
+            Ownership::LocalUnmanaged,
+            CredentialMode::LocalCredential,
+            CredentialMode::MetadataOnly,
+        );
+        assert_eq!(
+            write,
+            Some(("account_optional", "local_unmanaged", "metadata_only"))
+        );
+    }
+
+    #[test]
+    fn a_same_mode_reassertion_writes_nothing() {
+        for mode in [
+            CredentialMode::LocalCredential,
+            CredentialMode::MetadataOnly,
+            CredentialMode::OrgManagedCredential,
+        ] {
+            let transition = StageTransition::Unchanged(AdoptionStage::WorkspaceBound);
+            assert_eq!(
+                stage_write(&transition, Ownership::OrgManaged, mode, mode),
+                None,
+                "{mode:?} re-asserted on the current stage must not write"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stage_step_writes_the_target_stage_ownership_and_mode() {
+        let transition = applied(
+            AdoptionStage::WorkspaceBound,
+            Ownership::OrgManaged,
+            CredentialMode::MetadataOnly,
+        );
+        let write = stage_write(
+            &transition,
+            Ownership::LocalUnmanaged,
+            CredentialMode::MetadataOnly,
+            CredentialMode::MetadataOnly,
+        );
+        assert_eq!(
+            write,
+            Some(("workspace_bound", "org_managed", "metadata_only"))
+        );
+    }
+
+    #[test]
+    fn the_projection_of_a_write_moves_only_the_version_and_the_timestamp() {
+        let record = AdoptionStateRecord {
+            adoption_state_id: "wst_0".to_owned(),
+            org_id: "org_0".to_owned(),
+            external_installation_id: "inst".to_owned(),
+            external_workspace_key: "key".to_owned(),
+            display_name: "name".to_owned(),
+            bound_project_id: None,
+            bound_device_id: None,
+            stage: "account_optional".to_owned(),
+            ownership: "local_unmanaged".to_owned(),
+            credential_mode: "local_credential".to_owned(),
+            rolled_back_from_stage: None,
+            client_protocol_major: 1,
+            policy_schema_version: 1,
+            client_app_version: "1.0.0".to_owned(),
+            reversion_count: 0,
+            version: 2,
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+        };
+        let projected = after_write(&record, 2, "2026-02-02T00:00:00Z");
+        assert_eq!(projected.version, 3);
+        assert_eq!(projected.updated_at, "2026-02-02T00:00:00Z");
+        // Nothing else moves, including the credential mode: the caller sets that.
+        let expected = AdoptionStateRecord {
+            version: 3,
+            updated_at: "2026-02-02T00:00:00Z".to_owned(),
+            ..record.clone()
+        };
+        assert_eq!(binding_json(&projected), binding_json(&expected));
+        // The stored body is the record projection itself, so a replay is byte-identical.
+        let body = binding_json(&projected);
+        let stored = StoredSuccess::new(200, body.clone()).expect("a record is a valid body");
+        assert_eq!(stored.body, body);
+        assert_eq!(body["version"], 3);
+    }
+
+    /// Polls a future that never yields. The bodies below are in memory, so they resolve
+    /// on the first poll; the loop is only here so a regression hangs visibly.
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let mut future = Box::pin(future);
+        loop {
+            if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut context) {
+                return value;
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    fn response_bytes(success: StoredSuccess) -> (u16, Vec<u8>) {
+        let response = replay_response(success);
+        let status = response.status().as_u16();
+        let bytes = block_on(axum::body::to_bytes(response.into_body(), 64 * 1024))
+            .expect("an in-memory body reads");
+        (status, bytes.to_vec())
+    }
+
+    /// The first answer is the stored success served through the replay path, so it can
+    /// only ever describe the version this request committed. A newer row, which another
+    /// writer may produce after the commit, is not an input to it.
+    #[test]
+    fn the_first_response_is_the_committed_projection_even_when_a_newer_row_exists() {
+        let committed_row = AdoptionStateRecord {
+            adoption_state_id: "wst_0".to_owned(),
+            org_id: "org_0".to_owned(),
+            external_installation_id: "inst".to_owned(),
+            external_workspace_key: "key".to_owned(),
+            display_name: "name".to_owned(),
+            bound_project_id: None,
+            bound_device_id: None,
+            stage: "account_optional".to_owned(),
+            ownership: "local_unmanaged".to_owned(),
+            credential_mode: "metadata_only".to_owned(),
+            rolled_back_from_stage: None,
+            client_protocol_major: 1,
+            policy_schema_version: 1,
+            client_app_version: "1.0.0".to_owned(),
+            reversion_count: 0,
+            version: 3,
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-02-02T00:00:00Z".to_owned(),
+        };
+        let stored = StoredSuccess::new(200, binding_json(&committed_row)).expect("valid body");
+        // What the transaction stores and what the route answers with are one value.
+        let committed = stored.clone();
+
+        // A concurrent writer then moves the row on. The GET a client issues next may
+        // legitimately show it; the committed response must not.
+        let newer = AdoptionStateRecord {
+            credential_mode: "local_credential".to_owned(),
+            ..after_write(&committed_row, 3, "2026-03-03T00:00:00Z")
+        };
+        assert_eq!(binding_json(&newer)["version"], 4);
+
+        let first = response_bytes(committed);
+        let replay = response_bytes(stored);
+        assert_eq!(
+            first, replay,
+            "the first response and a replay are the same bytes"
+        );
+        assert_eq!(first.0, 200);
+        let body: Value = serde_json::from_slice(&first.1).expect("a JSON body");
+        assert_eq!(body["version"], 3);
+        assert_eq!(body["credential_mode"], "metadata_only");
+        assert_ne!(
+            body,
+            binding_json(&newer),
+            "a newer row does not leak into the response"
+        );
+    }
 }

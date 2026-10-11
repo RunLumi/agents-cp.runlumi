@@ -1,0 +1,29 @@
+{
+  "verdict": "PASS",
+  "scope": "retained actual Worker/D1 settlement and policy correlation only; whole harness FAIL remains",
+  "source_run": "scheduler-policy-ready",
+  "parent_base_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "client_base_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "both_dirty": true,
+  "observations": [
+    {
+      "occurrence_id": "occ_7bc26df08a371231e6b4d30e3fe8c452",
+      "org_id": "org_550a04df6c360d9d8fcf376904567aac",
+      "occurrence_state": "succeeded",
+      "policy_snapshot_id": "pol_a140e99f426f4829a0afcbb95d76725b",
+      "policy_version": 3,
+      "run_id": "run_a33529d0586f43eda65ca42fc1cd789e",
+      "run_state": "succeeded",
+      "run_policy_snapshot_id": "pol_a140e99f426f4829a0afcbb95d76725b",
+      "run_policy_version": 3,
+      "lease_id": "lse_f64f359489d5421ab64679723ab7b6ee",
+      "device_id": "dvc_d2aaf47d6baa439ba5ceab96e1d48093",
+      "link_state": "settled",
+      "attempt_outcomes": [
+        "claimed",
+        "started",
+        "succeeded"
+      ]
+    }
+  ]
+}

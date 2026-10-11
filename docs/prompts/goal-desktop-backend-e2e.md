@@ -97,6 +97,14 @@ resume checkpoint before interruption/compaction and revalidate state on resume.
   provider credentials. Test ZCode-only, Lumi-only, both accounts and neither.
   Preserve local BYOK/provider selection under the frozen organization policy.
 
+  Updated product decision (2026-10-08): Lumi Agents sign-in is the primary
+  startup/account entry; temporarily hide z.ai/BigModel OAuth choices from
+  onboarding and general account entry. Preserve underlying provider auth and
+  existing credentials; explicit provider configuration and BYOK remain separate.
+  Offer explicit local/offline continuation. Verify restored Lumi session,
+  signed-out startup, failed/cancelled login and old ZCode/BYOK state without
+  silently enrolling devices, adopting workspaces or erasing provider credentials.
+
 - Launch the real desktop using an isolated copy of representative pre-org
   state. Open an existing workspace/session without an account or network.
 - Add optional sign-in using the supported backend authentication contract and

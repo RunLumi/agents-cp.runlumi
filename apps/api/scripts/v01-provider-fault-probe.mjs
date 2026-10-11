@@ -50,20 +50,21 @@ await runProbe("V01 provider-http-faults", async (probe) => {
   const server = createServer((req, res) => {
     const path = (req.url ?? "/").split("?")[0];
     bump(path);
+    const scenario = path.match(/^\/v1\/(ok|429|503|malformed)\/v1\/chat\/completions$/)?.[1];
     // A provider base URL carries a path, so the dispatcher appends the completions path to
     // it. Anything that is not one of the four routes is recorded and refused, so a request
     // to an unexpected path cannot pass unnoticed.
-    if (path === "/v1/429") {
+    if (scenario === "429") {
       res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "1" });
       res.end(JSON.stringify({ error: { message: "local rate limit", type: "rate_limit" } }));
       return;
     }
-    if (path === "/v1/503") {
+    if (scenario === "503") {
       res.writeHead(503, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: { message: "local server error" } }));
       return;
     }
-    if (path === "/v1/malformed") {
+    if (scenario === "malformed") {
       // A 200 whose body is recognisably wrong: a `data:` frame that is not JSON, then a bare
       // line that is not SSE at all, then a well-formed terminator. A parser that is lenient
       // will accept this as content, and that is the defect this case looks for.
@@ -74,7 +75,7 @@ await runProbe("V01 provider-http-faults", async (probe) => {
       res.end();
       return;
     }
-    if (path === "/v1/ok") {
+    if (scenario === "ok") {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.write(
         'data: {"id":"local-ok","model":"local-ok","choices":[{"delta":{"content":"local ok"}}]}\n\n',
@@ -315,7 +316,8 @@ await runProbe("V01 provider-http-faults", async (probe) => {
       result?.payload?.error?.request_id ??
       ((result?.text ?? "").match(/"id":\s*"(req_[0-9a-f]{32})"/) ?? [])[1] ??
       null;
-    const callsFor = (name) => calls.get(`/v1/${name}`) ?? 0;
+    const callsFor = (name) => calls.get(`/v1/${name}/v1/chat/completions`) ?? 0;
+    const allCalls = () => [...calls.values()].reduce((total, count) => total + count, 0);
 
     const ask = async (alias, { stream = false, label } = {}) => {
       const result = await request(
@@ -351,14 +353,37 @@ await runProbe("V01 provider-http-faults", async (probe) => {
         continue;
       }
       const before = callsFor("ok");
+      const beforeAll = allCalls();
       const result = await ask(candidate.alias, { label: `control-ok-${host}` });
       const calls = callsFor("ok") - before;
-      reachability.push(`${host}: http=${result.status} server_calls=${calls}`);
-      console.log(`  reachability via ${host}: http=${result.status} server_calls=${calls}`);
-      if (calls >= 1) {
+      const anyCalls = allCalls() - beforeAll;
+      const reason = result.payload?.error?.details?.reason ?? "none";
+      reachability.push(
+        `${host}: http=${result.status} expected_calls=${calls} all_calls=${anyCalls} reason=${reason}`,
+      );
+      console.log(
+        `  reachability via ${host}: http=${result.status} expected_calls=${calls} all_calls=${anyCalls} reason=${reason}`,
+      );
+      if (anyCalls > calls) {
+        probe.fail(
+          "provider probe received an unexpected request path",
+          "count every incoming path before interpreting absence",
+        );
+        probe.finish(1, "the fixture path is incompatible; this is not a network blocker");
+        return;
+      }
+      if (calls >= 1 && result.status === 200 && result.text.includes("local ok")) {
         okRoute = candidate;
         reachable = host;
         break;
+      }
+      if (calls > 0) {
+        probe.fail(
+          "reachable provider positive control returned no usable response",
+          `http=${result.status} reason=${reason}`,
+        );
+        probe.finish(1, "HTTP reached the fixture but healthy control failed");
+        return;
       }
     }
 
@@ -415,9 +440,8 @@ await runProbe("V01 provider-http-faults", async (probe) => {
               .split("\n")
               .map((l) => `    ${l.slice(0, 200)}`)
               .join("\n")}`
-          : "  the Worker logged NO cause for the failed dispatch. providers.rs maps every\n" +
-              "  fetch error to transport_error(); V01-010 makes it log, and this run was built\n" +
-              "  before that fix reached the binary, so its absence here is expected.",
+          : "  No provider_dispatch_failed line was observed; absence alone cannot locate the failure.\n" +
+              "  The per-host API reason and complete server request tally above are the current evidence.",
       );
       probe.finish(
         2,

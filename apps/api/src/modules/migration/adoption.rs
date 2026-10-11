@@ -164,9 +164,9 @@ pub enum CredentialMode {
     /// The local key never leaves the machine. This is the default and the only
     /// mode available without an explicit choice.
     LocalCredential,
-    /// The control plane holds a provider identifier and a fingerprint. Nothing
-    /// retrievable. Useful for showing "this workspace uses a key you already
-    /// have" without copying it.
+    /// A label only: this workspace is marked as keeping its own key. P08 stores no
+    /// provider identifier, no fingerprint and no secret, and nothing about the key is
+    /// sent. See P08-CR-003.
     MetadataOnly,
     /// The user explicitly asked for the secret to be copied into the P04
     /// credential store. The secret itself is a `credentials` row; this is only
@@ -448,7 +448,10 @@ pub fn apply_stage(
 /// of the decision while the local state — which the server never owned and
 /// never modified — stays exactly as it was.
 pub fn rollback(current: &AdoptionState) -> Result<AdoptionChange, AdoptionError> {
-    if current.stage == AdoptionStage::LocalUnmanaged {
+    if current.stage == AdoptionStage::LocalUnmanaged
+        && current.bound_project_id.is_none()
+        && current.bound_device_id.is_none()
+    {
         return Err(AdoptionError::AlreadyLocal);
     }
     Ok(AdoptionChange {

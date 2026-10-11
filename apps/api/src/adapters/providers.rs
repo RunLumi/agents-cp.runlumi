@@ -156,7 +156,33 @@ fn translate_openai_message(message: &InferenceMessage) -> Result<Value, Adapter
     if text.len() > 256 * 1024 {
         return Err(invalid_request());
     }
-    Ok(json!({ "role": role, "content": text }))
+    if message.tool_call_id.is_some() != (message.role == MessageRole::Tool)
+        || (!message.tool_calls.is_empty() && message.role != MessageRole::Assistant)
+    {
+        return Err(invalid_request());
+    }
+    let mut value = json!({ "role": role, "content": text });
+    if !message.tool_calls.is_empty() {
+        // OpenAI-compatible assistants send null content with their calls.
+        if text.is_empty() {
+            value["content"] = Value::Null;
+        }
+        value["tool_calls"] = message
+            .tool_calls
+            .iter()
+            .map(|call| {
+                json!({
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                })
+            })
+            .collect();
+    }
+    if let Some(tool_call_id) = &message.tool_call_id {
+        value["tool_call_id"] = json!(tool_call_id);
+    }
+    Ok(value)
 }
 
 pub fn translate_anthropic_request(
@@ -165,6 +191,19 @@ pub fn translate_anthropic_request(
 ) -> Result<String, AdapterError> {
     let mut system = Vec::new();
     let mut messages = Vec::new();
+    // This adapter flattens turns to text. Dropping a tool turn would send the
+    // provider a conversation that never happened, so refuse it.
+    if request
+        .messages
+        .iter()
+        .any(|message| !message.tool_calls.is_empty() || message.tool_call_id.is_some())
+    {
+        return Err(AdapterError {
+            kind: AdapterErrorKind::UnsupportedCapability,
+            retryable: false,
+            status_code: None,
+        });
+    }
     for message in &request.messages {
         let text = message
             .content
@@ -252,6 +291,7 @@ pub fn validate_endpoint_url(
                 endpoint,
                 "mock://lumi-fail"
                     | "mock://lumi-success"
+                    | "mock://lumi-tool"
                     | "mock://lumi-post-output-failure"
                     | "mock://lumi-timeout"
             ) {
@@ -368,6 +408,32 @@ fn provider_dispatch_failure_message(url: &str, error: &worker::Error) -> String
     format!("provider_dispatch_failed: endpoint={url} error={error:?}")
 }
 
+/// The provider request, with redirects handed back instead of followed.
+///
+/// `RequestRedirect::Error` is not usable: workerd refuses to construct a request with
+/// `redirect: "error"` ("won't be implemented since it does not make sense at the edge; use
+/// "manual" and check the response status code"), so every dispatch failed before any I/O
+/// (workerd 1.20260921.1; see `docs/verification/runs/2026-10-07-desktop-managed-e2e/
+/// provider-http-platform-handoff.md`). `Manual` returns the 3xx unfollowed and
+/// `refuse_redirect` turns it into a terminal error, so no second hop is ever dialled and the
+/// credential header is never replayed to a `Location` target. Never `Follow`.
+fn no_follow_init() -> RequestInit {
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post);
+    init.with_redirect(RequestRedirect::Manual);
+    init
+}
+
+/// A 3xx from a provider is a refusal, not a hop: non-retryable (a retry would hit the same
+/// redirect and re-send the credential), and with no upstream detail attached.
+fn refuse_redirect(status: u16) -> Option<AdapterError> {
+    (300..400).contains(&status).then_some(AdapterError {
+        kind: AdapterErrorKind::InvalidResponse,
+        retryable: false,
+        status_code: Some(status),
+    })
+}
+
 fn transport_error() -> AdapterError {
     AdapterError {
         kind: AdapterErrorKind::ConnectionFailed,
@@ -431,23 +497,23 @@ pub async fn dispatch(
             .set("x-lumi-request-id", request_id)
             .map_err(|_| transport_error())?;
     }
-    let mut init = RequestInit::new();
-    init.with_method(Method::Post);
-    init.with_redirect(RequestRedirect::Error);
+    let mut init = no_follow_init();
     init.with_headers(headers);
     init.with_body(Some(JsValue::from_str(&body)));
+    let outbound_request = Request::new_with_init(&url, &init).map_err(|error| {
+        // Logged for the same reason as the send arm below: workerd rejects an unsupported
+        // `redirect` value here, before any I/O, and the bare `|_|` hid that for a whole round.
+        worker::console_error!("{}", provider_dispatch_failure_message(&url, &error));
+        transport_error()
+    })?;
     let timeout = timeout_signal(caller_signal, timeout_ms).ok();
     let response_result = match timeout.as_ref() {
         Some(signal) => {
-            Fetch::Request(Request::new_with_init(&url, &init).map_err(|_| transport_error())?)
+            Fetch::Request(outbound_request)
                 .send_with_signal(signal)
                 .await
         }
-        None => {
-            Fetch::Request(Request::new_with_init(&url, &init).map_err(|_| transport_error())?)
-                .send()
-                .await
-        }
+        None => Fetch::Request(outbound_request).send().await,
     };
     let mut response = match response_result {
         Ok(response) => response,
@@ -475,6 +541,10 @@ pub async fn dispatch(
         }
     };
     let status = response.status_code();
+    if let Some(refusal) = refuse_redirect(status) {
+        // The `Location` header is deliberately never read, logged or followed.
+        return Err(refusal);
+    }
     if !(200..300).contains(&status) {
         return Err(normalize_adapter_error(status, ""));
     }
@@ -643,6 +713,24 @@ fn mock_dispatch(
             status_code: None,
         });
     }
+    if super::mock_tool::selected(endpoint, provider_model_id) {
+        let turn = super::mock_tool::plan_turn(request);
+        let chunks = if request.stream {
+            super::mock_tool::stream_chunks(&turn)
+        } else {
+            vec![super::mock_tool::json_body(&turn)]
+        };
+        return Ok(ProviderDispatch {
+            status_code: 200,
+            content_type: Some(if request.stream {
+                "text/event-stream".to_owned()
+            } else {
+                "application/json".to_owned()
+            }),
+            provider_request_id: Some("mock-tool".to_owned()),
+            stream: futures_util::stream::iter(chunks.into_iter().map(Ok)).boxed(),
+        });
+    }
     let post_output_failure = endpoint == "mock://lumi-post-output-failure"
         || provider_model_id == "mock-post-output-failure";
     if endpoint != "mock://lumi-success"
@@ -785,6 +873,31 @@ mod tests {
     }
 
     #[test]
+    fn provider_requests_use_the_manual_redirect_mode_workerd_accepts() {
+        // workerd rejects "error" at construction; "follow" would replay the credential.
+        // `no_follow_init` builds a web-sys `RequestInit` (`RequestInit::new` imports JS glue
+        // and panics off wasm), so it is not called natively. This proves the enum value the
+        // adapter passes serialises to the mode workerd accepts; that `no_follow_init` passes
+        // it, and that construction succeeds, is covered by the egress_corpus source scan and
+        // the unflagged Worker probe.
+        assert_eq!(<&str>::from(RequestRedirect::Manual), "manual");
+        assert_ne!(<&str>::from(RequestRedirect::Error), "manual");
+    }
+
+    #[test]
+    fn every_3xx_is_a_terminal_refusal_and_other_statuses_are_untouched() {
+        for status in [300, 301, 302, 303, 307, 308, 399] {
+            let refusal = refuse_redirect(status).expect("a 3xx is refused");
+            assert_eq!(refusal.kind, AdapterErrorKind::InvalidResponse);
+            assert!(!refusal.retryable, "{status} must not be retried");
+            assert_eq!(refusal.status_code, Some(status));
+        }
+        for status in [200, 204, 299, 400, 429, 503] {
+            assert!(refuse_redirect(status).is_none(), "{status}");
+        }
+    }
+
+    #[test]
     fn anthropic_stream_events_are_normalized_without_provider_text_leakage() {
         let text = translate_anthropic_event(
             "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}",
@@ -831,6 +944,31 @@ mod tests {
             serde_json::from_str(rendered.trim_start_matches("data: ")).expect("a json frame");
         assert_eq!(parsed["error"]["code"], "upstream_invalid_response");
         assert!(parsed["error"].get("message").is_none());
+    }
+
+    #[test]
+    fn anthropic_translation_refuses_tool_turns_instead_of_dropping_them() {
+        let mut request = InferenceRequest {
+            model: "m".to_owned(),
+            messages: vec![InferenceMessage::user("hello")],
+            required_capabilities: Vec::new(),
+            stream: true,
+            max_output_tokens: None,
+            temperature: None,
+            tools: Vec::new(),
+            retry_safe: true,
+            project_id: None,
+            session_id: None,
+            run_id: None,
+        };
+        assert!(translate_anthropic_request(&request, "p").is_ok());
+        request.messages[0].tool_call_id = Some("call_1".to_owned());
+        assert_eq!(
+            translate_anthropic_request(&request, "p").unwrap_err().kind,
+            AdapterErrorKind::UnsupportedCapability
+        );
+        // The OpenAI-compatible serializer also refuses a misplaced tool id.
+        assert!(translate_openai_request(&request, "p").is_err());
     }
 
     #[test]

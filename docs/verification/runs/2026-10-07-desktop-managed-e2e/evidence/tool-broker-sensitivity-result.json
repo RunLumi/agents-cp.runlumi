@@ -1,0 +1,9 @@
+{
+  "scope": "DeviceToken loopback transport binding, not full Electron tool effects",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "mutation": "omit only run ID binding predicate; valid positive HTTP control still executes",
+  "source_unchanged": true,
+  "source_sha256": "b6ceac5f66261ee6aef75c612e7b4035172cf18a9ff56c22617c8cb4b1ba2dc8"
+}

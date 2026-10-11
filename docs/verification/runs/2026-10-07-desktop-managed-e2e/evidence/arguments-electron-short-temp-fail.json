@@ -1,0 +1,18 @@
+{
+  "verdict": "BLOCKED",
+  "control_plane_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "lumi_agents_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "control_plane_dirty": true,
+  "lumi_agents_dirty": true,
+  "desktop_assertions": [],
+  "worker_assertions": [
+    "fresh D1 applies the full migration ledger"
+  ],
+  "observation_retries": [],
+  "screenshots": [
+    "authenticated.png",
+    "workspace-selection.png",
+    "workspace-bound-local-stage.png",
+    "managed-run-response.png"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "claim": "Main activation and Host bridge preserve active stop authority; proven terminal or matching stop ACK frees bounded slot",
+  "verdict": "PASS",
+  "scope": "48 in-process behavioral tests; not actual Electron in-flight tool proof",
+  "parent_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "client_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "parent_dirty": true,
+  "client_dirty": true,
+  "runtime": "Node24",
+  "lint": "four files 0 warnings/errors",
+  "log": "/Volumes/SSD/agents-cp.runlumi/test-results/stop-retirement-independent-joined.log",
+  "log_sha256": "a1f6f6053edc4ad47c34fadd5dde1e782ccc9efffffa892dd4b7617ef4f1a42c",
+  "source_sha256": {
+    "packages/desktop/src/main/lumiManagedAutomationActivation.ts": "09cebfccae4bc09a070081d843a10f657f1be1ece3e0c88aaae49c3c8550953e",
+    "packages/desktop/src/main/lumiManagedAutomationAssembly.ts": "9e5d780c29f2185c157d2bcaff66700b9d1ddb3189a41df6e340074821e6bb30",
+    "packages/desktop/src/main/lumiManagedAutomationHostBridge.ts": "2b3feba4359027c569cff84d82c24fb19c03310e3954e4e070aa3bc81f753ef6",
+    "packages/desktop/src/main/lumiManagedAutomationRetirement.test.ts": "34ae9d26cfd4ebf10b39b4eee09f53d11ede6d98c177e1fca298765a4ddea036"
+  },
+  "remaining": "Unconfirmed stop followed by terminal after lease removal retains slot until restart; actual Electron tool stop remains UNPROVEN"
+}

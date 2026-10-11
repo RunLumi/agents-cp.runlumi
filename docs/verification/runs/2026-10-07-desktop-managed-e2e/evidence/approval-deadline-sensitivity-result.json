@@ -1,0 +1,9 @@
+{
+  "scope": "actual Core timed executor managed-wait budget tests, not full Electron mutation",
+  "mutation": "omit depth-counted managed admission/report pause and resume",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "source_unchanged": true,
+  "source_sha256": "e7066559847fabd2dc94304c310c67b88ccddcc30983b10c946bf532c2eaa61c"
+}

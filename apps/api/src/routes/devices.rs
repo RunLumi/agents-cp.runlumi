@@ -1633,7 +1633,11 @@ pub async fn delete_device_binding(
             )
         })?;
     let deleted = projects
-        .delete_binding(&binding.binding_id, &binding.project_id)
+        .delete_binding(
+            &binding.binding_id,
+            &binding.project_id,
+            &context.received_at,
+        )
         .await
         .map_err(|error| database_error(&context, error))?;
     if !deleted {

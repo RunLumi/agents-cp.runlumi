@@ -3,19 +3,12 @@
 Generated from `apps/api/migrations/`. `security::release_docs` asserts this file
 names every migration in apply order, so it cannot fall behind the schema.
 
-**25 migrations · 109 tables · 197 indexes · 73 triggers** (final state).
+**28 migrations · 109 user tables · 197 explicit indexes · 76 triggers.**
 
-Final state means the `sqlite_master` table, index and trigger counts after applying all 25
-migrations in order to an empty in-memory SQLite database (measured independently on
-2026-10-09; the log is `recovery-candidate-schema-independent.log`). The per-migration columns
-in [The table](#the-table) are different: they count the `CREATE` statements each migration
-authors, so a rebuilt or recreated object is not a net addition. They are not re-measured
-here, and summing them (leaving out the rebuilt and recreated figures in `0021` and `0022`)
-gives 112 tables, 202 indexes and 73 triggers, so the Tables and
-Indexes columns do **not** reconcile with the final-state counts above (3 tables, 5 indexes).
-The earlier headline of 111 tables and 200 indexes equals the column sums through `0019`; it
-was not a final-state count. The gap has not been investigated, so treat the per-migration
-Tables and Indexes figures as unreconciled.
+Counts are measured by applying the full ledger to SQLite and reading
+sqlite_master, excluding sqlite_% objects. Earlier headline counts used a
+different/unverified convention; migration names and executable schema remain
+authoritative.
 
 ## Why the trigger count is the headline
 
@@ -23,7 +16,7 @@ An invariant enforced only in application code is one code path away from being
 bypassed by a migration, a script, a console session, or a future packet. A trigger
 is the only thing that still holds when nobody remembers the Rust.
 
-That is what the 73 triggers are for, and why the schema harness
+That is what the 76 triggers are for, and why the schema harness
 (`apps/api/scripts/p07-schema-invariants.mjs`) asserts each one is **rejected by
 the database** rather than by a code path. The shape of those invariants:
 
@@ -177,7 +170,6 @@ explicitly so the gap cannot reopen unnoticed.
 | `0022_p07_staff_actor_type.sql` | 0 (1 rebuilt) | 4 (recreated) | 2 (recreated) | **P07 correction.** Rebuilds `security_events` with `actor_type` extended to name `staff`, the third actor kind from ADR 0007. Net zero for tables, indexes, and triggers — measured, not assumed: the four indexes and two immutability triggers are recreated verbatim, and losing them would have been a worse defect than the one repaired. See below. |
 | `0023_p05_capability_catalogue_seed.sql` | 0 | 0 | 0 | **P05 / V04-010 repair.** No new tables — seeds two platform-wide `capability_definitions` rows (`browser`, `computer`; org_id NULL) so the tool-policy evaluator's capability check can pass and the FR-F13-005/006 controls are reachable. `INSERT OR IGNORE`, deterministic ids. |
 | `0024_p03_device_policy_version.sql` | 0 | 0 | 0 | **P03 / V04-008 repair.** No new tables — `ALTER TABLE org_device_policy_settings ADD COLUMN version` for the optimistic concurrency of the new `PUT /api/v1/orgs/{org_id}/device-policy` lever. SQLite supports `ADD COLUMN` with a constant DEFAULT; the table was previously unwritten. |
-| `0025_p03_device_token_recovery_challenges.sql` | 1 | 2 | 0 | **P03-CR-002.** Additive one-time, human-authorized device-token recovery challenges; stores challenge hashes only. One-pending-per-device partial unique index. |
 
 ## `0022` — `security_events.actor_type` gains `staff`
 
@@ -213,3 +205,8 @@ columns. **The authority for a rebuild's shape is the live schema; the ledger on
 that silently dropped that guarantee would be a far worse finding than the one it repairs. Both
 `BEFORE UPDATE` and `BEFORE DELETE` still abort, and the standalone check for the reconstruction is in
 `security::actor_type_correspondence`, which reads the writer and the ledger and compares them.
+
+| 0025_p03_device_token_recovery_challenges.sql | additive one-time, human-authorized device-token recovery challenges; stores challenge hashes only |
+| 0026_p03_workspace_binding_removal.sql | unbind tombstones retain run/automation FKs; active queries exclude removal; rollback requires removal-aware backend (ADR 0012) |
+| 0027_p05_tool_execution_claim.sql | immutable once-only execution admission on ToolCallRef; pre-execution approval consume requires claim-aware backend (ADR 0013); 3 triggers |
+| 0028_desktop_runtime_capabilities.sql | four platform capability rows (filesystem/process/network/MCP) use runtime-derived stable IDs; missing/false device toggles remain unsupported; no tables/indexes/triggers added (P03-CR-004) |

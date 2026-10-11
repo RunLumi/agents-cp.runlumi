@@ -23,7 +23,8 @@ use crate::{
     consumers::webhooks::{EnvelopeError, JobHandler, JobOutcome, QueueJobEnvelope},
     core::Timestamp,
     jobs::automations::{
-        JOB_LEASE_SECONDS, deterministic_job_id, run_due_occurrence_sweep, run_lease_expiry_sweep,
+        DispatchJobDecision, DispatchKind, JOB_LEASE_SECONDS, decide_dispatch_job,
+        deterministic_job_id, run_due_occurrence_sweep, run_lease_expiry_sweep,
     },
     modules::outbox::{FailureCode, HandlerFailure},
     repositories::{
@@ -304,18 +305,21 @@ impl<'a> AutomationJobHandler<'a> {
         let Some(transition) =
             stage_job_transition(self.database, &record, now).map_err(store_failure)?
         else {
-            return Ok(Outcome::Duplicate);
+            return Ok(Outcome::TerminalDuplicate);
         };
-        let report = match job_type {
-            JobType::GenerateOccurrence => run_due_occurrence_sweep(self.database, now, self.limit)
-                .await
-                .map_err(store_failure)?,
-            JobType::Dispatch | JobType::ExpireLease => {
-                run_lease_expiry_sweep(self.database, now, self.limit)
+        let report = match job_work(job_type) {
+            Some(JobWork::DispatchOccurrence) => {
+                return self.run_dispatch(&record, transition, now).await;
+            }
+            Some(JobWork::GenerateOccurrences) => {
+                run_due_occurrence_sweep(self.database, now, self.limit)
                     .await
                     .map_err(store_failure)?
             }
-            _ => return Err(failure("queue_job_type_unsupported", false)),
+            Some(JobWork::ExpireLeases) => run_lease_expiry_sweep(self.database, now, self.limit)
+                .await
+                .map_err(store_failure)?,
+            None => return Err(failure("queue_job_type_unsupported", false)),
         };
         let mut statements = Vec::with_capacity(report_batch_size(report) + 2);
         statements.push(transition.claim);
@@ -325,30 +329,136 @@ impl<'a> AutomationJobHandler<'a> {
         // back together, so the job stays retryable and no partial dispatch is
         // durable.
         match self.database.batch(statements).await {
-            Ok(_) => Ok(Outcome::Applied),
+            Ok(_) => Ok(Outcome::Swept),
             Err(error) if crate::repositories::is_guard_violation(&error) => {
                 // The job claim lost its compare-and-set. The side effect rolled
                 // back with it, so this copy simply retries.
-                Ok(Outcome::Duplicate)
+                Ok(Outcome::GuardRollback)
             }
             Err(_) => Err(failure("automation_job_store_unavailable", true)),
         }
     }
 }
 
+impl AutomationJobHandler<'_> {
+    /// Run one `automation.dispatch` job.
+    ///
+    /// The job claim, the dispatch decision (`pending -> dispatching`, or the
+    /// terminal state the dispatch-time recheck produced) and the job completion
+    /// are ONE D1 batch, so a lost compare-and-set rolls all three back and the job
+    /// stays retryable. Everything is re-read from durable rows; the message is
+    /// never an authority. A row that cannot name a dispatchable occurrence is
+    /// dead-lettered in the same batch as its claim, so it is not re-sent forever.
+    async fn run_dispatch(
+        &self,
+        record: &QueueJobRecord,
+        transition: JobTransition,
+        now: &Timestamp,
+    ) -> Result<Outcome, HandlerFailure> {
+        let decision = decide_dispatch_job(self.database, record, now)
+            .await
+            .map_err(store_failure)?;
+        let (statements, outcome) = match decision {
+            DispatchJobDecision::Refused(code) => {
+                let dead_letter = dead_letter_statement(
+                    self.database,
+                    &record.job_id,
+                    transition.expected_lease_version,
+                    code,
+                    now,
+                )
+                .map_err(store_failure)?;
+                (vec![transition.claim, dead_letter], Outcome::DeadLettered)
+            }
+            DispatchJobDecision::AlreadySettled => (
+                vec![transition.claim, transition.complete],
+                Outcome::AlreadySettled,
+            ),
+            DispatchJobDecision::Apply { statements, kind } => {
+                let mut batch = Vec::with_capacity(statements.len() + 2);
+                batch.push(transition.claim);
+                batch.push(transition.complete);
+                batch.extend(statements);
+                (batch, Outcome::Dispatched(kind))
+            }
+        };
+        match self.database.batch(statements).await {
+            Ok(_) => Ok(outcome),
+            // The occurrence moved after it was read (a device claim, a concurrent
+            // delivery). The whole batch rolled back, so the job stays queued and
+            // the next delivery re-reads the new state.
+            Err(error) if crate::repositories::is_guard_violation(&error) => {
+                Ok(Outcome::GuardRollback)
+            }
+            Err(_) => Err(failure("automation_job_store_unavailable", true)),
+        }
+    }
+}
+
+/// The work an owned job type performs. Routing is a pure function so the
+/// mapping is testable without a database: `automation.dispatch` decides ONE
+/// occurrence, it does not sweep leases.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobWork {
+    GenerateOccurrences,
+    DispatchOccurrence,
+    ExpireLeases,
+}
+
+pub const fn job_work(job_type: JobType) -> Option<JobWork> {
+    match job_type {
+        JobType::GenerateOccurrence => Some(JobWork::GenerateOccurrences),
+        JobType::Dispatch => Some(JobWork::DispatchOccurrence),
+        JobType::ExpireLease => Some(JobWork::ExpireLeases),
+        _ => None,
+    }
+}
+
+/// What one automation job did. Several variants map to the same coarse
+/// `JobOutcome`; they are kept apart so a log line can say WHICH branch ran, which
+/// is the difference between "the job finished" and "the job silently did nothing".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Outcome {
-    /// The domain side effect and the dedupe transition committed together.
-    Applied,
-    /// The logical job was already durably complete, or another worker won the
-    /// claim. The side effect rolled back with it.
-    Duplicate,
+    /// A generate/expire sweep and the job's completion committed together.
+    Swept,
+    /// A dispatch decision and the job's completion committed together.
+    Dispatched(DispatchKind),
+    /// The occurrence had already left `pending`; only the job completed.
+    AlreadySettled,
+    /// The job row was already terminal when it was read.
+    TerminalDuplicate,
+    /// A guard refused the batch and rolled the claim back with it. The job is
+    /// still queued, so it will be delivered again.
+    GuardRollback,
+    /// The job named nothing dispatchable and is durably dead-lettered.
+    DeadLettered,
 }
 
 impl Outcome {
-    const fn as_job_outcome(&self) -> JobOutcome {
+    const fn as_job_outcome(self) -> JobOutcome {
         match self {
-            Self::Applied => JobOutcome::Delivered,
-            Self::Duplicate => JobOutcome::Duplicate,
+            Self::Swept | Self::Dispatched(_) => JobOutcome::Delivered,
+            Self::AlreadySettled | Self::TerminalDuplicate | Self::GuardRollback => {
+                JobOutcome::Duplicate
+            }
+            Self::DeadLettered => JobOutcome::DeadLettered,
+        }
+    }
+
+    /// A stable, bounded code: lowercase letters, `_` and `:` only, never an
+    /// identifier, reason text, or payload.
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Swept => "swept",
+            Self::Dispatched(DispatchKind::Dispatched) => "dispatch_applied:dispatched",
+            Self::Dispatched(DispatchKind::Queued) => "dispatch_applied:queued",
+            Self::Dispatched(DispatchKind::Skipped) => "dispatch_applied:skipped",
+            Self::Dispatched(DispatchKind::Blocked) => "dispatch_applied:blocked",
+            Self::Dispatched(DispatchKind::Missed) => "dispatch_applied:missed",
+            Self::AlreadySettled => "dispatch_already_settled",
+            Self::TerminalDuplicate => "terminal_duplicate",
+            Self::GuardRollback => "guard_rollback",
+            Self::DeadLettered => "dispatch_refused",
         }
     }
 }
@@ -395,9 +505,16 @@ impl JobHandler for AutomationJobHandler<'_> {
         if !is_automation_job_type(job_type) {
             return Ok(JobOutcome::NotOwned);
         }
-        self.run_sweep(envelope, job_type, now)
-            .await
-            .map(|outcome| outcome.as_job_outcome())
+        let outcome = self.run_sweep(envelope, job_type, now).await?;
+        // One bounded line per delivery: the job type and the branch. A guard
+        // rollback and a settled duplicate both ack, so without this they cannot be
+        // told apart from a job that did its work.
+        worker::console_error!(
+            "p06_automation_job:{}:{}",
+            job_type.as_str(),
+            outcome.code()
+        );
+        Ok(outcome.as_job_outcome())
     }
 }
 
@@ -440,6 +557,119 @@ mod tests {
                 "occurrence_id": "occ_0123456789abcdef0123456789abcdef",
             })),
         }
+    }
+
+    #[test]
+    fn each_owned_job_type_performs_its_own_work() {
+        // `automation.dispatch` once ran the lease-expiry sweep, so a pending
+        // occurrence was never dispatched. It must decide the occurrence.
+        assert_eq!(
+            job_work(JobType::Dispatch),
+            Some(JobWork::DispatchOccurrence)
+        );
+        assert_eq!(
+            job_work(JobType::GenerateOccurrence),
+            Some(JobWork::GenerateOccurrences)
+        );
+        assert_eq!(job_work(JobType::ExpireLease), Some(JobWork::ExpireLeases));
+        for job_type in [
+            JobType::WebhookDeliver,
+            JobType::NotificationDeliver,
+            JobType::BillingSync,
+            JobType::LicenseIssue,
+            JobType::ExportRun,
+            JobType::DeletionRun,
+        ] {
+            assert_eq!(job_work(job_type), None, "{job_type:?}");
+        }
+        // Every owned type has work, and nothing else does.
+        for job_type in P06_AUTOMATION_JOB_TYPES {
+            assert!(job_work(job_type).is_some());
+        }
+    }
+
+    fn every_outcome() -> Vec<Outcome> {
+        let mut all = vec![
+            Outcome::Swept,
+            Outcome::AlreadySettled,
+            Outcome::TerminalDuplicate,
+            Outcome::GuardRollback,
+            Outcome::DeadLettered,
+        ];
+        all.extend(
+            [
+                DispatchKind::Dispatched,
+                DispatchKind::Queued,
+                DispatchKind::Skipped,
+                DispatchKind::Blocked,
+                DispatchKind::Missed,
+            ]
+            .map(Outcome::Dispatched),
+        );
+        all
+    }
+
+    #[test]
+    fn every_outcome_has_a_distinct_bounded_log_code() {
+        let outcomes = every_outcome();
+        let mut codes: Vec<&str> = outcomes.iter().map(|outcome| outcome.code()).collect();
+        for code in &codes {
+            // No digit, uppercase letter or separator that could carry an ID, a
+            // reason text, or a payload.
+            assert!(
+                code.bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte == b':'),
+                "{code}"
+            );
+            assert!(code.len() <= 40, "{code}");
+        }
+        codes.sort_unstable();
+        let before = codes.len();
+        codes.dedup();
+        assert_eq!(codes.len(), before, "two branches share a log code");
+    }
+
+    #[test]
+    fn a_guard_rollback_is_told_apart_from_a_settled_duplicate_but_both_ack_as_duplicate() {
+        // Same coarse outcome (the queue acks both), so only the code can say the
+        // difference between "already done" and "the batch rolled back, retry".
+        assert_eq!(
+            Outcome::GuardRollback.as_job_outcome(),
+            JobOutcome::Duplicate
+        );
+        assert_eq!(
+            Outcome::AlreadySettled.as_job_outcome(),
+            JobOutcome::Duplicate
+        );
+        assert_eq!(
+            Outcome::TerminalDuplicate.as_job_outcome(),
+            JobOutcome::Duplicate
+        );
+        assert_ne!(
+            Outcome::GuardRollback.code(),
+            Outcome::AlreadySettled.code()
+        );
+        assert_ne!(
+            Outcome::GuardRollback.code(),
+            Outcome::TerminalDuplicate.code()
+        );
+    }
+
+    #[test]
+    fn an_applied_dispatch_is_delivered_whatever_it_decided() {
+        for outcome in every_outcome() {
+            if matches!(outcome, Outcome::Dispatched(_) | Outcome::Swept) {
+                assert_eq!(outcome.as_job_outcome(), JobOutcome::Delivered);
+            }
+        }
+    }
+
+    #[test]
+    fn a_dead_lettered_dispatch_is_a_terminal_outcome_the_queue_acks() {
+        assert_eq!(
+            Outcome::DeadLettered.as_job_outcome(),
+            JobOutcome::DeadLettered
+        );
     }
 
     #[test]

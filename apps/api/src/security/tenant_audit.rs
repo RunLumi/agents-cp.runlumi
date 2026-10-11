@@ -722,6 +722,10 @@ const JUDGEMENTS: &[(&str, Class, &str)] = &[
 /// mislabel here cannot survive.
 const MECHANICAL: &[(&str, Class)] = &[
     (
+        "repositories/migration.rs::ASSERT_LIVE_BINDING_SQL",
+        Class::OrgBound,
+    ),
+    (
         "repositories/devices.rs::INSERT_RECOVERY_CHALLENGE_SQL",
         Class::OrgBound,
     ),
@@ -939,6 +943,18 @@ const MECHANICAL: &[(&str, Class)] = &[
         Class::OrgBound,
     ),
     (
+        "repositories/automations.rs::DEVICE_WORKSPACE_BINDINGS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::CANCEL_UNSTARTED_AUTOMATION_RUN_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::INSERT_UNSTARTED_RUN_CANCEL_EVENT_SQL",
+        Class::OrgBound,
+    ),
+    (
         "repositories/automations.rs::LICENSE_STATE_SQL",
         Class::OrgBound,
     ),
@@ -952,6 +968,17 @@ const MECHANICAL: &[(&str, Class)] = &[
     ),
     (
         "repositories/automations.rs::CURRENT_POLICY_VERSION_SQL",
+        Class::OrgBound,
+    ),
+    // P06-CR-007: the latest-snapshot read binds the org in its WHERE, like the
+    // version read above; the dispatch-time policy bind names the org next to the
+    // occurrence it rewrites, like TRANSITION_OCCURRENCE_SQL.
+    (
+        "repositories/automations.rs::LATEST_POLICY_SNAPSHOT_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/automations.rs::BIND_OCCURRENCE_POLICY_SQL",
         Class::OrgBound,
     ),
     (
@@ -1716,6 +1743,30 @@ const MECHANICAL: &[(&str, Class)] = &[
     ),
     (
         "repositories/tools.rs::INSERT_TOOL_CALL_REF_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_EXECUTION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::CLAIM_TOOL_EXECUTION_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_RESULT_STATUS_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_EXECUTION_POLICY_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_EXECUTION_CAPABILITIES_SQL",
+        Class::OrgBound,
+    ),
+    (
+        "repositories/tools.rs::ASSERT_TOOL_APPROVAL_EXECUTION_SQL",
         Class::OrgBound,
     ),
     (

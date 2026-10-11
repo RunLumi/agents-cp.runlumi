@@ -11,6 +11,21 @@
 
 ## Purpose and boundaries
 
+P08-CR-002 addendum: optional rebind_version on stage-zero adoption POST is an
+explicit, versioned rebind of an unbound local record. Omission retains resume.
+It must match a live org/project/device P03 binding and keep stage zero, stable
+identity, historical events and reversion count. Guarded D1 commit includes audit.
+Stage-zero rollback is accepted when bound project/device metadata exists and
+clears that metadata. An entirely unbound local record retains AlreadyLocal.
+
+P08-CR-003 clarification (draft, pending coordinator): the credential mode is a
+label stored by P08 and is separate from P04 execution credential policy; it does
+not route inference. P08 never accepts, fingerprints or exports a local secret and
+never downloads an organization secret, so the `metadata_only` row describes a
+marker, not a held fingerprint. A credential-mode-only PATCH must persist the mode and
+increment the version in the existing guarded batch, and its response and idempotent
+replay must come from the stored row. See `change-requests/P08-CR-003.md`.
+
 P08 makes the transition from local-first ZCode/Lumi Agents to org-aware Lumi
 Agents **boring, explicit, reversible, and privacy-preserving**. The shape is:
 

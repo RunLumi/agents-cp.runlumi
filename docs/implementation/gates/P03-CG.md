@@ -78,6 +78,12 @@ Immutable `security_events` append for: enrollment approved (`device.enrolled.v1
 
 ## Persistence
 
+P03-CR-003 / ADR 0012: migration 0026 adds nullable removed_at to bindings.
+DELETE marks removal without deleting historical references. Active lookup,
+lists, policy and automation eligibility exclude removed rows. Live identity
+uniqueness becomes a partial index; explicit rebind creates a fresh ID.
+After 0026, retain a removal-aware backend for rollback.
+
 Migration `0007_p03_devices_projects_policy.sql` creates: `devices`, `device_enrollments`, `device_tokens`, `projects`, `project_access_grants`, `workspace_bindings`, `policy_snapshots`, `policy_acks`, and `org_device_policy_settings`. All tenant rows carry `org_id`. Invariant-bearing uniqueness: `(org_id, key_fingerprint)` on devices, `(org_id, slug)` on projects, `(device_id, workspace_identity)` on workspace bindings, `(device_id, policy_version)` on policy acks, `(org_id, policy_version)` on policy snapshots. State CHECK constraints, explicit indexes per P01 naming, D1 batches for invariant-bearing mutations (approve+device insert, revoke+token invalidation, project mutations with version predicate). No KV cache, no Durable Objects.
 
 ## Compatibility
@@ -117,3 +123,13 @@ The human session is rechecked at recovery; device/org/member/client-version
 fences remain server-owned. No anonymous nonce, bearer-only recovery, raw token
 persistence or automatic key replacement is permitted. See
 [`P03-CR-002`](../change-requests/P03-CR-002.md).
+
+### P03-CR-002 addendum — expired device-token recovery
+
+The live-token nonce route remains authenticated as repaired by V01-019. After
+expiry, a current Lumi human session with CSRF and devices.manage or enrolling-
+member authority requests a five-minute one-time challenge. The original device
+key signs `lumi-device-token-recovery-v1\n<device_id>\n<challenge>`. D1 atomically
+consumes it, rotates the token and appends audit. Current org/member/device and
+minimum-version fences still apply. No anonymous nonce or bearer-only recovery.
+See [`P03-CR-002`](../change-requests/P03-CR-002.md).

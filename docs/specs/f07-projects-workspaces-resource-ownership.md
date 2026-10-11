@@ -52,6 +52,11 @@ Desktop client can register a workspace binding containing non-secret metadata:
 
 Raw filesystem content MUST NOT be uploaded by default.
 
+Unbinding MUST remove managed execution authority while preserving historical
+run/audit attribution. Removed bindings remain as historical rows, are absent
+from active lists/policy, and MUST NOT authorize runs or automation claims.
+An explicit rebind creates a new ID; historical IDs do not become active.
+
 ### FR-F07-003 — Ownership
 
 Cloud resources created inside a project inherit `org_id` and `project_id`.

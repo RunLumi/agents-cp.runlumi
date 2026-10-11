@@ -1,0 +1,209 @@
+{
+  "meta": {
+    "startedAt": "2026-10-09T12:42:45.890Z",
+    "source": {
+      "head": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+      "branch": "codex/e2e-phase02-lumi-workspace",
+      "files": {
+        "packages/ui/src/lumi/LumiEntryPanel.tsx": "acda705a99ece2f9e5d2b5d97422e7e5593ec6659b2d2f8ec85b5db528cc782c",
+        "packages/ui/src/lumi/useLumiAccountFlow.ts": "f1fe861accd1f30bc8b642debf0592bbfeb84d964b8d4f3070aa3969cfd8b131",
+        "packages/ui/src/lumi/lumiAccountFlow.ts": "2f1bf82ccbb76819103f537420101cd35acf790fbeffa6d9ef83c4d55793e359",
+        "packages/ui/src/lumi/lumiRestore.ts": "7396ac5d2bc9cb441bc6036f1888fa3244e9e16a72a0a4be3bae3ba9dd1aeada",
+        "packages/ui/src/lumi/lumiErrorCopy.ts": "2eb3066398027904fca7fe1e2cf43c6cd19f40d5c3111bf40e7b72c4a9a199d6",
+        "packages/ui/src/settings/LumiWorkspaceSection.tsx": "4ac159a88546b80b03b94d62bcc03b13f9ba5c11b4f3b81defb9eb12df6db548",
+        "packages/ui/src/settings/LumiWorkspaceCredentialChoice.tsx": "402e4956bdee2594363919181041aeea024079aacf8862216c94536bbfa968d8",
+        "packages/ui/src/styles.css": "74274719daf1e4c70077010279bf79e38a35b65c09696f75cb83aa2d27329a5e",
+        "packages/ui/src/i18n/locales/en-US.ts": "b19165795f49cc65d98e90d3a58426eb4e435914283238e0e8fb6a2812f1191b",
+        "packages/ui/src/i18n/locales/zh-CN.ts": "dc8640698b41a4f372a3aab5ec5af4779d8c7fc8db89549df078d5b464793693"
+      }
+    },
+    "browser": "154.0.8037.98 (/Applications/Google Chrome.app/Contents/MacOS/Google Chrome)",
+    "fixtureUrl": "http://127.0.0.1:59892",
+    "argv": [
+      "--mutate=reread-keeps-projection"
+    ],
+    "node": {
+      "version": "v24.19.0",
+      "execPath": "/Volumes/SANDISK-Data/symlinks/james-home/dot-cache-offload-20261007-224250/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+    },
+    "mutation": "reread-keeps-projection"
+  },
+  "counts": {
+    "PASS": 26,
+    "FAIL": 2
+  },
+  "results": [
+    {
+      "id": "entry.restore-called-once",
+      "claim": "Mounting the panel issues exactly one restore, and never begin/complete on its own",
+      "verdict": "PASS",
+      "evidence": "1 restore after 20 s of faked time"
+    },
+    {
+      "id": "entry.restore-at-4s",
+      "claim": "A restore answered at 4 s never shows the slow notice and leaves the sign-in button",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.restore-at-6s",
+      "claim": "A restore answered at 6 s shows the slow notice at 5 s, then clears it and the status",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.restore-at-31s",
+      "claim": "A restore answered at 31 s (inside the 35 s bound) succeeds with no timeout alert",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.restore-never-answers",
+      "claim": "A restore that never answers ends in lumi_request_timeout at 35 s with focus on 'check again', and never retries by itself",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.late-restore-after-timeout-ignored",
+      "claim": "A host restore answer arriving after the timeout is dropped: no account, no Continue, no callback",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.check-again-is-explicit-restore",
+      "claim": "'Check saved session again' issues one direct restore (not glued to the hung one); success needs an explicit Continue; a second failure never starts sign-in",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.check-again-failure-no-sign-in",
+      "claim": "A failed re-check shows the error again and still never begins a sign-in",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.begin-not-duplicated",
+      "claim": "Double-clicking Sign in writes begin once",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.begin-error-retry",
+      "claim": "A begin error shows copy plus code and a 'Try again' that issues one new begin",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.sign-in-complete-once",
+      "claim": "Open-browser only calls platform.openExternal; double-clicking 'I approved' writes complete once; onSignedIn fires once",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.late-complete-after-timeout-ignored",
+      "claim": "A complete answer arriving after the 35 s bound is dropped (no callback); a retry then succeeds exactly once",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "entry.cancel-supersedes-inflight-complete",
+      "claim": "Cancel during an in-flight complete returns to Sign in, and the superseded complete answer cannot sign the user in",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.loading-sequence",
+      "claim": "Loading shows a status with inputs disabled; list-projects precedes read-workspace and both carry org/path/environment from props",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.page-incomplete-fails-closed",
+      "claim": "lumi_page_incomplete shows dedicated copy plus code, no reload button, nothing selectable and no write possible",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.retryable-error-reload-once",
+      "claim": "A retryable load failure offers Reload; one click issues one new list-projects and clears the alert on success",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.device-required-blocks-bind",
+      "claim": "A workspace whose device is unusable shows the device notice and keeps bind disabled",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.empty-projects",
+      "claim": "No open projects shows its own placeholder and hint, and bind stays disabled",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.bind-not-duplicated",
+      "claim": "Double-clicking bind writes bind-workspace once, with confirm:true, the chosen project and the approved display name only",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.dropped-bind-reread-ok",
+      "claim": "A dropped bind reply triggers a read-only re-read, shows the failure, and never re-issues the bind by itself",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.dropped-bind-reread-fails-disables-bind",
+      "claim": "If the re-read after a dropped bind also fails, the projection is cleared: bind stays disabled until an explicit reload proves state",
+      "verdict": "FAIL",
+      "evidence": "timed out waiting for: bind disabled"
+    },
+    {
+      "id": "workspace.stale-load-result-dropped",
+      "claim": "A load answer for a workspace the user already left cannot overwrite the newer workspace's projects or name",
+      "verdict": "PASS",
+      "evidence": "stale A read-workspace was still issued (read-only, 2 reads); its result was ignored"
+    },
+    {
+      "id": "workspace.stale-write-result-dropped",
+      "claim": "A write answer for a workspace the user already left cannot replace the newer workspace's projection",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.credential-choice-labels",
+      "claim": "Credential choice marks the server mode, keeps picks local until confirmed, discards on cancel, and offers the console only for the org label",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.credential-org-label-refused-unmanaged",
+      "claim": "On a not-yet-managed row the org credential radio is disabled with its explanation",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.credential-confirm-once-with-fences",
+      "claim": "Record this choice writes once with exactly the typed fence fields and no secret-bearing field; success moves '(current)' only from the server row",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.credential-refusal-rereads-and-discards-pick",
+      "claim": "A refused choice shows 'changed' copy and code, re-reads once, and the remounted choice drops the unconfirmed pick",
+      "verdict": "PASS",
+      "evidence": ""
+    },
+    {
+      "id": "workspace.credential-refusal-reread-fails-clears-choice",
+      "claim": "If the re-read after a refused choice fails, the choice UI and every write control are withdrawn until an explicit reload",
+      "verdict": "FAIL",
+      "evidence": "timed out waiting for: absent: credential radios"
+    }
+  ],
+  "screenshots": [
+    "screens/FAILED__workspace.dropped-bind-reread-fails-disables-bind.png",
+    "screens/FAILED__workspace.credential-refusal-reread-fails-clears-choice.png"
+  ]
+}

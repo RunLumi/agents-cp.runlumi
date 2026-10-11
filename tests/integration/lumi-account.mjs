@@ -2,15 +2,14 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { generateKeyPairSync, createHash, sign } from "node:crypto";
+import { generateKeyPairSync, createHash, randomBytes, randomUUID, sign } from "node:crypto";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SmokeHarness } from "../../apps/api/scripts/lib/smoke-harness.mjs";
 const root = resolve(import.meta.dirname, "../..");
 const requireWeb = createRequire(resolve(root, "apps/web/package.json"));
-// Same client selection as scripts/integration/lumi-agents.mjs, so the SHA recorded below is the
-// SHA of the client that was actually built.
+// Bundle the selected client checkout, so the evidence SHA matches the source under test.
 const client = resolve(process.env.LUMI_AGENTS_DIR || resolve(root, "integrations/lumi-agents"));
 const requireClient = createRequire(resolve(client, "package.json"));
 let viteEntry;
@@ -38,7 +37,7 @@ const { LumiAccountHostTransport } = await import(
 await build({
   configFile: false,
   logLevel: "warn",
-  root: client,
+  root: resolve(root, "integrations/lumi-agents"),
   ssr: { noExternal: true },
   build: {
     ssr: resolve(client, "packages/services/src/lumi-account/deviceTransport.ts"),
@@ -53,18 +52,10 @@ const probe = new SmokeHarness({ name: "desktop account transport" });
 const reportPath =
   process.env.LUMI_ACCOUNT_REPORT || resolve(root, "test-results/lumi-account-report.json");
 let completed = false;
-let failureEvidence = null;
 try {
   await probe.setup({ persistEnvVar: "DE2E_ACCOUNT_PERSIST", portEnvVar: "DE2E_ACCOUNT_PORT" });
-  // Before any transport is constructed: they bind `fetch` at construction. Observation only;
-  // LUMI_PROBE_FRESH_SOCKETS=1 is the diagnostic A/B switch (see lib/request-boundary.mjs).
+  // Diagnostic A/B for socket reuse; async D1 keeps the live Worker servicing requests.
   probe.attachBoundaryRecorder({ freshSockets: process.env.LUMI_PROBE_FRESH_SOCKETS === "1" });
-  // Default ON. The hosted default run failed with UND_ERR_SOCKET three times at the same point while the
-  // same head passed with pooled sockets disabled, so a reused socket is implicated; the cause is not
-  // proven (docs/verification/ci-socket-handoff.md). Running wrangler asynchronously keeps the event loop
-  // servicing sockets, which is the one thing this probe did that an ordinary client does not. Same SQL
-  // and arguments either way. LUMI_PROBE_SYNC_D1=1 restores the old blocking behaviour so the failing
-  // configuration can still be reproduced on purpose; it is not a fix.
   probe.useAsyncSubprocesses(process.env.LUMI_PROBE_SYNC_D1 !== "1");
   const owner = await probe.authenticatedUser("Desktop Account");
   for (const value of owner.jar.cookies.values()) probe.registerSecret(value);
@@ -95,7 +86,14 @@ try {
   );
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   let deviceCredential = null;
-  const device = new LumiDeviceHostTransport(probe.baseUrl, fetch, {
+  // Wrangler mutates this fixture's local D1 while the Worker remains open. Do
+  // not reuse a keep-alive socket that may have gone stale across that boundary.
+  const fixtureFetch = (input, init = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set("connection", "close");
+    return fetch(input, { ...init, headers });
+  };
+  const device = new LumiDeviceHostTransport(probe.baseUrl, fixtureFetch, {
     async load() {
       return deviceCredential;
     },
@@ -177,8 +175,8 @@ try {
     anonymousChallenge,
     [401],
   );
-  // Cross-tenant negatives: a signed-in user of a DIFFERENT organization must not mint a challenge
-  // for this org's device, neither through their own org path nor through the device's org path.
+  // A different organization's member must not mint a challenge for this device,
+  // through either the caller's org path or the device's org path.
   const outsider = await probe.authenticatedUser("Recovery Outsider");
   for (const value of outsider.jar.cookies.values()) probe.registerSecret(value);
   const outsiderOrg = await probe.createOrganization(
@@ -193,11 +191,7 @@ try {
     { device_id: info.id },
     probe.browserMutation(outsider.jar, "recovery-outsider-own-org"),
   );
-  probe.expectStatus(
-    "cross-tenant: foreign device id is not found through the caller's own org",
-    outsiderOwnOrg,
-    [404],
-  );
+  probe.expectStatus("cross-tenant recovery through caller org refuses", outsiderOwnOrg, [404]);
   const outsiderDeviceOrg = await probe.request(
     outsider.jar,
     "POST",
@@ -206,7 +200,7 @@ try {
     probe.browserMutation(outsider.jar, "recovery-outsider-device-org"),
   );
   probe.expectStatus(
-    "cross-tenant: non-member cannot mint a challenge in the device's org",
+    "non-member cannot mint device recovery challenge",
     outsiderDeviceOrg,
     [403, 404],
   );
@@ -217,7 +211,6 @@ try {
   probe.expect(
     "cross-tenant attempts stored no recovery challenge",
     Number(foreignChallengeRows[0]?.n) === 0,
-    JSON.stringify(foreignChallengeRows),
   );
   const expiredChallenge = await transport.createDeviceRecoveryChallenge(org.orgId, info.id);
   probe.expect(
@@ -235,8 +228,7 @@ try {
     }),
     (e) => e.status === 403,
   );
-  // Measure state, not just the status: a refused proof must leave the challenge unconsumed and
-  // mint no token.
+  probe.expect("wrong device proof cannot recover token", true);
   const afterWrongProof = await probe.d1Rows(
     `SELECT (SELECT COUNT(*) FROM device_token_recovery_challenges WHERE challenge_hash='${expiredHash}' AND consumed_at IS NULL) AS pending, (SELECT COUNT(*) FROM device_tokens WHERE device_id='${info.id}' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) AS live`,
     "state after wrong device proof",
@@ -263,6 +255,7 @@ try {
     }),
     (e) => e.status === 409,
   );
+  probe.expect("expired recovery challenge is refused", true);
   const afterExpiredChallenge = await probe.d1Rows(
     `SELECT COUNT(*) AS n FROM device_tokens WHERE device_id='${info.id}' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
     "state after expired challenge",
@@ -270,7 +263,6 @@ try {
   probe.expect(
     "expired recovery challenge mints no token",
     Number(afterExpiredChallenge[0]?.n) === 0,
-    JSON.stringify(afterExpiredChallenge),
   );
   const challenge = await transport.createDeviceRecoveryChallenge(org.orgId, info.id);
   const proofMessage = `lumi-device-token-recovery-v1\n${info.id}\n${challenge.challenge}`;
@@ -291,12 +283,13 @@ try {
     }),
     (e) => e.status === 409,
   );
+  probe.expect("consumed recovery challenge cannot replay", true);
   const afterReplay = await probe.d1Rows(
     `SELECT (SELECT COUNT(*) FROM device_token_recovery_challenges WHERE device_id='${info.id}') AS challenges, (SELECT COUNT(*) FROM device_tokens WHERE device_id='${info.id}' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) AS live`,
     "state after replayed challenge",
   );
   probe.expect(
-    "consumed recovery challenge cannot replay: no challenge left, still one live token",
+    "replay leaves no challenge and exactly one live token",
     Number(afterReplay[0]?.challenges) === 0 && Number(afterReplay[0]?.live) === 1,
     JSON.stringify(afterReplay),
   );
@@ -328,6 +321,149 @@ try {
   await device.adoptRecoveredToken(recovered);
   const recoveredPolicy = await device.policy();
   await device.acknowledge(recoveredPolicy.policy_version);
+  const projectSlug = `desktop-${probe.nonce.slice(0, 20)}`;
+  const projectResult = await probe.request(
+    owner.jar,
+    "POST",
+    `/api/v1/orgs/${org.orgId}/projects`,
+    { name: "Desktop managed project", slug: projectSlug, visibility: "org" },
+    probe.browserMutation(owner.jar, "desktop-managed-project"),
+  );
+  probe.expectStatus("create project for explicit workspace adoption", projectResult, [201]);
+  const projectId = projectResult.payload?.id ?? projectResult.payload?.project?.id;
+  assert.match(projectId, /^prj_[0-9a-f]{32}$/);
+  const clientProjects = await transport.listProjects(org.orgId);
+  probe.expect(
+    "actual client lists the authorized project",
+    clientProjects.some((project) => project.id === projectId && !project.archived),
+  );
+  const installationId = randomBytes(32).toString("hex");
+  const workspaceKey = randomBytes(32).toString("hex");
+  const privateWorkspacePath = "/Users/private/Customer Project";
+  const workspaceDisplayName = "Customer Project";
+  const workspaceBinding = await device.createWorkspaceBinding({
+    projectId,
+    workspaceIdentity: workspaceKey,
+    displayName: workspaceDisplayName,
+    environmentType: "local",
+  });
+  probe.expect(
+    "P03 device transport binds only the opaque workspace key",
+    workspaceBinding.workspaceIdentity === workspaceKey &&
+      !JSON.stringify(workspaceBinding).includes(privateWorkspacePath),
+  );
+  await device.acknowledge((await device.policy()).policy_version);
+  const adoption = await transport.createAdoptionRecord(
+    {
+      orgId: org.orgId,
+      installationId,
+      workspaceKey,
+      displayName: workspaceDisplayName,
+      projectId,
+      deviceId: info.id,
+      clientAppVersion: "3.14.3",
+    },
+    randomUUID(),
+  );
+  probe.expect(
+    "P08 real client creates local-only stage with selected project/device",
+    adoption.stage === "local_unmanaged" &&
+      adoption.ownership === "local_unmanaged" &&
+      adoption.projectId === projectId &&
+      adoption.deviceId === info.id,
+  );
+  const skippedStage = await probe.request(
+    owner.jar,
+    "PATCH",
+    `/api/v1/orgs/${org.orgId}/adoption/bindings/${adoption.adoptionStateId}`,
+    {
+      stage: "managed_policy",
+      credential_mode: "local_credential",
+      version: adoption.version,
+      client_protocol_major: 1,
+      policy_schema_version: 1,
+      client_app_version: "3.14.3",
+    },
+    probe.browserMutation(owner.jar, "p08-stage-skip"),
+  );
+  probe.expectStatus("server refuses a client stage skip", skippedStage, [409]);
+  let adoptionState = adoption;
+  for (const stage of [
+    "account_optional",
+    "device_enrolled",
+    "workspace_bound",
+    "managed_policy",
+  ]) {
+    if (stage === "workspace_bound" || stage === "managed_policy") {
+      const policy = await device.policy();
+      await device.acknowledge(policy.policy_version);
+    }
+    adoptionState = await transport.advanceAdoptionRecord(
+      {
+        orgId: org.orgId,
+        adoptionStateId: adoption.adoptionStateId,
+        stage,
+        credentialMode: adoptionState.credentialMode,
+        version: adoptionState.version,
+        clientAppVersion: "3.14.3",
+      },
+      randomUUID(),
+    );
+    const storedAdoption = await probe.d1Rows(
+      `SELECT stage, ownership, bound_project_id, bound_device_id, external_workspace_key FROM workspace_adoption_states WHERE adoption_state_id = '${adoption.adoptionStateId}'`,
+      `stored P08 stage ${stage}`,
+    );
+    probe.expect(
+      `P08 ${stage} is server-owned and stored`,
+      storedAdoption[0]?.stage === stage &&
+        storedAdoption[0]?.bound_project_id === projectId &&
+        storedAdoption[0]?.bound_device_id === info.id &&
+        storedAdoption[0]?.external_workspace_key === workspaceKey &&
+        storedAdoption[0]?.ownership ===
+          (stage === "workspace_bound" || stage === "managed_policy"
+            ? "org_managed"
+            : "local_unmanaged"),
+    );
+  }
+  await device.deleteWorkspaceBinding(workspaceBinding.id);
+  const rolledBack = await transport.rollbackAdoptionRecord(
+    {
+      orgId: org.orgId,
+      adoptionStateId: adoption.adoptionStateId,
+      version: adoptionState.version,
+    },
+    randomUUID(),
+  );
+  probe.expect(
+    "P08 rollback returns local ownership without touching workspace content",
+    rolledBack.stage === "local_unmanaged" && rolledBack.ownership === "local_unmanaged",
+  );
+  const localBindingRows = await probe.d1Rows(
+    `SELECT binding_id FROM workspace_bindings WHERE binding_id = '${workspaceBinding.id}' AND removed_at IS NULL`,
+    "verify P03 workspace binding removed",
+  );
+  probe.expect("P03 binding removed on rollback", localBindingRows.length === 0);
+  const retainedBindings = await probe.d1Rows(
+    `SELECT COUNT(*) AS n FROM workspace_bindings WHERE binding_id = '${workspaceBinding.id}' AND removed_at IS NOT NULL`,
+    "verify removed P03 binding retained for history",
+  );
+  probe.expect(
+    "removed P03 binding preserves historical identity",
+    Number(retainedBindings[0]?.n) === 1,
+  );
+  const rollbackRow = await probe.d1Rows(
+    `SELECT stage, ownership, reversion_count FROM workspace_adoption_states WHERE adoption_state_id = '${adoption.adoptionStateId}'`,
+    "verify P08 rollback stored",
+  );
+  probe.expect(
+    "P08 rollback state and history are durable",
+    rollbackRow[0]?.stage === "local_unmanaged" &&
+      rollbackRow[0]?.ownership === "local_unmanaged" &&
+      Number(rollbackRow[0]?.reversion_count) === 1,
+  );
+  console.log(
+    "PASS actual P03/P08 client transport bind, staged adoption, policy acknowledgement and rollback",
+  );
   console.log("PASS actual device client enrollment/policy/ack/nonce-refresh/recovery");
   const revoke = await probe.request(
     owner.jar,
@@ -356,38 +492,43 @@ try {
   console.log("PASS actual backend logout ends client access");
   completed = probe.failures.length === 0;
 } catch (error) {
-  // Read the Worker's state BEFORE `finally` kills it. Bounded, read-only, never a replay of the request
-  // that failed; the original error is rethrown unchanged so the failure is not softened.
-  failureEvidence = await probe.captureFailureEvidence(error).catch((e) => ({
-    capture_failed: String(e?.message ?? e).slice(0, 200),
+  const failureEvidence = await probe.captureFailureEvidence(error).catch((captureError) => ({
+    capture_failed: String(captureError?.message ?? captureError).slice(0, 200),
   }));
   console.error(`--- request-boundary evidence ---\n${JSON.stringify(failureEvidence, null, 2)}`);
   throw error;
 } finally {
-  // Cleanup must run, and a git failure here must not mask the error that got us here.
-  try {
-    const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-    mkdirSync(dirname(reportPath), { recursive: true });
-    writeFileSync(
-      reportPath,
-      JSON.stringify(
-        {
-          verdict: completed ? "PASS" : "FAIL",
-          control_plane_sha: git(root, "rev-parse", "HEAD"),
-          control_plane_dirty:
-            git(root, "status", "--porcelain", "--untracked-files=normal") !== "",
-          lumi_agents_sha: git(client, "rev-parse", "HEAD"),
-          lumi_agents_dirty:
-            git(client, "status", "--porcelain", "--untracked-files=normal") !== "",
-          assertions: probe.passes,
-          failures: probe.failures,
-          ...(failureEvidence ? { failure_evidence: failureEvidence } : {}),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
-  } finally {
-    probe.cleanup();
-  }
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeFileSync(
+    reportPath,
+    JSON.stringify(
+      {
+        verdict: completed ? "PASS" : "FAIL",
+        control_plane_sha: execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: root,
+          encoding: "utf8",
+        }).trim(),
+        control_plane_dirty:
+          execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], {
+            cwd: root,
+            encoding: "utf8",
+          }).trim() !== "",
+        lumi_agents_sha: execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: client,
+          encoding: "utf8",
+        }).trim(),
+        lumi_agents_dirty:
+          execFileSync("git", ["-C", client, "status", "--porcelain", "--untracked-files=normal"], {
+            encoding: "utf8",
+          }).trim() !== "",
+        assertions: probe.passes,
+        failures: probe.failures,
+        boundary: probe.boundary?.snapshot() ?? null,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  probe.boundary?.uninstall();
+  probe.cleanup();
 }

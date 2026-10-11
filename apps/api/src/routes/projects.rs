@@ -923,18 +923,6 @@ pub async fn delete_project_binding(
             "No such binding.",
         ));
     };
-    let deleted = ProjectRepository::new(database)
-        .delete_binding(&binding.binding_id, &project_id)
-        .await
-        .map_err(|error| database_error(&context, error))?;
-    if !deleted {
-        return Err(deny(
-            &context,
-            ApiErrorCode::NotFound,
-            "not_found",
-            "No such binding.",
-        ));
-    }
     let event = outbox_statement(
         database,
         &context,
@@ -946,7 +934,7 @@ pub async fn delete_project_binding(
     // A 204 has no body, so the stored success is constructible from inputs -- which is what every
     // wired call site does, and the reason this route can be repaired at all (V01-020).
     let statement = ProjectRepository::new(database)
-        .delete_binding_statement(&binding_id, &project_id)
+        .delete_binding_statement(&binding_id, &project_id, &context.received_at)
         .map_err(|error| database_error(&context, error))?;
     let success = StoredSuccess::new(204, json!({})).map_err(|_| service_unavailable(&context))?;
     match commit_scoped_mutation(database, &context, claim, success, vec![statement], event).await?

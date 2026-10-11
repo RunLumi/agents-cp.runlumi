@@ -1,0 +1,141 @@
+{
+  "verdict": "FAIL",
+  "until": "schedule",
+  "stages": {
+    "onboard": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI: Lumi sign-in, device enrollment, opaque binding and managed-policy workspace"
+        }
+      ],
+      "notes": []
+    },
+    "adopt": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI lists the seeded local originals, none with a hand-over badge"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "real server conflict is shown with no Confirm or stored effects before entitlement"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "preview then Cancel: local tasks-index hash, marker table and D1 definition/occurrence/lease/run/link/audit counts are identical"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "bounded-run automation previews as not adoptable with its reason, no Confirm action, and no local or server mutation"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "explicit Hand over with a chosen agent and model completes in the actual UI"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "D1 shows one active managed definition for the chosen project/agent/alias and the prompt body appears in no server table"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the card shows Managed by Lumi only on the adopted original and offers Return instead of a second hand-over"
+        }
+      ],
+      "notes": []
+    },
+    "schedule": {
+      "status": "FAIL",
+      "claims": [],
+      "notes": [],
+      "error": "Error: a managed occurrence reaches a terminal state through the real desktop scheduler: not reached within 360000ms; last={\"definition\":{\"automation_id\":\"aut_41aa8a8a3f3d48e1af08a9a91f41bf60\",\"org_id\":\"org_deea1e10c48d6e042b5bce3e51f191c5\",\"project_id\":\"prj_f7faeed6efa0490289ccc685d17113f9\",\"name\":\"Nightly review\",\"description\":\"lumi-local:automation-85d67a9e-9985-4549-ac73-f9740e68f234\",\"agent_definition_id\":\"agd_47936ad49aa0414ca612b689157abb33\",\"schedule_rule_id\":\"sch_ed7756ea6c254706af88f6d17b49eb45\",\"execution_principal_kind\":\"user\",\"execution_principal_id\":\"usr_272dbb620bd74d57ab9bcd211ef22543\",\"target_kind\":\"eligible_device\",\"target_device_id\":null,\"target_workspace_binding_id\":\"wsb_ff1d9af9efa44c7dbba07159414d20ca\",\"required_capabilities_json\":\"[]\",\"execution_model_alias\":\"coding-default\",\"execution_budget_id\":null,\"tool_policy_scope\":\"project\",\"required_policy_version\":null,\"off_peak_eligibility_source\":null,\"off_peak_allowed_route_aliases_json\":null,\"off_peak_deny_automation_mutation\":1,\"off_peak_deny_recursive_off_peak\":1,\"off_peak_allow_background_processes\":0,\"status\":\"active\",\"max_start_attempts\":2,\"lease_ttl_seconds\":300,\"heartbeat_interval_seconds\":30,\"schedule_cursor_at\":\"2026-10-08T15:13:02.000Z\",\"next_run_at\":\"2026-10-08T15:14:00.000Z\",\"last_run_at\":\"2026-10-08T15:13:00.000Z\",\"versi\n    at until (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-evidence.mjs:169:9)\n    at async scheduleStage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/lib/automation-stage-schedule.mjs:28:20)\n    at async stage (file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file:///Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/tests/integration/desktop-automation-electron.mjs:171:3"
+    },
+    "race": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "restart": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "faults": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    }
+  },
+  "unprovenStages": [
+    "schedule",
+    "race",
+    "restart",
+    "faults"
+  ],
+  "scope": "scoped diagnostic through schedule; not journey E certification",
+  "provenance": {
+    "bundles": [
+      {
+        "name": "main",
+        "files": 21,
+        "sha256": "192bdf065f4fa7c8e21169f459ad4ce9199d39ba555ddddbea3267a0d88d4668",
+        "newest": "2026-10-08T15:04:02.656Z"
+      },
+      {
+        "name": "host",
+        "files": 18,
+        "sha256": "710c7828fcc5fc972754ed02c40e732a59cafb19e8c90a4d6b6c9a0eb9906d3e",
+        "newest": "2026-10-08T15:04:02.688Z"
+      },
+      {
+        "name": "scheduler",
+        "files": 3,
+        "sha256": "b40e444d82ee7093be2ebc73961a235ad2b003f3f42ca7d62668c5f13822da3f",
+        "newest": "2026-10-08T15:04:02.655Z"
+      },
+      {
+        "name": "renderer",
+        "files": 4118,
+        "sha256": "0c4d5d9705f587c52c2e53d1c30e283959b3707a8a4cfae94fbcf05e1a6093ee",
+        "newest": "2026-10-08T15:04:11.645Z"
+      },
+      {
+        "name": "preload",
+        "files": 6,
+        "sha256": "df09fe65c516e0bcc2897f256d05f4f120636d8e0cdeb2779aa712a9dd17c16c",
+        "newest": "2026-10-08T15:04:02.428Z"
+      }
+    ],
+    "newestSource": "2026-10-08T14:06:10.381Z",
+    "oldestBundle": "2026-10-08T15:04:02.428Z",
+    "buildStale": false,
+    "parentHead": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+    "clientHead": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+    "pairedGitlink": "fd977fd06c6d11c0202554d0ae693825a8217879",
+    "parentDirtyFiles": 79,
+    "clientDirtyFiles": 165,
+    "parentDirtyHash": "3a2713aa472fb289adfaf41ce66dd1337f4bdb8362c83a0728704f86b08df7f5",
+    "clientDirtyHash": "2c581610b914be777d43796b6cb2e1c053489c9f40e8bd2b2fc55f2848fa99b7",
+    "parentCandidateContentHash": "c3cfaff70bf1d0d1cc1485e0d79ff2f17d872ecbeeba57255485f43fd96d388a",
+    "clientCandidateContentHash": "171e92333aad59f6d97d2ee7ad7d08cbbd567500b63ef30d323767d3b3e7649c",
+    "node": "v24.19.0"
+  },
+  "fixtures": {
+    "orgId": "org_deea1e10c48d6e042b5bce3e51f191c5",
+    "projectId": "prj_f7faeed6efa0490289ccc685d17113f9",
+    "deviceA": "dvc_75c84e26035145f096862dce6d8aba39",
+    "managedAutomationId": "aut_41aa8a8a3f3d48e1af08a9a91f41bf60",
+    "entitlements": {
+      "status": 422,
+      "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_39bda7fa3bf34f3dad99ca6ec2d2b256\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
+    },
+    "profileA": "/Volumes/SSD/agents-cp.runlumi/test-results/t/lumi-automation-a-cyJ1zr",
+    "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
+  }
+}

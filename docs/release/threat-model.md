@@ -139,10 +139,16 @@ admin API.
   empty by default, so it fails closed. A tenant cannot widen it.
 - The webhook path re-resolves over DoH immediately before connecting and fails
   closed on an empty answer or any poisoned answer.
-- Redirects are `redirect: "error"`, so a 302 to an internal address is a fetch
-  error, not a hop. A structural test counts `RequestInit::new()` against
-  `with_redirect(RequestRedirect::Error)` so a future call site cannot silently opt
-  out.
+- Redirects are never followed, so a 302 to an internal address is not a hop. The
+  webhook path still asks for `redirect: "error"`. The provider path cannot:
+  workerd (1.20260921.1, measured locally) refuses to construct that request, so
+  per P04-CR-003 it uses `manual` and treats any 3xx as a terminal, non-retryable
+  `upstream_invalid_response`; `Location` is never read or dialled and the
+  credential is never replayed. A structural test requires every `RequestInit::new()`
+  to be no-follow, forbids `Follow`, and rejects `Manual` in a file with no
+  `refuse_redirect`. That test is a source check, not runtime proof. Production
+  behaviour of the provider refusal and the webhook `error` mode on workerd are
+  UNPROVEN until measured (see P04-CR-003).
 - A shared blocked-destination table in `core/egress.rs` is mode-free and has one
   test corpus, so the two fetch paths cannot drift apart.
 

@@ -9,6 +9,13 @@ Cung cấp một **vendor-neutral AI inference gateway** cho Lumi Agents, đặt
 
 The public contract is Lumi-owned even if an implementation internally uses Cloudflare AI Gateway features.
 
+Per P04-CR-002, OpenAI-compatible chat preserves strictly bounded assistant
+function tool_calls, referenced tool_call_id messages and tool-call streaming
+name/index/argument fragments with finish_reason=tool_calls. Null assistant
+content is valid only with valid tool calls. Existing aggregate content/privacy,
+authorization, budget and no-fallback-after-output rules remain mandatory. The
+gateway transports calls; P05 remains the execution/approval authority.
+
 ## Design principles
 
 1. Client requests **capability/alias**, not raw secret.
@@ -291,6 +298,9 @@ P0 UI can be form-based. Visual node graph is not required.
 - Upstream credentials resolved only inside trusted backend.
 - Custom provider base URL must defend against SSRF.
 - Never proxy arbitrary caller-supplied URL.
+- Never follow a provider redirect (P04-CR-003). A 3xx is a terminal, non-retryable
+  `upstream_invalid_response`; the `Location` header is not read, logged or dialled and
+  the provider credential is never sent to a second target.
 - Strip caller headers except an explicit allowlist.
 - Generate outbound headers from adapter/credential policy.
 - Enforce max request/response metadata size.

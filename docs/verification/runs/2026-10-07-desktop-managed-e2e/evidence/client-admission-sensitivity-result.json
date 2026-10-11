@@ -1,0 +1,9 @@
+{
+  "scope": "production client admission barrier with loopback HTTP/file handler regressions; not full Electron tool gate",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "mutation": "release policy allow without requesting execution claim",
+  "source_unchanged": true,
+  "source_sha256": "c45e93bff2112137e7788ead6971b30fa9498c5ec2d40da1538a1e3c557063cb"
+}

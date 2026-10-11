@@ -1,0 +1,9 @@
+{
+  "scope": "actual Core executor argument ownership; not full Electron tool approval",
+  "mutation": "deliver caller-owned input instead of isolated approved snapshot",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "source_unchanged": true,
+  "source_sha256": "ac8fe21560c4791a19a916fc8e267f36a204c6e64cd40a3aec9bd7042eb487c1"
+}

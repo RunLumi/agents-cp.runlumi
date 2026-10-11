@@ -153,16 +153,3 @@ Per `delivery-plan.md` section 3: `cargo fmt --check`, clippy `-D warnings`,
 `cargo check --target wasm32-unknown-unknown`, `cargo test --workspace`, `pnpm check`/`build`,
 a fresh 25-migration D1, `lumi-account.mjs` exact-head, a fault control for the 409
 guard-abort mapping and one for token rotation, then CI `quality` and `adoption`.
-
-## Coordinator review checkpoint — 2026-10-09
-
-The recovery-only tree was independently applied to a separate clone at parent
-`e7ad897a7f400048df17100594ef86b3788ea0f1`; unrelated later-phase work was excluded.
-Format, lint, types, unit/schema/guard checks, Rust clippy/WASM and web/Worker dry-run
-passed on that candidate. A fresh 25-migration Worker/D1 run using the exact clean
-client `2a495254f0018644d24c9c1e5c5210bb7a30075c` passed recovery proof, expiry,
-replay and cross-tenant stored-state controls. That first run was on an uncommitted
-server candidate and is not exact committed-head certification; the frozen commit
-must be replayed and checked in CI. These are SDK/HTTP results, not Electron recovery
-UI or full A–E completion. The phase testing gitlink names the published client
-phase head; a final release pin still must identify the merged, retested client.
