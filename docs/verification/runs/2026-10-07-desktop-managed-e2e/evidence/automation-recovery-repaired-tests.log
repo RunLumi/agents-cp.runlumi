@@ -1,0 +1,14 @@
+✔ recovery requires complete exact-project pages before accepting correlation (13.175542ms)
+✔ only faithfully representable schedules are adoptable; everything else stays local (0.592666ms)
+✔ preview candidates and create bodies carry metadata only, never the prompt (31.310208ms)
+✔ zone offset tables are bounded and expose daylight-saving transitions (1.760041ms)
+✔ preview reads the server verdict and refuses a self-contradicting one (0.522334ms)
+✔ release readback refuses to treat a still-present managed automation as removed (0.492542ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 224.622666

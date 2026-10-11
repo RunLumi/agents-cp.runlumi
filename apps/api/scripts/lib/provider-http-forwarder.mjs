@@ -65,12 +65,7 @@ export function createOutboundForwarder({
     headers.delete("host");
     headers.delete("connection");
     const upstreamUrl = new URL(url.pathname, target);
-    const entry = {
-      method: request.method,
-      path: url.pathname,
-      requestAborted: false,
-      responseCancelled: false,
-    };
+    const entry = { method: request.method, path: url.pathname, requestAborted: false, responseCancelled: false };
     forwarded.push(entry);
     // Two independent cancel paths, both recorded so the probe measures which one the platform
     // actually fires instead of assuming:
@@ -106,25 +101,17 @@ export function createOutboundForwarder({
       entry.upstreamTransportError = String(error?.cause?.code ?? error?.name ?? "error");
       return new Response(JSON.stringify({ error: "fixture_upstream_transport_failure" }), {
         status: 502,
-        headers: {
-          "content-type": "application/json",
-          "x-lumi-fixture-egress": "upstream-transport-failure",
-        },
+        headers: { "content-type": "application/json", "x-lumi-fixture-egress": "upstream-transport-failure" },
       });
     }
     if (upstream.body === null) {
-      return new Response(null, {
-        status: upstream.status,
-        statusText: upstream.statusText,
-        headers: upstream.headers,
-      });
+      return new Response(null, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
     }
     const reader = upstream.body.getReader();
     const body = new ReadableStream({
       async pull(controller) {
         try {
-          const { done, value } = await reader.read();
-          if (done) controller.close();
+          const { done, value } = await reader.read();          if (done) controller.close();
           else controller.enqueue(value);
         } catch (error) {
           controller.error(error);

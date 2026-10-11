@@ -13,24 +13,16 @@ import { randomBytes, randomUUID } from "node:crypto";
 export async function grantAutomationFixtureEntitlement(probe, orgId, key, value) {
   assert.match(orgId, /^org_[0-9a-f]{32}$/);
   assert.ok(["automations.max_active", "inference.byok"].includes(key));
-  assert.ok(
-    (key === "automations.max_active" && value === 5) ||
-      (key === "inference.byok" && value === true),
-  );
+  assert.ok((key === "automations.max_active" && value === 5) ||
+    (key === "inference.byok" && value === true));
   const grantId = `egr_${randomUUID().replaceAll("-", "")}`;
   const stamp = new Date().toISOString();
-  await probe.d1Rows(
-    `INSERT INTO entitlement_grants
+  await probe.d1Rows(`INSERT INTO entitlement_grants
     (grant_id, org_id, entitlement_key, scope, value_json, source, effective_at, created_at, updated_at)
     VALUES ('${grantId}', '${orgId}', '${key}', 'organization', '${JSON.stringify(value)}',
-      'plan', '${stamp}', '${stamp}', '${stamp}')`,
-    `synthetic billing fixture ${key}`,
-  );
-  const stored = await probe.d1Rows(
-    `SELECT value_json FROM entitlement_grants
-    WHERE grant_id='${grantId}' AND org_id='${orgId}' AND revoked_at IS NULL`,
-    `read fixture ${key}`,
-  );
+      'plan', '${stamp}', '${stamp}', '${stamp}')`, `synthetic billing fixture ${key}`);
+  const stored = await probe.d1Rows(`SELECT value_json FROM entitlement_grants
+    WHERE grant_id='${grantId}' AND org_id='${orgId}' AND revoked_at IS NULL`, `read fixture ${key}`);
   assert.equal(stored.length, 1);
   assert.equal(JSON.parse(stored[0].value_json), value);
   return grantId;
@@ -44,19 +36,10 @@ export async function revokeAutomationFixtureEntitlement(probe, orgId, key) {
   assert.match(orgId, /^org_[0-9a-f]{32}$/);
   assert.ok(["automations.max_active"].includes(key));
   const stamp = new Date().toISOString();
-  const live = await probe.d1Rows(
-    `SELECT grant_id FROM entitlement_grants WHERE org_id='${orgId}' AND entitlement_key='${key}' AND revoked_at IS NULL`,
-    `live ${key} grants`,
-  );
+  const live = await probe.d1Rows(`SELECT grant_id FROM entitlement_grants WHERE org_id='${orgId}' AND entitlement_key='${key}' AND revoked_at IS NULL`, `live ${key} grants`);
   assert.ok(live.length > 0, `a live ${key} grant exists to revoke`);
-  await probe.d1Rows(
-    `UPDATE entitlement_grants SET revoked_at='${stamp}', updated_at='${stamp}' WHERE org_id='${orgId}' AND entitlement_key='${key}' AND revoked_at IS NULL`,
-    `revoke ${key}`,
-  );
-  const left = await probe.d1Rows(
-    `SELECT grant_id FROM entitlement_grants WHERE org_id='${orgId}' AND entitlement_key='${key}' AND revoked_at IS NULL`,
-    `remaining ${key} grants`,
-  );
+  await probe.d1Rows(`UPDATE entitlement_grants SET revoked_at='${stamp}', updated_at='${stamp}' WHERE org_id='${orgId}' AND entitlement_key='${key}' AND revoked_at IS NULL`, `revoke ${key}`);
+  const left = await probe.d1Rows(`SELECT grant_id FROM entitlement_grants WHERE org_id='${orgId}' AND entitlement_key='${key}' AND revoked_at IS NULL`, `remaining ${key} grants`);
   assert.equal(left.length, 0, "no live grant remains");
   return live.length;
 }

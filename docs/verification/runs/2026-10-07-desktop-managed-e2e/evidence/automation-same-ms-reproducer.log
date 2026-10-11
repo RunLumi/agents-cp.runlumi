@@ -1,0 +1,30 @@
+✔ an older build that ignores the marker cannot claim an adopted original (positive control included) (26.618084ms)
+✔ the guard is created by the migration ledger and recorded as 0005 (4.48525ms)
+✖ adoption refuses a stale local revision even when edits share the same millisecond (6.909917ms)
+✔ the occurrence journal only moves forward and never stores credentials (4.91925ms)
+✔ restart converts every non-terminal journal row to ambiguous and never to a retry (4.57375ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 4
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 698.385417
+
+✖ failing tests:
+
+test at packages/services/src/session/automationManagedGuard.test.ts:7:2267
+✖ adoption refuses a stale local revision even when edits share the same millisecond (6.909917ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async <anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/session/automationManagedGuard.test.ts:158:5)
+      at async withRepo (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/session/automationManagedGuard.test.ts:32:5)
+      at async TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/packages/services/src/session/automationManagedGuard.test.ts:153:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

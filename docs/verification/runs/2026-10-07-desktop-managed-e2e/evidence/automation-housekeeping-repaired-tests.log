@@ -1,0 +1,14 @@
+✔ scheduler expiration housekeeping cannot rewrite a suppressed original (12.921167ms)
+✔ a marker suppresses local claiming without rewriting the original, and removal restores it (4.875583ms)
+✔ manual runs of an adopted original are not claimable or startable locally (4.347ms)
+✔ begin is idempotent, refuses a foreign organization, a missing original and a busy one (5.87025ms)
+✔ every crash window leaves the original suppressed and recoverable (4.948125ms)
+✔ preview-style reads and an unmarked original never create or alter any marker (3.622542ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 437.916667

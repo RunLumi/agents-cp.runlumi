@@ -20,35 +20,15 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createDesktopApp } from "./lumi-desktop-app.mjs";
 import { onboardToManagedPolicy } from "./lumi-desktop-onboarding.mjs";
-import {
-  localJournal,
-  localMarkers,
-  managedEvidence,
-  serverFingerprint,
-  until,
-} from "./automation-evidence.mjs";
+import { localJournal, localMarkers, managedEvidence, serverFingerprint, until } from "./automation-evidence.mjs";
 import { readTable, seedLocalAutomations } from "./automation-journey-state.mjs";
 import { rowOf } from "./automation-stage-adopt.mjs";
 import { automationUi } from "./automation-ui.mjs";
-import {
-  assistantText,
-  managedTasks,
-  outputShape,
-  probe as readOrUnproven,
-  taskOutput,
-} from "./automation-task-output.mjs";
+import { assistantText, managedTasks, outputShape, probe as readOrUnproven, taskOutput } from "./automation-task-output.mjs";
 import { TERMINAL } from "./automation-stage-schedule.mjs";
-import {
-  assertRefusalDisclosesNothing,
-  disclosesLeaseId,
-  refusalReason,
-} from "./claim-recording-proxy.mjs";
+import { assertRefusalDisclosesNothing, disclosesLeaseId, refusalReason } from "./claim-recording-proxy.mjs";
 import { awaitClaims } from "./automation-claim-console.mjs";
-import {
-  admittedByResolver,
-  assertEachDeviceResolves,
-  readDeviceBindings,
-} from "./automation-race-binding.mjs";
+import { admittedByResolver, assertEachDeviceResolves, readDeviceBindings } from "./automation-race-binding.mjs";
 
 // Only `dispatching` is claimable. A `pending` occurrence has not been dispatched yet: releasing the clients on it
 // let the next slot's occurrence arrive first, and the overlap policy then skipped it (native-race-lane3-run5.log,
@@ -110,38 +90,17 @@ async function makeBothEligible(ctx, deviceIdB, { whilePinned } = {}) {
     fixtureOrg.fixture,
     "PATCH",
     `/api/v1/orgs/${orgId}/automations/${managedId}`,
-    {
-      version: Number(before.version),
-      target: { kind: "eligible_device", required_capabilities: [] },
-    },
-    probe.browserMutation(
-      fixtureOrg.fixture,
-      `automation-race-retarget-${Date.now()}-${(patchSequence += 1)}`,
-    ),
+    { version: Number(before.version), target: { kind: "eligible_device", required_capabilities: [] } },
+    probe.browserMutation(fixtureOrg.fixture, `automation-race-retarget-${Date.now()}-${(patchSequence += 1)}`),
   );
-  assert.equal(
-    result.status,
-    200,
-    `retarget answered ${result.status}: ${result.text.slice(0, 300)}`,
-  );
+  assert.equal(result.status, 200, `retarget answered ${result.status}: ${result.text.slice(0, 300)}`);
   const after = await read();
   assert.equal(after.target_kind, "eligible_device");
-  assert.equal(
-    after.target_workspace_binding_id,
-    null,
-    "the definition no longer names a single device's binding",
-  );
+  assert.equal(after.target_workspace_binding_id, null, "the definition no longer names a single device's binding");
   assert.equal(after.status, "active", "the retarget kept the automation active");
-  assert.ok(
-    Number(after.version) > Number(before.version),
-    "the retarget is a versioned definition update",
-  );
+  assert.ok(Number(after.version) > Number(before.version), "the retarget is a versioned definition update");
   const admittedAfter = await admittedDevices(ctx, managedId, both);
-  assert.deepEqual(
-    admittedAfter,
-    both,
-    `both enrolled devices must be eligible, predicate admitted ${admittedAfter}`,
-  );
+  assert.deepEqual(admittedAfter, both, `both enrolled devices must be eligible, predicate admitted ${admittedAfter}`);
   ledger.pass(
     "owner retargeted the definition through the public PATCH route (eligible_device, no workspace binding, version bumped); the due predicate now admits both active devices",
   );
@@ -150,20 +109,14 @@ async function makeBothEligible(ctx, deviceIdB, { whilePinned } = {}) {
 const B_TITLE = "Nightly review (client B)";
 const promptB = (PROMPT) => `${PROMPT}-client-b`;
 
-const confirmBox = (view) =>
-  view.centerOfTestId("lumi-automation-confirm", '[data-testid="lumi-automation-dialog"]');
+const confirmBox = (view) => view.centerOfTestId("lumi-automation-confirm", '[data-testid="lumi-automation-dialog"]');
 
 const shoot = ({ appB, evidenceDir }, name) =>
   evidenceDir ? appB.page.screenshot(join(evidenceDir, `${name}.png`)).catch(() => {}) : undefined;
 
 const definitionCount = async ({ server, orgId }) =>
   Number(
-    (
-      await server.rows(
-        `SELECT COUNT(*) AS n FROM automation_definitions WHERE org_id='${orgId}'`,
-        "definition count",
-      )
-    )[0].n,
+    (await server.rows(`SELECT COUNT(*) AS n FROM automation_definitions WHERE org_id='${orgId}'`, "definition count"))[0].n,
   );
 
 /** Positive control through the rendered dialog: the product itself refuses a definition pinned to A's binding. */
@@ -178,25 +131,13 @@ async function attachRefusalControl(ctx, original) {
   await view.startAttach(B_TITLE);
   await view.waitPhase(["choosing"], "attach candidates (none selectable yet)");
   const refused = await view.attachOptions();
-  assert.equal(
-    refused.length,
-    1,
-    `exactly the one existing definition is listed, got ${refused.length}`,
-  );
-  assert.equal(
-    refused[0].attachable,
-    false,
-    "while pinned to A's binding the product refuses B's attach",
-  );
+  assert.equal(refused.length, 1, `exactly the one existing definition is listed, got ${refused.length}`);
+  assert.equal(refused[0].attachable, false, "while pinned to A's binding the product refuses B's attach");
   assert.equal(await confirmBox(view), null, "Confirm is unavailable for a refused candidate");
   await shoot(ctx, "race-attach-refused");
   await view.cancelDialog();
   assert.equal(localMarkers(profileB).length, 0, "a refused attach preview wrote no marker");
-  assert.deepEqual(
-    rowOf(profileB, original.automationId),
-    originalBefore,
-    "a refused preview left the original untouched",
-  );
+  assert.deepEqual(rowOf(profileB, original.automationId), originalBefore, "a refused preview left the original untouched");
   ledger.pass(
     "actual UI control: B's attach dialog lists the managed definition as NOT attachable while it is pinned to A's binding; Confirm unavailable, nothing written",
   );
@@ -222,47 +163,19 @@ async function attachClientBThroughUi(ctx, original) {
   await view.startAttach(B_TITLE);
   await view.waitPhase(["choosing"], "attach candidates");
   const options = await view.attachOptions();
-  assert.equal(
-    options.length,
-    1,
-    `exactly the one existing definition is listed, got ${options.length}`,
-  );
-  assert.equal(
-    options[0].attachable,
-    true,
-    `the retargeted definition is attachable: ${options[0].text}`,
-  );
-  assert.equal(
-    await confirmBox(view),
-    null,
-    "Confirm is unavailable before a definition is chosen",
-  );
+  assert.equal(options.length, 1, `exactly the one existing definition is listed, got ${options.length}`);
+  assert.equal(options[0].attachable, true, `the retargeted definition is attachable: ${options[0].text}`);
+  assert.equal(await confirmBox(view), null, "Confirm is unavailable before a definition is chosen");
   await view.chooseAttachOption(0);
   await view.waitPhase(["ready"], "definition chosen");
-  assert.equal(
-    await confirmBox(view),
-    null,
-    "Confirm stays unavailable until local instructions are acknowledged",
-  );
-  assert.equal(
-    await view.toggleAttachAck(),
-    true,
-    "the acknowledgement is checked by a real click",
-  );
-  assert.notEqual(
-    await confirmBox(view),
-    null,
-    "Confirm is available after choosing and acknowledging",
-  );
+  assert.equal(await confirmBox(view), null, "Confirm stays unavailable until local instructions are acknowledged");
+  assert.equal(await view.toggleAttachAck(), true, "the acknowledgement is checked by a real click");
+  assert.notEqual(await confirmBox(view), null, "Confirm is available after choosing and acknowledging");
   await shoot(ctx, "race-attach-ready");
   await view.pressDialog("lumi-automation-confirm");
   const outcome = await view.waitPhase(["done", "confirm_failed"], "attach outcome");
   await shoot(ctx, "race-attach-outcome");
-  assert.equal(
-    outcome,
-    "done",
-    `attach outcome ${outcome}: ${(await view.dialogText()).slice(0, 400)}`,
-  );
+  assert.equal(outcome, "done", `attach outcome ${outcome}: ${(await view.dialogText()).slice(0, 400)}`);
   await view.pressDialog("lumi-automation-cancel"); // Close reuses this id once done
   await view.waitDialogGone();
 
@@ -271,27 +184,11 @@ async function attachClientBThroughUi(ctx, original) {
   const [marker] = markers;
   assert.equal(marker.local_automation_id, original.automationId);
   assert.equal(marker.state, "managed");
-  assert.equal(
-    marker.origin,
-    "attached",
-    "the marker records a shared attach, not a created definition",
-  );
+  assert.equal(marker.origin, "attached", "the marker records a shared attach, not a created definition");
   assert.equal(marker.org_id, orgId);
-  assert.equal(
-    marker.managed_automation_id,
-    managedId,
-    "the marker names exactly the shared managed automation",
-  );
-  assert.deepEqual(
-    rowOf(profileB, original.automationId),
-    originalBefore,
-    "attach left B's local original row byte-identical",
-  );
-  assert.equal(
-    await definitionCount(ctx),
-    definitionsBefore,
-    "attach created no extra server definition",
-  );
+  assert.equal(marker.managed_automation_id, managedId, "the marker names exactly the shared managed automation");
+  assert.deepEqual(rowOf(profileB, original.automationId), originalBefore, "attach left B's local original row byte-identical");
+  assert.equal(await definitionCount(ctx), definitionsBefore, "attach created no extra server definition");
   assert.deepEqual(
     (await serverFingerprint(server, orgId)).definitions,
     fingerprintBefore,
@@ -330,10 +227,7 @@ async function startClientB(ctx) {
     0,
     "client B's seeded original carries no managed marker before launch (the attach UI is the only way to mark it)",
   );
-  assert.ok(
-    rowOf(profileB, original.automationId),
-    "client B's seeded original row exists before launch",
-  );
+  assert.ok(rowOf(profileB, original.automationId), "client B's seeded original row exists before launch");
   const appB = createDesktopApp({
     binary: ctx.binary,
     desktop: ctx.desktop,
@@ -353,11 +247,7 @@ async function startClientB(ctx) {
     email: fixtureOrg.email,
     password: fixtureOrg.password,
   });
-  assert.equal(
-    localMarkers(profileB).length,
-    0,
-    "real sign-in/onboarding of B left its original unmarked",
-  );
+  assert.equal(localMarkers(profileB).length, 0, "real sign-in/onboarding of B left its original unmarked");
   return { profileB, original, deviceIdB: onboarding.deviceId, appB };
 }
 
@@ -378,19 +268,14 @@ export async function raceStage(ctx) {
   assert.deepEqual(devices.map((row) => row.status).sort(), ["active", "active"]);
   ledger.pass("client B runs in its own isolated profile with its own enrolled, active device");
   // The real attach dialog is the control: the product refuses a definition pinned to A's binding.
-  await makeBothEligible(ctx, deviceIdB, {
-    whilePinned: () => attachRefusalControl(ctx, original),
-  });
+  await makeBothEligible(ctx, deviceIdB, { whilePinned: () => attachRefusalControl(ctx, original) });
   const originalBBefore = await attachClientBThroughUi(ctx, original);
 
-  const seen = new Set(
-    (await managedEvidence(server, orgId, managedId)).occurrences.map((o) => o.occurrence_id),
-  );
+  const seen = new Set((await managedEvidence(server, orgId, managedId)).occurrences.map((o) => o.occurrence_id));
   const results = [];
   // Tasks come from each profile's OWN tasks-index, so "no task" is an isolated measurement.
   const localIds = { A: ctx.seeds.adopted.automationId, B: original.automationId };
-  const tasksOf = (key) =>
-    managedTasks(key === "A" ? profileA : profileB, { localAutomationId: localIds[key] });
+  const tasksOf = (key) => managedTasks(key === "A" ? profileA : profileB, { localAutomationId: localIds[key] });
   // Hold the first claim of each contested occurrence until the other client's claim arrives so both reach the
   // Worker's guarded write together (the concurrent-loser path); restored to pass-through after the rounds.
   ctx.claimProxy?.setClaimBarrier(8_000);
@@ -417,38 +302,22 @@ export async function raceStage(ctx) {
       appB.signal("SIGCONT");
     }
     seen.add(target.occurrence_id);
-    assert.equal(
-      heldBeforeRelease,
-      0,
-      "positive control: nobody held the occurrence while both clients were frozen",
-    );
+    assert.equal(heldBeforeRelease, 0, "positive control: nobody held the occurrence while both clients were frozen");
 
     const evidence = await until(
       `round ${round}: the contested occurrence settles`,
       () => managedEvidence(server, orgId, managedId),
       (value) =>
-        value.occurrences.some(
-          (row) => row.occurrence_id === target.occurrence_id && TERMINAL.includes(row.state),
-        ),
+        value.occurrences.some((row) => row.occurrence_id === target.occurrence_id && TERMINAL.includes(row.state)),
       { timeout: 5 * 60_000, every: 6_000, tick: () => probe.triggerSweep() },
     );
-    const occurrence = evidence.occurrences.find(
-      (row) => row.occurrence_id === target.occurrence_id,
-    );
+    const occurrence = evidence.occurrences.find((row) => row.occurrence_id === target.occurrence_id);
     const leases = evidence.leases.filter((row) => row.occurrence_id === target.occurrence_id);
     const attempts = evidence.attempts.filter((row) => row.occurrence_id === target.occurrence_id);
     const links = evidence.links.filter((row) => row.occurrence_id === target.occurrence_id);
     assert.equal(occurrence.state, "succeeded", `contested occurrence ended ${occurrence.state}`);
-    assert.equal(
-      leases.length,
-      1,
-      `exactly one lease for the contested occurrence, got ${leases.length}`,
-    );
-    assert.equal(
-      attempts.filter((row) => row.outcome === "claimed").length,
-      1,
-      "exactly one claim attempt row",
-    );
+    assert.equal(leases.length, 1, `exactly one lease for the contested occurrence, got ${leases.length}`);
+    assert.equal(attempts.filter((row) => row.outcome === "claimed").length, 1, "exactly one claim attempt row");
     assert.equal(links.length, 1, "exactly one run link");
     const runs = await server.rows(
       `SELECT run_id FROM runs WHERE org_id='${orgId}' AND automation_occurrence_id='${target.occurrence_id}'`,
@@ -456,10 +325,7 @@ export async function raceStage(ctx) {
     );
     assert.equal(runs.length, 1, `exactly one P05 run for the occurrence, got ${runs.length}`);
     const winnerDevice = leases[0].device_id;
-    assert.ok(
-      [state.deviceIdA, deviceIdB].includes(winnerDevice),
-      "the winner is one of the two enrolled devices",
-    );
+    assert.ok([state.deviceIdA, deviceIdB].includes(winnerDevice), "the winner is one of the two enrolled devices");
     const [contestedRun] = await server.rows(
       `SELECT state, workspace_binding_id FROM runs WHERE org_id='${orgId}' AND automation_occurrence_id='${target.occurrence_id}'`,
       "contested run binding",
@@ -469,21 +335,12 @@ export async function raceStage(ctx) {
       state.bindingIds[winnerDevice],
       "the server wrote the winner's OWN live binding into the run (never NULL, never the loser's)",
     );
-    assert.notEqual(
-      contestedRun.state,
-      "queued",
-      "no orphaned queued run remains for the contested occurrence",
-    );
-    const [winnerProfile, loserProfile] =
-      winnerDevice === state.deviceIdA ? [profileA, profileB] : [profileB, profileA];
+    assert.notEqual(contestedRun.state, "queued", "no orphaned queued run remains for the contested occurrence");
+    const [winnerProfile, loserProfile] = winnerDevice === state.deviceIdA ? [profileA, profileB] : [profileB, profileA];
     const loserDevice = winnerDevice === state.deviceIdA ? deviceIdB : state.deviceIdA;
 
-    const winnerJournal = localJournal(winnerProfile).filter(
-      (row) => row.occurrence_id === target.occurrence_id,
-    );
-    const loserJournal = localJournal(loserProfile).filter(
-      (row) => row.occurrence_id === target.occurrence_id,
-    );
+    const winnerJournal = localJournal(winnerProfile).filter((row) => row.occurrence_id === target.occurrence_id);
+    const loserJournal = localJournal(loserProfile).filter((row) => row.occurrence_id === target.occurrence_id);
     assert.equal(winnerJournal.length, 1, "the winner journaled the occurrence");
     assert.equal(winnerJournal[0].state, "settled");
     assert.equal(
@@ -501,19 +358,13 @@ export async function raceStage(ctx) {
       { timeout: 60_000, every: 3_000 },
     );
     const loserTasks = tasksOf(loserKey);
-    assert.equal(
-      loserTasks.length,
-      tasksBefore[loserKey],
-      `the loser created a task: ${JSON.stringify(loserTasks.map((t) => [t.taskId, t.status]))}`,
-    );
+    assert.equal(loserTasks.length, tasksBefore[loserKey], `the loser created a task: ${JSON.stringify(loserTasks.map((t) => [t.taskId, t.status]))}`);
     ledger.pass(
       `round ${round}: client ${winnerKey} created exactly one new completed Agent task (${winnerTasks.at(-1).model}); client ${loserKey}'s task index gained none`,
     );
     const reply = readOrUnproven(() => taskOutput(winnerProfile, winnerTasks.at(-1).taskId));
     if (reply.status === "ok" && assistantText(reply.value).includes(MOCK_REPLY))
-      ledger.pass(
-        `round ${round}: the winner's in-profile Agent session holds the model reply "${MOCK_REPLY}"`,
-      );
+      ledger.pass(`round ${round}: the winner's in-profile Agent session holds the model reply "${MOCK_REPLY}"`);
     else
       ledger.gap(
         "race",
@@ -525,10 +376,7 @@ export async function raceStage(ctx) {
       );
     // The Worker's own console capture is the contention record: a refused claim is an HTTP 409 on the same
     // occurrence while D1 shows a single lease. It cannot name the refused device, only that a second claim lost.
-    const claims = await awaitClaims(
-      () => probe.workerConsole(Number.MAX_SAFE_INTEGER),
-      target.occurrence_id,
-    );
+    const claims = await awaitClaims(() => probe.workerConsole(Number.MAX_SAFE_INTEGER), target.occurrence_id);
     results.push({
       round,
       occurrence: target.occurrence_id,
@@ -539,33 +387,19 @@ export async function raceStage(ctx) {
       otherClaimStatuses: claims.other,
       claimCorrelationIds: claims.correlationIds,
     });
-    assert.ok(
-      claims.accepted <= 1,
-      `the Worker accepted ${claims.accepted} claims for one occurrence`,
-    );
+    assert.ok(claims.accepted <= 1, `the Worker accepted ${claims.accepted} claims for one occurrence`);
     ledger.pass(
       `round ${round}: exactly one lease, one claim, one run link and one P05 run for ${target.occurrence_id}; winner ${winnerDevice === state.deviceIdA ? "A" : "B"} settled it and the loser journal has no started or settled row`,
     );
     // The refused claim's actual HTTP body, read at the transport boundary (proxy in front of the Worker).
-    const refusals = (ctx.claimProxy?.claimsFor(target.occurrence_id) ?? []).filter(
-      (row) => row.status === 409,
-    );
+    const refusals = (ctx.claimProxy?.claimsFor(target.occurrence_id) ?? []).filter((row) => row.status === 409);
     if (refusals.length) {
       const problems = refusals.flatMap((row) =>
         assertRefusalDisclosesNothing(row, {
-          forbidden: [
-            winnerDevice,
-            leases[0].lease_token_fingerprint,
-            contestedRun.workspace_binding_id,
-            runs[0].run_id,
-          ],
+          forbidden: [winnerDevice, leases[0].lease_token_fingerprint, contestedRun.workspace_binding_id, runs[0].run_id],
         }),
       );
-      assert.deepEqual(
-        problems,
-        [],
-        `the losing claim's response disclosed more than the refusal: ${problems}`,
-      );
+      assert.deepEqual(problems, [], `the losing claim's response disclosed more than the refusal: ${problems}`);
       const reasons = [...new Set(refusals.map(refusalReason))];
       results.at(-1).refusalBodies = refusals.map((row) => ({
         status: row.status,
@@ -606,17 +440,9 @@ export async function raceStage(ctx) {
     await delay(1_000);
   }
   ctx.claimProxy?.setClaimBarrier(0);
-  assert.deepEqual(
-    rowOf(profileB, original.automationId),
-    originalBBefore,
-    "client B's attached original row is byte-identical",
-  );
+  assert.deepEqual(rowOf(profileB, original.automationId), originalBBefore, "client B's attached original row is byte-identical");
   assert.equal(
-    readTable(
-      profileB,
-      "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id = ?",
-      original.automationId,
-    )[0].n,
+    readTable(profileB, "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id = ?", original.automationId)[0].n,
     0,
     "client B wrote no local run history for its attached original",
   );

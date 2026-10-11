@@ -7,13 +7,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import {
-  assertTablesExclude,
-  d1StoragePath,
-  readRowsWithRetry,
-  serverState,
-  snapshotLocal,
-} from "./automation-journey-state.mjs";
+import { assertTablesExclude, d1StoragePath, readRowsWithRetry, serverState, snapshotLocal } from "./automation-journey-state.mjs";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
 const NEEDLE = "Summarise the quarterly 'incident' log; password=hunter2";
@@ -50,79 +44,46 @@ test("clean tables pass and report the scope that was measured", () => {
 });
 
 test("positive control: the sensitive string is found in a TEXT column, quote and all", () => {
-  const persist = fixture("text", (db) =>
-    db.prepare("INSERT INTO runs VALUES (?, ?, NULL, NULL)").run("run_b", `x ${NEEDLE} y`),
-  );
-  assert.throws(
-    () => assertTablesExclude(d1StoragePath(persist), NEEDLE, TABLES, "text"),
-    /text: found in runs/,
-  );
+  const persist = fixture("text", (db) => db.prepare("INSERT INTO runs VALUES (?, ?, NULL, NULL)").run("run_b", `x ${NEEDLE} y`));
+  assert.throws(() => assertTablesExclude(d1StoragePath(persist), NEEDLE, TABLES, "text"), /text: found in runs/);
 });
 
 test("positive control: found in an untyped column and in a BLOB column", () => {
-  const untyped = fixture("untyped", (db) =>
-    db.prepare("INSERT INTO runs VALUES ('run_b', NULL, NULL, ?)").run(NEEDLE),
-  );
-  assert.throws(
-    () => assertTablesExclude(d1StoragePath(untyped), NEEDLE, TABLES, "u"),
-    /found in runs/,
-  );
+  const untyped = fixture("untyped", (db) => db.prepare("INSERT INTO runs VALUES ('run_b', NULL, NULL, ?)").run(NEEDLE));
+  assert.throws(() => assertTablesExclude(d1StoragePath(untyped), NEEDLE, TABLES, "u"), /found in runs/);
   const blob = fixture("blob", (db) =>
     db.prepare("INSERT INTO runs VALUES ('run_b', NULL, ?, NULL)").run(Buffer.from(NEEDLE, "utf8")),
   );
-  assert.throws(
-    () => assertTablesExclude(d1StoragePath(blob), NEEDLE, TABLES, "b"),
-    /found in runs/,
-  );
+  assert.throws(() => assertTablesExclude(d1StoragePath(blob), NEEDLE, TABLES, "b"), /found in runs/);
 });
 
 test("positive control: a hit in the second table is not masked by a clean first table", () => {
-  const persist = fixture("second", (db) =>
-    db.prepare("UPDATE automation_leases SET state = ?").run(NEEDLE),
-  );
-  assert.throws(
-    () => assertTablesExclude(d1StoragePath(persist), NEEDLE, TABLES, "s"),
-    /found in automation_leases/,
-  );
+  const persist = fixture("second", (db) => db.prepare("UPDATE automation_leases SET state = ?").run(NEEDLE));
+  assert.throws(() => assertTablesExclude(d1StoragePath(persist), NEEDLE, TABLES, "s"), /found in automation_leases/);
 });
 
 test("fault: a missing table fails instead of reading as absent", () => {
   const persist = fixture("missing");
   assert.throws(
-    () =>
-      assertTablesExclude(
-        d1StoragePath(persist),
-        NEEDLE,
-        ["automation_leases", "automation_leasez"],
-        "m",
-      ),
+    () => assertTablesExclude(d1StoragePath(persist), NEEDLE, ["automation_leases", "automation_leasez"], "m"),
     /table automation_leasez does not exist/,
   );
 });
 
 test("fault: a table with no inspectable column fails", () => {
   const persist = fixture("nocols");
-  assert.throws(
-    () => assertTablesExclude(d1StoragePath(persist), NEEDLE, ["counters"], "n"),
-    /no text columns/,
-  );
+  assert.throws(() => assertTablesExclude(d1StoragePath(persist), NEEDLE, ["counters"], "n"), /no text columns/);
 });
 
 test("fault: hostile identifier and empty needle are refused before any query", () => {
   const persist = fixture("refuse");
   const path = d1StoragePath(persist);
-  assert.throws(
-    () => assertTablesExclude(path, NEEDLE, ["runs; DROP TABLE runs"], "i"),
-    /invalid table name/,
-  );
+  assert.throws(() => assertTablesExclude(path, NEEDLE, ["runs; DROP TABLE runs"], "i"), /invalid table name/);
   assert.throws(() => assertTablesExclude(path, "", TABLES, "e"), /needle must be non-empty/);
 });
 
 test("fault: a query the engine refuses propagates (missing database, corrupt file)", () => {
-  assert.throws(
-    () => assertTablesExclude(join(root, "nope.sqlite"), NEEDLE, TABLES, "f"),
-    /database file not found/,
-  );
+  assert.throws(() => assertTablesExclude(join(root, "nope.sqlite"), NEEDLE, TABLES, "f"), /database file not found/);
   const persist = fixture("corrupt");
   const path = d1StoragePath(persist);
   const db = new DatabaseSync(path);
@@ -143,10 +104,7 @@ test("fault: empty, non-array and duplicate table lists are refused before the d
   assert.throws(() => assertTablesExclude(missing, NEEDLE, [], "e"), /non-empty array/);
   assert.throws(() => assertTablesExclude(missing, NEEDLE, "runs", "s"), /non-empty array/);
   assert.throws(() => assertTablesExclude(missing, NEEDLE, undefined, "u"), /non-empty array/);
-  assert.throws(
-    () => assertTablesExclude(missing, NEEDLE, ["runs", "runs"], "d"),
-    /duplicate table/,
-  );
+  assert.throws(() => assertTablesExclude(missing, NEEDLE, ["runs", "runs"], "d"), /duplicate table/);
 });
 
 test("positive control: a single valid table is measured and reported", () => {
@@ -171,8 +129,7 @@ test("WAL: reads coexist with an open writer and all tables come from one snapsh
     // A write committed AFTER the first table was read must not be seen by the second: same snapshot.
     const scope = assertTablesExclude(path, NEEDLE, TABLES, "mid-scan", {
       afterTable: (table) => {
-        if (table === "automation_leases")
-          writer.prepare("UPDATE runs SET payload = ?").run(NEEDLE);
+        if (table === "automation_leases") writer.prepare("UPDATE runs SET payload = ?").run(NEEDLE);
       },
     });
     assert.equal(scope.length, 2);
@@ -211,9 +168,7 @@ test("a scoped local snapshot ignores churn in other automations but still detec
   const scoped = () => snapshotLocal(profile, { only: ["kept"] }).hash;
   const whole = () => snapshotLocal(profile).hash;
   const [scopedBefore, wholeBefore] = [scoped(), whole()];
-  db.exec(
-    "UPDATE automations SET updated_at = 2 WHERE automation_id = 'retrying'; UPDATE automation_runs SET attempts = 2",
-  );
+  db.exec("UPDATE automations SET updated_at = 2 WHERE automation_id = 'retrying'; UPDATE automation_runs SET attempts = 2");
   assert.equal(scoped(), scopedBefore, "retry churn outside the scope is not an effect");
   assert.notEqual(whole(), wholeBefore, "positive control: the unscoped hash does see that churn");
   db.exec("UPDATE automations SET updated_at = 2 WHERE automation_id = 'kept'");
@@ -222,48 +177,21 @@ test("a scoped local snapshot ignores churn in other automations but still detec
 });
 
 test("D1 reads retry only the Miniflare internal-error signature and never turn a failure into an empty result", async () => {
-  const internal = new Error(
-    "links failed (1): Failed to parse body as JSON, got: Error: internal error; reference = x",
-  );
+  const internal = new Error("links failed (1): Failed to parse body as JSON, got: Error: internal error; reference = x");
   let calls = 0;
-  const bare = new Error(
-    'definition failed (1): {\n "error": {\n  "text": "internal error; reference = 0btpsupk438cdjb6voae7a4r"\n }\n}',
-  );
+  const bare = new Error('definition failed (1): {\n "error": {\n  "text": "internal error; reference = 0btpsupk438cdjb6voae7a4r"\n }\n}');
   let bareCalls = 0;
-  assert.deepEqual(
-    await readRowsWithRetry(
-      { d1Rows: async () => (++bareCalls < 2 ? Promise.reject(bare) : []) },
-      "select 1",
-      "bare",
-      { delayMs: 1 },
-    ),
-    [],
-  );
-  assert.equal(
-    bareCalls,
-    2,
-    "the bare internal-error form is retried too (native-full-lane3-run20)",
-  );
+  assert.deepEqual(await readRowsWithRetry({ d1Rows: async () => (++bareCalls < 2 ? Promise.reject(bare) : []) }, "select 1", "bare", { delayMs: 1 }), []);
+  assert.equal(bareCalls, 2, "the bare internal-error form is retried too (native-full-lane3-run20)");
   const flaky = { d1Rows: async () => (++calls < 3 ? Promise.reject(internal) : [{ n: 1 }]) };
   assert.deepEqual(await readRowsWithRetry(flaky, "select 1", "flaky", { delayMs: 1 }), [{ n: 1 }]);
   assert.equal(calls, 3);
   calls = 0;
-  const refused = {
-    d1Rows: async () => (
-      calls++,
-      Promise.reject(new Error("D1 refused the statement: no such column"))
-    ),
-  };
-  await assert.rejects(
-    () => readRowsWithRetry(refused, "select x", "refused", { delayMs: 1 }),
-    /no such column/,
-  );
+  const refused = { d1Rows: async () => (calls++, Promise.reject(new Error("D1 refused the statement: no such column"))) };
+  await assert.rejects(() => readRowsWithRetry(refused, "select x", "refused", { delayMs: 1 }), /no such column/);
   assert.equal(calls, 1, "a real refusal is not retried");
   calls = 0;
   const persistent = { d1Rows: async () => (calls++, Promise.reject(internal)) };
-  await assert.rejects(
-    () => readRowsWithRetry(persistent, "select 1", "persistent", { attempts: 3, delayMs: 1 }),
-    /internal error/,
-  );
+  await assert.rejects(() => readRowsWithRetry(persistent, "select 1", "persistent", { attempts: 3, delayMs: 1 }), /internal error/);
   assert.equal(calls, 3, "a persisting internal error still fails after the bounded attempts");
 });

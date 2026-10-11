@@ -1,0 +1,16 @@
+✔ an untrusted sender can neither initialize custody nor reach automation commands (0.703875ms)
+✔ preview is a pure read with a bounded unique id list and no extra keys (0.336917ms)
+✔ adopt and release demand explicit confirmation and exact keys (0.230417ms)
+✔ owner failures surface only stable codes, never message text (0.170792ms)
+✔ org membership refusal happens before local marker reads (0.517375ms)
+✔ account switch during marker read cannot publish another user's projection (0.128917ms)
+✔ the prompt never leaves the device across preview, adopt and read (45.63825ms)
+✔ a bot-delivery original is classified not adoptable and stays untouched locally (5.484208ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1157.460375

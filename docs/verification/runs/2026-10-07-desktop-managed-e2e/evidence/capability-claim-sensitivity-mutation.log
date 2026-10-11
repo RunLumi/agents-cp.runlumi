@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Volumes/SSD/agents-cp.runlumi/test-results/capability-guard-sensitivity/backend/apps/api/scripts/p05-capability-claim-guard.py", line 95, in <module>
+    assert admitted == expected, name
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: visible addition

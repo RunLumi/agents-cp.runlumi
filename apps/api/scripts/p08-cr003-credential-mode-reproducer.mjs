@@ -88,22 +88,16 @@ await runProbe("P08-CR-003 credential-mode-only persistence", async (probe) => {
 
   // --- positive controls: the route works before the defect is interpreted ------------------
   probe.stage = "controls";
-  const created = await request(
-    owner.jar,
-    "POST",
-    bindings,
-    {
-      installation_id: `inst_cr003${probe.nonce}`.slice(0, 40),
-      workspace_key: `cr003-workspace-${probe.nonce}`.slice(0, 60),
-      display_name: "CR003 workspace",
-      stage: "local_unmanaged",
-      credential_mode: "local_credential",
-      client_protocol_major: 1,
-      policy_schema_version: 1,
-      client_app_version: "1.0.0",
-    },
-    browserMutation(owner.jar, "create"),
-  );
+  const created = await request(owner.jar, "POST", bindings, {
+    installation_id: `inst_cr003${probe.nonce}`.slice(0, 40),
+    workspace_key: `cr003-workspace-${probe.nonce}`.slice(0, 60),
+    display_name: "CR003 workspace",
+    stage: "local_unmanaged",
+    credential_mode: "local_credential",
+    client_protocol_major: 1,
+    policy_schema_version: 1,
+    client_app_version: "1.0.0",
+  }, browserMutation(owner.jar, "create"));
   expectStatus("control: a local adoption record is created", created, [200, 201]);
   const id = created.payload?.adoption_state_id;
   if (!ID_PATTERN.test(id ?? "")) {
@@ -195,8 +189,7 @@ await runProbe("P08-CR-003 credential-mode-only persistence", async (probe) => {
   );
   expect(
     "REPLAY writes nothing: row and event count are unchanged",
-    JSON.stringify(afterReplay) === JSON.stringify(stored) &&
-      eventsAfterReplay === eventsAfterFirst,
+    JSON.stringify(afterReplay) === JSON.stringify(stored) && eventsAfterReplay === eventsAfterFirst,
     `events ${eventsAfterFirst} -> ${eventsAfterReplay}`,
   );
 
@@ -266,17 +259,10 @@ await runProbe("P08-CR-003 credential-mode-only persistence", async (probe) => {
       noop.payload?.stage === afterNoop?.stage,
     JSON.stringify(probe.sanitize(noop.payload)),
   );
-  const noopReplay = await request(
-    owner.jar,
-    "PATCH",
-    `${bindings}/${id}`,
-    noopRequest,
-    noopHeaders,
-  );
+  const noopReplay = await request(owner.jar, "PATCH", `${bindings}/${id}`, noopRequest, noopHeaders);
   expect(
     "NO-OP idempotency retained: the replay is identical",
-    noopReplay.status === 200 &&
-      JSON.stringify(noopReplay.payload) === JSON.stringify(noop.payload),
+    noopReplay.status === 200 && JSON.stringify(noopReplay.payload) === JSON.stringify(noop.payload),
     `status=${noopReplay.status}`,
   );
 

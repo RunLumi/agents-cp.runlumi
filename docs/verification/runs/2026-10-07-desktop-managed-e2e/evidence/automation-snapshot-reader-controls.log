@@ -1,0 +1,21 @@
+✔ clean tables pass and report the scope that was measured (10.131875ms)
+✔ positive control: the sensitive string is found in a TEXT column, quote and all (2.822708ms)
+✔ positive control: found in an untyped column and in a BLOB column (4.740208ms)
+✔ positive control: a hit in the second table is not masked by a clean first table (1.795209ms)
+✔ fault: a missing table fails instead of reading as absent (1.562875ms)
+✔ fault: a table with no inspectable column fails (1.56225ms)
+✔ fault: hostile identifier and empty needle are refused before any query (2.154ms)
+✔ fault: a query the engine refuses propagates (missing database, corrupt file) (2.322ms)
+✔ storage path: zero or several database files is an error, not a guess (1.654666ms)
+✔ fault: empty, non-array and duplicate table lists are refused before the database is opened (0.193584ms)
+✔ positive control: a single valid table is measured and reported (1.718083ms)
+✔ WAL: reads coexist with an open writer and all tables come from one snapshot (3.717625ms)
+✔ serverState.assertAbsent reads the harness's persist dir and never shells out to Wrangler (2.336791ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96.890667

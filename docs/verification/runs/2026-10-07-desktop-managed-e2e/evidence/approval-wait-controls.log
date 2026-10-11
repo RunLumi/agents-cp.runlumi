@@ -1,0 +1,38 @@
+✔ managed reverse port serializes metadata and carries abort/trace outside params (2.436084ms)
+✔ automatic result port sends minimal metadata with independent cleanup deadline and bound ACK (1.075083ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (9.065167ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (0.928416ms)
+✔ an explicit local-only context preserves unmanaged execution (0.236708ms)
+✔ a managed gate cannot be bypassed by a local allow (0.356917ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.17775ms)
+✔ managed context is preserved when a batch is chunked (0.562584ms)
+✔ managed decision re-evaluates hook-modified input (1.264958ms)
+✔ a changed managed fingerprint is denied (0.24025ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.246ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.29325ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (1.749584ms)
+✔ a mutation between gate completion and handler admission is refused (0.313042ms)
+✔ an asynchronous managed handler owns an isolated approved input snapshot (0.177166ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (1.274084ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.312833ms)
+✔ managed handler completes once but tool success waits for result ACK without sending output (0.327667ms)
+✔ missing required reporter prevents handler and broker admission (0.168875ms)
+✔ handler failure reports failed with no exception text (0.892625ms)
+✔ failed report is unknown delivery and never retries the handler (0.184375ms)
+✔ managed admission and report wait do not consume native handler deadline (124.989ms)
+✔ native handler still times out after managed wait exclusion (21.88675ms)
+✔ cancelled managed execution reports cancelled without raw failure detail (0.472959ms)
+✔ late allow after cancellation reports the claimed call cancelled without entering handler (0.192542ms)
+✔ private tool bridge matches independent requests and refuses stale, malformed and expired replies (43.363916ms)
+✔ report ACK cannot be substituted by a decision reply and late replies stay stale (0.588875ms)
+✔ approval waits revalidate each poll and only a bound allow exits (0.638166ms)
+✔ denial and lost live lease stop approval polling without fabricating allow (0.26075ms)
+✔ expired wait and changed approval binding cannot release a permit (0.161375ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1818.606791

@@ -37,13 +37,7 @@ const [adopted, control] = await seedLocalAutomations({
       nextRunAt: due,
       markManaged: { orgId: org, managedAutomationId: `aut_${"b".repeat(32)}` },
     },
-    {
-      title: "Unmarked control",
-      cronExpr: "* * * * *",
-      prompt: "control prompt",
-      workspacePath,
-      nextRunAt: due,
-    },
+    { title: "Unmarked control", cronExpr: "* * * * *", prompt: "control prompt", workspacePath, nextRunAt: due },
   ],
 });
 const before = snapshotLocal(profile);
@@ -73,41 +67,21 @@ try {
   const deadline = Date.now() + 120_000;
   let controlRow;
   while (Date.now() < deadline) {
-    controlRow = readTable(
-      profile,
-      "SELECT * FROM automations WHERE automation_id = ?",
-      control.automationId,
-    )[0];
-    if (
-      controlRow &&
-      (controlRow.dispatch_attempts > 0 || controlRow.run_count > 0 || controlRow.last_error)
-    )
+    controlRow = readTable(profile, "SELECT * FROM automations WHERE automation_id = ?", control.automationId)[0];
+    if (controlRow && (controlRow.dispatch_attempts > 0 || controlRow.run_count > 0 || controlRow.last_error))
       break;
     await delay(2_000);
   }
   assert.ok(
-    controlRow &&
-      (controlRow.dispatch_attempts > 0 || controlRow.run_count > 0 || controlRow.last_error),
+    controlRow && (controlRow.dispatch_attempts > 0 || controlRow.run_count > 0 || controlRow.last_error),
     "the real local scheduler claimed and dispatched the unmarked automation",
   );
   pass("existing local cron path still claims and dispatches an unmarked due automation");
   await delay(45_000); // at least two more ticks, each of which also posts managed-poll-request
-  const adoptedAfter = readTable(
-    profile,
-    "SELECT * FROM automations WHERE automation_id = ?",
-    adopted.automationId,
-  )[0];
-  assert.deepEqual(
-    adoptedAfter,
-    adoptedBefore,
-    "adopted original row is byte-identical after due ticks",
-  );
+  const adoptedAfter = readTable(profile, "SELECT * FROM automations WHERE automation_id = ?", adopted.automationId)[0];
+  assert.deepEqual(adoptedAfter, adoptedBefore, "adopted original row is byte-identical after due ticks");
   assert.equal(
-    readTable(
-      profile,
-      "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id = ?",
-      adopted.automationId,
-    )[0].n,
+    readTable(profile, "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id = ?", adopted.automationId)[0].n,
     0,
     "the scheduler wrote no run history for the adopted original",
   );
@@ -120,11 +94,7 @@ try {
   await app.stop();
   writeFileSync(
     join(profile, "evidence", "result.json"),
-    JSON.stringify(
-      { verdict: failed ? "FAIL" : "PASS", scope: "no Worker; local preservation only", results },
-      null,
-      2,
-    ),
+    JSON.stringify({ verdict: failed ? "FAIL" : "PASS", scope: "no Worker; local preservation only", results }, null, 2),
   );
   console.log(`Profile/evidence retained: ${profile}`);
 }

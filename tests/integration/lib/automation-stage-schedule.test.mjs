@@ -16,8 +16,7 @@ test("toEpochMs reads epoch ms, epoch seconds, digit strings and ISO text; anyth
   assert.equal(toEpochMs(1_791_507_050), 1_791_507_050_000);
   assert.equal(toEpochMs("1791507050640"), 1_791_507_050_640);
   assert.equal(toEpochMs("2026-10-09T00:10:50.640Z"), Date.parse("2026-10-09T00:10:50.640Z"));
-  for (const bad of [null, undefined, "", "not a time", {}])
-    assert.ok(Number.isNaN(toEpochMs(bad)), String(bad));
+  for (const bad of [null, undefined, "", "not a time", {}]) assert.ok(Number.isNaN(toEpochMs(bad)), String(bad));
 });
 
 test("toEpochMs: a 2026 instant is >= 1e11 in ms and < 1e11 in seconds, so the threshold separates them", () => {
@@ -40,18 +39,7 @@ test("tasksInWindow attributes only tasks created between claim and settle", () 
 test("tasksInWindow gives the same verdict for epoch ms, epoch seconds, digit-string and ISO created_at", () => {
   const at = BASE + 20_000;
   for (const createdAt of [at, at / 1_000, String(at), new Date(at).toISOString()]) {
-    const result = tasksInWindow(
-      [
-        task("mine", createdAt),
-        task(
-          "late",
-          typeof createdAt === "number" && createdAt < 1e11
-            ? createdAt + 300
-            : toEpochMs(createdAt) + 300_000,
-        ),
-      ],
-      window,
-    );
+    const result = tasksInWindow([task("mine", createdAt), task("late", typeof createdAt === "number" && createdAt < 1e11 ? createdAt + 300 : toEpochMs(createdAt) + 300_000)], window);
     assert.deepEqual(ids(result.inside), ["mine"], `format ${typeof createdAt}:${createdAt}`);
     assert.deepEqual(ids(result.outside), ["late"], `format ${typeof createdAt}:${createdAt}`);
   }
@@ -74,10 +62,7 @@ test("tasksInWindow tolerates only the clock slack at both edges", () => {
 
 test("tasksInWindow: a whole-second created_at truncated below the claim stays inside the slack", () => {
   const claimedAt = BASE + 900; // task created at BASE+900ms, stored truncated as BASE (seconds)
-  const result = tasksInWindow([task("trunc", BASE / 1_000)], {
-    claimedAt,
-    settledAt: claimedAt + 60_000,
-  });
+  const result = tasksInWindow([task("trunc", BASE / 1_000)], { claimedAt, settledAt: claimedAt + 60_000 });
   assert.deepEqual(ids(result.inside), ["trunc"]);
 });
 

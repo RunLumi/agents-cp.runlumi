@@ -30,34 +30,20 @@ const worker = await unstable_startWorker({
   name: "abort-diag",
   entrypoint: join(dir, "w.mjs"),
   compatibilityDate: "2026-09-24",
-  dev: {
-    server: { hostname: "127.0.0.1", port: 0 },
-    inspector: false,
-    logLevel: "error",
-    watch: false,
-    persist: false,
-    outboundService: forwarder,
-  },
+  dev: { server: { hostname: "127.0.0.1", port: 0 }, inspector: false, logLevel: "error", watch: false, persist: false, outboundService: forwarder },
 });
 try {
   await worker.ready;
   const base = await worker.url;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const show = (label) =>
-    console.log(
-      `${label}\n  forwarder=${JSON.stringify(forwarder.forwarded())}\n  fixture=${JSON.stringify(fixture.records().map((r) => ({ s: r.scenario, outcome: r.outcome, frames: r.framesWritten })))}`,
-    );
+    console.log(`${label}\n  forwarder=${JSON.stringify(forwarder.forwarded())}\n  fixture=${JSON.stringify(fixture.records().map((r) => ({ s: r.scenario, outcome: r.outcome, frames: r.framesWritten })))}`);
 
   if (!process.argv.includes("--cancel-only")) {
-    const a = await fetch(new URL("/call?scenario=stall-before-headers&timeout=300", base), {
-      signal: AbortSignal.timeout(5_000),
-    }).then(
-      (r) => r.text(),
-      (e) => `client:${e.name}`,
-    );
-    console.log(`(a) Worker timeout before headers -> worker answered ${a}`);
-    await sleep(2_000);
-    show("(a) after 2s");
+  const a = await fetch(new URL("/call?scenario=stall-before-headers&timeout=300", base), { signal: AbortSignal.timeout(5_000) }).then((r) => r.text(), (e) => `client:${e.name}`);
+  console.log(`(a) Worker timeout before headers -> worker answered ${a}`);
+  await sleep(2_000);
+  show("(a) after 2s");
   }
 
   forwarder.reset();

@@ -1,0 +1,46 @@
+✔ managed reverse port serializes metadata and carries abort/trace outside params (24.769959ms)
+✔ automatic result port sends minimal metadata with independent cleanup deadline and bound ACK (9.658375ms)
+✔ managed summary does not export paths, commands, arbitrary names or strings (3.13325ms)
+✔ summary binds nested input, long tails, arrays and fields beyond a display bound (0.87975ms)
+✔ only closed action vocabulary is displayable and summary stays server-canonical (0.791417ms)
+✔ non-JSON, cyclic, excessive-depth and oversized input fails closed (1.186084ms)
+✔ hashing does not invoke input getters and rejects non-JSON array/object shapes (0.468542ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (19.773417ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (1.702833ms)
+✔ an explicit local-only context preserves unmanaged execution (0.709167ms)
+✔ a managed gate cannot be bypassed by a local allow (0.67625ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.368791ms)
+✔ managed context is preserved when a batch is chunked (1.769167ms)
+✔ managed decision re-evaluates hook-modified input (4.331208ms)
+✔ a changed managed fingerprint is denied (0.4825ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.30525ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.557875ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (13.16625ms)
+✔ a mutation between gate completion and handler admission is refused (1.566458ms)
+✔ an asynchronous managed handler owns an isolated approved input snapshot (0.408083ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (4.001917ms)
+✔ a full managed context cannot be authorized by an unbound allow (1.204584ms)
+✔ managed handler completes once but tool success waits for result ACK without sending output (1.263334ms)
+✔ missing required reporter prevents handler and broker admission (0.804875ms)
+✔ handler failure reports failed with no exception text (2.59525ms)
+✔ failed report is unknown delivery and never retries the handler (0.799708ms)
+✔ cancelled managed execution reports cancelled without raw failure detail (1.592ms)
+✔ late allow after cancellation reports the claimed call cancelled without entering handler (0.576584ms)
+✔ private tool bridge matches independent requests and refuses stale, malformed and expired replies (65.701041ms)
+✔ report ACK cannot be substituted by a decision reply and late replies stay stale (4.40575ms)
+✔ managed auth is bound to the exact active run, alias and workspace (1.793458ms)
+✔ late results lose authority when logout or settlement removes or replaces the lease (0.786459ms)
+✔ only a completed admission releases allow before an actual file handler (66.588625ms)
+✔ refused, ambiguous or unsupported admission never retries or releases allow (1.740334ms)
+✔ pending approval returns its requirement without attempting a claim (1.181542ms)
+✔ result reporting sends status only and validates authoritative identity (4.511834ms)
+✔ policy snapshot id is validated and mapped from the actual policy_id wire field (36.377041ms)
+✔ private tool transport uses DeviceToken only and rejects unbound allows (458.638334ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7590.396167

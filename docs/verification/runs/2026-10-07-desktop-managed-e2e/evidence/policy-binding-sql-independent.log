@@ -1,0 +1,5 @@
+source SQL SHA256 45afd7fa45c3f444988d6ee7edbd89910a36a0e22ce4525f1f06095ec74d83e1
+PASS pending positive control binds actual org snapshot pair in disposable copy
+PASS other-org occurrence ID cannot match update
+PASS started row unchanged; stored policy cannot be rewritten by this dispatch statement
+scope: storage statement only; no claim of HTTP/CAS or latest-at-commit freshness

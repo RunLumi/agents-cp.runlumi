@@ -10,8 +10,7 @@ import { promisify } from "node:util";
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
 const run = promisify(execFile);
 
-export const tasksIndexPath = (profile) =>
-  join(profile, "home", ".zcode", "v2", "tasks-index.sqlite");
+export const tasksIndexPath = (profile) => join(profile, "home", ".zcode", "v2", "tasks-index.sqlite");
 
 /** Read-only handle; WAL lets it coexist with the running app/scheduler. */
 function openReadOnly(profile) {
@@ -30,10 +29,7 @@ export function snapshotLocal(profile, { only } = {}) {
   if (!db) return { automations: [], runs: [], hash: "absent" };
   try {
     const keep = (row) => !only || only.includes(row.automation_id);
-    const automations = db
-      .prepare("SELECT * FROM automations ORDER BY automation_id")
-      .all()
-      .filter(keep);
+    const automations = db.prepare("SELECT * FROM automations ORDER BY automation_id").all().filter(keep);
     const runs = db.prepare("SELECT * FROM automation_runs ORDER BY run_id").all().filter(keep);
     const text = JSON.stringify({ automations, runs });
     return { automations, runs, hash: createHash("sha256").update(text).digest("hex") };
@@ -72,8 +68,7 @@ export async function seedLocalAutomations({ root, profile, specs }) {
   return JSON.parse(text);
 }
 
-const TRANSIENT_D1 =
-  /Failed to parse body as JSON, got: Error: internal error|D1DatabaseObject\.queryExecute|"text": "internal error; reference = /;
+const TRANSIENT_D1 = /Failed to parse body as JSON, got: Error: internal error|D1DatabaseObject\.queryExecute|"text": "internal error; reference = /;
 
 /**
  * Read-only D1 query through Wrangler against the LIVE local database. Miniflare answers an occasional read with a
@@ -98,20 +93,11 @@ export function serverState(probe, orgId) {
     rows,
     async counts() {
       const [definitions, occurrences, leases, runs, links, audit] = await Promise.all([
-        rows(
-          `SELECT COUNT(*) AS n FROM automation_definitions WHERE org_id='${orgId}'`,
-          "count definitions",
-        ),
-        rows(
-          `SELECT COUNT(*) AS n FROM automation_occurrences WHERE org_id='${orgId}'`,
-          "count occurrences",
-        ),
+        rows(`SELECT COUNT(*) AS n FROM automation_definitions WHERE org_id='${orgId}'`, "count definitions"),
+        rows(`SELECT COUNT(*) AS n FROM automation_occurrences WHERE org_id='${orgId}'`, "count occurrences"),
         rows(`SELECT COUNT(*) AS n FROM automation_leases WHERE org_id='${orgId}'`, "count leases"),
         rows(`SELECT COUNT(*) AS n FROM runs WHERE org_id='${orgId}'`, "count runs"),
-        rows(
-          `SELECT COUNT(*) AS n FROM automation_run_links WHERE org_id='${orgId}'`,
-          "count links",
-        ),
+        rows(`SELECT COUNT(*) AS n FROM automation_run_links WHERE org_id='${orgId}'`, "count links"),
         rows(`SELECT COUNT(*) AS n FROM security_events WHERE org_id='${orgId}'`, "count audit"),
       ]);
       return {
@@ -156,11 +142,9 @@ const TEXT_LIKE = /^$|TEXT|CHAR|CLOB|BLOB|JSON/i;
  * (which would match every row and prove nothing).
  */
 export function assertTablesExclude(dbPath, needle, tables, label, hooks = {}) {
-  if (typeof needle !== "string" || needle.length === 0)
-    throw new Error(`${label}: needle must be non-empty`);
+  if (typeof needle !== "string" || needle.length === 0) throw new Error(`${label}: needle must be non-empty`);
   // An empty list measures nothing and would read as "absent"; a duplicate double-counts scope.
-  if (!Array.isArray(tables) || tables.length === 0)
-    throw new Error(`${label}: tables must be a non-empty array`);
+  if (!Array.isArray(tables) || tables.length === 0) throw new Error(`${label}: tables must be a non-empty array`);
   if (new Set(tables).size !== tables.length) throw new Error(`${label}: duplicate table in scope`);
   if (!existsSync(dbPath)) throw new Error(`${label}: database file not found: ${dbPath}`);
   const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -170,23 +154,17 @@ export function assertTablesExclude(dbPath, needle, tables, label, hooks = {}) {
     // writer cannot make the scope a mix of two states. It is a point-in-time read, not a live one.
     db.exec("BEGIN");
     for (const table of tables) {
-      if (!IDENTIFIER.test(table))
-        throw new Error(`${label}: invalid table name ${JSON.stringify(table)}`);
-      const exists = db
-        .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?")
-        .get(table);
+      if (!IDENTIFIER.test(table)) throw new Error(`${label}: invalid table name ${JSON.stringify(table)}`);
+      const exists = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
       if (!exists) throw new Error(`${label}: table ${table} does not exist`);
       const columns = db
         .prepare(`PRAGMA table_info(${table})`)
         .all()
         .filter((column) => TEXT_LIKE.test(column.type))
         .map((column) => column.name);
-      if (columns.length === 0)
-        throw new Error(`${label}: ${table} has no text columns to inspect`);
+      if (columns.length === 0) throw new Error(`${label}: ${table} has no text columns to inspect`);
       const predicate = columns.map((name) => `instr(CAST("${name}" AS TEXT), ?) > 0`).join(" OR ");
-      const hit = db
-        .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${predicate}`)
-        .get(...columns.map(() => needle));
+      const hit = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${predicate}`).get(...columns.map(() => needle));
       const { n: rows } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get();
       if (Number(hit.n) !== 0) throw new Error(`${label}: found in ${table}`);
       scope.push({ table, columns: columns.length, rows: Number(rows) });

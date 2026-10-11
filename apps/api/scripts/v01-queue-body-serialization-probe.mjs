@@ -21,48 +21,48 @@
 // Exit 0: control readable AND fault reproduced. 1: control unreadable. 2: fault did not
 // reproduce (the harness could not have detected the old behaviour; UNPROVEN).
 
-import { spawn } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { spawn } from 'node:child_process';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const wranglerCli = path.join(
-  realpathSync(path.resolve(here, "../node_modules/wrangler/package.json")),
-  "..",
-  "wrangler-dist",
-  "cli.js",
+  realpathSync(path.resolve(here, '../node_modules/wrangler/package.json')),
+  '..',
+  'wrangler-dist',
+  'cli.js',
 );
 
 // Both envelope families the producer sends, with the fields the consumers decode.
 const ENVELOPES = {
   automation: {
-    job_id: "job_66666666666666666666666666666666",
-    job_type: "automation.dispatch",
+    job_id: 'job_66666666666666666666666666666666',
+    job_type: 'automation.dispatch',
     schema_version: 1,
-    dedupe_key: "automation.dispatch:occ_55555555555555555555555555555555:0",
+    dedupe_key: 'automation.dispatch:occ_55555555555555555555555555555555:0',
     event_id: null,
-    occurred_at: "2026-10-08T15:20:00.000Z",
+    occurred_at: '2026-10-08T15:20:00.000Z',
     attempt: 1,
     correlation_id: null,
-    tenant_scope: { org_id: "org_22222222222222222222222222222222" },
-    payload_ref: "d1:automation_occurrences/occ_55555555555555555555555555555555",
+    tenant_scope: { org_id: 'org_22222222222222222222222222222222' },
+    payload_ref: 'd1:automation_occurrences/occ_55555555555555555555555555555555',
     payload: null,
   },
   data: {
-    job_id: "job_77777777777777777777777777777777",
-    job_type: "export.run",
+    job_id: 'job_77777777777777777777777777777777',
+    job_type: 'export.run',
     schema_version: 1,
-    dedupe_key: "export.run:exp_33333333333333333333333333333333",
+    dedupe_key: 'export.run:exp_33333333333333333333333333333333',
     event_id: null,
-    request_id: "req_x",
-    correlation_id: "req_x",
+    request_id: 'req_x',
+    correlation_id: 'req_x',
     attempt: 1,
-    tenant_scope: { org_id: "org_22222222222222222222222222222222" },
-    payload_ref: "d1:export_jobs/exp_3333",
-    payload: { export_id: "exp_33333333333333333333333333333333", deletion_id: null },
+    tenant_scope: { org_id: 'org_22222222222222222222222222222222' },
+    payload_ref: 'd1:export_jobs/exp_3333',
+    payload: { export_id: 'exp_33333333333333333333333333333333', deletion_id: null },
   },
 };
 
@@ -103,24 +103,24 @@ export default {
 const freePort = () =>
   new Promise((resolve, reject) => {
     const server = net.createServer();
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       server.close(() => resolve(port));
     });
-    server.on("error", reject);
+    server.on('error', reject);
   });
 
-const dir = mkdtempSync(path.join(os.tmpdir(), "lumi-queue-probe-"));
-writeFileSync(path.join(dir, "worker.mjs"), WORKER);
+const dir = mkdtempSync(path.join(os.tmpdir(), 'lumi-queue-probe-'));
+writeFileSync(path.join(dir, 'worker.mjs'), WORKER);
 writeFileSync(
-  path.join(dir, "wrangler.jsonc"),
+  path.join(dir, 'wrangler.jsonc'),
   JSON.stringify({
-    name: "queue-probe",
-    main: "worker.mjs",
-    compatibility_date: "2026-09-01",
+    name: 'queue-probe',
+    main: 'worker.mjs',
+    compatibility_date: '2026-09-01',
     queues: {
-      producers: [{ binding: "Q", queue: "probe" }],
-      consumers: [{ queue: "probe", max_batch_size: 1, max_batch_timeout: 1 }],
+      producers: [{ binding: 'Q', queue: 'probe' }],
+      consumers: [{ queue: 'probe', max_batch_size: 1, max_batch_timeout: 1 }],
     },
   }),
 );
@@ -131,20 +131,20 @@ const dev = spawn(
   process.execPath,
   [
     wranglerCli,
-    "dev",
-    "--local",
-    "--port",
+    'dev',
+    '--local',
+    '--port',
     String(port),
-    "--persist-to",
-    path.join(dir, "state"),
-    "--log-level",
-    "warn",
+    '--persist-to',
+    path.join(dir, 'state'),
+    '--log-level',
+    'warn',
   ],
-  { cwd: dir, env: { ...process.env, WRANGLER_SEND_METRICS: "false" }, stdio: "ignore" },
+  { cwd: dir, env: { ...process.env, WRANGLER_SEND_METRICS: 'false' }, stdio: 'ignore' },
 );
 
 const stop = async () => {
-  dev.kill("SIGTERM");
+  dev.kill('SIGTERM');
   await new Promise((resolve) => setTimeout(resolve, 500));
   rmSync(dir, { recursive: true, force: true });
 };
@@ -158,14 +158,14 @@ async function waitReady(timeoutMs = 60_000) {
     } catch {
       // not listening yet
     }
-    if (Date.now() > deadline) throw new Error("wrangler dev did not become ready");
+    if (Date.now() > deadline) throw new Error('wrangler dev did not become ready');
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 }
 
 async function send(mode, tag, envelope) {
   const response = await fetch(`${base}/send?mode=${mode}&tag=${tag}`, {
-    method: "POST",
+    method: 'POST',
     body: JSON.stringify(envelope),
   });
   if (!response.ok) throw new Error(`send ${mode}/${tag} failed: ${response.status}`);
@@ -192,7 +192,7 @@ let exitCode = 0;
 try {
   await waitReady();
   let sent = 0;
-  for (const mode of ["control", "fault"]) {
+  for (const mode of ['control', 'fault']) {
     for (const [tag, envelope] of Object.entries(ENVELOPES)) {
       await send(mode, `${mode}-${tag}`, envelope);
       sent += 1;
@@ -210,11 +210,11 @@ try {
     // envelope: that is what proves this harness could have caught it.
     const faultReproduced = !readable(envelope, fault) && (fault?.job_type ?? null) === null;
     console.log(
-      `${controlOk ? "PASS" : "FAIL"}  control(${tag}): plain object readable by the consumer ` +
+      `${controlOk ? 'PASS' : 'FAIL'}  control(${tag}): plain object readable by the consumer ` +
         `(job_type=${control?.job_type ?? null})`,
     );
     console.log(
-      `${faultReproduced ? "PASS" : "UNPROVEN"}  fault(${tag}): Map body loses the envelope ` +
+      `${faultReproduced ? 'PASS' : 'UNPROVEN'}  fault(${tag}): Map body loses the envelope ` +
         `(keys=${JSON.stringify(Object.keys(fault ?? {}))})`,
     );
     if (!controlOk) exitCode = Math.max(exitCode, 1);
@@ -226,5 +226,5 @@ try {
 } finally {
   await stop();
 }
-console.log(exitCode === 0 ? "VERDICT PASS" : `VERDICT NOT-PASS exit=${exitCode}`);
+console.log(exitCode === 0 ? 'VERDICT PASS' : `VERDICT NOT-PASS exit=${exitCode}`);
 process.exit(exitCode);

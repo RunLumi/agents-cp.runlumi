@@ -1,0 +1,63 @@
+✖ only a completed admission releases allow before an actual file handler (10.161542ms)
+✖ refused, ambiguous or unsupported admission never retries or releases allow (0.649042ms)
+✔ pending approval returns its requirement without attempting a claim (0.183292ms)
+✖ private tool transport uses DeviceToken only and rejects unbound allows (31.353ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 1
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 299.545292
+
+✖ failing tests:
+
+test at packages/services/src/lumi-account/managedToolAdmission.test.ts:1:1524
+✖ only a completed admission releases allow before an actual file handler (10.161542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/client-admission-sensitivity/client/packages/services/src/lumi-account/managedToolAdmission.test.ts:87:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/services/src/lumi-account/managedToolAdmission.test.ts:1:2558
+✖ refused, ambiguous or unsupported admission never retries or releases allow (0.649042ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/client-admission-sensitivity/client/packages/services/src/lumi-account/managedToolAdmission.test.ts:120:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at packages/services/src/lumi-account/managedToolTransport.test.ts:1:1054
+✖ private tool transport uses DeviceToken only and rejects unbound allows (31.353ms)
+  AssertionError [ERR_ASSERTION]: a policy allow must acquire its execution permit
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/client-admission-sensitivity/client/packages/services/src/lumi-account/managedToolTransport.test.ts:109:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

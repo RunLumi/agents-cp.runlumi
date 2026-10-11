@@ -26,10 +26,8 @@ export class TaskOutputError extends Error {
   }
 }
 
-export const tasksIndexFile = (profile) =>
-  join(profile, "home", ".zcode", "v2", "tasks-index.sqlite");
-export const agentStoreFile = (profile) =>
-  join(profile, "home", ".zcode", "cli", "db", "db.sqlite");
+export const tasksIndexFile = (profile) => join(profile, "home", ".zcode", "v2", "tasks-index.sqlite");
+export const agentStoreFile = (profile) => join(profile, "home", ".zcode", "cli", "db", "db.sqlite");
 
 /** Real path of `file` if it lies inside the real `profile`; undefined if absent; throws if it escapes. */
 function confinedToProfile(profile, file, escapeCode) {
@@ -49,17 +47,7 @@ function confinedToProfile(profile, file, escapeCode) {
   return real;
 }
 
-const TASK_COLUMNS = [
-  "task_id",
-  "title",
-  "task_status",
-  "model",
-  "workspace_path",
-  "created_at",
-  "updated_at",
-  "meta_json",
-  "deleted",
-];
+const TASK_COLUMNS = ["task_id", "title", "task_status", "model", "workspace_path", "created_at", "updated_at", "meta_json", "deleted"];
 const SESSION_TABLES = {
   session: ["id"],
   message: ["id", "session_id", "sequence", "time_created", "data"],
@@ -72,25 +60,15 @@ function openChecked(path, unavailableCode, schemaCode, tables) {
   try {
     db = new DatabaseSync(path, { readOnly: true });
     for (const [table, columns] of Object.entries(tables)) {
-      const present = db
-        .prepare(`PRAGMA table_info(${table})`)
-        .all()
-        .map((column) => column.name);
+      const present = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
       const missing = columns.filter((column) => !present.includes(column));
-      if (missing.length)
-        throw new TaskOutputError(
-          schemaCode,
-          `${table} lacks ${missing.join(",") || "all columns"}`,
-        );
+      if (missing.length) throw new TaskOutputError(schemaCode, `${table} lacks ${missing.join(",") || "all columns"}`);
     }
     return db;
   } catch (error) {
     db?.close();
     if (error instanceof TaskOutputError) throw error;
-    throw new TaskOutputError(
-      unavailableCode,
-      String(error?.code ?? error?.message ?? error).slice(0, 120),
-    );
+    throw new TaskOutputError(unavailableCode, String(error?.code ?? error?.message ?? error).slice(0, 120));
   }
 }
 
@@ -119,16 +97,10 @@ export function managedTasks(profile, { localAutomationId } = {}) {
   );
   try {
     return db
-      .prepare(
-        `SELECT ${TASK_COLUMNS.join(", ")} FROM tasks WHERE deleted = 0 ORDER BY created_at, task_id`,
-      )
+      .prepare(`SELECT ${TASK_COLUMNS.join(", ")} FROM tasks WHERE deleted = 0 ORDER BY created_at, task_id`)
       .all()
       .map((row) => {
-        const meta = parseObject(
-          row.meta_json,
-          "task_index_json_invalid",
-          `task ${row.task_id} meta_json`,
-        );
+        const meta = parseObject(row.meta_json, "task_index_json_invalid", `task ${row.task_id} meta_json`);
         return {
           taskId: row.task_id,
           title: row.title,
@@ -164,9 +136,7 @@ function describeMessage(db, row) {
       .map((part) => part.text)
       .join(""),
     partTypes: parts.map((part) => part.type),
-    toolStatuses: parts
-      .filter((part) => part.type === "tool")
-      .map((part) => part.state?.status ?? null),
+    toolStatuses: parts.filter((part) => part.type === "tool").map((part) => part.state?.status ?? null),
   };
 }
 
@@ -185,9 +155,7 @@ export function taskOutput(profile, taskId) {
     if (!db.prepare("SELECT 1 AS present FROM session WHERE id = ?").get(taskId))
       throw new TaskOutputError("agent_session_missing", `no session ${taskId}`);
     const messages = db
-      .prepare(
-        "SELECT id, data, time_created FROM message WHERE session_id = ? ORDER BY sequence, time_created, id",
-      )
+      .prepare("SELECT id, data, time_created FROM message WHERE session_id = ? ORDER BY sequence, time_created, id")
       .all(taskId)
       .map((row) => describeMessage(db, row));
     return { taskId, messages };
@@ -201,8 +169,7 @@ export function probe(read) {
   try {
     return { status: "ok", value: read() };
   } catch (error) {
-    if (error instanceof TaskOutputError)
-      return { status: "unproven", code: error.code, detail: error.message };
+    if (error instanceof TaskOutputError) return { status: "unproven", code: error.code, detail: error.message };
     throw error;
   }
 }
@@ -216,9 +183,7 @@ export const assistantText = (output) =>
 
 /** True when an assistant message reached a terminal marker (completed or errored). */
 export const assistantTerminal = (output) =>
-  output.messages.some(
-    (message) => message.role === "assistant" && (message.completedAt || message.error),
-  );
+  output.messages.some((message) => message.role === "assistant" && (message.completedAt || message.error));
 
 /** Content-free summary for ledger lines and failure messages (no prompt, no assistant text). */
 export const outputShape = (output) =>
@@ -248,8 +213,7 @@ export function readWorkspaceFile(workspacePath, relativePath) {
     const rel = relative(root, path);
     return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
   };
-  if (!inside(lexical))
-    throw new TaskOutputError("workspace_path_escape", "path leaves the workspace");
+  if (!inside(lexical)) throw new TaskOutputError("workspace_path_escape", "path leaves the workspace");
   let stat;
   try {
     stat = lstatSync(lexical);
@@ -262,14 +226,9 @@ export function readWorkspaceFile(workspacePath, relativePath) {
     real = realpathSync(lexical);
   } catch {
     // a symlink whose target cannot be resolved is not a file the Agent wrote here
-    throw new TaskOutputError(
-      "workspace_symlink_escape",
-      stat.isSymbolicLink() ? "dangling symlink" : "unresolvable path",
-    );
+    throw new TaskOutputError("workspace_symlink_escape", stat.isSymbolicLink() ? "dangling symlink" : "unresolvable path");
   }
-  if (!inside(real))
-    throw new TaskOutputError("workspace_symlink_escape", "real path leaves the workspace");
-  if (!lstatSync(real).isFile())
-    throw new TaskOutputError("workspace_not_a_file", "not a regular file");
+  if (!inside(real)) throw new TaskOutputError("workspace_symlink_escape", "real path leaves the workspace");
+  if (!lstatSync(real).isFile()) throw new TaskOutputError("workspace_not_a_file", "not a regular file");
   return readFileSync(real, "utf8");
 }

@@ -103,9 +103,7 @@ test("missing (UNPROVEN) and blocked claims keep the stage out of PASS", () => {
     l.gap("weird", "odd", "PASSED", "typo");
     l.finish("weird");
   });
-  const status = Object.fromEntries(
-    Object.entries(ledger.snapshot()).map(([name, item]) => [name, item.status]),
-  );
+  const status = Object.fromEntries(Object.entries(ledger.snapshot()).map(([name, item]) => [name, item.status]));
   assert.deepEqual(status, {
     missing: "UNPROVEN",
     blocked: "BLOCKED",
@@ -165,13 +163,6 @@ test("a card is identified by its title line, so a prefix title never matches a 
   const lease = { text: "Slow run (lease)\nSLOW-LEASE-PROMPT" };
   const slow = { text: "Slow run\nManaged by Lumi\nCheck run history" };
   assert.equal(titleOf(slow), "Slow run");
-  assert.deepEqual(
-    [lease, slow].filter((card) => titleOf(card) === "Slow run"),
-    [slow],
-  );
-  assert.equal(
-    [lease, slow].filter((card) => card.text.includes("Slow run")).length,
-    2,
-    "positive control: substring matching is ambiguous",
-  );
+  assert.deepEqual([lease, slow].filter((card) => titleOf(card) === "Slow run"), [slow]);
+  assert.equal([lease, slow].filter((card) => card.text.includes("Slow run")).length, 2, "positive control: substring matching is ambiguous");
 });

@@ -91,12 +91,7 @@ async function write(personalPath: string, raw: string) {
   decodeProviderConfigFile(encoded);
   await mkdir(dirname(personalPath), { recursive: true });
   await writeFile(personalPath, `${JSON.stringify(encoded)}\n`, { mode: 0o600 });
-  return {
-    personalPath,
-    providerId: spec.providerId,
-    modelId: spec.modelId,
-    defaultModelSelection: encoded.config.defaultModelSelection,
-  };
+  return { personalPath, providerId: spec.providerId, modelId: spec.modelId, defaultModelSelection: encoded.config.defaultModelSelection };
 }
 
 async function resolveView(builtinPath: string, personalPath: string) {
@@ -117,9 +112,7 @@ async function resolveView(builtinPath: string, personalPath: string) {
     return {
       configuredDefault: configuredDefault ?? null,
       preferredSelection: view.preferredSelection ?? null,
-      visibleProviders: view.providers.map(
-        (provider: { providerId: string }) => provider.providerId,
-      ),
+      visibleProviders: view.providers.map((provider: { providerId: string }) => provider.providerId),
     };
   } finally {
     runtime.dispose();

@@ -204,11 +204,9 @@ await runProbe("V01 attempt-exhaustion", async (probe) => {
     },
     { Authorization: `DeviceToken ${device.token}` },
   );
-  expectStatus(
-    "CONTROL: the device has a workspace binding for the project",
-    workspaceBinding,
-    [201],
-  );
+  expectStatus("CONTROL: the device has a workspace binding for the project", workspaceBinding, [
+    201,
+  ]);
 
   // --- the automation, with the tightest bound and the shortest lease ---------
   // `max_start_attempts: 1` is the floor the column allows and `lease_ttl_seconds: 30` the

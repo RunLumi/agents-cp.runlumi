@@ -1,0 +1,39 @@
+✔ turn tool boundary prevents a real file side effect without the managed broker (9.882084ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (0.818ms)
+✔ an explicit local-only context preserves unmanaged execution (0.231791ms)
+✔ a managed gate cannot be bypassed by a local allow (0.345ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.175625ms)
+✔ managed context is preserved when a batch is chunked (0.591958ms)
+✔ managed decision re-evaluates hook-modified input (6.533542ms)
+✔ a changed managed fingerprint is denied (0.301875ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.259041ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.303875ms)
+✖ a broker resolving after cancellation cannot enter the real file handler (2.348667ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.506417ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 11
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1512.300875
+
+✖ failing tests:
+
+test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:11601
+✖ a broker resolving after cancellation cannot enter the real file handler (2.348667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (/Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi/integrations/lumi-agents/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:503:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

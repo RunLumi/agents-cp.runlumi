@@ -1,0 +1,20 @@
+✔ scheduler expiration housekeeping cannot rewrite a suppressed original (105.134125ms)
+✔ a marker suppresses local claiming without rewriting the original, and removal restores it (17.338458ms)
+✔ manual runs of an adopted original are not claimable or startable locally (14.222166ms)
+✔ begin is idempotent, refuses a foreign organization, a missing original and a busy one (7.828333ms)
+✔ every crash window leaves the original suppressed and recoverable (11.640334ms)
+✔ preview-style reads and an unmarked original never create or alter any marker (7.190166ms)
+✔ an older build that ignores the marker cannot claim an adopted original (positive control included) (99.758416ms)
+✔ the guard is created by the migration ledger and recorded as 0005 (14.93775ms)
+✔ adoption refuses a stale local revision even when edits share the same millisecond (17.682542ms)
+✔ pause, resume and restart advance preview revisions even after wall-clock rollback (14.530917ms)
+✔ the occurrence journal only moves forward and never stores credentials (9.913083ms)
+✔ restart converts every non-terminal journal row to ambiguous and never to a retry (10.064084ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 632.399334

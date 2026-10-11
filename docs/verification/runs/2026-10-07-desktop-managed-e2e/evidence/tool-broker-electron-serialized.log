@@ -1,0 +1,41 @@
+Keeping the local D1/R2 state in /Volumes/SSD/agents-cp.runlumi/test-results/tool-broker-serialized-electron-d1
+  PASS  fresh D1 applies the full migration ledger  — 26 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:58716
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-SwxpyD/025497e9cc56c053323c3fd052fffff441cef3a2-index_bg.wasm is 1439s newer than src/routes/tools.rs
+  PASS  create Electron Device Org  — status=201
+  PASS  Electron Device Org organization ID  — org_582a19629bd4f4ff601b0756cc934d95
+  PASS  create disposable Electron workspace project  — status=201
+  PASS  read P04 catalog for Electron managed run  — status=200
+  PASS  create organization-owned controllable provider  — status=201
+  PASS  create tool-capable mock model with an Agent-sized context  — status=201
+  PASS  create controllable managed provider credential  — status=201
+  PASS  create Electron managed route  — status=201
+  PASS  publish Electron managed route  — status=200
+  PASS  read Electron organization policy  — status=200
+  PASS  enable Electron managed policy  — status=200
+  PASS  create project-approved managed agent  — status=201
+  PASS  create bounded Electron managed budget  — status=201
+PASS actual Electron UI begins PKCE
+The request id "/Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+
+- /Volumes/SSD/symlinks/james-home/codex/worktrees/desktop-e2e/agents-cp.runlumi
+- /Volumes/SSD/agents-cp.runlumi/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+
+Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
+
+PASS Electron IPC/Worker login after real browser approval
+PASS Electron enrollment/proof/policy/refresh; D1 active device
+PASS actual Electron task sends one confirmed managed turn and renders streamed provider output
+PASS Worker D1 attributes request/usage, closes the one-shot P05 session, and stores no prompt text
+PASS actual Electron UI binds only the selected opaque workspace and preserves local data
+PASS restart restores server-owned workspace ownership without duplicates
+PASS Electron rollback returns local ownership and leaves local files unchanged
+  PASS  removed binding is absent from active project listing  — status=200
+  PASS  removed binding cannot authorize a new P05 session  — status=404 reason=workspace_binding_not_found
+PASS removed binding is hidden/refused without side effects; explicit rebind creates a fresh ID
+PASS OS-encrypted vault exists
+PASS actual restart restores session
+PASS restart restores same device, no reenrollment
+PASS revoked Electron policy sync refused
+PASS logout removes own persisted session
+Profile/evidence retained: /var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-9gZqcL

@@ -1,0 +1,1 @@
+PASS actual SQL prepares/executes on real migrated D1; no attempt rows yet, not tenant/readback proof

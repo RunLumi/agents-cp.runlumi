@@ -1,0 +1,84 @@
+✔ turn tool boundary prevents a real file side effect without the managed broker (13.1625ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (1.191917ms)
+✔ an explicit local-only context preserves unmanaged execution (0.263708ms)
+✔ a managed gate cannot be bypassed by a local allow (0.41125ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.185791ms)
+✔ managed context is preserved when a batch is chunked (0.570041ms)
+✔ managed decision re-evaluates hook-modified input (1.495833ms)
+✔ a changed managed fingerprint is denied (0.288209ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.23575ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.305334ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (3.407667ms)
+✔ a mutation between gate completion and handler admission is refused (0.775125ms)
+✔ an asynchronous managed handler owns an isolated approved input snapshot (0.341666ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (2.140542ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.732042ms)
+✖ managed handler completes once but tool success waits for result ACK without sending output (0.771625ms)
+✔ missing required reporter prevents handler and broker admission (0.454ms)
+✖ handler failure reports failed with no exception text (2.742125ms)
+✖ failed report is unknown delivery and never retries the handler (0.853458ms)
+✖ cancelled managed execution reports cancelled without raw failure detail (1502.0245ms)
+✔ late allow after cancellation reports the claimed call cancelled without entering handler (2.419334ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 17
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2680.971042
+
+✖ failing tests:
+
+test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:16759
+✖ managed handler completes once but tool success waits for result ACK without sending output (0.771625ms)
+  Error: completed without required reporting
+      at <anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:707:15)
+      at async TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:704:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:19107
+✖ handler failure reports failed with no exception text (2.742125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   'failed'
+  - ]
+  
+      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:763:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ 'failed' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:19841
+✖ failed report is unknown delivery and never retries the handler (0.853458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:785:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:20954
+✖ cancelled managed execution reports cancelled without raw failure detail (1502.0245ms)
+  Error: automatic cancellation report missing
+      at Timeout.<anonymous> (/Volumes/SSD/agents-cp.runlumi/test-results/automatic-result-core-sensitivity-bounded/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:798:41)
+      at listOnTimeout (node:internal/timers:635:17)
+      at process.processTimers (node:internal/timers:571:7)

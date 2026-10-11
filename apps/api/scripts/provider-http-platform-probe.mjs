@@ -109,9 +109,7 @@ try {
     }
   };
 
-  console.log(
-    `\nPLATFORM provider HTTP topology (fixture ${fixture.origin}, public host ${PUBLIC_HOST})`,
-  );
+  console.log(`\nPLATFORM provider HTTP topology (fixture ${fixture.origin}, public host ${PUBLIC_HOST})`);
 
   // --- a platform fact the production adapter depends on -------------------------------------
   const redirectError = await ask("/call?scenario=ok&redirect=error");
@@ -140,9 +138,7 @@ try {
   check(
     "request body/auth/context are the Worker's real ones, captured redacted",
     ok.length === 2 &&
-      ok.every(
-        (r) => r.authorization.matchesExpected === true && r.authorization.scheme === "Bearer",
-      ) &&
+      ok.every((r) => r.authorization.matchesExpected === true && r.authorization.scheme === "Bearer") &&
       ok[0].body.stream === false &&
       ok[1].body.stream === true &&
       ok[0].body.model === "m" &&
@@ -153,32 +149,17 @@ try {
 
   // --- upstream statuses, one call each ----------------------------------------------------
   const rate = await ask("/call?scenario=rate-limit");
-  check(
-    "429 is returned as a real 429, one upstream call",
-    rate.status === 429 && fixture.count("rate-limit") === 1,
-    JSON.stringify(rate),
-  );
+  check("429 is returned as a real 429, one upstream call", rate.status === 429 && fixture.count("rate-limit") === 1, JSON.stringify(rate));
   const server = await ask("/call?scenario=server-error");
-  check(
-    "503 is returned as a real 503, one upstream call",
-    server.status === 503 && fixture.count("server-error") === 1,
-    JSON.stringify(server),
-  );
+  check("503 is returned as a real 503, one upstream call", server.status === 503 && fixture.count("server-error") === 1, JSON.stringify(server));
   const malformed = await ask("/call?scenario=malformed&stream=1");
-  check(
-    "malformed 200 SSE reaches the Worker verbatim (parser is the adapter's job)",
-    malformed.status === 200 && malformed.text.includes("this is not json"),
-    JSON.stringify(malformed),
-  );
+  check("malformed 200 SSE reaches the Worker verbatim (parser is the adapter's job)", malformed.status === 200 && malformed.text.includes("this is not json"), JSON.stringify(malformed));
 
   // --- faults that need a real socket ------------------------------------------------------
   const before = await ask("/call?scenario=fail-before-output");
   check(
     "fail-before-output: one upstream call, zero frames, Worker sees a marked 502 (Miniflare cannot surface a rejected fetch)",
-    before.status === 502 &&
-      fixture.count("fail-before-output") === 1 &&
-      fixture.forScenario("fail-before-output")[0].framesWritten === 0 &&
-      forwarder.forwarded().some((f) => f.upstreamTransportError),
+    before.status === 502 && fixture.count("fail-before-output") === 1 && fixture.forScenario("fail-before-output")[0].framesWritten === 0 && forwarder.forwarded().some((f) => f.upstreamTransportError),
     JSON.stringify(before),
   );
   const after = await ask("/call?scenario=output-then-fail&stream=1");
@@ -193,14 +174,7 @@ try {
     typeof truncated.bodyError === "string" ||
       typeof truncated.fetchError === "string" ||
       truncated.probeTimeout !== undefined ||
-      !(() => {
-        try {
-          JSON.parse(truncated.text);
-          return true;
-        } catch {
-          return false;
-        }
-      })(),
+      !(() => { try { JSON.parse(truncated.text); return true; } catch { return false; } })(),
     JSON.stringify(truncated),
   );
   const timeout = await ask("/call?scenario=stall-before-headers&timeout=300");
@@ -220,9 +194,7 @@ try {
   const stallBody = await ask("/call?scenario=stall-after-headers&stream=1&timeout=300");
   check(
     "timeout after headers: the Worker is cut (response headers are not delivered until body bytes flow, so this surfaces as a TimeoutError on fetch)",
-    stallBody.fetchError !== undefined
-      ? stallBody.name === "TimeoutError"
-      : typeof stallBody.bodyError === "string",
+    stallBody.fetchError !== undefined ? stallBody.name === "TimeoutError" : typeof stallBody.bodyError === "string",
     JSON.stringify(stallBody),
   );
 
@@ -250,19 +222,11 @@ try {
   forwarder.reset();
   const fixtureBefore = fixture.count();
   const denied = [
-    [
-      "loopback fixture origin directly",
-      `${fixture.origin}/v1/ok/v1/chat/completions`,
-      "scheme_not_https",
-    ],
+    ["loopback fixture origin directly", `${fixture.origin}/v1/ok/v1/chat/completions`, "scheme_not_https"],
     ["another public host", "https://api.openai.com/v1/chat/completions", "host_not_permitted"],
     ["IP literal", "https://203.0.113.9/v1/ok/v1/chat/completions", "host_not_permitted"],
     ["permitted host, other path", `https://${PUBLIC_HOST}/v1/models`, "path_not_permitted"],
-    [
-      "permitted host, non-default port",
-      `https://${PUBLIC_HOST}:8443/v1/ok/v1/chat/completions`,
-      "port_not_default",
-    ],
+    ["permitted host, non-default port", `https://${PUBLIC_HOST}:8443/v1/ok/v1/chat/completions`, "port_not_default"],
   ];
   for (const [label, url, reason] of denied) {
     const before = forwarder.denials().length;

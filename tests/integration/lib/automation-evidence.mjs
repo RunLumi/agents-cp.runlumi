@@ -57,10 +57,7 @@ export function provenance({ root, client, desktop }) {
     ...treeStamp(join(desktop, "out", name), (file) => !file.endsWith(".map")),
   }));
   const sources = ["desktop", "services", "shared", "ui"].map((name) =>
-    treeStamp(
-      join(client, "packages", name, "src"),
-      (file) => /\.(ts|tsx|json)$/.test(file) && !/\.test\./.test(file),
-    ),
+    treeStamp(join(client, "packages", name, "src"), (file) => /\.(ts|tsx|json)$/.test(file) && !/\.test\./.test(file)),
   );
   const newestSource = Math.max(...sources.map((item) => item.newest));
   const oldestBundle = Math.min(...bundles.map((item) => item.newest));
@@ -96,18 +93,14 @@ export function provenance({ root, client, desktop }) {
 function stageVerdict(claims) {
   // Fail closed: a stage with no executed PASS claim proves nothing, whatever else it recorded.
   if (claims.some((claim) => claim.verdict === "FAIL")) return "FAIL";
-  const open = claims.filter(
-    (claim) => claim.verdict !== "PASS" && claim.verdict !== "NOT_APPLICABLE",
-  );
+  const open = claims.filter((claim) => claim.verdict !== "PASS" && claim.verdict !== "NOT_APPLICABLE");
   if (open.length > 0 && open.every((claim) => claim.verdict === "BLOCKED")) return "BLOCKED";
   if (open.length > 0) return "UNPROVEN"; // UNPROVEN or any unrecognised verdict
   return claims.some((claim) => claim.verdict === "PASS") ? "PASS" : "UNPROVEN";
 }
 
 export function createLedger(stages) {
-  const entries = new Map(
-    stages.map((name) => [name, { status: "UNPROVEN", claims: [], notes: [] }]),
-  );
+  const entries = new Map(stages.map((name) => [name, { status: "UNPROVEN", claims: [], notes: [] }]));
   let current = "setup";
   const entry = (name) => entries.get(name) ?? { claims: [], notes: [] };
   return {
@@ -158,22 +151,13 @@ export async function managedEvidence(server, orgId, managedAutomationId) {
   );
   const ids = occurrences.map((row) => `'${row.occurrence_id}'`).join(",") || "'none'";
   const [leases, attempts, links, definition] = await Promise.all([
-    server.rows(
-      `SELECT * FROM automation_leases WHERE occurrence_id IN (${ids}) ORDER BY claimed_at`,
-      "leases",
-    ),
+    server.rows(`SELECT * FROM automation_leases WHERE occurrence_id IN (${ids}) ORDER BY claimed_at`, "leases"),
     server.rows(
       `SELECT * FROM automation_occurrence_attempts WHERE occurrence_id IN (${ids}) ORDER BY recorded_at`,
       "attempts",
     ),
-    server.rows(
-      `SELECT * FROM automation_run_links WHERE occurrence_id IN (${ids}) ORDER BY created_at`,
-      "links",
-    ),
-    server.rows(
-      `SELECT * FROM automation_definitions WHERE org_id=${org} AND automation_id=${id}`,
-      "definition",
-    ),
+    server.rows(`SELECT * FROM automation_run_links WHERE occurrence_id IN (${ids}) ORDER BY created_at`, "links"),
+    server.rows(`SELECT * FROM automation_definitions WHERE org_id=${org} AND automation_id=${id}`, "definition"),
   ]);
   const runIds = links.map((row) => `'${row.run_id}'`).join(",") || "'none'";
   const runs = await server.rows(`SELECT * FROM runs WHERE run_id IN (${runIds})`, "runs");
@@ -190,9 +174,7 @@ export async function until(label, read, done, { timeout = 240_000, every = 5_00
     if (tick) await tick();
     await delay(every);
   }
-  throw new Error(
-    `${label}: not reached within ${timeout}ms; last=${JSON.stringify(last).slice(0, 1_200)}`,
-  );
+  throw new Error(`${label}: not reached within ${timeout}ms; last=${JSON.stringify(last).slice(0, 1_200)}`);
 }
 
 /** Local managed-occurrence journal and adoption markers (tables from migrations 0004/0005). */

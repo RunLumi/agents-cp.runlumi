@@ -30,19 +30,13 @@ export async function adoptStage(ctx) {
   await view.openAutomations();
   for (const title of shown) await view.waitForCard(title);
   for (const title of shown)
-    assert.equal(
-      await view.badgeOf(title),
-      null,
-      `${title} has no hand-over badge before any action`,
-    );
+    assert.equal(await view.badgeOf(title), null, `${title} has no hand-over badge before any action`);
   ledger.pass("actual UI lists the seeded local originals, none with a hand-over badge");
   await shot("adopt-list");
 
   // Scoped to the four originals this stage acts on: the bad-model control is retried by the local scheduler
   // on its own clock and would otherwise change the hash during an unrelated preview.
-  const underTest = [seeds.adopted, seeds.control, seeds.bounded, seeds.slow].map(
-    (seed) => seed.automationId,
-  );
+  const underTest = [seeds.adopted, seeds.control, seeds.bounded, seeds.slow].map((seed) => seed.automationId);
   const observe = async () => ({
     local: snapshotLocal(profileA, { only: underTest }).hash,
     markers: localMarkers(profileA).length,
@@ -52,10 +46,7 @@ export async function adoptStage(ctx) {
   assert.equal(before.markers, 0, "no adoption marker exists before the first hand-over");
   const adoptedBefore = rowOf(profileA, seeds.adopted.automationId);
   const controlBefore = rowOf(profileA, seeds.control.automationId);
-  assert.ok(
-    adoptedBefore && controlBefore,
-    "seeded originals are readable from the local database",
-  );
+  assert.ok(adoptedBefore && controlBefore, "seeded originals are readable from the local database");
   state.adoptedBefore = adoptedBefore;
   state.controlBefore = controlBefore;
 
@@ -74,16 +65,9 @@ export async function adoptStage(ctx) {
   await view.waitOptionsLoaded();
   const readyText = await view.dialogText();
   assert.ok(readyText.includes(TITLES.adopted), "the preview shows the automation title");
-  assert.ok(
-    readyText.includes("What is sent now"),
-    "the preview states exactly what would be sent",
-  );
+  assert.ok(readyText.includes("What is sent now"), "the preview states exactly what would be sent");
   assert.equal(readyText.includes(PROMPT), false, "the preview never shows the prompt body");
-  assert.equal(
-    await view.dialogHas("lumi-automation-confirm"),
-    true,
-    "an adoptable preview offers Confirm",
-  );
+  assert.equal(await view.dialogHas("lumi-automation-confirm"), true, "an adoptable preview offers Confirm");
   await shot("adopt-preview-ready");
   await view.cancelDialog();
   await delay(2_000);
@@ -97,17 +81,9 @@ export async function adoptStage(ctx) {
   await view.startHandOver(TITLES.bounded);
   await view.waitPhase(["not_adoptable", "blocked"], "a refusal");
   const refusalPhase = await view.dialogPhase();
-  assert.equal(
-    refusalPhase,
-    "not_adoptable",
-    `bounded schedule is refused as not adoptable, got ${refusalPhase}`,
-  );
+  assert.equal(refusalPhase, "not_adoptable", `bounded schedule is refused as not adoptable, got ${refusalPhase}`);
   assert.match(await view.dialogText(), /run limit or an end date/, "the refusal names its reason");
-  assert.equal(
-    await view.dialogHas("lumi-automation-confirm"),
-    false,
-    "a refused candidate has no Confirm action",
-  );
+  assert.equal(await view.dialogHas("lumi-automation-confirm"), false, "a refused candidate has no Confirm action");
   await shot("adopt-not-adoptable");
   await view.cancelDialog();
   assert.deepEqual(await observe(), before, "a refused preview changed local or server state");
@@ -130,11 +106,7 @@ export async function adoptStage(ctx) {
   await view.pressDialog("lumi-automation-confirm");
   const outcome = await view.waitPhase(["done", "confirm_failed"], "confirm outcome");
   await shot("adopt-confirm-outcome");
-  assert.equal(
-    outcome,
-    "done",
-    `confirm outcome ${outcome}: ${(await view.dialogText()).slice(0, 400)}`,
-  );
+  assert.equal(outcome, "done", `confirm outcome ${outcome}: ${(await view.dialogText()).slice(0, 400)}`);
   await view.pressDialog("lumi-automation-cancel"); // the Close button reuses this id once done
   await view.waitDialogGone();
   ledger.pass("explicit Hand over with a chosen agent and model completes in the actual UI");
@@ -149,28 +121,14 @@ export async function adoptStage(ctx) {
   assert.ok(marker.idempotency_key, "the create carried an idempotency key");
   state.managedAutomationId = marker.managed_automation_id;
 
-  assert.deepEqual(
-    rowOf(profileA, seeds.adopted.automationId),
-    adoptedBefore,
-    "the original row is byte-identical after confirm",
-  );
-  assert.deepEqual(
-    rowOf(profileA, seeds.control.automationId),
-    controlBefore,
-    "the unmarked control is untouched",
-  );
+  assert.deepEqual(rowOf(profileA, seeds.adopted.automationId), adoptedBefore, "the original row is byte-identical after confirm");
+  assert.deepEqual(rowOf(profileA, seeds.control.automationId), controlBefore, "the unmarked control is untouched");
   assert.equal(
-    readTable(
-      profileA,
-      "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id = ?",
-      seeds.adopted.automationId,
-    )[0].n,
+    readTable(profileA, "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id = ?", seeds.adopted.automationId)[0].n,
     0,
     "no local run history was written for the original",
   );
-  ledger.pass(
-    "confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)",
-  );
+  ledger.pass("confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)");
 
   const definitions = await server.rows(
     `SELECT * FROM automation_definitions WHERE org_id='${orgId}' AND automation_id='${marker.managed_automation_id}'`,
@@ -180,20 +138,10 @@ export async function adoptStage(ctx) {
   const definition = definitions[0];
   const text = JSON.stringify(definition);
   assert.equal(definition.status, "active");
-  for (const needle of [
-    TITLES.adopted,
-    ctx.projectId,
-    ctx.agentId,
-    "coding-default",
-    "lumi-local:",
-  ])
+  for (const needle of [TITLES.adopted, ctx.projectId, ctx.agentId, "coding-default", "lumi-local:"])
     assert.ok(text.includes(needle), `definition carries ${needle}`);
   const after = await serverFingerprint(server, orgId);
-  assert.equal(
-    after.counts.definitions,
-    before.server.counts.definitions + 1,
-    "exactly one definition was created",
-  );
+  assert.equal(after.counts.definitions, before.server.counts.definitions + 1, "exactly one definition was created");
   assert.equal(after.counts.runs, before.server.counts.runs, "adoption created no run");
   assert.equal(after.counts.leases, before.server.counts.leases, "adoption created no lease");
   assert.ok(after.counts.audit > before.server.counts.audit, "the create was audited");
@@ -203,27 +151,18 @@ export async function adoptStage(ctx) {
   );
 
   await view.openAutomations();
-  await view
-    .ui()
-    .wait(
-      () =>
-        !!document.querySelector('[data-testid="lumi-automation-badge"] [data-state="managed"]'),
-      "managed badge",
-    );
+  await view.ui().wait(
+    () => !!document.querySelector('[data-testid="lumi-automation-badge"] [data-state="managed"]'),
+    "managed badge",
+  );
   assert.equal(await view.badgeOf(TITLES.adopted), "managed");
   assert.equal(await view.badgeOf(TITLES.control), null);
   assert.equal(await view.badgeOf(TITLES.bounded), null);
   await view.openCardMenu(TITLES.adopted);
   const menu = await view.menuTestIds();
   assert.ok(menu.includes("lumi-automation-return"), `adopted card offers Return, menu=${menu}`);
-  assert.equal(
-    menu.includes("lumi-automation-handover"),
-    false,
-    "a managed original cannot be handed over twice",
-  );
+  assert.equal(menu.includes("lumi-automation-handover"), false, "a managed original cannot be handed over twice");
   await view.dismissMenu();
   await shot("adopt-managed-badge");
-  ledger.pass(
-    "the card shows Managed by Lumi only on the adopted original and offers Return instead of a second hand-over",
-  );
+  ledger.pass("the card shows Managed by Lumi only on the adopted original and offers Return instead of a second hand-over");
 }

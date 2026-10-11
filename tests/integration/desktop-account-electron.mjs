@@ -35,8 +35,7 @@ const binary = join(
 assert.ok(existsSync(binary), "prepare pinned Electron");
 assert.ok(existsSync(join(desktop, "out/main/index.js")), "build desktop");
 const profile = await mkdtemp(join(tmpdir(), "lumi-electron-account-"));
-for (const n of ["userData", "session", "evidence"])
-  mkdirSync(join(profile, n), { recursive: true });
+for (const n of ["userData", "session", "evidence"]) mkdirSync(join(profile, n), { recursive: true });
 prepareIsolatedHome(profile);
 const workspacePath = join(profile, "workspace");
 mkdirSync(workspacePath, { recursive: true });
@@ -142,26 +141,15 @@ async function start({ expectRestoredAccount = false } = {}) {
   const page = await attachPage(cdp, target.targetId);
   await wait(
     page,
-    () =>
-      document.body.innerText.includes("Connect") ||
-      document.body.innerText.includes("Cancel") ||
-      document.body.innerText.includes("Continue locally"),
+    () => document.body.innerText.includes("Connect") || document.body.innerText.includes("Cancel") || document.body.innerText.includes("Continue locally"),
     "initial UI",
   );
   for (let i = 0; i < 12; i++) {
     const body = await page.evaluate(() => document.body.innerText);
     if (body.includes("Continue locally")) {
-      assert.equal(
-        expectRestoredAccount,
-        false,
-        "restored Lumi session must not reopen startup entry",
-      );
+      assert.equal(expectRestoredAccount, false, "restored Lumi session must not reopen startup entry");
       assert.ok(body.includes("Welcome to Lumi Agents"), "Lumi is the startup identity");
-      const legacyLogin = await page.evaluate(() =>
-        [...document.querySelectorAll("button")].some((button) =>
-          /sign in.*(z\.ai|bigmodel)|log in.*(z\.ai|bigmodel)/i.test(button.innerText),
-        ),
-      );
+      const legacyLogin = await page.evaluate(() => [...document.querySelectorAll("button")].some(button => /sign in.*(z\.ai|bigmodel)|log in.*(z\.ai|bigmodel)/i.test(button.innerText)));
       assert.equal(legacyLogin, false, "legacy provider login choices are hidden at startup");
       await page.screenshot(join(profile, "evidence", "lumi-first-startup.png"));
       await page.setViewport(320, 720);
@@ -169,22 +157,16 @@ async function start({ expectRestoredAccount = false } = {}) {
       const narrow = await page.evaluate(() => ({
         viewport: innerWidth,
         content: document.documentElement.scrollWidth,
-        local: [...document.querySelectorAll("button")].some(
-          (button) => button.innerText.trim() === "Continue locally",
-        ),
+        local: [...document.querySelectorAll("button")].some(button => button.innerText.trim() === "Continue locally"),
       }));
       assert.ok(narrow.content <= narrow.viewport, "320px Lumi startup has no horizontal overflow");
       assert.equal(narrow.local, true);
       await page.screenshot(join(profile, "evidence", "lumi-first-startup-narrow.png"));
       await page.press("Tab");
       const focus = await page.evaluate(() => ({
-        interactive:
-          document.activeElement instanceof HTMLButtonElement ||
-          document.activeElement instanceof HTMLInputElement,
+        interactive: document.activeElement instanceof HTMLButtonElement || document.activeElement instanceof HTMLInputElement,
         visible: document.activeElement?.matches(":focus-visible") ?? false,
-        shadow: document.activeElement
-          ? getComputedStyle(document.activeElement).boxShadow
-          : "none",
+        shadow: document.activeElement ? getComputedStyle(document.activeElement).boxShadow : "none",
       }));
       assert.equal(focus.interactive, true, "startup alternatives remain keyboard reachable");
       assert.equal(focus.visible, true, "real Tab preserves visible focus");
@@ -192,10 +174,9 @@ async function start({ expectRestoredAccount = false } = {}) {
       await page.screenshot(join(profile, "evidence", "lumi-first-startup-focus.png"));
       await page.setViewport(1200, 800);
       await click(page, "Continue locally");
-      console.log(
-        "PASS actual Lumi-first startup offers explicit local continuation without provider login",
-      );
-    } else if (body.includes("Waiting for")) await click(page, "Cancel");
+      console.log("PASS actual Lumi-first startup offers explicit local continuation without provider login");
+    }
+    else if (body.includes("Waiting for")) await click(page, "Cancel");
     else if (body.includes("Use API key")) await click(page, "Use API key");
     else if (body.includes("Skip for now")) await click(page, "Skip for now");
     else if (await page.evaluate(() => !!document.querySelector('[aria-label="Exit onboarding"]')))
@@ -836,7 +817,9 @@ try {
             return true;
           }
           // The prompt lives in the task view; leave settings like a user would.
-          buttons.find((button) => button.innerText.trim() === "Back to workspace")?.click();
+          buttons
+            .find((button) => button.innerText.trim() === "Back to workspace")
+            ?.click();
           return false;
         });
         if (choice) {
@@ -854,17 +837,14 @@ try {
       },
       diagnose: async () => {
         await page.evaluate(() => {
-          const toggle = [...document.querySelectorAll('button[data-history-open="false"]')].find(
-            (element) => /^Worked for/.test(element.innerText?.trim() ?? ""),
-          );
+          const toggle = [...document.querySelectorAll('button[data-history-open="false"]')]
+            .find((element) => /^Worked for/.test(element.innerText?.trim() ?? ""));
           toggle?.click();
         });
         await delay(800);
         await page.screenshot(join(profile, "evidence", `tool-${label}-no-approval.png`));
         // Did the (local) Write handler run? A file here means no managed gate.
-        console.log(
-          `diagnose: fixture file exists=${existsSync(target)} localAllow=${localAllowClicks}`,
-        );
+        console.log(`diagnose: fixture file exists=${existsSync(target)} localAllow=${localAllowClicks}`);
         const audit = await probe.d1Rows(
           `SELECT action, outcome FROM security_events WHERE org_id = '${org.orgId}' ORDER BY rowid DESC LIMIT 12`,
           "diagnose recent audit actions",
@@ -991,13 +971,7 @@ try {
   // Tool arguments/results are request content, not audit metadata.
   for (const needle of [approvedTool.target, deniedTool.target, MOCK_WRITE_CONTENT.trim()]) {
     const literal = "'" + needle.replaceAll("'", "''") + "'";
-    for (const table of [
-      "inference_requests",
-      "usage_events",
-      "run_events",
-      "security_events",
-      "outbox_events",
-    ]) {
+    for (const table of ["inference_requests", "usage_events", "run_events", "security_events", "outbox_events"]) {
       const columns = (
         await probe.d1Rows(`PRAGMA table_info(${table})`, `inspect ${table} content boundary`)
       )
