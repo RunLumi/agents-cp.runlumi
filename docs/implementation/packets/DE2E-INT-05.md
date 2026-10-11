@@ -35,12 +35,19 @@ The ignored local `test-results/` tree, generated output and the empty typo file
 probes are in the branch. Historical machine paths in imported evidence were
 normalized to `$REPO_ROOT`, `$LUMI_AGENTS_DIR`, `$HOME`, `$TMPDIR`, or `$SSD_ROOT`.
 These placeholders are descriptive; rerun required evidence on the receiving
-machine. The local provider-fixture Node test did not reach assertions here because
-the sandbox denied loopback `listen` with `EPERM`; this is BLOCKED evidence, not a
-product PASS or test assertion failure. The secret-canary check passed 15/15, the
-Python sensitivity scripts compiled, the portable shell probe passed `bash -n`, and
-`git diff --check` passed after transcript normalization. Continue from the first
-unmet criterion in the INT-03/04/05 packets and preserve the original
+machine. The provider-fixture Node test first hit sandbox `listen` EPERM before
+assertions, then passed 20/20 under the loopback-enabled test runner; its transcript
+is `20261011-provider-http-fixture-node24.log`. The first exact-head pre-push also found
+V01-023 had 10 automation `guard!` sites but only nine pinned. The probe now tests
+the new `assert_device_binding_current_statement` against real SQLite: a live binding
+passes; wrong-org, wrong-device and removed-binding cases abort without persisted
+sentinels. It passes 16/16. A deliberate `1 = 0` fault failed for the intended
+runtime reason (`live binding was refused`), and the restored probe passed with the
+source SHA unchanged; see `20261011-guard-binding-{baseline,mutation,restored}.log`
+and `20261011-guard-binding-sensitivity.json`. The secret-canary check passed
+15/15, Python sensitivity scripts compiled, the portable shell probe passed
+`bash -n`, and `git diff --check` passed after transcript normalization. Continue
+from the first unmet criterion in the INT-03/04/05 packets and preserve the original
 FAIL/UNPROVEN/BLOCKED verdicts.
 
 ## Required result

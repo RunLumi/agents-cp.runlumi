@@ -1,0 +1,11 @@
+{
+  "scope": "real SQLite guard polarity in the retained parent repository probe",
+  "mutation": "force the live binding condition to return no row; the verifier must report live binding refusal",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "mutation_runtime_reason": "live binding was refused",
+  "source_sha256_before": "124988034f72573a581fe05c760ca646240f5f227745acdc86ee875d12d0ffdd",
+  "source_sha256_after": "124988034f72573a581fe05c760ca646240f5f227745acdc86ee875d12d0ffdd",
+  "source_unchanged": true
+}
