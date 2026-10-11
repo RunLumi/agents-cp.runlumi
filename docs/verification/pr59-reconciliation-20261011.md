@@ -51,6 +51,20 @@ receiving machine. Missing historical fixtures remain a prerequisite failure.
 
 ## Delivery and resume boundaries
 
+PR #59 merged at `65cacae129b6b32b8bced9d44249b8d507b3e2f8` after PR quality
+and adoption passed on `395842d`; the local clean pair also passed with
+`reproducible: true`. The two main adoption attempts in
+[run 38148257495](https://github.com/RunLumi/agents-cp.runlumi/actions/runs/38148257495)
+remain BLOCKED at dependency installation, before runtime assertions. Their
+errors name different temporary esbuild paths under the hoisted linker.
+
+The follow-up DE2E-INT-05-INSTALL packet selects isolated linking for the filtered
+module-test closure, preserving exact package managers, frozen dependencies and
+the desktop install path. The upstream pnpm reports linked in the integration
+guide support the failure mechanism; repeated clean installs and the real
+Worker/D1 gate establish whether this repair works here. No runtime refusal or
+assertion is weakened, and the original setup failures remain inspectable.
+
 Use the [integration guide](../integration/lumi-agents.md) for recursive checkout,
 Node/Rust prerequisites, the one-command adoption/account gate and paired SHA
 readback. The final source revision is the PR head recorded by GitHub checks;

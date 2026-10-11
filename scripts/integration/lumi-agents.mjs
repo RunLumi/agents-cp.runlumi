@@ -133,12 +133,16 @@ try {
     // hook stays BLOCKED; the contract-only runner intentionally omits them.
     await clientPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
   } else {
+    // The module gate consumes only this dependency closure. pnpm 10's hoisted
+    // linker can race while copying nested esbuild paths (pnpm/pnpm#12880,
+    // #13627). Isolated linking avoids that path; desktop keeps its own layout.
     await clientPnpm([
       "--filter",
       "@zcode/contracts...",
       "--filter",
       "@zcode/services...",
       "install",
+      "--config.node-linker=isolated",
       "--frozen-lockfile",
       "--ignore-scripts",
       ...offlineArgs,
