@@ -7,6 +7,24 @@ SHAs before implementation; versions alone are not merge evidence.
 
 ## Current cross-machine handoff — 2026-10-11
 
+### Post-merge install repair packet
+
+Packet DE2E-INT-05-INSTALL; coordinator Codex; baseline merged PR #59 at
+`65cacae129b6b32b8bced9d44249b8d507b3e2f8`. Consumes the existing P03/P08
+account/device/adoption contracts and ADR 0011 without changing their wire or
+runtime behavior. Write surface: `scripts/integration/lumi-agents.mjs`, this
+checkpoint, the integration guide and PR #59 review record.
+
+The PR and local clean-pair gates passed, but main integration attempts 1 and 2
+stopped before runtime in pnpm 10.33.2's hoisted linker: temporary esbuild
+directories could not be renamed in two different locations. Original reports
+remain in [run 38148257495](https://github.com/RunLumi/agents-cp.runlumi/actions/runs/38148257495).
+Use an isolated linker for the filtered module-test dependency closure; retain
+the client's exact package manager, frozen lockfile, source SHA and desktop
+installation configuration. Validation requires a fresh client install and real
+paired Worker/D1 gates, then hosted quality/adoption before merge. Full Electron
+bootstrap remains independently UNPROVEN. No source cleanup or gate relaxation.
+
 PR #59 is reconciled against parent main `80a3813de76b1e13a26f8704f5810c3404c0bac6`.
 Coordinator: Codex. Review write surface: retained evidence/path normalization,
 this checkpoint, integration pin documentation, `p02-guard-probe.mjs`, the two

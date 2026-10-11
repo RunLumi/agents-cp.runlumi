@@ -34,6 +34,14 @@ If both exact-version pnpm stores already contain every locked package,
 `LUMI_INTEGRATION_OFFLINE=1` adds pnpm's offline mode; a cache miss is BLOCKED,
 never a product failure or a reason to float dependencies.
 
+The filtered module gate uses pnpm's isolated linker to avoid the documented
+[hoisted-copy race](https://github.com/pnpm/pnpm/issues/12880), also affected by
+[patch working-directory changes](https://github.com/pnpm/pnpm/issues/13627).
+The package manager and dependency versions remain frozen. This command does
+not modify the client's `.npmrc`; desktop mode retains its configured install
+layout and native hooks. Changing between module and desktop modes may require
+pnpm to rebuild the ignored dependency layout; preserve source changes.
+
 ## Proof boundary
 
 ## Desktop bootstrap entrypoint
