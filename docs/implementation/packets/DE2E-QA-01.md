@@ -21,6 +21,7 @@ Pin the newly added dispatch-time organization, membership and license guard int
 - Count and attribute the tenth automation-repository `guard!` site.
 - Run a positive active-authorization control and negative suspended-org, suspended-membership, stale-license and expired-grace cases against the real migration schema.
 - Keep the clean adoption-account-device integration fixture wired to both contract and services package closures, including every required server-projected field.
+- Exercise recovery with bounded async D1 mutations, explicit cross-tenant denials, stored-state side-effect readback and bounded Worker/request-boundary diagnostics.
 - Update the runtime-proof catalog with the newly measured claims.
 
 ## Explicitly out of scope
@@ -48,12 +49,15 @@ docs/implementation/packets/DE2E-QA-01.md
 - [x] Mutation of the new dispatch guard polarity is observed by a real SQLite control/attack pair.
 - [x] Test asserts positive control and separate org, membership, license-state and grace-expiry refusals.
 - [x] Adoption stage advancement passes the current server-projected credential mode; the client rejects an omitted mode before HTTP.
+- [x] Recovery checks prove wrong proof and expired/replayed challenges do not mint or preserve extra tokens; foreign-org callers cannot persist challenges.
+- [x] Async D1 fixture control prevents the probe itself from blocking the Worker client loop; failure evidence is captured before cleanup.
 - [ ] Clean exact-SHA adoption-account-device integration bundles the real client service transport without unresolved workspace aliases.
 - [x] Runtime proof documentation reflects the ten measured guard sites.
 
 ## Tests
 
 - [x] `node apps/api/scripts/p02-guard-probe.mjs` — 16/16 PASS.
+- [x] `pnpm test:integration:lumi` hosted exact-head run — required-pair adoption and desktop account/device recovery assertions; final latest result pending.
 - [x] `node --check apps/api/scripts/p02-guard-probe.mjs` — PASS.
 - [ ] Full parent pre-push quality gate — in progress on the PR candidate.
 - [x] Not applicable: browser UX and cross-tenant route tests; no user-facing surface or route changed.
