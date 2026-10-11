@@ -20,6 +20,7 @@ Pin the newly added dispatch-time organization, membership and license guard int
 
 - Count and attribute the tenth automation-repository `guard!` site.
 - Run a positive active-authorization control and negative suspended-org, suspended-membership, stale-license and expired-grace cases against the real migration schema.
+- Install both the contract and services workspace dependency closures used by the adoption-account-device integration fixtures.
 - Update the runtime-proof catalog with the newly measured claim.
 
 ## Explicitly out of scope
@@ -44,6 +45,7 @@ docs/implementation/packets/DE2E-QA-01.md
 
 - [x] Mutation of the new dispatch guard polarity is observed by a real SQLite control/attack pair.
 - [x] Test asserts positive control and separate org, membership, license-state and grace-expiry refusals.
+- [ ] Clean exact-SHA adoption-account-device integration bundles the real client service transport without unresolved workspace aliases.
 - [x] Runtime proof documentation reflects the ten measured guard sites.
 
 ## Tests
