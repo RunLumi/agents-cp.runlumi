@@ -92,6 +92,15 @@ Tool calls can require:
 
 Approval event records exact tool + risk-relevant arguments summary before action.
 
+P05-CR-004 admission clarification: approval resolution and a replayed policy
+decision are not execution permits. Before a managed handler may create side
+effects, the device must win a once-only ToolCallRef execution claim that consumes
+any per-use approval atomically. Pending/expired/mismatched grants and stale
+device/membership/workspace/policy/call state must fail before that claim. A lost
+permit response is reconciliation work; retry/idempotency replay must not issue
+another executable permit. Terminal result reporting preserves the claim and
+cannot authorize earlier execution retrospectively. See ADR 0013 and P05-CG.
+
 ### FR-F13-008 — Secret isolation
 
 Agent/tool receives scoped credential through broker/adapter where possible, not raw org secret.

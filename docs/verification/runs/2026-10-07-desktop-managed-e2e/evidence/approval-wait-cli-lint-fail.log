@@ -1,0 +1,11 @@
+
+  x eslint(max-lines): File has too many lines (670).
+     ,-[apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts:739:2]
+ 738 |   };
+ 739 | }
+     :  ^
+     `----
+  help: Maximum allowed is 400.
+
+Found 0 warnings and 1 error.
+Finished in 38ms on 6 files with 94 rules using 10 threads.

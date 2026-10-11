@@ -11,7 +11,6 @@ use futures_util::{StreamExt, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
-use wasm_bindgen_futures::spawn_local;
 use worker::AbortSignal;
 
 use crate::{
@@ -19,6 +18,10 @@ use crate::{
         add_seconds,
         crypto::decrypt_secret,
         d1::BindValue,
+        execution::{
+            BackgroundWork, LatchClaim, PullScope, StreamClock, Watchdog,
+            schedule_cancel_settlement, trace_inline, trace_lifecycle, watchdog_delay_ms,
+        },
         new_resource_id,
         providers::{AdapterKind, dispatch},
     },
@@ -38,8 +41,9 @@ use crate::{
         },
         inference::{
             AdapterError, AdapterErrorKind, AdapterStreamState, ContentPart, InferenceMessage,
-            InferenceRequest, MessageRole, ProviderStreamEvent, ProviderUsage, RetryController,
-            SseDecoder,
+            InferenceRequest, MAX_TOOL_ARGUMENTS_BYTES, MAX_TOOL_CALLS, MessageRole,
+            ProviderStreamEvent, ProviderUsage, RetryController, SseDecoder, ToolCall,
+            ToolCallTracker, decode_message_tool_calls, valid_tool_call_id, valid_tool_name,
         },
         policy_p04::PolicySnapshotEnvelope,
         policy_p05 as p05_policy,
@@ -71,6 +75,7 @@ const P05_BUDGET_SNAPSHOT_LIMIT: i32 = 128;
 const P05_RATE_POLICY_LIMIT: i32 = 100;
 const P05_RESERVATION_TTL_SECONDS: u32 = 3_600;
 const P05_MAX_RESERVATION_TOKENS: u64 = 1_000_000;
+const MAX_INFERENCE_TOOLS: usize = 128;
 
 /// P05 adds server-owned correlation columns to the P04 request projection. The
 /// P04 repository still owns the base insert; this additive statement binds the
@@ -139,6 +144,14 @@ pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
     pub stream: Option<bool>,
+    /// Standard OpenAI-compatible streaming usage negotiation. The gateway
+    /// accounts usage server-side; accepting this lets SDK clients request a
+    /// usage chunk while using the same streamed response path.
+    pub stream_options: Option<ChatStreamOptions>,
+    /// OpenAI SDKs send `auto` whenever tool definitions are present. Other
+    /// tool-choice modes are rejected until the control-plane request model
+    /// carries and enforces them end to end.
+    pub tool_choice: Option<Value>,
     pub max_tokens: Option<u32>,
     pub max_completion_tokens: Option<u32>,
     pub temperature: Option<f32>,
@@ -147,18 +160,141 @@ pub struct ChatRequest {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ChatStreamOptions {
+    pub include_usage: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChatMessage {
     pub role: String,
+    /// Null (or absent) is valid only for an assistant message with calls.
+    #[serde(default)]
     pub content: Value,
+    pub tool_calls: Option<Vec<ChatToolCall>>,
+    pub tool_call_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChatToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: ChatToolCallFunction,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChatToolCallFunction {
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ResponseFormat {
     Native,
     Chat,
+    ChatWithUsage,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
+struct InferenceCorrelationTarget {
+    project_id: Option<String>,
+    run_id: Option<String>,
+    agent_session_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct P05InferenceCorrelation {
+    project_id: String,
+    device_id: String,
+    agent_session_id: String,
+    run_id: String,
+    agent_definition_id: String,
+    agent_definition_version: i64,
+}
+
+fn valid_p05_opaque_id(value: &str, prefix: &str) -> bool {
+    value.len() == 36
+        && value.starts_with(&format!("{prefix}_"))
+        && value[4..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+/// P05 IDs are lookup hints only. Require a complete tuple and let the caller
+/// cross-check every field against D1 before route selection or provider I/O.
+fn merge_p05_inference_headers(
+    headers: &HeaderMap,
+    target: &mut InferenceCorrelationTarget,
+) -> Result<Option<P05InferenceCorrelation>, ()> {
+    const NAMES: [&str; 7] = [
+        "x-project-id",
+        "x-device-id",
+        "x-agent-session-id",
+        "x-run-id",
+        "x-agent-definition-id",
+        "x-agent-definition-version",
+        "x-lumi-execution-mode",
+    ];
+    if !NAMES.iter().any(|name| headers.contains_key(*name)) {
+        return Ok(None);
+    }
+    let header = |name: &str| -> Result<&str, ()> {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+            .ok_or(())
+    };
+    let project_id = header("x-project-id")?;
+    let device_id = header("x-device-id")?;
+    let agent_session_id = header("x-agent-session-id")?;
+    let run_id = header("x-run-id")?;
+    let agent_definition_id = header("x-agent-definition-id")?;
+    let version_raw = header("x-agent-definition-version")?;
+    if header("x-lumi-execution-mode")? != "managed"
+        || !valid_p05_opaque_id(project_id, "prj")
+        || !valid_p05_opaque_id(device_id, "dvc")
+        || !valid_p05_opaque_id(agent_session_id, "rse")
+        || !valid_p05_opaque_id(run_id, "run")
+        || !valid_p05_opaque_id(agent_definition_id, "agd")
+    {
+        return Err(());
+    }
+    let agent_definition_version = version_raw.parse::<i64>().map_err(|_| ())?;
+    if agent_definition_version <= 0 || agent_definition_version.to_string() != version_raw {
+        return Err(());
+    }
+    if target
+        .project_id
+        .as_deref()
+        .is_some_and(|value| value != project_id)
+        || target
+            .run_id
+            .as_deref()
+            .is_some_and(|value| value != run_id)
+        || target
+            .agent_session_id
+            .as_deref()
+            .is_some_and(|value| value != agent_session_id)
+    {
+        return Err(());
+    }
+    target.project_id = Some(project_id.to_owned());
+    target.run_id = Some(run_id.to_owned());
+    target.agent_session_id = Some(agent_session_id.to_owned());
+    Ok(Some(P05InferenceCorrelation {
+        project_id: project_id.to_owned(),
+        device_id: device_id.to_owned(),
+        agent_session_id: agent_session_id.to_owned(),
+        run_id: run_id.to_owned(),
+        agent_definition_id: agent_definition_id.to_owned(),
+        agent_definition_version,
+    }))
+}
+
 struct ManagedRunScope {
     run: RunRecord,
     session: AgentSessionRecord,
@@ -244,8 +380,13 @@ struct StreamState {
     ended: bool,
     failed: bool,
     finalized: Rc<Cell<bool>>,
+    clock: StreamClock,
+    pulls: u8,
     _cancellation_guard: StreamCancellationGuard,
     first_output_at: Option<String>,
+    tool_calls: ToolCallTracker,
+    /// Bounded timer task that settles the request if no other path does.
+    _watchdog: Watchdog,
 }
 
 struct StreamCancellationGuard {
@@ -253,18 +394,44 @@ struct StreamCancellationGuard {
     context: RequestContext,
     metadata: StreamMetadata,
     finalized: Rc<Cell<bool>>,
+    background: BackgroundWork,
+    clock: StreamClock,
 }
 
 impl Drop for StreamCancellationGuard {
     fn drop(&mut self) {
-        if self.finalized.replace(true) {
-            return;
-        }
-        let database = self.database.clone();
-        let context = self.context.clone();
-        let metadata = self.metadata.clone();
-        spawn_local(async move {
-            let _ = finalize_request(
+        trace_lifecycle(
+            self.clock,
+            if self.finalized.get() {
+                "state_drop:settled"
+            } else {
+                "state_drop:unsettled"
+            },
+        );
+        schedule_cancel_settlement(
+            &self.background,
+            self.finalized.clone(),
+            cancel_settlement(
+                self.database.clone(),
+                self.context.clone(),
+                self.metadata.clone(),
+            ),
+        );
+    }
+}
+
+type SettlementFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>;
+
+/// The D1 settlement for a request whose caller went away. It yields only the
+/// stable error code so a failure is visible without carrying request data.
+fn cancel_settlement(
+    database: Arc<crate::adapters::d1::D1Adapter>,
+    context: RequestContext,
+    metadata: StreamMetadata,
+) -> impl FnOnce() -> SettlementFuture {
+    move || {
+        Box::pin(async move {
+            finalize_request(
                 database.as_ref(),
                 &context,
                 &metadata,
@@ -274,8 +441,9 @@ impl Drop for StreamCancellationGuard {
                 false,
                 Some("request_cancelled"),
             )
-            .await;
-        });
+            .await
+            .map_err(|error| error.error.code.as_str().to_owned())
+        })
     }
 }
 
@@ -429,13 +597,22 @@ pub async fn chat_completions(
     headers: HeaderMap,
     Json(body): Json<ChatRequest>,
 ) -> Result<Response<Body>, ApiError> {
+    let chat_stream_usage = body.stream.unwrap_or(false)
+        && body
+            .stream_options
+            .as_ref()
+            .is_some_and(|options| options.include_usage == Some(true));
     let request = chat_request(body, &context)?;
     run_inference(
         state,
         context,
         headers,
         request,
-        ResponseFormat::Chat,
+        if chat_stream_usage {
+            ResponseFormat::ChatWithUsage
+        } else {
+            ResponseFormat::Chat
+        },
         Some(&caller_signal),
         None,
         policy_snapshot.as_ref().map(|extension| &extension.0),
@@ -1315,6 +1492,16 @@ async fn run_inference(
     requested_agent_session_id: Option<&str>,
     policy_snapshot: Option<&PolicySnapshotEnvelope>,
 ) -> Result<Response<Body>, ApiError> {
+    let mut correlation_target = InferenceCorrelationTarget {
+        project_id: request.project_id.take(),
+        run_id: request.run_id.take(),
+        agent_session_id: requested_agent_session_id.map(str::to_owned),
+    };
+    let p05_correlation = merge_p05_inference_headers(&headers, &mut correlation_target)
+        .map_err(|_| p05_scope_error(&context))?;
+    request.project_id = correlation_target.project_id;
+    request.run_id = correlation_target.run_id;
+    let requested_agent_session_id = correlation_target.agent_session_id;
     let org_id = required_org_id(&headers, &context)?;
     let access = authorize_org(
         &state,
@@ -1329,6 +1516,7 @@ async fn run_inference(
     require_inference_write_proof(&headers, &access.session, &context).await?;
     validate_request_scope(&request, access.principal.session_id.as_str(), &context)?;
     if requested_agent_session_id
+        .as_deref()
         .is_some_and(|value| crate::core::AgentSessionId::new(value).is_err())
     {
         return Err(validation_error(
@@ -1354,9 +1542,19 @@ async fn run_inference(
             &org_id,
             run_id,
             &request.model,
-            requested_agent_session_id,
+            requested_agent_session_id.as_deref(),
         )
         .await?;
+        if p05_correlation.as_ref().is_some_and(|correlation| {
+            correlation.project_id != managed.run.project_id
+                || correlation.device_id != managed.device.device_id
+                || correlation.agent_session_id != managed.run.agent_session_id
+                || correlation.run_id != managed.run.run_id
+                || correlation.agent_definition_id != managed.run.agent_definition_id
+                || correlation.agent_definition_version != managed.run.agent_definition_version
+        }) {
+            return Err(p05_scope_error(&context));
+        }
         if request
             .project_id
             .as_deref()
@@ -2311,12 +2509,23 @@ async fn run_inference(
             .clone()
             .ok_or_else(|| service_unavailable(&context))?;
         let finalized = Rc::new(Cell::new(false));
+        let clock = StreamClock::start();
+        trace_lifecycle(
+            clock,
+            match caller_signal {
+                None => "armed:no_signal",
+                Some(signal) if signal.aborted() => "armed:signal_already_aborted",
+                Some(_) => "armed:signal",
+            },
+        );
         register_cancellation_finalizer(
             caller_signal,
             database.clone(),
             context.clone(),
             metadata.clone(),
             finalized.clone(),
+            state.background.clone(),
+            clock,
         )?;
         let body_stream = make_stream(
             database,
@@ -2326,6 +2535,8 @@ async fn run_inference(
             metadata,
             caller_signal.cloned(),
             finalized,
+            state.background.clone(),
+            clock,
         );
         let worker_body =
             worker::Body::from_stream(body_stream).map_err(|_| service_unavailable(&context))?;
@@ -2629,6 +2840,19 @@ enum NextChunk {
     Cancelled,
 }
 
+impl NextChunk {
+    /// Fixed words only, so a trace line can never carry provider data.
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Chunk(Some(Ok(_))) => "chunk",
+            Self::Chunk(Some(Err(_))) => "error",
+            Self::Chunk(None) => "eof",
+            Self::TimedOut => "timeout",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
 async fn next_stream_chunk(
     stream: &mut futures_util::stream::LocalBoxStream<'static, Result<Vec<u8>, worker::Error>>,
     deadline_at_ms: f64,
@@ -2754,6 +2978,8 @@ async fn collect_non_streaming(
     let mut text = String::new();
     let mut json_buffer = String::new();
     let mut usage = None;
+    let mut tool_calls = ToolCallTracker::default();
+    let mut json_tool_calls = Vec::new();
     let mut first_output_at = None;
     let json_response = provider_content_type
         .as_deref()
@@ -2773,6 +2999,7 @@ async fn collect_non_streaming(
                 &chunk,
                 &mut text,
                 &mut usage,
+                &mut tool_calls,
             );
         }
     }
@@ -2848,12 +3075,31 @@ async fn collect_non_streaming(
                 &chunk,
                 &mut text,
                 &mut usage,
+                &mut tool_calls,
             );
         }
     }
-    if json_response && !collect_json_response(json_buffer.as_bytes(), &mut text, &mut usage) {
+    if json_response
+        && !collect_json_response(
+            json_buffer.as_bytes(),
+            &mut text,
+            &mut usage,
+            &mut json_tool_calls,
+        )
+    {
         adapter_state.invalid_response = true;
     }
+    let calls = if json_response {
+        json_tool_calls
+    } else {
+        match tool_calls.finish() {
+            Ok(calls) => calls,
+            Err(_) => {
+                adapter_state.invalid_response = true;
+                Vec::new()
+            }
+        }
+    };
     if adapter_state.invalid_response {
         let _ = finalize_request(
             database,
@@ -2881,18 +3127,50 @@ async fn collect_non_streaming(
         None,
     )
     .await?;
-    let body = if metadata.format == ResponseFormat::Chat {
-        json!({"id": metadata.request_id, "object": "chat.completion", "model": metadata.model_alias, "alias": metadata.model_alias, "route_version_id": metadata.route_version_id, "provider_id": metadata.provider_id, "model_id": metadata.model_id, "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "usage": usage_json(usage.as_ref()), "fallback_count": metadata.fallback_count})
+    let body = if matches!(
+        metadata.format,
+        ResponseFormat::Chat | ResponseFormat::ChatWithUsage
+    ) {
+        let (message, finish_reason) = chat_response_message(&text, &calls);
+        json!({"id": metadata.request_id, "object": "chat.completion", "model": metadata.model_alias, "alias": metadata.model_alias, "route_version_id": metadata.route_version_id, "provider_id": metadata.provider_id, "model_id": metadata.model_id, "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}], "usage": usage_json(usage.as_ref()), "fallback_count": metadata.fallback_count})
     } else {
-        json!({"request_id": metadata.request_id, "alias": metadata.model_alias, "model": metadata.model_alias, "route_version_id": metadata.route_version_id, "provider_id": metadata.provider_id, "model_id": metadata.model_id, "output": [{"type": "text", "text": text}], "usage": usage_json(usage.as_ref()), "fallback_count": metadata.fallback_count})
+        let mut output = vec![json!({"type": "text", "text": text})];
+        output.extend(calls.iter().map(|call| {
+            json!({"type": "tool_call", "call_id": call.id, "name": call.name, "arguments": call.arguments})
+        }));
+        json!({"request_id": metadata.request_id, "alias": metadata.model_alias, "model": metadata.model_alias, "route_version_id": metadata.route_version_id, "provider_id": metadata.provider_id, "model_id": metadata.model_id, "output": output, "usage": usage_json(usage.as_ref()), "fallback_count": metadata.fallback_count})
     };
     Ok(Json(body).into_response())
+}
+
+/// Buffered OpenAI-compatible assistant message: null content when the model
+/// answered only with calls, and `tool_calls` finish reason.
+fn chat_response_message(text: &str, calls: &[ToolCall]) -> (Value, &'static str) {
+    if calls.is_empty() {
+        return (json!({"role": "assistant", "content": text}), "stop");
+    }
+    let tool_calls = calls
+        .iter()
+        .map(|call| {
+            json!({"id": call.id, "type": "function", "function": {"name": call.name, "arguments": call.arguments}})
+        })
+        .collect::<Vec<_>>();
+    let content = if text.is_empty() {
+        Value::Null
+    } else {
+        json!(text)
+    };
+    (
+        json!({"role": "assistant", "content": content, "tool_calls": tool_calls}),
+        "tool_calls",
+    )
 }
 
 fn collect_json_response(
     chunk: &[u8],
     text: &mut String,
     usage: &mut Option<ProviderUsage>,
+    calls: &mut Vec<ToolCall>,
 ) -> bool {
     let Ok(value) = serde_json::from_slice::<Value>(chunk) else {
         return false;
@@ -2941,6 +3219,20 @@ fn collect_json_response(
     {
         text.push_str(content);
     }
+    match value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("tool_calls"))
+    {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(provider_calls)) => match decode_message_tool_calls(provider_calls) {
+            Ok(decoded) => *calls = decoded,
+            Err(_) => return false,
+        },
+        Some(_) => return false,
+    }
     if let Some(provider_usage) = value.get("usage").filter(|value| !value.is_null()) {
         *usage = Some(ProviderUsage {
             input_tokens: provider_usage
@@ -2972,15 +3264,27 @@ fn collect_events(
     chunk: &[u8],
     text: &mut String,
     usage: &mut Option<ProviderUsage>,
+    tool_calls: &mut ToolCallTracker,
 ) {
     for event in decoder.push(chunk, state) {
         match event {
             ProviderStreamEvent::TextDelta { text: delta } => text.push_str(&delta),
             ProviderStreamEvent::Usage { usage: value } => *usage = Some(value),
             ProviderStreamEvent::InvalidResponse => state.invalid_response = true,
-            ProviderStreamEvent::Done
-            | ProviderStreamEvent::ProviderRequestId { .. }
-            | ProviderStreamEvent::ToolCallDelta { .. } => {}
+            ProviderStreamEvent::ToolCallDelta {
+                index,
+                call_id,
+                name,
+                arguments_delta,
+            } => {
+                if tool_calls
+                    .accept(index, call_id.as_deref(), name.as_deref(), &arguments_delta)
+                    .is_err()
+                {
+                    state.invalid_response = true;
+                }
+            }
+            ProviderStreamEvent::Done | ProviderStreamEvent::ProviderRequestId { .. } => {}
         }
     }
 }
@@ -2991,28 +3295,20 @@ fn register_cancellation_finalizer(
     context: RequestContext,
     metadata: StreamMetadata,
     finalized: Rc<Cell<bool>>,
+    background: BackgroundWork,
+    clock: StreamClock,
 ) -> Result<(), ApiError> {
     let Some(caller_signal) = caller_signal else {
         return Ok(());
     };
     let error_context = context.clone();
     let callback = Closure::once_into_js(move || {
-        if finalized.replace(true) {
-            return;
-        }
-        spawn_local(async move {
-            let _ = finalize_request(
-                database.as_ref(),
-                &context,
-                &metadata,
-                None,
-                None,
-                context.received_at.as_str(),
-                false,
-                Some("request_cancelled"),
-            )
-            .await;
-        });
+        trace_lifecycle(clock, "abort_event");
+        schedule_cancel_settlement(
+            &background,
+            finalized,
+            cancel_settlement(database, context, metadata),
+        );
     });
     caller_signal
         .add_event_listener_with_callback("abort", callback.as_ref().unchecked_ref())
@@ -3031,9 +3327,13 @@ async fn finalize_request_once(
     error_code: Option<&str>,
     finalized: &Rc<Cell<bool>>,
 ) -> Result<(), ApiError> {
-    if finalized.replace(true) {
+    let Some(claim) = LatchClaim::take(finalized) else {
         return Ok(());
-    }
+    };
+    // Runs inside the response body, so the runtime can drop it mid-await once the
+    // caller is gone. The claim releases the latch then, instead of stranding it.
+    let reason = error_code.unwrap_or("completed");
+    trace_inline(&format!("start:{reason}"));
     let result = finalize_request(
         database,
         context,
@@ -3045,12 +3345,20 @@ async fn finalize_request_once(
         error_code,
     )
     .await;
-    if result.is_err() {
-        finalized.set(false);
+    match &result {
+        Ok(_) => {
+            claim.keep();
+            trace_inline(&format!("ok:{reason}"));
+        }
+        Err(error) => {
+            claim.release();
+            trace_inline(&format!("err:{}", error.error.code.as_str()));
+        }
     }
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_stream(
     database: Arc<crate::adapters::d1::D1Adapter>,
     context: RequestContext,
@@ -3059,12 +3367,23 @@ fn make_stream(
     metadata: StreamMetadata,
     caller_signal: Option<AbortSignal>,
     finalized: Rc<Cell<bool>>,
+    background: BackgroundWork,
+    clock: StreamClock,
 ) -> impl futures_util::Stream<Item = Result<Vec<u8>, worker::Error>> {
+    // Registered now, not when a disconnect is noticed: the abort event and the
+    // stream drop did not run in the probe. A timer bounds it to deadline + grace.
+    let watchdog = background.watch(
+        watchdog_delay_ms(metadata.deadline_at_ms, worker::js_sys::Date::now()),
+        finalized.clone(),
+        cancel_settlement(database.clone(), context.clone(), metadata.clone()),
+    );
     let cancellation_guard = StreamCancellationGuard {
         database: database.clone(),
         context: context.clone(),
         metadata: metadata.clone(),
         finalized: finalized.clone(),
+        background,
+        clock,
     };
     stream::unfold(
         StreamState {
@@ -3081,8 +3400,12 @@ fn make_stream(
             ended: false,
             failed: false,
             finalized,
+            clock,
+            pulls: 0,
             _cancellation_guard: cancellation_guard,
             first_output_at: None,
+            tool_calls: ToolCallTracker::default(),
+            _watchdog: watchdog,
         },
         |mut state| async move {
             if state.ended {
@@ -3091,13 +3414,15 @@ fn make_stream(
             let chunk = if !state.started {
                 state.first_chunk.take()
             } else {
-                match next_stream_chunk(
+                let pull = PullScope::begin(state.clock, &mut state.pulls);
+                let next = next_stream_chunk(
                     &mut state.provider_stream,
                     state.metadata.deadline_at_ms,
                     state.caller_signal.as_ref(),
                 )
-                .await
-                {
+                .await;
+                pull.end(next.label());
+                match next {
                     NextChunk::Chunk(Some(Ok(chunk))) => Some(chunk),
                     NextChunk::TimedOut => {
                         state.failed = true;
@@ -3116,7 +3441,7 @@ fn make_stream(
                             &state.finalized,
                         )
                         .await;
-                        return Some((Ok(render_error(&state, "request_timeout")), state));
+                        return Some((Ok(render_error(&state.metadata, "request_timeout")), state));
                     }
                     NextChunk::Cancelled => {
                         state.ended = true;
@@ -3176,7 +3501,7 @@ fn make_stream(
                         )
                         .await;
                         return Some((
-                            Ok(render_error(&state, "upstream_invalid_response")),
+                            Ok(render_error(&state.metadata, "upstream_invalid_response")),
                             state,
                         ));
                     }
@@ -3197,6 +3522,9 @@ fn make_stream(
                 // cancellation already gets.
                 let completed = state.adapter_state.may_complete();
                 let mut output = render_events(&mut state, remaining, completed);
+                // Rendering can still reject the response: an incomplete or
+                // out-of-bounds tool call is corrupt output, not a completion.
+                let completed = completed && !state.failed;
                 if !completed {
                     let _ = finalize_request_once(
                         state.database.as_ref(),
@@ -3213,7 +3541,7 @@ fn make_stream(
                     // A decoded invalid response already emitted its own error
                     // event; a truncated tail did not, so it is emitted here.
                     if !state.failed {
-                        output.extend(render_error(&state, "upstream_invalid_response"));
+                        output.extend(render_error(&state.metadata, "upstream_invalid_response"));
                     }
                     return Some((Ok(output), state));
                 }
@@ -3230,7 +3558,11 @@ fn make_stream(
                 )
                 .await;
                 if output.is_empty() {
-                    output.extend(render_completion(&state, state.usage.as_ref()));
+                    output.extend(render_completion(
+                        &state.metadata,
+                        state.usage.as_ref(),
+                        !state.tool_calls.is_empty(),
+                    ));
                 }
                 return Some((Ok(output), state));
             };
@@ -3271,16 +3603,35 @@ fn render_events(
         state.started = true;
         state.metadata.ttft_ms = Some(elapsed_ms(state.metadata.started_at_ms));
         state.first_output_at = Some(now_rfc3339());
-        output.extend(render_started(state));
+        output.extend(render_started(&state.metadata));
     }
     for event in events {
         match event {
-            ProviderStreamEvent::TextDelta { text } => output.extend(render_text(state, &text)),
+            ProviderStreamEvent::TextDelta { text } => {
+                output.extend(render_text(&state.metadata, &text));
+            }
             ProviderStreamEvent::ToolCallDelta {
+                index,
                 call_id,
+                name,
                 arguments_delta,
             } => {
-                output.extend(render_tool(state, &call_id, &arguments_delta));
+                if state
+                    .tool_calls
+                    .accept(index, call_id.as_deref(), name.as_deref(), &arguments_delta)
+                    .is_err()
+                {
+                    state.failed = true;
+                    output.extend(render_error(&state.metadata, "upstream_invalid_response"));
+                    break;
+                }
+                output.extend(render_tool(
+                    &state.metadata,
+                    index,
+                    call_id.as_deref(),
+                    name.as_deref(),
+                    &arguments_delta,
+                ));
             }
             ProviderStreamEvent::Usage { usage } => state.usage = Some(usage),
             ProviderStreamEvent::ProviderRequestId {
@@ -3291,76 +3642,105 @@ fn render_events(
             ProviderStreamEvent::Done => {}
             ProviderStreamEvent::InvalidResponse => {
                 state.failed = true;
-                output.extend(render_error(state, "upstream_invalid_response"));
+                output.extend(render_error(&state.metadata, "upstream_invalid_response"));
                 break;
             }
         }
     }
+    if terminal && !state.failed && state.tool_calls.finish().is_err() {
+        state.failed = true;
+        output.extend(render_error(&state.metadata, "upstream_invalid_response"));
+    }
     if terminal && !state.failed {
-        output.extend(render_completion(state, state.usage.as_ref()));
+        output.extend(render_completion(
+            &state.metadata,
+            state.usage.as_ref(),
+            !state.tool_calls.is_empty(),
+        ));
     }
     output
 }
 
-fn render_started(state: &StreamState) -> Vec<u8> {
-    let value = json!({"type": "response.started", "request_id": state.metadata.request_id, "alias": state.metadata.model_alias, "model": state.metadata.model_alias, "route_version_id": state.metadata.route_version_id, "route_version": state.metadata.route_version_number, "provider_id": state.metadata.provider_id, "model_id": state.metadata.model_id, "provider_request_id": state.metadata.provider_request_id});
-    render_event(state, "response.started", &value)
+fn render_started(metadata: &StreamMetadata) -> Vec<u8> {
+    let value = json!({"type": "response.started", "request_id": metadata.request_id, "alias": metadata.model_alias, "model": metadata.model_alias, "route_version_id": metadata.route_version_id, "route_version": metadata.route_version_number, "provider_id": metadata.provider_id, "model_id": metadata.model_id, "provider_request_id": metadata.provider_request_id});
+    render_event(metadata, "response.started", &value)
 }
 
-fn render_text(state: &StreamState, text: &str) -> Vec<u8> {
+fn render_text(metadata: &StreamMetadata, text: &str) -> Vec<u8> {
     let value = json!({
         "type": "response.output_text.delta",
-        "request_id": state.metadata.request_id,
-        "alias": state.metadata.model_alias,
-        "model": state.metadata.model_alias,
-        "route_version_id": state.metadata.route_version_id,
-        "provider_id": state.metadata.provider_id,
-        "model_id": state.metadata.model_id,
+        "request_id": metadata.request_id,
+        "alias": metadata.model_alias,
+        "model": metadata.model_alias,
+        "route_version_id": metadata.route_version_id,
+        "provider_id": metadata.provider_id,
+        "model_id": metadata.model_id,
         "text": text
     });
-    render_event(state, "response.output_text.delta", &value)
+    render_event(metadata, "response.output_text.delta", &value)
 }
 
-fn render_tool(state: &StreamState, call_id: &str, arguments_delta: &str) -> Vec<u8> {
+fn render_tool(
+    metadata: &StreamMetadata,
+    index: u32,
+    call_id: Option<&str>,
+    name: Option<&str>,
+    arguments_delta: &str,
+) -> Vec<u8> {
+    // `call_id` and `name` are null on fragments where the provider omitted
+    // them; the gateway never substitutes an id.
     let value = json!({
         "type": "response.tool_call.delta",
-        "request_id": state.metadata.request_id,
-        "alias": state.metadata.model_alias,
-        "model": state.metadata.model_alias,
-        "route_version_id": state.metadata.route_version_id,
-        "provider_id": state.metadata.provider_id,
-        "model_id": state.metadata.model_id,
+        "request_id": metadata.request_id,
+        "alias": metadata.model_alias,
+        "model": metadata.model_alias,
+        "route_version_id": metadata.route_version_id,
+        "provider_id": metadata.provider_id,
+        "model_id": metadata.model_id,
+        "index": index,
         "call_id": call_id,
+        "name": name,
         "arguments_delta": arguments_delta
     });
-    render_event(state, "response.tool_call.delta", &value)
+    render_event(metadata, "response.tool_call.delta", &value)
 }
 
-fn render_error(state: &StreamState, reason: &str) -> Vec<u8> {
+fn render_error(metadata: &StreamMetadata, reason: &str) -> Vec<u8> {
     let value = json!({
         "type": "error",
-        "request_id": state.metadata.request_id,
-        "alias": state.metadata.model_alias,
-        "model": state.metadata.model_alias,
-        "route_version_id": state.metadata.route_version_id,
-        "provider_id": state.metadata.provider_id,
-        "model_id": state.metadata.model_id,
+        "request_id": metadata.request_id,
+        "alias": metadata.model_alias,
+        "model": metadata.model_alias,
+        "route_version_id": metadata.route_version_id,
+        "provider_id": metadata.provider_id,
+        "model_id": metadata.model_id,
         "error": {"code": reason, "message": "The provider stream failed."}
     });
-    render_event(state, "error", &value)
+    render_event(metadata, "error", &value)
 }
 
-fn render_completion(state: &StreamState, usage: Option<&ProviderUsage>) -> Vec<u8> {
-    let value = json!({"type": "response.completed", "request_id": state.metadata.request_id, "alias": state.metadata.model_alias, "model": state.metadata.model_alias, "route_version_id": state.metadata.route_version_id, "provider_id": state.metadata.provider_id, "model_id": state.metadata.model_id, "fallback_count": state.metadata.fallback_count, "usage": usage_json(usage)});
-    render_event(state, "response.completed", &value)
+fn render_completion(
+    metadata: &StreamMetadata,
+    usage: Option<&ProviderUsage>,
+    has_tool_calls: bool,
+) -> Vec<u8> {
+    let finish_reason = if has_tool_calls { "tool_calls" } else { "stop" };
+    let value = json!({"type": "response.completed", "request_id": metadata.request_id, "alias": metadata.model_alias, "model": metadata.model_alias, "route_version_id": metadata.route_version_id, "provider_id": metadata.provider_id, "model_id": metadata.model_id, "fallback_count": metadata.fallback_count, "finish_reason": finish_reason, "usage": usage_json(usage)});
+    render_event(metadata, "response.completed", &value)
 }
 
-fn render_event(state: &StreamState, event_type: &str, value: &Value) -> Vec<u8> {
-    if state.metadata.format == ResponseFormat::Native {
+fn render_event(metadata: &StreamMetadata, event_type: &str, value: &Value) -> Vec<u8> {
+    if metadata.format == ResponseFormat::Native {
         format!("event: {event_type}\ndata: {value}\n\n").into_bytes()
     } else {
         let choice = if event_type == "response.completed" {
-            json!({"index": 0, "delta": {}, "finish_reason": "stop"})
+            let finish_reason = value
+                .get("finish_reason")
+                .and_then(Value::as_str)
+                .unwrap_or("stop");
+            json!({"index": 0, "delta": {}, "finish_reason": finish_reason})
+        } else if event_type == "response.tool_call.delta" {
+            json!({"index": 0, "delta": {"tool_calls": [chat_tool_call_delta(value)]}, "finish_reason": null})
         } else if event_type == "response.started" {
             json!({"index": 0, "delta": {"role": "assistant"}, "finish_reason": null})
         } else if event_type == "error" {
@@ -3368,23 +3748,98 @@ fn render_event(state: &StreamState, event_type: &str, value: &Value) -> Vec<u8>
         } else {
             json!({"index": 0, "delta": {"content": value.get("text").and_then(Value::as_str).unwrap_or("")}, "finish_reason": null})
         };
-        let chunk = json!({
-            "id": state.metadata.request_id,
-            "object": "chat.completion.chunk",
-            "model": state.metadata.model_alias,
-            "alias": state.metadata.model_alias,
-            "route_version_id": state.metadata.route_version_id,
-            "provider_id": state.metadata.provider_id,
-            "model_id": state.metadata.model_id,
-            "error": value.get("error").cloned().unwrap_or(Value::Null),
-            "choices": [choice]
-        });
+        let chunk = chat_completion_chunk(
+            &metadata.request_id,
+            &metadata.model_alias,
+            &metadata.route_version_id,
+            &metadata.provider_id,
+            &metadata.model_id,
+            json!([choice]),
+            (event_type == "error")
+                .then(|| value.get("error"))
+                .flatten(),
+        );
         let mut output = format!("data: {chunk}\n\n");
+        if metadata.format == ResponseFormat::ChatWithUsage && event_type == "response.completed" {
+            let usage = value.get("usage").map(chat_usage_json).unwrap_or_else(
+                || json!({"prompt_tokens": null, "completion_tokens": null, "total_tokens": null}),
+            );
+            let usage_chunk = json!({
+                "id": metadata.request_id,
+                "object": "chat.completion.chunk",
+                "model": metadata.model_alias,
+                "alias": metadata.model_alias,
+                "route_version_id": metadata.route_version_id,
+                "provider_id": metadata.provider_id,
+                "model_id": metadata.model_id,
+                "choices": [],
+                "usage": usage,
+            });
+            output.push_str(&format!("data: {usage_chunk}\n\n"));
+        }
         if matches!(event_type, "response.completed" | "error") {
             output.push_str("data: [DONE]\n\n");
         }
         output.into_bytes()
     }
+}
+
+/// OpenAI `delta.tool_calls[]` element: `id`/`type`/`name` appear only on the
+/// fragments where the provider sent an id/name.
+fn chat_tool_call_delta(value: &Value) -> Value {
+    let mut function = serde_json::Map::new();
+    if let Some(name) = value.get("name").filter(|name| !name.is_null()) {
+        function.insert("name".to_owned(), name.clone());
+    }
+    function.insert(
+        "arguments".to_owned(),
+        value
+            .get("arguments_delta")
+            .cloned()
+            .unwrap_or_else(|| json!("")),
+    );
+    let mut call = json!({"index": value.get("index").cloned().unwrap_or(Value::Null)});
+    if let Some(id) = value.get("call_id").filter(|id| !id.is_null()) {
+        call["id"] = id.clone();
+        call["type"] = json!("function");
+    }
+    call["function"] = Value::Object(function);
+    call
+}
+
+fn chat_completion_chunk(
+    request_id: &str,
+    model_alias: &str,
+    route_version_id: &str,
+    provider_id: &str,
+    model_id: &str,
+    choices: Value,
+    error: Option<&Value>,
+) -> Value {
+    let mut chunk = json!({
+        "id": request_id,
+        "object": "chat.completion.chunk",
+        "model": model_alias,
+        "alias": model_alias,
+        "route_version_id": route_version_id,
+        "provider_id": provider_id,
+        "model_id": model_id,
+        "choices": choices,
+    });
+    if let Some(error) = error {
+        chunk["error"] = error.clone();
+    }
+    chunk
+}
+
+fn chat_usage_json(usage: &Value) -> Value {
+    let input = usage.get("input_tokens").and_then(Value::as_u64);
+    let output = usage.get("output_tokens").and_then(Value::as_u64);
+    json!({
+        "prompt_tokens": input,
+        "completion_tokens": output,
+        "total_tokens": input.zip(output).map(|(input, output)| input.saturating_add(output)),
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3679,11 +4134,11 @@ fn validate_generation_limits(
 }
 
 fn validate_tools(tools: &[Value], context: &RequestContext) -> Result<(), ApiError> {
-    if tools.len() > 32 {
+    if tools.len() > MAX_INFERENCE_TOOLS {
         return Err(validation_error(
             context,
             "tools_invalid",
-            "Provide no more than 32 tools.",
+            "Provide no more than 128 tools.",
         ));
     }
     let encoded = serde_json::to_vec(tools).map_err(|_| {
@@ -3788,7 +4243,12 @@ fn native_request(
                 "Message content is required.",
             ));
         }
-        messages.push(InferenceMessage { role, content });
+        messages.push(InferenceMessage {
+            role,
+            content,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        });
     }
     if messages.is_empty() || messages.len() > 128 {
         return Err(validation_error(
@@ -3847,54 +4307,183 @@ fn native_request(
     })
 }
 
-fn chat_request(body: ChatRequest, context: &RequestContext) -> Result<InferenceRequest, ApiError> {
-    let mut messages = Vec::new();
-    for message in body.messages {
-        let role = match message.role.as_str() {
-            "system" => MessageRole::System,
-            "user" => MessageRole::User,
-            "assistant" => MessageRole::Assistant,
-            "tool" => MessageRole::Tool,
-            _ => {
-                return Err(validation_error(
-                    context,
-                    "message_invalid",
-                    "Choose a valid message role.",
+type ChatMessageError = (&'static str, &'static str);
+
+/// Call ids issued by assistant messages and answered by tool messages so far.
+#[derive(Default)]
+struct ChatToolTurns {
+    issued: std::collections::HashSet<String>,
+    answered: std::collections::HashSet<String>,
+}
+
+impl ChatToolTurns {
+    fn used(&self) -> bool {
+        !self.issued.is_empty() || !self.answered.is_empty()
+    }
+
+    /// Every issued call must have its tool message by the end of the request.
+    fn all_answered(&self) -> bool {
+        self.issued.is_subset(&self.answered)
+    }
+}
+
+fn chat_message_text(content: &Value) -> Result<Option<String>, ChatMessageError> {
+    if content.is_null() {
+        return Ok(None);
+    }
+    if let Some(value) = content.as_str() {
+        return Ok(Some(value.to_owned()));
+    }
+    let values = content
+        .as_array()
+        .ok_or(("content_invalid", "Message content is invalid."))?;
+    let mut text = String::new();
+    for value in values {
+        if value.get("type").and_then(Value::as_str) != Some("text") {
+            return Err(("content_unsupported", "Only text content is supported."));
+        }
+        text.push_str(
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or(("content_invalid", "Message text is required."))?,
+        );
+    }
+    Ok(Some(text))
+}
+
+fn chat_tool_calls(
+    calls: Vec<ChatToolCall>,
+    turns: &mut ChatToolTurns,
+) -> Result<Vec<ToolCall>, ChatMessageError> {
+    const INVALID: ChatMessageError = (
+        "tool_calls_invalid",
+        "The assistant tool calls are invalid.",
+    );
+    if calls.is_empty() || calls.len() > MAX_TOOL_CALLS {
+        return Err(INVALID);
+    }
+    let mut accepted = Vec::with_capacity(calls.len());
+    for call in calls {
+        let arguments_are_object = call.function.arguments.len() <= MAX_TOOL_ARGUMENTS_BYTES
+            && serde_json::from_str::<Value>(&call.function.arguments)
+                .is_ok_and(|arguments| arguments.is_object());
+        if call.call_type != "function"
+            || !valid_tool_call_id(&call.id)
+            || !valid_tool_name(&call.function.name)
+            || !arguments_are_object
+            || turns.issued.len() >= MAX_TOOL_CALLS
+            || !turns.issued.insert(call.id.clone())
+        {
+            return Err(INVALID);
+        }
+        accepted.push(ToolCall {
+            id: call.id,
+            name: call.function.name,
+            arguments: call.function.arguments,
+        });
+    }
+    Ok(accepted)
+}
+
+/// Convert one OpenAI-compatible message. Tool fields are strictly bound to
+/// their roles: calls only on assistant messages, a referenced issued and
+/// still-unanswered call id on tool messages, neither anywhere else.
+fn chat_message(
+    message: ChatMessage,
+    turns: &mut ChatToolTurns,
+) -> Result<InferenceMessage, ChatMessageError> {
+    let role = match message.role.as_str() {
+        "system" => MessageRole::System,
+        "user" => MessageRole::User,
+        "assistant" => MessageRole::Assistant,
+        "tool" => MessageRole::Tool,
+        _ => return Err(("message_invalid", "Choose a valid message role.")),
+    };
+    let text = chat_message_text(&message.content)?;
+    if text.as_ref().is_some_and(|text| text.len() > 256 * 1024) {
+        return Err(("content_too_large", "Message content is too large."));
+    }
+    let tool_field_error = (
+        "message_invalid",
+        "Tool fields do not belong on this message.",
+    );
+    let (text, tool_calls, tool_call_id) = match role {
+        MessageRole::Assistant => match message.tool_calls.filter(|calls| !calls.is_empty()) {
+            // An empty array is how some SDKs serialise plain assistant history.
+            Some(calls) if message.tool_call_id.is_none() => {
+                let calls = chat_tool_calls(calls, turns)?;
+                (text.filter(|text| !text.is_empty()), calls, None)
+            }
+            Some(_) => return Err(tool_field_error),
+            None if message.tool_call_id.is_some() => return Err(tool_field_error),
+            None => (
+                Some(text.ok_or(("content_invalid", "Message content is invalid."))?),
+                Vec::new(),
+                None,
+            ),
+        },
+        MessageRole::Tool => {
+            let id = message.tool_call_id.filter(|id| valid_tool_call_id(id));
+            let id = id.ok_or((
+                "tool_call_id_invalid",
+                "A tool message must reference a call id.",
+            ))?;
+            if message.tool_calls.is_some() {
+                return Err(tool_field_error);
+            }
+            if !turns.issued.contains(&id) || !turns.answered.insert(id.clone()) {
+                return Err((
+                    "tool_call_id_invalid",
+                    "A tool message must answer one earlier unanswered call.",
                 ));
             }
-        };
-        let text = if let Some(value) = message.content.as_str() {
-            value.to_owned()
-        } else {
-            let values = message.content.as_array().ok_or_else(|| {
-                validation_error(context, "content_invalid", "Message content is invalid.")
-            })?;
-            let mut text = String::new();
-            for value in values {
-                if value.get("type").and_then(Value::as_str) != Some("text") {
-                    return Err(validation_error(
-                        context,
-                        "content_unsupported",
-                        "Only text content is supported.",
-                    ));
-                }
-                text.push_str(value.get("text").and_then(Value::as_str).ok_or_else(|| {
-                    validation_error(context, "content_invalid", "Message text is required.")
-                })?);
-            }
-            text
-        };
-        if text.len() > 256 * 1024 {
-            return Err(validation_error(
-                context,
-                "content_too_large",
-                "Message content is too large.",
-            ));
+            (
+                Some(text.ok_or(("content_invalid", "Message content is invalid."))?),
+                Vec::new(),
+                Some(id),
+            )
         }
-        messages.push(InferenceMessage {
-            role,
-            content: vec![ContentPart::Text { text }],
-        });
+        MessageRole::System | MessageRole::User => {
+            if message.tool_calls.is_some() || message.tool_call_id.is_some() {
+                return Err(tool_field_error);
+            }
+            (
+                Some(text.ok_or(("content_invalid", "Message content is invalid."))?),
+                Vec::new(),
+                None,
+            )
+        }
+    };
+    Ok(InferenceMessage {
+        role,
+        content: text
+            .map(|text| vec![ContentPart::Text { text }])
+            .unwrap_or_default(),
+        tool_calls,
+        tool_call_id,
+    })
+}
+
+fn chat_request(body: ChatRequest, context: &RequestContext) -> Result<InferenceRequest, ApiError> {
+    if body
+        .tool_choice
+        .as_ref()
+        .is_some_and(|choice| choice.as_str() != Some("auto"))
+    {
+        return Err(validation_error(
+            context,
+            "tool_choice_unsupported",
+            "Only automatic tool selection is supported.",
+        ));
+    }
+    let mut messages = Vec::new();
+    let mut turns = ChatToolTurns::default();
+    for message in body.messages {
+        messages.push(
+            chat_message(message, &mut turns)
+                .map_err(|(code, detail)| validation_error(context, code, detail))?,
+        );
     }
     if messages.is_empty() || messages.len() > 128 {
         return Err(validation_error(
@@ -3903,14 +4492,17 @@ fn chat_request(body: ChatRequest, context: &RequestContext) -> Result<Inference
             "Provide between one and 128 messages.",
         ));
     }
-    let total_text_bytes = messages
-        .iter()
-        .flat_map(|message| message.content.iter())
-        .fold(0_usize, |total, part| {
-            let ContentPart::Text { text } = part;
-            total.saturating_add(text.len())
-        });
-    if total_text_bytes > 512 * 1024 {
+    if !turns.all_answered() {
+        return Err(validation_error(
+            context,
+            "tool_call_id_invalid",
+            "Every assistant tool call needs a tool message.",
+        ));
+    }
+    let total_content_bytes = messages.iter().fold(0_usize, |total, message| {
+        total.saturating_add(message.content_bytes())
+    });
+    if total_content_bytes > 512 * 1024 {
         return Err(validation_error(
             context,
             "content_too_large",
@@ -3932,10 +4524,10 @@ fn chat_request(body: ChatRequest, context: &RequestContext) -> Result<Inference
     let tools = body.tools.unwrap_or_default();
     validate_tools(&tools, context)?;
     let mut required = vec![ModelCapability::Text];
-    if !tools.is_empty() {
+    if !tools.is_empty() || turns.used() {
         required.push(ModelCapability::Tools);
     }
-    let retry_safe = tools.is_empty();
+    let retry_safe = tools.is_empty() && !turns.used();
     Ok(InferenceRequest {
         model: body.model,
         messages,
@@ -4235,33 +4827,669 @@ fn page_window<T>(mut records: Vec<T>, limit: u16, offset: u32) -> (Vec<T>, Opti
 mod tests {
     use super::*;
 
+    fn p05_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("x-project-id", "prj_11111111111111111111111111111111"),
+            ("x-device-id", "dvc_22222222222222222222222222222222"),
+            ("x-agent-session-id", "rse_33333333333333333333333333333333"),
+            ("x-run-id", "run_44444444444444444444444444444444"),
+            (
+                "x-agent-definition-id",
+                "agd_55555555555555555555555555555555",
+            ),
+            ("x-agent-definition-version", "7"),
+            ("x-lumi-execution-mode", "managed"),
+        ] {
+            headers.insert(name, value.parse().unwrap());
+        }
+        headers
+    }
+
+    #[test]
+    fn chat_request_accepts_standard_stream_usage_option_but_keeps_it_strict() {
+        let request = serde_json::from_value::<ChatRequest>(json!({
+            "model": "coding-default",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": true,
+            "stream_options": {"include_usage": true},
+            "tool_choice": "auto",
+            "max_tokens": 512
+        }))
+        .expect("OpenAI-compatible SDK stream_options are valid");
+        assert_eq!(request.stream_options.unwrap().include_usage, Some(true));
+        assert_eq!(request.tool_choice.unwrap(), "auto");
+        assert!(
+            serde_json::from_value::<ChatRequest>(json!({
+                "model": "coding-default",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream_options": {"unknown": true}
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn successful_chat_stream_chunks_omit_the_error_field() {
+        let success = chat_completion_chunk(
+            "req_0123456789abcdef0123456789abcdef",
+            "coding-default",
+            "rte_0123456789abcdef0123456789abcdef",
+            "prv_0123456789abcdef0123456789abcdef",
+            "mdl_0123456789abcdef0123456789abcdef",
+            json!([{"index": 0, "delta": {"content": "ok"}, "finish_reason": null}]),
+            None,
+        );
+        assert!(success.get("error").is_none());
+
+        let error = json!({"code": "provider_failed", "message": "failed"});
+        let failure = chat_completion_chunk(
+            "req_0123456789abcdef0123456789abcdef",
+            "coding-default",
+            "rte_0123456789abcdef0123456789abcdef",
+            "prv_0123456789abcdef0123456789abcdef",
+            "mdl_0123456789abcdef0123456789abcdef",
+            json!([{"index": 0, "delta": {}, "finish_reason": "error"}]),
+            Some(&error),
+        );
+        assert_eq!(failure["error"]["code"], "provider_failed");
+    }
+
+    #[test]
+    fn chat_usage_keeps_missing_provider_measurements_unknown() {
+        assert_eq!(
+            chat_usage_json(&json!({"input_tokens": 4, "output_tokens": 3})),
+            json!({"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7})
+        );
+        assert_eq!(
+            chat_usage_json(&json!({"input_tokens": null, "output_tokens": null})),
+            json!({"prompt_tokens": null, "completion_tokens": null, "total_tokens": null})
+        );
+    }
+
+    #[test]
+    fn p05_correlation_headers_are_complete_hints_and_merge_only_consistently() {
+        let mut target = InferenceCorrelationTarget::default();
+        let correlation = merge_p05_inference_headers(&HeaderMap::new(), &mut target).unwrap();
+        assert_eq!(correlation, None);
+        assert_eq!(target.project_id, None);
+
+        let headers = p05_headers();
+        let correlation = merge_p05_inference_headers(&headers, &mut target).unwrap();
+        assert_eq!(
+            correlation,
+            Some(P05InferenceCorrelation {
+                project_id: "prj_11111111111111111111111111111111".to_owned(),
+                device_id: "dvc_22222222222222222222222222222222".to_owned(),
+                agent_session_id: "rse_33333333333333333333333333333333".to_owned(),
+                run_id: "run_44444444444444444444444444444444".to_owned(),
+                agent_definition_id: "agd_55555555555555555555555555555555".to_owned(),
+                agent_definition_version: 7,
+            })
+        );
+        assert_eq!(
+            target.run_id.as_deref(),
+            Some("run_44444444444444444444444444444444")
+        );
+        assert_eq!(
+            target.agent_session_id.as_deref(),
+            Some("rse_33333333333333333333333333333333")
+        );
+
+        target.run_id = Some("run_66666666666666666666666666666666".to_owned());
+        assert!(merge_p05_inference_headers(&headers, &mut target).is_err());
+    }
+
+    #[test]
+    fn p05_correlation_headers_fail_closed_when_partial_or_not_managed() {
+        let mut partial = HeaderMap::new();
+        partial.insert(
+            "x-run-id",
+            "run_44444444444444444444444444444444".parse().unwrap(),
+        );
+        assert!(
+            merge_p05_inference_headers(&partial, &mut InferenceCorrelationTarget::default())
+                .is_err()
+        );
+
+        let mut local = p05_headers();
+        local.insert("x-lumi-execution-mode", "local_only".parse().unwrap());
+        assert!(
+            merge_p05_inference_headers(&local, &mut InferenceCorrelationTarget::default())
+                .is_err()
+        );
+
+        let mut invalid_version = p05_headers();
+        invalid_version.insert("x-agent-definition-version", "07".parse().unwrap());
+        assert!(
+            merge_p05_inference_headers(
+                &invalid_version,
+                &mut InferenceCorrelationTarget::default()
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn non_stream_provider_error_is_not_a_successful_empty_response() {
         let mut text = String::new();
         let mut usage = None;
+        let mut calls = Vec::new();
         assert!(!collect_json_response(
             br#"{"error":{"code":"upstream_failed"}}"#,
             &mut text,
-            &mut usage
+            &mut usage,
+            &mut calls
         ));
         assert!(!collect_json_response(
             br#"{"id":"provider-only"}"#,
             &mut text,
-            &mut usage
+            &mut usage,
+            &mut calls
         ));
         assert!(collect_json_response(
             br#"{"choices":[{"message":{"content":"ok"}}]}"#,
             &mut text,
-            &mut usage
+            &mut usage,
+            &mut calls
         ));
         assert_eq!(text, "ok");
         text.clear();
         assert!(collect_json_response(
             br#"{"model":"claude","content":[{"type":"text","text":"anthropic"}],"usage":{"input_tokens":2,"output_tokens":3}}"#,
             &mut text,
-            &mut usage
+            &mut usage,
+            &mut calls
         ));
         assert_eq!(text, "anthropic");
+    }
+
+    #[test]
+    fn buffered_tool_calls_with_null_content_render_as_openai_tool_message() {
+        let mut text = String::new();
+        let mut usage = None;
+        let mut calls = Vec::new();
+        assert!(collect_json_response(
+            br#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"fs_write","arguments":"{\"path\":\"a\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+            &mut text,
+            &mut usage,
+            &mut calls
+        ));
+        let (message, finish) = chat_response_message(&text, &calls);
+        assert_eq!(finish, "tool_calls");
+        assert_eq!(message["content"], Value::Null);
+        assert_eq!(message["tool_calls"][0]["id"], "call_1");
+        assert_eq!(message["tool_calls"][0]["function"]["name"], "fs_write");
+        // Corrupt buffered calls fail closed rather than being dropped.
+        assert!(!collect_json_response(
+            br#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"bad id","type":"function","function":{"name":"x","arguments":"{}"}}]}}]}"#,
+            &mut text,
+            &mut usage,
+            &mut Vec::new()
+        ));
+        assert!(!collect_json_response(
+            br#"{"choices":[{"message":{"tool_calls":"nope"}}]}"#,
+            &mut text,
+            &mut usage,
+            &mut Vec::new()
+        ));
+        assert_eq!(chat_response_message("hi", &[]).1, "stop");
+    }
+
+    fn chat_json(messages: Value) -> ChatRequest {
+        serde_json::from_value(json!({"model": "coding-default", "messages": messages}))
+            .expect("structurally valid chat request")
+    }
+
+    fn convert(messages: Value) -> Result<Vec<InferenceMessage>, ChatMessageError> {
+        let mut turns = ChatToolTurns::default();
+        chat_json(messages)
+            .messages
+            .into_iter()
+            .map(|message| chat_message(message, &mut turns))
+            .collect()
+    }
+
+    const CALL: &str = r#"{"id":"call_1","type":"function","function":{"name":"fs_write","arguments":"{\"path\":\"a.txt\"}"}}"#;
+
+    #[test]
+    fn chat_tool_round_trip_preserves_assistant_calls_and_tool_result() {
+        let call: Value = serde_json::from_str(CALL).unwrap();
+        let converted = convert(json!([
+            {"role": "user", "content": "write it"},
+            {"role": "assistant", "content": null, "tool_calls": [call]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "done"},
+        ]))
+        .unwrap();
+        assert!(converted[1].content.is_empty());
+        assert_eq!(converted[1].tool_calls[0].name, "fs_write");
+        assert_eq!(converted[2].tool_call_id.as_deref(), Some("call_1"));
+        // Serialization to an OpenAI-compatible provider keeps both halves.
+        let request = InferenceRequest {
+            model: "m".to_owned(),
+            messages: converted,
+            required_capabilities: Vec::new(),
+            stream: false,
+            max_output_tokens: None,
+            temperature: None,
+            tools: Vec::new(),
+            retry_safe: false,
+            project_id: None,
+            session_id: None,
+            run_id: None,
+        };
+        let body: Value = serde_json::from_str(
+            &crate::adapters::providers::translate_openai_request(&request, "p").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["messages"][1]["content"], Value::Null);
+        assert_eq!(body["messages"][1]["tool_calls"][0]["type"], "function");
+        assert_eq!(body["messages"][2]["tool_call_id"], "call_1");
+        assert_eq!(body["messages"][2]["content"], "done");
+    }
+
+    #[test]
+    fn ordinary_text_messages_are_unchanged() {
+        let converted = convert(json!([
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": [{"type": "text", "text": "u"}]},
+            {"role": "assistant", "content": "a"},
+        ]))
+        .unwrap();
+        assert!(
+            converted
+                .iter()
+                .all(|message| message.tool_calls.is_empty())
+        );
+        assert!(
+            converted
+                .iter()
+                .all(|message| message.tool_call_id.is_none())
+        );
+        assert_eq!(
+            converted[2],
+            InferenceMessage {
+                role: MessageRole::Assistant,
+                content: vec![ContentPart::Text {
+                    text: "a".to_owned()
+                }],
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+            }
+        );
+        // Null content is still invalid without calls.
+        assert!(convert(json!([{"role": "assistant", "content": null}])).is_err());
+        assert!(convert(json!([{"role": "user", "content": null}])).is_err());
+    }
+
+    #[test]
+    fn chat_tool_fields_are_strict_unknown_fields_and_roles() {
+        let call: Value = serde_json::from_str(CALL).unwrap();
+        for bad in [
+            json!([{"role": "assistant", "content": null, "tool_calls": [call.clone()], "extra": 1}]),
+            json!([{"role": "assistant", "tool_calls": [{"id": "c", "type": "function", "function": {"name": "n", "arguments": "{}"}, "extra": 1}]}]),
+            json!([{"role": "assistant", "tool_calls": [{"id": "c", "type": "function", "function": {"name": "n", "arguments": "{}", "extra": 1}}]}]),
+            json!([{"role": "assistant", "tool_calls": [{"id": "c", "function": {"name": "n", "arguments": "{}"}}]}]),
+            json!([{"role": "assistant", "tool_calls": [{"id": "c", "type": "function", "function": {"name": "n", "arguments": {}}}]}]),
+        ] {
+            assert!(
+                serde_json::from_value::<ChatRequest>(json!({"model": "m", "messages": bad}))
+                    .is_err()
+            );
+        }
+        // Wrong role for tool fields.
+        for role in ["user", "system", "tool"] {
+            assert!(
+                convert(json!([{"role": role, "content": "x", "tool_calls": [call.clone()]}]))
+                    .is_err(),
+                "{role} borrowed tool_calls"
+            );
+        }
+        for role in ["user", "system", "assistant"] {
+            assert!(
+                convert(json!([{"role": role, "content": "x", "tool_call_id": "call_1"}])).is_err(),
+                "{role} borrowed tool_call_id"
+            );
+        }
+        assert!(convert(json!([{"role": "function", "content": "x"}])).is_err());
+        // Assistant cannot hold both a result id and calls.
+        assert!(convert(json!([{"role": "assistant", "tool_calls": [call.clone()], "tool_call_id": "call_1"}])).is_err());
+    }
+
+    #[test]
+    fn chat_tool_ids_must_be_unique_issued_and_answered_once() {
+        let call: Value = serde_json::from_str(CALL).unwrap();
+        let assistant = json!({"role": "assistant", "tool_calls": [call.clone()]});
+        let result = |id: &str| json!({"role": "tool", "tool_call_id": id, "content": "ok"});
+        assert!(convert(json!([assistant.clone(), result("call_1")])).is_ok());
+        // Unmatched, missing and malformed ids.
+        assert!(convert(json!([assistant.clone(), result("call_9")])).is_err());
+        assert!(convert(json!([result("call_1")])).is_err());
+        assert!(convert(json!([assistant.clone(), {"role": "tool", "content": "ok"}])).is_err());
+        assert!(convert(json!([assistant.clone(), result("bad id")])).is_err());
+        // Duplicate call ids (same message and across messages) and duplicate results.
+        assert!(
+            convert(json!([{"role": "assistant", "tool_calls": [call.clone(), call.clone()]}]))
+                .is_err()
+        );
+        assert!(convert(json!([assistant.clone(), assistant.clone()])).is_err());
+        assert!(
+            convert(json!([
+                assistant.clone(),
+                result("call_1"),
+                result("call_1")
+            ]))
+            .is_err()
+        );
+        // A tool message cannot also carry calls, and needs content.
+        assert!(convert(json!([assistant.clone(), {"role": "tool", "tool_call_id": "call_1", "content": null}])).is_err());
+    }
+
+    #[test]
+    fn unanswered_calls_and_empty_call_arrays_follow_the_contract() {
+        let call: Value = serde_json::from_str(CALL).unwrap();
+        let mut turns = ChatToolTurns::default();
+        for message in chat_json(json!([
+            {"role": "assistant", "tool_calls": [call.clone()]},
+            {"role": "user", "content": "next"},
+        ]))
+        .messages
+        {
+            chat_message(message, &mut turns).unwrap();
+        }
+        assert!(
+            !turns.all_answered(),
+            "call_1 never received a tool message"
+        );
+        let mut answered = ChatToolTurns::default();
+        for message in chat_json(json!([
+            {"role": "assistant", "tool_calls": [call]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "ok"},
+        ]))
+        .messages
+        {
+            chat_message(message, &mut answered).unwrap();
+        }
+        assert!(answered.all_answered());
+        // Plain assistant history with an empty array stays valid text.
+        assert!(convert(json!([{"role": "assistant", "content": "hi", "tool_calls": []}])).is_ok());
+        assert!(convert(json!([{"role": "assistant", "tool_calls": []}])).is_err());
+    }
+
+    #[test]
+    fn chat_tool_call_bounds_are_enforced() {
+        let call = |id: &str, name: &str, arguments: &str| json!({"id": id, "type": "function", "function": {"name": name, "arguments": arguments}});
+        let assistant = |calls: Vec<Value>| json!([{"role": "assistant", "tool_calls": calls}]);
+        assert!(convert(assistant(vec![call("a", "n", "{}")])).is_ok());
+        assert!(convert(assistant(Vec::new())).is_err(), "empty array");
+        assert!(convert(assistant(vec![call("", "n", "{}")])).is_err());
+        assert!(convert(assistant(vec![call(&"a".repeat(129), "n", "{}")])).is_err());
+        assert!(convert(assistant(vec![call("a", "", "{}")])).is_err());
+        assert!(convert(assistant(vec![call("a", &"n".repeat(129), "{}")])).is_err());
+        assert!(convert(assistant(vec![call("a", "bad\nname", "{}")])).is_err());
+        // Arguments: invalid JSON, non-object JSON, empty, oversized.
+        for arguments in ["{", "[]", "\"s\"", "", "null"] {
+            assert!(
+                convert(assistant(vec![call("a", "n", arguments)])).is_err(),
+                "{arguments:?}"
+            );
+        }
+        let oversized = format!("{{\"k\":\"{}\"}}", "x".repeat(MAX_TOOL_ARGUMENTS_BYTES));
+        assert!(convert(assistant(vec![call("a", "n", &oversized)])).is_err());
+        let many = (0..=MAX_TOOL_CALLS)
+            .map(|index| call(&format!("c{index}"), "n", "{}"))
+            .collect::<Vec<_>>();
+        assert!(convert(assistant(many)).is_err(), "more than 128 calls");
+        let exactly = (0..MAX_TOOL_CALLS)
+            .map(|index| call(&format!("c{index}"), "n", "{}"))
+            .collect::<Vec<_>>();
+        assert!(convert(assistant(exactly)).is_ok());
+    }
+
+    #[test]
+    fn tool_call_material_counts_toward_request_content_and_budget() {
+        let call: Value = serde_json::from_str(CALL).unwrap();
+        let converted = convert(json!([{"role": "assistant", "tool_calls": [call]}])).unwrap();
+        assert!(converted[0].content_bytes() > "call_1fs_write".len());
+        let request = InferenceRequest {
+            model: "m".to_owned(),
+            messages: converted,
+            required_capabilities: Vec::new(),
+            stream: false,
+            max_output_tokens: None,
+            temperature: None,
+            tools: Vec::new(),
+            retry_safe: false,
+            project_id: None,
+            session_id: None,
+            run_id: None,
+        };
+        assert!(crate::modules::budget::estimate_request_tokens(&request) > 0);
+    }
+
+    fn metadata_fixture(format: ResponseFormat) -> StreamMetadata {
+        StreamMetadata {
+            request_id: "req_0123456789abcdef0123456789abcdef".to_owned(),
+            format,
+            model_alias: "coding-default".to_owned(),
+            route_version_id: "rte_0123456789abcdef0123456789abcdef".to_owned(),
+            route_version_number: 1,
+            reservation_id: "rsv".to_owned(),
+            reserved_minor: 0,
+            budget_id: None,
+            currency: "USD".to_owned(),
+            provider_id: "prv_0123456789abcdef0123456789abcdef".to_owned(),
+            model_id: "mdl_0123456789abcdef0123456789abcdef".to_owned(),
+            provider_request_id: None,
+            fallback_count: 0,
+            project_id: None,
+            run_id: None,
+            session_id: "ses".to_owned(),
+            device_id: None,
+            agent_session_id: None,
+            agent_definition_id: None,
+            agent_definition_version: None,
+            workspace_binding_id: None,
+            policy_snapshot_id: None,
+            policy_version: None,
+            managed_run: false,
+            principal_user_id: "usr".to_owned(),
+            org_id: "org".to_owned(),
+            credential_id: None,
+            budget_decision: "allow".to_owned(),
+            started_at_ms: 0.0,
+            deadline_at_ms: 0.0,
+            ttft_ms: None,
+            total_latency_ms: None,
+            health_observed: false,
+        }
+    }
+
+    fn frames(rendered: &[u8]) -> Vec<Value> {
+        String::from_utf8(rendered.to_vec())
+            .unwrap()
+            .split("\n\n")
+            .filter_map(|frame| frame.strip_prefix("data: "))
+            .filter(|data| *data != "[DONE]")
+            .map(|data| serde_json::from_str(data).unwrap())
+            .collect()
+    }
+
+    /// Provider bytes -> decoder -> chat renderer, then re-read the way an
+    /// OpenAI SDK accumulates `delta.tool_calls` by index.
+    #[test]
+    fn fragmented_interleaved_provider_calls_round_trip_through_the_chat_renderer() {
+        let provider: Vec<&[u8]> = vec![
+            br#"data: {"id":"p","choices":[{"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"fs_wri","arguments":""}}]}}]}
+
+"#,
+            br#"data: {"id":"p","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"ls","arguments":"{\"d"}}]}}]}
+
+data: {"id":"p","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"te","arguments":"{\"path\":"}}]}}]}
+
+"#,
+            br#"data: {"id":"p","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"a\"}"}},{"index":1,"function":{"arguments":"\":1}"}}]}}]}
+
+data: {"id":"p","choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"p","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":6}}
+
+data: [DONE]
+
+"#,
+        ];
+        let mut metadata = metadata_fixture(ResponseFormat::ChatWithUsage);
+        let mut decoder = SseDecoder::new();
+        let mut adapter_state = AdapterStreamState::default();
+        let mut tracker = ToolCallTracker::default();
+        let mut usage = None;
+        let mut rendered = render_started(&metadata);
+        for chunk in provider {
+            for event in decoder.push(chunk, &mut adapter_state) {
+                match event {
+                    ProviderStreamEvent::ToolCallDelta {
+                        index,
+                        call_id,
+                        name,
+                        arguments_delta,
+                    } => {
+                        tracker
+                            .accept(index, call_id.as_deref(), name.as_deref(), &arguments_delta)
+                            .unwrap();
+                        rendered.extend(render_tool(
+                            &metadata,
+                            index,
+                            call_id.as_deref(),
+                            name.as_deref(),
+                            &arguments_delta,
+                        ));
+                    }
+                    ProviderStreamEvent::Usage { usage: value } => usage = Some(value),
+                    ProviderStreamEvent::ProviderRequestId {
+                        provider_request_id,
+                    } => {
+                        metadata.provider_request_id = Some(provider_request_id);
+                    }
+                    ProviderStreamEvent::InvalidResponse => panic!("valid stream rejected"),
+                    _ => {}
+                }
+            }
+        }
+        assert!(adapter_state.may_complete());
+        tracker.finish().unwrap();
+        rendered.extend(render_completion(
+            &metadata,
+            usage.as_ref(),
+            !tracker.is_empty(),
+        ));
+
+        let text = String::from_utf8(rendered.clone()).unwrap();
+        assert!(text.ends_with("data: [DONE]\n\n"));
+        let chunks = frames(&rendered);
+        // Fragments with an omitted id carry no substituted id.
+        let later = chunks
+            .iter()
+            .filter_map(|chunk| chunk["choices"][0]["delta"]["tool_calls"][0].as_object())
+            .filter(|call| call["index"] == 0 && !call.contains_key("id"))
+            .count();
+        assert_eq!(later, 2);
+        // SDK-style accumulation.
+        let mut accumulated: std::collections::BTreeMap<u64, (String, String, String)> =
+            Default::default();
+        for chunk in &chunks {
+            for call in chunk["choices"][0]["delta"]["tool_calls"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let entry = accumulated
+                    .entry(call["index"].as_u64().unwrap())
+                    .or_default();
+                if let Some(id) = call["id"].as_str() {
+                    entry.0.push_str(id);
+                }
+                entry
+                    .1
+                    .push_str(call["function"]["name"].as_str().unwrap_or(""));
+                entry
+                    .2
+                    .push_str(call["function"]["arguments"].as_str().unwrap_or(""));
+            }
+        }
+        assert_eq!(
+            accumulated.values().cloned().collect::<Vec<_>>(),
+            vec![
+                (
+                    "call_a".to_owned(),
+                    "fs_write".to_owned(),
+                    "{\"path\":\"a\"}".to_owned()
+                ),
+                ("call_b".to_owned(), "ls".to_owned(), "{\"d\":1}".to_owned()),
+            ]
+        );
+        let finish: Vec<_> = chunks
+            .iter()
+            .filter_map(|chunk| chunk["choices"][0]["finish_reason"].as_str())
+            .collect();
+        assert_eq!(finish, vec!["tool_calls"]);
+        // The usage chunk is independent: empty choices, measured tokens.
+        let usage_chunk = chunks.last().unwrap();
+        assert_eq!(usage_chunk["choices"], json!([]));
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 11);
+        assert_eq!(usage_chunk["usage"]["total_tokens"], 17);
+    }
+
+    #[test]
+    fn plain_text_streams_keep_stop_and_native_tool_events_are_additive() {
+        let metadata = metadata_fixture(ResponseFormat::Chat);
+        let mut rendered = render_text(&metadata, "hi");
+        rendered.extend(render_completion(&metadata, None, false));
+        let chunks = frames(&rendered);
+        assert_eq!(chunks[0]["choices"][0]["delta"]["content"], "hi");
+        assert_eq!(chunks[1]["choices"][0]["finish_reason"], "stop");
+        assert!(
+            frames(&rendered)
+                .iter()
+                .all(|chunk| chunk["usage"].is_null())
+        );
+
+        let native = metadata_fixture(ResponseFormat::Native);
+        let event = String::from_utf8(render_tool(&native, 2, None, Some("n"), "{}")).unwrap();
+        assert!(event.starts_with("event: response.tool_call.delta\n"));
+        let data: Value =
+            serde_json::from_str(event.split("data: ").nth(1).unwrap().trim()).unwrap();
+        assert_eq!(data["index"], 2);
+        assert_eq!(data["call_id"], Value::Null, "no substituted id");
+        assert_eq!(data["name"], "n");
+        let done = String::from_utf8(render_completion(&native, None, true)).unwrap();
+        assert!(done.contains("\"finish_reason\":\"tool_calls\""));
+    }
+
+    #[test]
+    fn tool_output_is_committed_output_so_no_fallback_follows_it() {
+        // A tool delta commits the stream (preflight returns Output), and a
+        // committed stream can never be retried or fallen back.
+        let delta = ProviderStreamEvent::ToolCallDelta {
+            index: 0,
+            call_id: Some("call_1".to_owned()),
+            name: Some("fs_write".to_owned()),
+            arguments_delta: String::new(),
+        };
+        assert!(is_meaningful_stream_event(&delta));
+        let mut controller = RetryController::new(2, 2);
+        controller.mark_dispatched();
+        controller.mark_stream_committed();
+        assert!(!controller.can_retry());
+        controller.mark_retryable_failure(AdapterErrorKind::ConnectionFailed);
+        assert_eq!(controller.fallback_count(), 0);
+        assert_eq!(
+            controller.state(),
+            crate::modules::inference::ResponseLifecycle::Failed
+        );
+        // Requests carrying tool turns are never pre-dispatch retry safe.
+        let call: Value = serde_json::from_str(CALL).unwrap();
+        let messages = convert(json!([{"role": "assistant", "tool_calls": [call]}])).unwrap();
+        assert!(messages[0].tool_call_id.is_none() && !messages[0].tool_calls.is_empty());
     }
 
     #[test]
@@ -4334,7 +5562,9 @@ mod tests {
         ));
         assert!(is_meaningful_stream_event(
             &ProviderStreamEvent::ToolCallDelta {
-                call_id: "call-1".to_owned(),
+                index: 0,
+                call_id: Some("call-1".to_owned()),
+                name: None,
                 arguments_delta: "{}".to_owned(),
             }
         ));

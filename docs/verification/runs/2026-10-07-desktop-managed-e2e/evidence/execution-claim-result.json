@@ -1,0 +1,38 @@
+{
+  "scope": "Actual Worker/D1 pre-execution admission plus harness-owned file effect; not Electron tool runtime",
+  "verdict": "PASS",
+  "claims": [
+    "pending approval cannot issue an execution permit",
+    "missing policy ACK refuses approved execution",
+    "failed current-policy guard leaves grant unconsumed and call unclaimed",
+    "concurrent starts yield exactly one executable permit",
+    "winning admission stores device claim and consumes grant before file write",
+    "file still unchanged before the admitted handler",
+    "one admitted real handler produces the intended file effect",
+    "lost-response idempotency replay cannot execute again",
+    "fresh key cannot claim a second execution",
+    "terminal result preserves execution admission identity"
+  ],
+  "whole_p05_verdict": "PENDING",
+  "checks_passed": 210,
+  "limitations": [
+    "public CUA: this Worker exposes policy decisions and result metadata only; no public computer/browser execution endpoint or UI execution evidence is claimed",
+    "public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke",
+    "privileged browser decision and approval boundary: browser tool did not return an approval-required decision (decision=deny reason=none) {\"method\":\"POST\",\"path\":\"/api/v1/runs/run_c6fc3b55a2e644e6ba42db2afd7438ed/tool-decisions\",\"status\":200,\"request_id\":\"req_c52781d23bf94836a000fa1da2b5b546\",\"error_code\":null,\"reason\":null,\"body\":{\"approval_expires_at\":null,\"approval_id\":null,\"approval_mode\":null,\"arguments_hash\":\"[redacted]\",\"decision\":\"deny\",\"policy_state\":\"ok\",\"policy_version\":3,\"reason\":\"capability_not_defined\",\"risk_class\":\"browser\",\"run_id\":\"run_c6fc3b55a2e644e6ba42db2afd7438ed\",\"tool_call_id\":\"tcl_c5940ec01665a5ba8119e9d5f954af93\",\"tool_fingerprint\":\"p05-browser-0628f288c9c1\",\"tool_id\":\"tool_fe6252e2f7001515e3b84ae1ea68b4c6\"}}",
+    "generic privileged tool approval, result, and replay: privileged result is blocked before approval did not fail closed (reason=tool_execution_not_started) {\"method\":\"POST\",\"path\":\"/api/v1/devices/runs/run_c6fc3b55a2e644e6ba42db2afd7438ed/tool-calls/tcl_6721cbec0623fe29f1d1ece88e19aa1f/result\",\"status\":422,\"request_id\":\"req_3d82a068918c440eaf251d1b0e058d11\",\"error_code\":\"validation_failed\",\"reason\":\"tool_execution_not_started\",\"body\":{\"error\":{\"code\":\"validation_failed\",\"message\":\"The tool has no execution claim.\",\"request_id\":\"req_3d82a068918c440eaf251d1b0e058d11\",\"details\":{\"reason\":\"tool_execution_not_started\"}}}}",
+    "MCP approval and fingerprint-expansion denial: MCP tool result (expected 200) {\"method\":\"POST\",\"path\":\"/api/v1/devices/runs/run_c6fc3b55a2e644e6ba42db2afd7438ed/tool-calls/tcl_436d435ac65c12cae4fa5831db795905/result\",\"status\":422,\"request_id\":\"req_7827a04897d2465cb9570f9f7908a8aa\",\"error_code\":\"validation_failed\",\"reason\":\"tool_execution_not_started\",\"body\":{\"error\":{\"code\":\"validation_failed\",\"message\":\"The tool has no execution claim.\",\"request_id\":\"req_7827a04897d2465cb9570f9f7908a8aa\",\"details\":{\"reason\":\"tool_execution_not_started\"}}}}",
+    "passive downstream disconnect: no request_cancelled D1 row was observed; no cancellation success is claimed"
+  ],
+  "parent_sha": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+  "client_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+  "dirty_pair": true,
+  "source_sha256": {
+    "apps/api/src/routes/tool_execution.rs": "8ec2b13abba26c83a4785e68e8db15668a9553d604a114faed9b10687e89bfaf",
+    "apps/api/src/routes/tools.rs": "cf4e79c37e611abc57c81184708168310e3b68e5d28cf3f3890f3fe218db460a",
+    "apps/api/src/repositories/tools.rs": "b44f43cacfa1b5b02d257177bc7af9b103575bfa5460e764e691f45f8c273731",
+    "apps/api/src/security/tenant_audit.rs": "ffba274973fb40ee3836f9de426caa0d46380542587a5e563d76892349aff3ea",
+    "apps/api/migrations/0027_p05_tool_execution_claim.sql": "fd980527ae975ba72a5a5b6d7ee9b05eb85b0638bc2a7a17aaa792976442319a",
+    "apps/api/scripts/p05-smoke.mjs": "15aa30fec20f3b485f34dcabb2b61aa24160c4806b0929d79d72c7294db3c7ce",
+    "apps/api/scripts/p05-tool-claim-schema.py": "25cb09eec020f157238b9edbe16e448d1ef4f1d6de07cf3609f6c56762632965"
+  }
+}

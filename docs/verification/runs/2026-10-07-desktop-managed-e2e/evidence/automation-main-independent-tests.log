@@ -1,0 +1,14 @@
+✔ an untrusted sender can neither initialize custody nor reach automation commands (0.709666ms)
+✔ preview is a pure read with a bounded unique id list and no extra keys (0.34ms)
+✔ adopt and release demand explicit confirmation and exact keys (0.233125ms)
+✔ owner failures surface only stable codes, never message text (0.185083ms)
+✔ the prompt never leaves the device across preview, adopt and read (75.320708ms)
+✔ a bot-delivery original is classified not adoptable and stays untouched locally (4.29575ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 907.994583

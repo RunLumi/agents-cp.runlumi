@@ -1,0 +1,57 @@
+  PASS  fresh D1 applies the full migration ledger  — 28 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:54891
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-iTSs2S/b17055f75c06b0826e60507dc4f817c8ce634433-index_bg.wasm is 4394s newer than src/adapters/mock_tool.rs
+  PASS  create Electron Device Org  — status=201
+  PASS  Electron Device Org organization ID  — org_5e977f77a0c67811e885e2782a5216b8
+  PASS  create disposable Electron workspace project  — status=201
+  PASS  read P04 catalog for Electron managed run  — status=200
+  PASS  create organization-owned controllable provider  — status=201
+  PASS  create tool-capable mock model with an Agent-sized context  — status=201
+  PASS  create controllable managed provider credential  — status=201
+  PASS  create Electron managed route  — status=201
+  PASS  publish Electron managed route  — status=200
+  PASS  create development-only controlled tool provider  — status=201
+  PASS  create tool-capable controlled model  — status=201
+  PASS  create controlled tool provider credential  — status=201
+  PASS  create controlled tool route  — status=201
+  PASS  publish controlled tool route  — status=200
+  PASS  read Electron organization policy  — status=200
+  PASS  enable Electron managed policy  — status=200
+  PASS  create project-approved managed agent  — status=201
+  PASS  review the exact runtime Write descriptor  — status=201
+  PASS  allow Write only with per-use approval  — status=200
+  PASS  create agent allowed to use only the reviewed Write tool  — status=201
+  PASS  create bounded Electron managed budget  — status=201
+PASS actual Lumi-first startup offers explicit local continuation without provider login
+PASS actual Electron UI begins PKCE
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+
+Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
+
+PASS Electron IPC/Worker login after real browser approval
+PASS Electron enrollment/proof/policy/refresh; D1 active device
+PASS actual Electron task sends one confirmed managed turn and renders streamed provider output
+PASS Worker D1 attributes request/usage, closes the one-shot P05 session, and stores no prompt text
+PASS actual Electron UI binds only the selected opaque workspace and preserves local data
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  resolve approval approved  — status=200
+PASS actual Electron model-driven Write: exact reviewed descriptor, public approval, one claim, real file effect, stored result and audit
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  resolve approval denied  — status=200
+PASS actual Electron denial: file untouched, no execution claim, run settles, tool content absent from audit tables
+PASS actual Lumi-first startup offers explicit local continuation without provider login
+PASS restart restores server-owned workspace ownership without duplicates
+PASS Electron rollback returns local ownership and leaves local files unchanged
+  PASS  removed binding is absent from active project listing  — status=200
+  PASS  removed binding cannot authorize a new P05 session  — status=404 reason=workspace_binding_not_found
+PASS removed binding is hidden/refused without side effects; explicit rebind creates a fresh ID
+PASS OS-encrypted vault exists
+PASS actual Lumi-first startup offers explicit local continuation without provider login
+PASS actual restart restores session
+PASS restart restores same device, no reenrollment
+PASS revoked Electron policy sync refused
+PASS logout removes own persisted session
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-electron-account-S3gqGo

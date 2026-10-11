@@ -1,0 +1,41 @@
+Keeping the local D1/R2 state in $REPO_ROOT/test-results/argument-binding-electron-d1
+  PASS  fresh D1 applies the full migration ledger  — 26 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:64990
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-Z7O0CV/025497e9cc56c053323c3fd052fffff441cef3a2-index_bg.wasm is 5900s newer than src/routes/tools.rs
+  PASS  create Electron Device Org  — status=201
+  PASS  Electron Device Org organization ID  — org_0b95232584913dba738fc5e992c6c29d
+  PASS  create disposable Electron workspace project  — status=201
+  PASS  read P04 catalog for Electron managed run  — status=200
+  PASS  create organization-owned controllable provider  — status=201
+  PASS  create tool-capable mock model with an Agent-sized context  — status=201
+  PASS  create controllable managed provider credential  — status=201
+  PASS  create Electron managed route  — status=201
+  PASS  publish Electron managed route  — status=200
+  PASS  read Electron organization policy  — status=200
+  PASS  enable Electron managed policy  — status=200
+  PASS  create project-approved managed agent  — status=201
+  PASS  create bounded Electron managed budget  — status=201
+PASS actual Electron UI begins PKCE
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+
+Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
+
+PASS Electron IPC/Worker login after real browser approval
+PASS Electron enrollment/proof/policy/refresh; D1 active device
+PASS actual Electron task sends one confirmed managed turn and renders streamed provider output
+PASS Worker D1 attributes request/usage, closes the one-shot P05 session, and stores no prompt text
+PASS actual Electron UI binds only the selected opaque workspace and preserves local data
+Profile/evidence retained: /var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-zwgT95
+file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:66
+  throw new Error(`UI timeout: ${label}${alert ? `; alert=${alert.slice(0, 240)}` : ""}`);
+        ^
+
+Error: UI timeout: initial UI; alert=Startup preparation failed
+    at wait (file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:66:9)
+    at async start (file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:134:3)
+    at async file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:674:10
+
+Node.js v24.19.0

@@ -1,0 +1,20 @@
+{
+  "verdict": "BLOCKED",
+  "started_at": "2026-10-07T07:21:12.543Z",
+  "scope": "adoption-account-device-plus-electron-managed-stream-rollback-rebind",
+  "control_plane": {
+    "sha": "ca66e8820eb41bd9c506b1932da4775eded5ff95",
+    "dirty": false,
+    "package_manager": "pnpm@12.5.1"
+  },
+  "lumi_agents": {
+    "sha": "21d2e11f134e1d77d165a076b1754697bad53825",
+    "dirty": false,
+    "package_manager": "pnpm@10.33.2"
+  },
+  "pinned_lumi_agents_sha": "21d2e11f134e1d77d165a076b1754697bad53825",
+  "override": false,
+  "reproducible": true,
+  "error": "$NODE24_BIN: SIGTERM",
+  "completed_at": "2026-10-07T07:26:00.573Z"
+}

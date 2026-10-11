@@ -1,0 +1,8 @@
+{
+  "claim": "real jobs queue delivery reaches missing-job_type rejection",
+  "verdict": "PASS",
+  "missing_type_signals": 13,
+  "queue_delivery_lines": 10,
+  "scope": "branch diagnosis only; scheduler success FAIL/UNPROVEN",
+  "source_log": "$REPO_ROOT/test-results/int05-verifier/scheduler-observed-d1/worker-console.log"
+}

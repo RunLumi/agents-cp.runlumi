@@ -1,0 +1,34 @@
+
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@zcode/shared' imported from $REPO_ROOT/test-results/tool-broker-sensitivity/client/packages/services/src/lumi-account/managedToolTransport.ts
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)
+    at packageResolve (node:internal/modules/esm/resolve:768:81)
+    at moduleResolve (node:internal/modules/esm/resolve:859:18)
+    at defaultResolve (node:internal/modules/esm/resolve:992:11)
+    at nextResolve (node:internal/modules/esm/hooks:785:28)
+    at resolveBase (file://$LUMI_AGENTS_DIR/node_modules/tsx/dist/esm/index.mjs?1791362934161:2:3744)
+    at resolveDirectory (file://$LUMI_AGENTS_DIR/node_modules/tsx/dist/esm/index.mjs?1791362934161:2:4243)
+    at resolveTsPaths (file://$LUMI_AGENTS_DIR/node_modules/tsx/dist/esm/index.mjs?1791362934161:2:4984)
+    at resolve (file://$LUMI_AGENTS_DIR/node_modules/tsx/dist/esm/index.mjs?1791362934161:2:5361)
+    at nextResolve (node:internal/modules/esm/hooks:785:28) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v24.19.0
+✖ packages/services/src/lumi-account/managedToolTransport.test.ts (283.60575ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 297.902084
+
+✖ failing tests:
+
+test at packages/services/src/lumi-account/managedToolTransport.test.ts:1:1
+✖ packages/services/src/lumi-account/managedToolTransport.test.ts (283.60575ms)
+  'test failed'

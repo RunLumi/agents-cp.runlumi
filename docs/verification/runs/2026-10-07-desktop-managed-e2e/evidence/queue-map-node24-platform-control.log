@@ -1,0 +1,5 @@
+PASS  control(automation): plain object readable by the consumer (job_type=automation.dispatch)
+PASS  fault(automation): Map body loses the envelope (keys=[])
+PASS  control(data): plain object readable by the consumer (job_type=export.run)
+PASS  fault(data): Map body loses the envelope (keys=[])
+VERDICT PASS

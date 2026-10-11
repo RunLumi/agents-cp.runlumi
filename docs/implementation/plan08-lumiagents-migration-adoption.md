@@ -107,6 +107,17 @@ Show policy conflicts before import.
 
 Existing local automation remains untouched until successful import.
 
+Desktop/backend goal closure follows [DE2E-INT-05](packets/DE2E-INT-05.md).
+P08 owns preview/conflict/explicit adoption UI; managed creation and execution
+reuse frozen P06-CG/CR lease, entitlement and off-peak semantics. Confirmation
+must retain the original local definition and establish reversible suppression
+before dual execution is possible, with crash/idempotency recovery documented
+before coding. P08 gains no import-mutation route or history-sync authority.
+This follow-on is incomplete until actual desktop scheduler due/claim/start/
+renew/settle and two-client negative/runtime gates pass; transport helpers or
+backend-only probes do not satisfy it. DE2E-INT-04 is its managed execution seam,
+not proof that adoption/scheduling are complete.
+
 ### P08-INT-06 — Optional history sync
 
 Ship only after data-retention controls are mature.
@@ -176,3 +187,10 @@ If adoption requires users to reason about backend topology, the integration is 
 [P08-QA-02](packets/P08-QA-02.md) consumes merged p08-cg-v1 and the client seam
 to test a pinned cross-repository adoption/rollback journey. It does not close
 P08-INT-02..06 or change phase status.
+
+### Follow-on — device token recovery
+
+P03-CR-002 adds explicit human-authorized, original-key-proven recovery after a
+device token expires. It is not implicit enrollment or workspace adoption. Until
+the recovery runtime gate passes, expiry pauses managed execution and preserves
+local work.

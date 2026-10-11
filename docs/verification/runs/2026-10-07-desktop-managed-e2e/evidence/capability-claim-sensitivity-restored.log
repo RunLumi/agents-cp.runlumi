@@ -1,0 +1,34 @@
+{
+  "scope": "actual capability guard SQL on memory copies; claim/consume atomicity component",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "claim": "unchanged positive",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "visible addition",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "visible version",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "visible risk reclassification",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "visible key remapping",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "visible removal",
+      "verdict": "PASS"
+    },
+    {
+      "claim": "foreign tenant addition does not invalidate own scope",
+      "verdict": "PASS"
+    }
+  ]
+}

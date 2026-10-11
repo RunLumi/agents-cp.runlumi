@@ -1,0 +1,5 @@
+positive control: actual migrated D1 contains attempts and occurrences tables
+FAIL actual attempts query: ambiguous column name: occurrence_id
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+sqlite3.OperationalError: ambiguous column name: occurrence_id

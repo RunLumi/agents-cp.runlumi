@@ -1,0 +1,200 @@
+{
+  "verdict": "FAIL",
+  "until": "all",
+  "stages": {
+    "onboard": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI: Lumi sign-in, device enrollment, opaque binding and managed-policy workspace"
+        }
+      ],
+      "notes": []
+    },
+    "adopt": {
+      "status": "PASS",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "actual UI lists the seeded local originals, none with a hand-over badge"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "real server conflict is shown with no Confirm or stored effects before entitlement"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "preview then Cancel: local tasks-index hash, marker table and D1 definition/occurrence/lease/run/link/audit counts are identical"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "bounded-run automation previews as not adoptable with its reason, no Confirm action, and no local or server mutation"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "explicit Hand over with a chosen agent and model completes in the actual UI"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "D1 shows one active managed definition for the chosen project/agent/alias and the prompt body appears in no server table"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the card shows Managed by Lumi only on the adopted original and offers Return instead of a second hand-over"
+        }
+      ],
+      "notes": []
+    },
+    "schedule": {
+      "status": "UNPROVEN",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "server generated a due occurrence (its own sweep) and it reached succeeded through the real scheduler, not a test claim"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "D1: one lease for the desktop device, attempts claimed>started>succeeded, run link settled, P05 run succeeded (same ids)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the local managed-occurrence journal settled with the same occurrence and run ids as D1"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "real managed run readback: 1 inference request(s), 1 usage event(s), 8 audit row(s) for the same run/occurrence"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the prompt body is in no server table after the managed run (measured 13 tables, 214 text columns, 86 rows)"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "the managed occurrence's own Agent task (sole task created in its claim-to-settle window; 0 other task(s) for the original outside it) is completed and its in-profile assistant message holds the mock reply \"Hello from Lumi.\" with a terminal marker; correlation is by time window because task metadata has no occurrence id"
+        },
+        {
+          "verdict": "BLOCKED",
+          "claim": "external provider round trip",
+          "reason": "only the backend development mock:// provider is configured; no approved provider credential or spending cap"
+        },
+        {
+          "verdict": "UNPROVEN",
+          "claim": "renewal during a long run",
+          "reason": "the mock provider answers inside one heartbeat; renewal is graded in the restart/fault stages on the slow route"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "past the original's local due time, the unmarked control was dispatched locally while the adopted original stayed untouched: only the managed scheduler ran it"
+        }
+      ],
+      "notes": []
+    },
+    "race": {
+      "status": "FAIL",
+      "claims": [
+        {
+          "verdict": "PASS",
+          "claim": "client B runs in its own isolated profile with its own enrolled, active device"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "eligibility control: the due predicate admits only A while the definition is bound to wsb_2d55b0dda43d4a6b9d534f522e6b9b00, so a marker on B alone would never contend"
+        },
+        {
+          "verdict": "PASS",
+          "claim": "owner retargeted the definition through the public PATCH route (eligible_device, no workspace binding, version bumped); the due predicate now admits both active devices"
+        },
+        {
+          "verdict": "UNPROVEN",
+          "claim": "client B became a managed owner through a supported UI hand-over",
+          "reason": "B's local marker for the shared managed automation is attached by the product's own repository (local test seeding); no UI or route attaches a second device's original to an existing managed automation"
+        }
+      ],
+      "notes": [],
+      "error": "AssertionError [ERR_ASSERTION]: contested occurrence ended failed\n+ actual - expected\n\n+ 'failed'\n- 'succeeded'\n\n    at raceStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-race.mjs:204:12)\n    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:102:5)\n    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:172:3"
+    },
+    "restart": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    },
+    "faults": {
+      "status": "UNPROVEN",
+      "claims": [],
+      "notes": []
+    }
+  },
+  "unprovenStages": [
+    "schedule",
+    "race",
+    "restart",
+    "faults"
+  ],
+  "scope": "full journey E",
+  "provenance": {
+    "bundles": [
+      {
+        "name": "main",
+        "files": 21,
+        "sha256": "2dfa1e3ada5db1d279af4d49c70e9f09f7e4ee85be93c33f3066facb4053ef5f",
+        "newest": "2026-10-09T01:14:57.045Z"
+      },
+      {
+        "name": "host",
+        "files": 18,
+        "sha256": "0273c0a6eb980fe3083ae8261e9d2fabce652eefc7ed221daaf88e8e4f5534a3",
+        "newest": "2026-10-09T01:14:57.046Z"
+      },
+      {
+        "name": "scheduler",
+        "files": 3,
+        "sha256": "b4badb4637c9778cba4bfb7ea876bb11230d4ec2bfa1be4d8584e6c06e4e25be",
+        "newest": "2026-10-09T01:14:57.047Z"
+      },
+      {
+        "name": "renderer",
+        "files": 4118,
+        "sha256": "0c4d5d9705f587c52c2e53d1c30e283959b3707a8a4cfae94fbcf05e1a6093ee",
+        "newest": "2026-10-09T01:15:19.076Z"
+      },
+      {
+        "name": "preload",
+        "files": 6,
+        "sha256": "df09fe65c516e0bcc2897f256d05f4f120636d8e0cdeb2779aa712a9dd17c16c",
+        "newest": "2026-10-09T01:14:55.861Z"
+      }
+    ],
+    "newestSource": "2026-10-09T01:07:53.384Z",
+    "oldestBundle": "2026-10-09T01:14:55.861Z",
+    "buildStale": false,
+    "parentHead": "e7ad897a7f400048df17100594ef86b3788ea0f1",
+    "clientHead": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+    "pairedGitlink": "fd977fd06c6d11c0202554d0ae693825a8217879",
+    "parentDirtyFiles": 86,
+    "clientDirtyFiles": 168,
+    "parentDirtyHash": "4728d60bf5cebd0b457126a17f921cd24990fcf286deb684ac16ce7e5e754f5d",
+    "clientDirtyHash": "4e545e8eacde4e78ef5fe727d49c49d78857d92a18858cfabe76fe28ae0d19e5",
+    "parentCandidateContentHash": "bdd42a6c4ef8aeefbda288f08af3682e47ce3fa34987590f64d6b10dd5cded7b",
+    "clientCandidateContentHash": "b639467013015e77d376ec41bff83bfadf5e74904c052b36c8a7210ca4907bfa",
+    "node": "v24.19.0"
+  },
+  "fixtures": {
+    "orgId": "org_756ace48f4addfa1bc6bd4a1891ded14",
+    "projectId": "prj_85071e1753bf45779210d2f90c999470",
+    "deviceA": "dvc_8767198d7cad4ddcb3a1d3326ca72c58",
+    "deviceB": "dvc_272ce3895e324a1baf7ad62e04428d00",
+    "managedAutomationId": "aut_86745b25cd2f486ea898630f34d4989d",
+    "entitlements": {
+      "status": 422,
+      "body": "{\"error\":{\"code\":\"validation_failed\",\"message\":\"The billing request is not valid for the current subscription state.\",\"request_id\":\"req_11627a07c4ae48e58d407fd5578907a8\",\"details\":{\"reason\":\"entitlement_not_granted\"}}}"
+    },
+    "profileA": "$REPO_ROOT/test-results/t/lumi-automation-a-VPdMKK",
+    "profileB": "$REPO_ROOT/test-results/t/lumi-automation-b-B2vlLq",
+    "provider": "backend development-only mock:// routes; external provider claim BLOCKED"
+  }
+}

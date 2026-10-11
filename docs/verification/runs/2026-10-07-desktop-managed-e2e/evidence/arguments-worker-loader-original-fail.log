@@ -1,0 +1,150 @@
+PASS  fresh D1 applies migrations through 0010 — 26 migration rows
+PASS  development Worker is healthy — http://127.0.0.1:64743
+LIMIT public CUA: this Worker exposes policy decisions and result metadata only; no public computer/browser execution endpoint or UI execution evidence is claimed
+
+== two-tenant identity and project provisioning ==
+PASS  signup P05 Alice — HTTP 201
+PASS  verify P05 Alice — HTTP 200
+PASS  login start P05 Alice — HTTP 202
+PASS  login complete P05 Alice — HTTP 200
+PASS  user P05 Alice has an opaque ID — expected usr opaque ID
+PASS  signup P05 Bob — HTTP 201
+PASS  verify P05 Bob — HTTP 200
+PASS  login start P05 Bob — HTTP 202
+PASS  login complete P05 Bob — HTTP 200
+PASS  user P05 Bob has an opaque ID — expected usr opaque ID
+PASS  create P05 managed tenant A 61da9790239f — HTTP 201
+PASS  P05 managed tenant A 61da9790239f organization ID — expected org opaque ID
+PASS  create P05 isolated tenant B 61da9790239f — HTTP 201
+PASS  P05 isolated tenant B 61da9790239f organization ID — expected org opaque ID
+PASS  invite second user — HTTP 201
+PASS  accept second-user invitation — HTTP 200
+PASS  create project P05 managed project — HTTP 201
+PASS  P05 managed project project ID — expected prj opaque ID
+PASS  create project P05 isolated project — HTTP 201
+PASS  P05 isolated project project ID — expected prj opaque ID
+PASS  tenant IDs are distinct
+PASS  two-tenant identity and project provisioning completed
+
+== two-device enrollment, binding, and capability reporting ==
+PASS  begin enrollment P05 Alice laptop — HTTP 201
+PASS  P05 Alice laptop enrollment ID — expected enr opaque ID
+PASS  approve enrollment P05 Alice laptop — HTTP 201
+PASS  poll enrollment P05 Alice laptop — HTTP 200
+PASS  invalid device proof P05 Alice laptop is rejected — HTTP 403 device_proof_invalid
+PASS  complete enrollment P05 Alice laptop — HTTP 201
+PASS  P05 Alice laptop device ID — expected dvc opaque ID
+PASS  heartbeat P05 Alice laptop — HTTP 200
+PASS  begin enrollment P05 Bob laptop — HTTP 201
+PASS  P05 Bob laptop enrollment ID — expected enr opaque ID
+PASS  approve enrollment P05 Bob laptop — HTTP 201
+PASS  poll enrollment P05 Bob laptop — HTTP 200
+PASS  invalid device proof P05 Bob laptop is rejected — HTTP 403 device_proof_invalid
+PASS  complete enrollment P05 Bob laptop — HTTP 201
+PASS  P05 Bob laptop device ID — expected dvc opaque ID
+PASS  heartbeat P05 Bob laptop — HTTP 200
+PASS  bind workspace for alice — HTTP 201
+PASS  alice workspace binding ID — expected wsb opaque ID
+PASS  bind workspace for bob — HTTP 201
+PASS  bob workspace binding ID — expected wsb opaque ID
+PASS  device and workspace IDs remain distinct across tenants
+PASS  two-device enrollment, binding, and capability reporting completed
+
+== P04 catalog, route, credential, and model policy setup ==
+PASS  read P04 catalog — HTTP 200
+PASS  create mock-success credential — HTTP 201
+PASS  mock-success credential ID — expected cred opaque ID
+PASS  create managed success route — HTTP 201
+PASS  managed success route ID — expected rte opaque ID
+PASS  publish managed success route — HTTP 200
+PASS  managed success route version ID — expected rtv opaque ID
+PASS  create mock-timeout credential — HTTP 201
+PASS  mock-timeout credential ID — expected cred opaque ID
+PASS  create timeout probe route — HTTP 201
+PASS  timeout probe route ID — expected rte opaque ID
+PASS  publish timeout probe route — HTTP 200
+PASS  timeout probe route version ID — expected rtv opaque ID
+PASS  read model policy — HTTP 200
+PASS  publish model policy — HTTP 200
+PASS  managed success route is published
+PASS  P04 catalog, route, credential, and model policy setup completed
+
+== P05 tool, MCP, policy, and agent setup ==
+PASS  create tool P05 readonly 61da9790239f — HTTP 201
+PASS  P05 readonly 61da9790239f tool ID — expected tool opaque ID
+PASS  create tool P05 privileged 61da9790239f — HTTP 201
+PASS  P05 privileged 61da9790239f tool ID — expected tool opaque ID
+PASS  create tool P05 browser submit 61da9790239f — HTTP 201
+PASS  P05 browser submit 61da9790239f tool ID — expected tool opaque ID
+PASS  create tool P05 MCP fixture 61da9790239f — HTTP 201
+PASS  P05 MCP fixture 61da9790239f tool ID — expected tool opaque ID
+PASS  create tool P05 MCP expansion 61da9790239f — HTTP 201
+PASS  P05 MCP expansion 61da9790239f tool ID — expected tool opaque ID
+PASS  create tool P05 stale policy 61da9790239f — HTTP 201
+PASS  P05 stale policy 61da9790239f tool ID — expected tool opaque ID
+PASS  create MCP registration — HTTP 201
+PASS  MCP registration ID — expected mcp opaque ID
+PASS  update MCP mcp_0d919c80addeb2d9eab000d5fca7cf19 — HTTP 200
+PASS  publish managed tool policy — HTTP 200
+LIMIT public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke
+PASS  create managed agent — HTTP 201
+PASS  agent definition ID — expected agd opaque ID
+PASS  create hard budget — HTTP 201
+PASS  budget ID — expected bud opaque ID
+PASS  read effective P03 policy — HTTP 200
+PASS  effective policy is persisted for the bound project
+PASS  P05 tool, MCP, policy, and agent setup completed
+
+== managed run start and correlated inference ==
+PASS  create device session managed — HTTP 201
+PASS  managed agent session ID — expected rse opaque ID
+PASS  create device-managed run managed — HTTP 201
+PASS  managed run ID — expected run opaque ID
+PASS  managed run is server-owned
+PASS  managed run carries device and agent-session correlation
+PASS  start run run_0ac98f420f35403ba94fb2d787ee519d — HTTP 200
+PASS  managed mock inference — HTTP 200
+PASS  managed inference request ID — expected req opaque ID
+PASS  managed inference propagates server-owned org/project/device/session/run identity
+PASS  managed inference uses the managed alias and published route
+PASS  managed inference creates a correlated budget reservation
+PASS  managed usage event retains run/device/source correlation
+PASS  OpenAI-compatible managed inference accepts complete P05 correlation headers — HTTP 200
+PASS  managed chat request ID — expected req opaque ID
+PASS  chat inference D1 row uses server-resolved P05 run tuple
+PASS  chat P05 device substitution denied — HTTP 403 resource_scope_mismatch
+PASS  device substitution is refused before inference persistence/dispatch
+PASS  internal reservation endpoint replays the managed hold — status=409 reason=reservation_already_reconciled
+PASS  managed reservation reconciliation is monotonic — status=409 reason=reservation_already_reconciled
+PASS  managed usage reconciliation — HTTP 200
+PASS  usage reconciliation retains pricing and appends an actual cost
+PASS  usage reconciliation idempotent replay — HTTP 200
+PASS  read correlated usage — HTTP 200
+PASS  usage read exposes the managed run
+PASS  read usage summary — HTTP 200
+PASS  usage summary is correlated to the run
+PASS  managed run start and correlated inference completed
+FAIL  smoke bootstrap or finalization — Cannot find module '$LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/core.js' imported from $LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/index.ts
+
+P05 smoke: 114 checks passed; 1 failures; 2 limitations
+{
+  "status": "PENDING",
+  "checks_passed": 114,
+  "failures": [
+    {
+      "name": "smoke bootstrap or finalization",
+      "message": "Cannot find module '$LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/core.js' imported from $LUMI_AGENTS_DIR/packages/shared/src/zcode-protocol-v4/index.ts"
+    }
+  ],
+  "limitations": [
+    "public CUA: this Worker exposes policy decisions and result metadata only; no public computer/browser execution endpoint or UI execution evidence is claimed",
+    "public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke"
+  ],
+  "skipped": [
+    "public browser/CUA capability catalog: no capability-definition write route is exposed and no platform browser capability row is present; no D1 seed is used by this smoke"
+  ],
+  "fresh_d1": true,
+  "worker": "http://127.0.0.1:64743",
+  "tool_evidence": {},
+  "references": null
+}

@@ -1,0 +1,22 @@
+Keeping the local D1/R2 state in $REPO_ROOT/test-results/argument-binding-electron-short-temp-d1
+  PASS  fresh D1 applies the full migration ledger  — 26 migration rows
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-electron-account-x8fdkf
+file://$REPO_ROOT/apps/api/scripts/lib/smoke-harness.mjs:528
+    throw new Error(
+          ^
+
+Error: the Worker never became healthy on http://127.0.0.1:50838. Last output:
+SD/agents-cp.runlumi/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:118239:7
+    at async Mutex.runWith ($REPO_ROOT/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:55561:16)
+    at async #waitForReady ($REPO_ROOT/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@24.13.6/node_modules/miniflare/dist/src/index.js:119589:5)
+[32mIf you think this is a bug then please create an issue at https://github.com/cloudflare/workers-sdk/issues/new/choose[0m
+Metrics dispatcher: Dispatching disabled - would have sent {"deviceId":"a5b1d4cf-d3bb-458a-bc7b-66172ddb3915","event":"wrangler command errored","timestamp":1791368590660,"properties":{"amplitude_session_id":1791368580515,"amplitude_event_id":1,"wranglerVersion":"4.137.0","wranglerMajorVersion":4,"wranglerMinorVersion":137,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 27.0.0: Tue Aug 11 21:02:57 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T8132","nodeVersion":24,"isFirstUsage":false,"configFileType":"none","isCI":true,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":"codex","argsUsed":["env","local","logLevel","persistTo","port","testScheduled"],"argsCombination":"env, local, logLevel, persistTo, port, testScheduled","sanitizedCommand":"dev","sanitizedArgs":{"local":true,"logLevel":"debug","testScheduled":true},"durationMs":10194,"currentAgentSkillsInstalled":null}}.
+Note that there is a newer version of Wrangler available (4.148.0). Consider checking whether upgrading resolves this error.
+Sentry: Reporting disabled - would have sent Error: ENOSPC: no space left on device, open '$HOME/Library/Preferences/.wrangler/registry/lumi-agents-control-plane-api-development'.
+🪵  Logs were written to "$HOME/Library/Preferences/.wrangler/logs/wrangler-2026-10-07_10-23-00_365.log"
+
+    at SmokeHarness.waitForHealth (file://$REPO_ROOT/apps/api/scripts/lib/smoke-harness.mjs:528:11)
+    at async SmokeHarness.setup (file://$REPO_ROOT/apps/api/scripts/lib/smoke-harness.mjs:831:5)
+    at async file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:161:3
+
+Node.js v24.19.0

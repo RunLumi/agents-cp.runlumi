@@ -50,6 +50,13 @@ Device periodically reports bounded metadata:
 
 Do not upload process lists/filesystem contents merely for inventory.
 
+Per P03-CR-004, bounded optional boolean runtime toggles additionally include
+`filesystem_write`, `process_execution`, `network_access`, and `mcp_execution`.
+Only Main-owned runtime availability supplies these reports. Missing or false
+means unsupported. P05 resolves them through catalog keys filesystem/process/
+network/mcp; reports never grant permission or replace policy/approval/claims.
+Unknown keys and non-boolean toggles remain invalid.
+
 ### FR-F19-004 — Policy snapshot
 
 Server publishes versioned effective policy covering relevant:
@@ -124,3 +131,27 @@ ZCode has host processes, remote workspace/session semantics and environment-spe
 - Revoked device cannot fetch new org policy or run new managed cloud operations.
 - Policy for Org A cannot be replayed as Org B policy.
 - Offline policy behavior is deterministic and documented.
+
+### FR-F19-010 — Expired-token recovery with renewed human intent (P03-CR-002)
+
+A device whose short-lived token expired may resume without generating a new
+identity, but only after the user explicitly authorizes recovery with a current
+Lumi human session. The control plane issues a bounded one-time challenge to the
+active device's organization manager or enrolling member. The enrolled private
+key signs a domain-separated recovery message. Challenge consumption, old-token
+invalidation, new-token issuance and security audit are atomic. Revoked devices,
+suspended orgs, removed enrolling members and outdated clients cannot recover.
+A lost response requires a new explicit challenge. The anonymous legacy
+`/devices/token/nonce` route remains authenticated; this recovery path does not
+relax V01-019. Device expiry pauses managed operations but preserves local use.
+
+### FR-F19-010 — Expired-token recovery (P03-CR-002)
+
+A device with an expired short-lived token resumes only after explicit human
+authorization through a current Lumi session. The enrolling member or a device
+manager requests a bounded one-time org/device challenge. The enrolled key signs
+a domain-separated recovery message. Challenge consumption, old-token
+invalidation, new-token issuance and audit are atomic. Revoked devices, suspended
+organizations, inactive enrolling members and outdated clients cannot recover.
+A lost response requires a new explicit challenge. V01-019's anonymous nonce
+route remains authenticated; local personal work remains available.

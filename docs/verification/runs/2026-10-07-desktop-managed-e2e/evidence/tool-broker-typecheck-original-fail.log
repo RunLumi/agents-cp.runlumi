@@ -1,0 +1,11 @@
+
+> zcode@3.14.3 typecheck $LUMI_AGENTS_DIR
+> tsc -b packages/rpc packages/provider packages/provider-node packages/shared packages/services packages/client packages/server packages/zcode-server-cli packages/ui packages/web packages/desktop/tsconfig.host.json
+
+packages/desktop/src/host/lumiManagedToolBridge.test.ts(13,19): error TS2532: Object is possibly 'undefined'.
+packages/desktop/src/host/lumiManagedToolBridge.test.ts(13,38): error TS2532: Object is possibly 'undefined'.
+packages/desktop/src/host/lumiManagedToolBridge.test.ts(20,43): error TS2532: Object is possibly 'undefined'.
+packages/desktop/src/host/lumiManagedToolBridge.test.ts(23,38): error TS2532: Object is possibly 'undefined'.
+packages/desktop/src/host/lumiManagedToolBridge.test.ts(25,38): error TS2532: Object is possibly 'undefined'.
+packages/desktop/src/host/lumiManagedToolBridge.test.ts(29,38): error TS2532: Object is possibly 'undefined'.
+ ELIFECYCLE  Command failed with exit code 2.

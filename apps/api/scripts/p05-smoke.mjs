@@ -18,16 +18,18 @@
 //   P05_PROBE_DISCONNECT=0 skip the passive-downstream-disconnect probe
 //   P05_REQUIRE_CANCELLATION_ROW=1
 //                         fail if no request_cancelled row is observed
+//   P05_CLIENT_ARGUMENTS_MODULE=/absolute/path/to/client/core/dist/index.js
+//                         require production client argument-summary roundtrip proof
 
 import { spawn } from "node:child_process";
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const apiDir = path.resolve(scriptDir, "..");
@@ -235,10 +237,15 @@ async function runProcess(command, args, label) {
       env: { ...process.env, CI: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    let stdout = "";
+    const stdoutChunks = [];
+    let stdoutBytes = 0;
+    let stdoutOverflow = false;
     let stderr = "";
     child.stdout.on("data", (chunk) => {
-      stdout = `${stdout}${chunk}`.slice(-20_000);
+      // JSON evidence cannot be a tail buffer: truncation silently destroys its beginning.
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > 2 * 1024 * 1024) stdoutOverflow = true;
+      else stdoutChunks.push(chunk);
     });
     child.stderr.on("data", (chunk) => {
       stderr = `${stderr}${chunk}`.slice(-20_000);
@@ -247,6 +254,11 @@ async function runProcess(command, args, label) {
       reject(new Error(`${label} could not start: ${redactText(error.message)}`)),
     );
     child.once("close", (code, signal) => {
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      if (stdoutOverflow) {
+        reject(new Error(`${label} evidence stdout exceeded 2 MiB; no truncated JSON is accepted`));
+        return;
+      }
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
@@ -1226,14 +1238,65 @@ async function runManagedInference({ jar, orgId, runId, sessionId, model, stream
   );
 }
 
-async function runToolDecision(device, runId, body) {
+async function runManagedChatInference({
+  jar,
+  orgId,
+  projectId,
+  deviceId,
+  agentSessionId,
+  runId,
+  agentDefinitionId,
+  agentDefinitionVersion,
+  model,
+  overrides = {},
+}) {
   return request(
+    jar,
+    "POST",
+    "/api/v1/inference/chat/completions",
+    {
+      model,
+      messages: [{ role: "user", content: "P05 managed chat correlation control" }],
+      stream: false,
+      max_completion_tokens: 1,
+    },
+    {
+      "X-Org-ID": orgId,
+      "X-Project-ID": projectId,
+      "X-Device-ID": deviceId,
+      "X-Agent-Session-ID": agentSessionId,
+      "X-Run-ID": runId,
+      "X-Agent-Definition-ID": agentDefinitionId,
+      "X-Agent-Definition-Version": String(agentDefinitionVersion),
+      "X-Lumi-Execution-Mode": "managed",
+      ...browserHeaders(jar),
+      ...overrides,
+    },
+  );
+}
+
+async function runToolDecision(device, runId, body) {
+  const result = await request(
     new CookieJar(),
     "POST",
     `/api/v1/runs/${runId}/tool-decisions`,
     body,
     deviceHeaders(device),
   );
+  if (result.status === 200) {
+    const rows = await d1(
+      `SELECT arguments_summary FROM tool_call_refs WHERE run_id = '${runId}' AND tool_call_id = '${body.tool_call_id}'`,
+      "observe exact server argument binding",
+    );
+    if (
+      rows.length !== 1 ||
+      result.payload?.arguments_hash !==
+        createHash("sha256").update(rows[0].arguments_summary).digest("hex")
+    )
+      fail("decision argument hash must bind the canonical persisted summary", result);
+    pass("decision carries server-owned canonical argument binding");
+  }
+  return result;
 }
 
 async function runToolResult(device, runId, toolCallId, body, label) {
@@ -1504,6 +1567,65 @@ async function main() {
         usage.source === "inference",
     );
     state.mainRun.usage = usage;
+    const chatInference = await runManagedChatInference({
+      jar: state.alice.jar,
+      orgId: state.orgA.orgId,
+      projectId: state.projectA,
+      deviceId: state.deviceA.id,
+      agentSessionId: created.sessionId,
+      runId: created.runId,
+      agentDefinitionId: state.agent.id,
+      agentDefinitionVersion: state.agent.version,
+      model: "coding-default",
+    });
+    expectStatus(
+      "OpenAI-compatible managed inference accepts complete P05 correlation headers",
+      chatInference,
+      200,
+    );
+    const chatRequestId = chatInference.requestId ?? chatInference.payload?.request_id;
+    assertId("managed chat request ID", chatRequestId, "req");
+    const chatRow = await d1Find(
+      `SELECT request_id, org_id, project_id, run_id, principal_user_id, session_id, device_id, agent_session_id, agent_definition_id, agent_definition_version FROM inference_requests WHERE request_id = ${quoteSql(chatRequestId)} LIMIT 1`,
+      "chat P05 identity readback",
+    );
+    expect(
+      "chat inference D1 row uses server-resolved P05 run tuple",
+      chatRow.org_id === state.orgA.orgId &&
+        chatRow.project_id === state.projectA &&
+        chatRow.run_id === created.runId &&
+        chatRow.device_id === state.deviceA.id &&
+        chatRow.agent_session_id === created.sessionId &&
+        chatRow.agent_definition_id === state.agent.id &&
+        chatRow.agent_definition_version === state.agent.version &&
+        chatRow.principal_user_id === state.alice.user.id,
+    );
+
+    const beforeScopeAttack = await d1One(
+      `SELECT COUNT(*) AS n FROM inference_requests WHERE run_id = ${quoteSql(created.runId)}`,
+      "P05 chat scope attack positive control count",
+    );
+    const scopeAttack = await runManagedChatInference({
+      jar: state.alice.jar,
+      orgId: state.orgA.orgId,
+      projectId: state.projectA,
+      deviceId: state.deviceA.id,
+      agentSessionId: created.sessionId,
+      runId: created.runId,
+      agentDefinitionId: state.agent.id,
+      agentDefinitionVersion: state.agent.version,
+      model: "coding-default",
+      overrides: { "X-Device-ID": state.deviceB.id },
+    });
+    expectStatus("chat P05 device substitution denied", scopeAttack, [403]);
+    const afterScopeAttack = await d1One(
+      `SELECT COUNT(*) AS n FROM inference_requests WHERE run_id = ${quoteSql(created.runId)}`,
+      "P05 chat scope attack stored request count",
+    );
+    expect(
+      "device substitution is refused before inference persistence/dispatch",
+      Number(afterScopeAttack.n) === Number(beforeScopeAttack.n),
+    );
     const reservationProbe = await request(
       new CookieJar(),
       "POST",
@@ -1598,6 +1720,636 @@ async function main() {
   // a contract boundary above is unavailable, they report the concrete failure
   // and the final gate remains pending rather than silently substituting a
   // client-side authority or a direct D1 mutation.
+  if (process.env.P05_CLIENT_ARGUMENTS_MODULE) {
+    if (!state.mainRun?.running)
+      fail("client argument roundtrip requires a running managed control");
+    const { createManagedArgumentsSummary } = await import(
+      pathToFileURL(path.resolve(process.env.P05_CLIENT_ARGUMENTS_MODULE)).href
+    );
+    if (typeof createManagedArgumentsSummary !== "function")
+      fail("production client summary export is required");
+    const markers = ["LOCAL_PATH_", "COMMAND_", "CONTENT_", "NESTED_"].map(
+      (prefix) => prefix + nonce,
+    );
+    const summary = createManagedArgumentsSummary({
+      operation: "read",
+      path: markers[0],
+      command: markers[1],
+      content: markers[2],
+      nested: { value: markers[3] },
+    });
+    expect(
+      "production client summary omits all raw input sentinels",
+      markers.every((marker) => !summary.includes(marker)),
+    );
+    const callId = opaqueId("tcl", "client-argument-roundtrip");
+    const decision = await runToolDecision(state.deviceA, state.mainRun.runId, {
+      tool_call_id: callId,
+      tool_id: state.toolPlane.readonly.tool_id,
+      tool_fingerprint: state.toolPlane.readonly.fingerprint,
+      capability_ids: [],
+      risk_class: "read_only",
+      arguments_summary: summary,
+    });
+    expectStatus("actual client canonical summary reaches Worker broker", decision, 200);
+    expect(
+      "current Worker allows the reviewed read-only positive control",
+      decision.payload?.decision === "allow",
+    );
+    const rows = await d1(
+      `SELECT arguments_summary FROM tool_call_refs WHERE run_id='${state.mainRun.runId}' AND tool_call_id='${callId}'`,
+      "actual client argument summary readback",
+    );
+    expect(
+      "Worker preserves exact client canonical input-digest binding",
+      rows.length === 1 && rows[0].arguments_summary === summary,
+    );
+    expect(
+      "stored client summary contains no raw input sentinel",
+      markers.every((marker) => !rows[0].arguments_summary.includes(marker)),
+    );
+  }
+
+  if (process.env.P05_PROBE_EXECUTION_CLAIM === "1") {
+    setStage("once-only tool execution admission before handler I/O");
+    const { createManagedArgumentsSummary } = await import(
+      pathToFileURL(path.resolve(process.env.P05_CLIENT_ARGUMENTS_MODULE)).href
+    );
+    const summary = createManagedArgumentsSummary({
+      operation: "write",
+      content: "private fixture content",
+    });
+    const runId = state.mainRun.runId;
+    const callId = opaqueId("tcl", "execution-claim");
+    const preflight = {
+      tool_call_id: callId,
+      tool_id: state.toolPlane.privileged.tool_id,
+      tool_fingerprint: state.toolPlane.privileged.fingerprint,
+      capability_ids: [],
+      risk_class: "external_side_effect",
+      arguments_summary: summary,
+    };
+    const decision = await runToolDecision(state.deviceA, runId, preflight);
+    expectStatus("create pre-execution approval request", decision, 200);
+    expect(
+      "pre-execution control requires per-use approval",
+      decision.payload.decision === "require_per_use_approval",
+    );
+    const hash = createHash("sha256").update(summary).digest("hex");
+    const startBody = {
+      status: "allowed",
+      preflight,
+      arguments_hash: hash,
+      policy_version: decision.payload.policy_version,
+    };
+    const start = (key) =>
+      request(
+        new CookieJar(),
+        "POST",
+        `/api/v1/devices/runs/${runId}/tool-calls/${callId}/result`,
+        startBody,
+        { ...deviceHeaders(state.deviceA), "Idempotency-Key": key },
+      );
+    const file = path.join(persistDir, "actual-tool-effect.txt");
+    await writeFile(file, "before");
+    const pending = await start(idempotencyKey("claim-pending"));
+    assertDenied(pending, "pending approval cannot issue an execution permit", 409, [
+      "tool_execution_refused",
+    ]);
+    expect(
+      "pending gate produces no real file effect",
+      (await readFile(file, "utf8")) === "before",
+    );
+    const approved = await resolveApproval(
+      state.alice.jar,
+      state.orgA.orgId,
+      decision.payload.approval_id,
+      1,
+    );
+    expectStatus("approve exact execution claim", approved, 200);
+    const unacked = await start(idempotencyKey("claim-without-policy-ack"));
+    assertDenied(unacked, "missing policy ACK refuses approved execution", 409, [
+      "tool_execution_refused",
+    ]);
+    const beforeAck = await d1(
+      `SELECT c.execution_started_at,a.consumed_at FROM tool_call_refs c JOIN approval_requests a ON a.tool_call_id=c.tool_call_id WHERE c.run_id='${runId}' AND c.tool_call_id='${callId}'`,
+      "missing policy ACK leaves grant and claim untouched",
+    );
+    expect(
+      "failed current-policy guard leaves grant unconsumed and call unclaimed",
+      beforeAck.length === 1 &&
+        beforeAck[0].execution_started_at === null &&
+        beforeAck[0].consumed_at === null,
+    );
+    const policy = await request(
+      new CookieJar(),
+      "GET",
+      "/api/v1/devices/policy",
+      undefined,
+      deviceHeaders(state.deviceA),
+    );
+    expectStatus("read actual device policy before execution", policy, 200);
+    const ack = await request(
+      new CookieJar(),
+      "POST",
+      "/api/v1/devices/policy/ack",
+      { policy_version: policy.payload.policy_version },
+      deviceHeaders(state.deviceA),
+    );
+    expectStatus("acknowledge current policy before execution", ack, 204);
+    const sameKey = idempotencyKey("claim-one"),
+      otherKey = idempotencyKey("claim-two");
+    const results = await Promise.all([start(sameKey), start(otherKey)]);
+    if (
+      results.filter((r) => r.status === 200).length !== 1 ||
+      results.filter((r) => r.status === 409).length !== 1
+    )
+      fail(
+        "concurrent starts must yield exactly one executable permit",
+        null,
+        JSON.stringify(results.map((r) => ({ status: r.status, reason: reasonOf(r) }))),
+      );
+    pass("concurrent starts yield exactly one executable permit");
+    const stored = await d1(
+      `SELECT c.execution_started_at,c.execution_device_id,c.execution_policy_version,a.consumed_at,a.consumed_by_device_id
+      FROM tool_call_refs c JOIN approval_requests a ON a.tool_call_id=c.tool_call_id WHERE c.run_id='${runId}' AND c.tool_call_id='${callId}'`,
+      "observe admission before handler side effect",
+    );
+    expect(
+      "winning admission stores device claim and consumes grant before file write",
+      stored.length === 1 &&
+        stored[0].execution_started_at &&
+        stored[0].execution_device_id === state.deviceA.id &&
+        stored[0].consumed_at &&
+        stored[0].consumed_by_device_id === state.deviceA.id,
+    );
+    expect(
+      "file still unchanged before the admitted handler",
+      (await readFile(file, "utf8")) === "before",
+    );
+    await writeFile(file, "after");
+    expect(
+      "one admitted real handler produces the intended file effect",
+      (await readFile(file, "utf8")) === "after",
+    );
+    const winningKey = results[0].status === 200 ? sameKey : otherKey;
+    assertDenied(
+      await start(winningKey),
+      "lost-response idempotency replay cannot execute again",
+      409,
+      ["tool_execution_refused"],
+    );
+    assertDenied(
+      await start(idempotencyKey("claim-third")),
+      "fresh key cannot claim a second execution",
+      409,
+      ["tool_execution_refused"],
+    );
+    const result = await runToolResult(
+      state.deviceA,
+      runId,
+      callId,
+      { status: "completed", result_summary: "bounded synthetic result" },
+      "claimed-complete",
+    );
+    expectStatus("terminal result follows claimed execution", result, 200);
+    const after = await d1(
+      `SELECT status,execution_started_at FROM tool_call_refs WHERE run_id='${runId}' AND tool_call_id='${callId}'`,
+      "claim survives terminal result",
+    );
+    expect(
+      "terminal result preserves execution admission identity",
+      after[0].status === "completed" &&
+        after[0].execution_started_at === stored[0].execution_started_at,
+    );
+  }
+
+  if (process.env.P05_CLIENT_DEVICE_MODULE) {
+    setStage("actual private client transport pre-execution gate");
+    const { LumiDeviceHostTransport } = await import(
+      pathToFileURL(path.resolve(process.env.P05_CLIENT_DEVICE_MODULE)).href
+    );
+    const { createManagedArgumentsSummary } = await import(
+      pathToFileURL(path.resolve(process.env.P05_CLIENT_ARGUMENTS_MODULE)).href
+    );
+    const policy = await request(
+      new CookieJar(),
+      "GET",
+      "/api/v1/devices/policy",
+      undefined,
+      deviceHeaders(state.deviceA),
+    );
+    expectStatus("actual client gate reads current device policy", policy, 200);
+    expectStatus("actual client gate acknowledges its current policy", await request(
+      new CookieJar(), "POST", "/api/v1/devices/policy/ack",
+      { policy_version: policy.payload.policy_version }, deviceHeaders(state.deviceA),
+    ), 204);
+    const transport = new LumiDeviceHostTransport(baseUrl, fetch, {
+      load: async () => ({
+        id: state.deviceA.id,
+        orgId: state.orgA.orgId,
+        token: state.deviceA.token,
+        tokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        policyVersion: policy.payload.policy_version,
+      }),
+      save: async () => {},
+    });
+    await transport.restore();
+    const oldReports = await d1(`SELECT capabilities FROM devices WHERE device_id='${state.deviceA.id}'`, "existing device capability report");
+    const existingReport = JSON.parse(oldReports[0]?.capabilities ?? "{}");
+    const runtimeToggleKeys = ["browser_use", "computer_use", "remote_environment", "automation_eligible"];
+    const reportedCapabilities = {
+      ...Object.fromEntries(runtimeToggleKeys.filter(key => typeof existingReport[key] === "boolean").map(key => [key, existingReport[key]])),
+      filesystem_write: true, process_execution: false, network_access: false, mcp_execution: false,
+    };
+    // This fixture owns an actual file-writing handler; other added runtimes
+    // are not exercised and remain false. This is not Electron inventory proof.
+    const heartbeatProjection = await transport.heartbeat("3.14.3", reportedCapabilities);
+    expect("actual private heartbeat returns validated current policy", heartbeatProjection.policyVersion === policy.payload.policy_version);
+    const heartbeatRows = await d1(`SELECT capabilities,capability_reported_at FROM devices WHERE device_id='${state.deviceA.id}'`, "private heartbeat stored runtime report");
+    expect("actual private heartbeat stores exact bounded capabilities", heartbeatRows.length === 1 && heartbeatRows[0].capability_reported_at &&
+      JSON.stringify(JSON.parse(heartbeatRows[0].capabilities)) === JSON.stringify(Object.fromEntries(Object.entries(reportedCapabilities).sort(([a],[b])=>a.localeCompare(b)))));
+    const run = state.mainRun,
+      callId = opaqueId("tcl", "production-client-admission");
+    const summary = createManagedArgumentsSummary({
+      operation: "write",
+      content: "private production-client fixture",
+    });
+    const params = {
+      context: {
+        organizationId: state.orgA.orgId,
+        projectId: state.projectA,
+        deviceId: state.deviceA.id,
+        agentSessionId: run.sessionId,
+        runId: run.runId,
+        agentDefinitionId: state.agent.id,
+        agentDefinitionVersion: state.agent.version,
+        requestId: run.run.request_id,
+        executionMode: "managed",
+        policySnapshotId: policy.payload.policy_id,
+        policyVersion: policy.payload.policy_version,
+      },
+      traceId: "actual-client-admission",
+      sessionId: "local-client-session",
+      toolCallId: callId,
+      localToolCallId: "local-client-tool",
+      tool: {
+        toolId: state.toolPlane.privileged.tool_id,
+        name: state.toolPlane.privileged.name.replaceAll(" ", "_"),
+        fingerprint: state.toolPlane.privileged.fingerprint,
+        source: "built_in",
+        riskClass: "external_side_effect",
+        capabilityIds: [],
+        catalogued: true,
+      },
+      argumentsSummary: summary,
+      argumentsHash: createHash("sha256").update(summary).digest("hex"),
+    };
+    const file = path.join(persistDir, "production-client-tool-effect.txt");
+    let catalogAccount;
+    if (process.env.P05_CLIENT_ACCOUNT_MODULE) {
+      const { LumiAccountHostTransport } = await import(
+        pathToFileURL(path.resolve(process.env.P05_CLIENT_ACCOUNT_MODULE)).href
+      );
+      const account = new LumiAccountHostTransport(baseUrl, fetch, {
+        load: async () => ({
+          version: 1,
+          origin: baseUrl,
+          session: state.alice.jar.cookies.get("lumi_session"),
+          csrf: state.alice.jar.cookies.get("lumi_csrf"),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+        save: async () => {},
+        clear: async () => {},
+      });
+      expect("actual private human catalog session restores", await account.restoreSession());
+      catalogAccount = account;
+      const descriptor = { ...params.tool, toolId: `tool_${"0".repeat(32)}`, catalogued: false };
+      const before = await d1(
+        `SELECT COUNT(*) AS n FROM tool_definitions WHERE org_id='${state.orgA.orgId}'`,
+        "catalog lookup initial definitions",
+      );
+      const reviewed = await account.resolveReviewedToolIdentity(state.orgA.orgId, descriptor);
+      expect(
+        "actual human catalog lookup maps exact runtime descriptor to server tool ID",
+        reviewed?.toolId === state.toolPlane.privileged.tool_id &&
+          reviewed?.catalogued === true &&
+          reviewed?.riskClass === descriptor.riskClass,
+      );
+      expect(
+        "actual catalog lookup cannot borrow other org fingerprint",
+        (await account.resolveReviewedToolIdentity(state.orgB.orgId, descriptor)) === undefined,
+      );
+      try {
+        await account.resolveReviewedToolIdentity(state.orgA.orgId, {
+          ...descriptor,
+          riskClass: "read_only",
+        });
+        fail("catalog lookup cannot downgrade reviewed risk");
+      } catch (error) {
+        if (error?.code !== "lumi_tool_catalog_mismatch") throw error;
+        pass("actual catalog risk mismatch refused");
+      }
+      const after = await d1(
+        `SELECT COUNT(*) AS n FROM tool_definitions WHERE org_id='${state.orgA.orgId}'`,
+        "catalog lookup has no registration effect",
+      );
+      expect(
+        "actual catalog lookup leaves tool definitions unchanged",
+        Number(before[0].n) === Number(after[0].n),
+      );
+    }
+    await writeFile(file, "before");
+    const pending = await transport.requestManagedToolDecision(params);
+    expect(
+      "production client preserves pending approval without handler I/O",
+      pending.decision === "require_per_use_approval" &&
+        (await readFile(file, "utf8")) === "before",
+    );
+    const approved = await resolveApproval(
+      state.alice.jar,
+      state.orgA.orgId,
+      pending.approvalId,
+      1,
+    );
+    expectStatus("approve production client exact tool binding", approved, 200);
+    const outcomes = await Promise.allSettled([
+      transport.requestManagedToolDecision(params),
+      transport.requestManagedToolDecision(params),
+    ]);
+    console.log("client claim outcomes", outcomes.map((result) => result.status === "fulfilled"
+      ? { status: result.status, decision: result.value.decision }
+      : { status: result.status, httpStatus: result.reason?.status, code: result.reason?.code }));
+    expect(
+      "production client releases only one permit after backend claim",
+      outcomes.filter((r) => r.status === "fulfilled" && r.value.decision === "allow").length ===
+        1 &&
+        outcomes.filter((r) => r.status === "rejected" && r.reason?.status === 409).length === 1,
+    );
+    const rows = await d1(
+      `SELECT c.execution_started_at,c.execution_device_id,a.consumed_at FROM tool_call_refs c JOIN approval_requests a ON a.tool_call_id=c.tool_call_id WHERE c.run_id='${run.runId}' AND c.tool_call_id='${callId}'`,
+      "production client pre-handler claim readback",
+    );
+    expect(
+      "production client observes claim and grant consumed before side effect",
+      rows.length === 1 &&
+        rows[0].execution_started_at &&
+        rows[0].execution_device_id === state.deviceA.id &&
+        rows[0].consumed_at &&
+        (await readFile(file, "utf8")) === "before",
+    );
+    await writeFile(file, "after");
+    expect(
+      "production client admitted real file side effect",
+      (await readFile(file, "utf8")) === "after",
+    );
+    try {
+      await transport.requestManagedToolDecision(params);
+      fail("production client replay cannot release another permit");
+    } catch (error) {
+      if (error?.status !== 409) throw error;
+      pass("production client replay refuses after execution claim");
+    }
+    await transport.reportManagedToolResult(params, "completed");
+    const reported = await d1(
+      `SELECT status,execution_started_at FROM tool_call_refs WHERE run_id='${run.runId}' AND tool_call_id='${callId}'`,
+      "production client terminal report readback",
+    );
+    expect(
+      "production client reports terminal status and preserves admission",
+      reported.length === 1 &&
+        reported[0].status === "completed" &&
+        reported[0].execution_started_at === rows[0].execution_started_at,
+    );
+    await transport.reportManagedToolResult(params, "completed");
+    try {
+      await transport.reportManagedToolResult(params, "failed");
+      fail("late failed report must not acknowledge a completed transition");
+    } catch (error) {
+      if (error?.status !== 404) throw error;
+      pass("production client conflicting terminal status is refused");
+    }
+    const reports = await d1(
+      `SELECT COUNT(*) AS n FROM security_events WHERE run_id='${run.runId}' AND tool_call_id='${callId}' AND action='tool.result.v1'`,
+      "production client terminal replay stored effects",
+    );
+    expect(
+      "production client terminal replay has no duplicate audit effect",
+      Number(reports[0]?.n) === 1,
+    );
+    const terminal = await d1(
+      `SELECT status FROM tool_call_refs WHERE run_id='${run.runId}' AND tool_call_id='${callId}'`,
+      "conflicting report leaves terminal state unchanged",
+    );
+    expect(
+      "late conflicting report preserves completed state",
+      terminal[0]?.status === "completed",
+    );
+    const raceParams = {
+      ...params,
+      toolCallId: opaqueId("tcl", "terminal-report-race"),
+      localToolCallId: "local-terminal-report-race",
+    };
+    const racePending = await transport.requestManagedToolDecision(raceParams);
+    expect(
+      "terminal race control requires its own approval",
+      racePending.decision === "require_per_use_approval",
+    );
+    expectStatus(
+      "approve fresh terminal race control",
+      await resolveApproval(state.alice.jar, state.orgA.orgId, racePending.approvalId, 1),
+      200,
+    );
+    const racePermit = await transport.requestManagedToolDecision(raceParams);
+    expect(
+      "terminal race positive control wins its own execution claim",
+      racePermit.decision === "allow",
+    );
+    await writeFile(file, "terminal-race-effect");
+    const statuses = ["completed", "failed"];
+    const race = await Promise.allSettled(
+      statuses.map((status) => transport.reportManagedToolResult(raceParams, status)),
+    );
+    const winners = race
+      .map((outcome, index) => ({ outcome, status: statuses[index] }))
+      .filter((item) => item.outcome.status === "fulfilled");
+    const losers = race.filter((outcome) => outcome.status === "rejected");
+    expect(
+      "conflicting concurrent terminal reports acknowledge exactly one winner",
+      winners.length === 1 && losers.length === 1 && [404, 409].includes(losers[0].reason?.status),
+    );
+    const raceState = await d1(
+      `SELECT status FROM tool_call_refs WHERE run_id='${run.runId}' AND tool_call_id='${raceParams.toolCallId}'`,
+      "terminal race winning stored state",
+    );
+    expect(
+      "terminal race stored status matches its actual acknowledged winner",
+      raceState.length === 1 && raceState[0].status === winners[0].status,
+    );
+    const raceAudit = await d1(
+      `SELECT COUNT(*) AS n FROM security_events WHERE run_id='${run.runId}' AND tool_call_id='${raceParams.toolCallId}' AND action='tool.result.v1'`,
+      "terminal race audit atomicity",
+    );
+    expect("terminal race has one result audit effect", Number(raceAudit[0]?.n) === 1);
+    await transport.reportManagedToolResult(raceParams, winners[0].status);
+    const replayAudit = await d1(
+      `SELECT COUNT(*) AS n FROM security_events WHERE run_id='${run.runId}' AND tool_call_id='${raceParams.toolCallId}' AND action='tool.result.v1'`,
+      "terminal winning status replay audit",
+    );
+    expect(
+      "winning terminal status replays without a second audit",
+      Number(replayAudit[0]?.n) === 1,
+    );
+    if (process.env.P05_CLIENT_CORE_RESULT_MODULE) {
+      const coreModule = await import(
+        pathToFileURL(path.resolve(process.env.P05_CLIENT_CORE_RESULT_MODULE)).href
+      );
+      const createManagedResultFixture =
+        coreModule.createManagedResultFixture ?? coreModule.default?.createManagedResultFixture;
+      if (typeof createManagedResultFixture !== "function")
+        fail("actual Core fixture export missing");
+      const coreFile = path.join(persistDir, "automatic-core-result.txt");
+      await writeFile(coreFile, "before");
+      let approvalId;
+      const coreCallId = opaqueId("tcl", "automatic-core-result");
+      if (!catalogAccount) fail("Core identity proof requires actual private human catalog module");
+      let identityLookups = 0;
+      const resolveIdentity = async (request) => {
+        identityLookups++;
+        expect("Core sends uncatalogued local identity before authoritative lookup", request.tool.catalogued === false && request.tool.toolId === `tool_${"0".repeat(32)}`);
+        const identity = await catalogAccount.resolveReviewedToolIdentity(state.orgA.orgId, request.tool);
+        expect("Core authoritative lookup returns reviewed server ID", identity?.toolId === state.toolPlane.privileged.tool_id && identity.catalogued === true);
+        return { runId: request.context.runId, identity: identity ?? null };
+      };
+      const fixture = createManagedResultFixture({
+        context: params.context,
+        tool: params.tool,
+        toolCallId: coreCallId,
+        file: coreFile,
+        resolve: resolveIdentity,
+        decide: async (request) => {
+          const result = await transport.requestManagedToolDecision(request);
+          if (result.decision === "require_per_use_approval") approvalId = result.approvalId;
+          return result;
+        },
+        report: async (report) => {
+          await transport.reportManagedToolResult(report, report.status);
+        },
+      });
+      const blocked = await fixture.execute();
+      expect(
+        "actual Core pending approval blocks fixture handler and reporting",
+        blocked.success === false &&
+          fixture.counts().effects === 0 &&
+          fixture.counts().reports === 0 &&
+          (await readFile(coreFile, "utf8")) === "before",
+      );
+      expectStatus(
+        "approve actual Core fixture control",
+        await resolveApproval(state.alice.jar, state.orgA.orgId, approvalId, 1),
+        200,
+      );
+      const completed = await fixture.execute();
+      expect("Core independently resolves each execution attempt", identityLookups === 2);
+      expect(
+        "actual Core waits for automatic bootstrap/device result ACK",
+        completed.success === true &&
+          fixture.counts().effects === 1 &&
+          fixture.counts().reports === 1,
+      );
+      expect(
+        "actual Core admitted fixture has real file effect",
+        (await readFile(coreFile, "utf8")) === "automatic-core-effect",
+      );
+      const coreRows = await d1(
+        `SELECT status,execution_started_at FROM tool_call_refs WHERE run_id='${run.runId}' AND tool_call_id='${coreCallId}'`,
+        "automatic Core report stored before success",
+      );
+      expect(
+        "automatic Core result is stored completed before successful return",
+        coreRows.length === 1 &&
+          coreRows[0].status === "completed" &&
+          coreRows[0].execution_started_at,
+      );
+      const coreAudit = await d1(
+        `SELECT COUNT(*) AS n FROM security_events WHERE run_id='${run.runId}' AND tool_call_id='${coreCallId}' AND action='tool.result.v1'`,
+        "automatic Core result audit",
+      );
+      expect(
+        "automatic Core report has one audit and one execution",
+        Number(coreAudit[0]?.n) === 1 && fixture.counts().effects === 1,
+      );
+      if (process.env.P05_CLIENT_APPROVAL_WAIT_MODULE) {
+        const { waitForLumiManagedApproval } = await import(
+          pathToFileURL(path.resolve(process.env.P05_CLIENT_APPROVAL_WAIT_MODULE)).href
+        );
+        const waitFile = path.join(persistDir, "core-approval-wait.txt");
+        await writeFile(waitFile, "before");
+        let waitingFixture,
+          waitingApproval,
+          waits = 0;
+        const waitCall = opaqueId("tcl", "core-approval-wait");
+        waitingFixture = createManagedResultFixture({
+          context: params.context,
+          tool: params.tool,
+          toolCallId: waitCall,
+          file: waitFile,
+          resolve: resolveIdentity,
+          handlerTimeoutMs: 20,
+          decide: (request) =>
+            waitForLumiManagedApproval(
+              async () => {
+                const result = await transport.requestManagedToolDecision(request);
+                if (result.decision === "require_per_use_approval")
+                  waitingApproval = result.approvalId;
+                return result;
+              },
+              {
+                timeoutMs: 10_000,
+                pollMs: 100,
+                wait: async () => {
+                  waits++;
+                  expect(
+                    "approval wait keeps actual Core handler and file untouched",
+                    waitingFixture.counts().effects === 0 &&
+                      (await readFile(waitFile, "utf8")) === "before",
+                  );
+                  await delay(100);
+                  expectStatus(
+                    "human fixture approves while Core remains waiting",
+                    await resolveApproval(state.alice.jar, state.orgA.orgId, waitingApproval, 1),
+                    200,
+                  );
+                },
+              },
+            ),
+          report: async (report) => {
+            await transport.reportManagedToolResult(report, report.status);
+          },
+        });
+        const waited = await waitingFixture.execute();
+        expect(
+          "real approval wait preserves short native handler deadline",
+          waited.success === true &&
+            waits === 1 &&
+            waitingFixture.counts().effects === 1 &&
+            waitingFixture.counts().reports === 1,
+        );
+        const waitState = await d1(
+          `SELECT status,execution_started_at FROM tool_call_refs WHERE run_id='${run.runId}' AND tool_call_id='${waitCall}'`,
+          "waiting Core completion and claim",
+        );
+        expect(
+          "waited actual Core effect and automatic report are stored",
+          waitState.length === 1 &&
+            waitState[0].status === "completed" &&
+            waitState[0].execution_started_at &&
+            (await readFile(waitFile, "utf8")) === "automatic-core-effect",
+        );
+      }
+    }
+  }
+
   await optionalProbe("privileged browser decision and approval boundary", async () => {
     if (!state.mainRun?.running) {
       skip("browser approval probe", "managed run did not reach a tool-capable running state");

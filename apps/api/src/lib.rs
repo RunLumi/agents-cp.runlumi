@@ -19,9 +19,12 @@ use worker::*;
 async fn fetch(
     req: HttpRequest,
     env: Env,
-    _ctx: Context,
+    ctx: Context,
 ) -> Result<axum::http::Response<axum::body::Body>> {
-    Ok(app::router(env).call(req).await?)
+    // The request context is handed to the router so cancellation settlement can
+    // register with `wait_until` instead of being dropped with the response.
+    let background = adapters::execution::BackgroundWork::from_context(ctx);
+    Ok(app::router(env, background).call(req).await?)
 }
 
 /// Queue events are decoded into the versioned business envelope before the
@@ -230,10 +233,18 @@ async fn consume_p06_jobs(batch: &MessageBatch<serde_json::Value>, env: &Env) ->
         // forever against a queue that will never accept it.
         let body: &serde_json::Value = message.body();
         let Some(job_type) = body.get("job_type").and_then(serde_json::Value::as_str) else {
+            // Acknowledged, but never silently: a body with no readable type is
+            // indistinguishable from "nothing was delivered" without this line.
+            console_error!("p06_job_rejected:{}", JobTypeDisposition::Missing.code());
             message.ack();
             continue;
         };
         let job_type = job_type.to_owned();
+        // Naming the disposition does not change routing; it makes an unknown or
+        // unhandled type visible instead of a silent acknowledgement.
+        if let Some(code) = JobTypeDisposition::of(&job_type).rejection_code() {
+            console_error!("p06_job_rejected:{code}");
+        }
 
         let failure: Option<String> = if is_data_job_type(&job_type) {
             match serde_json::from_value::<consumers::DataJobEnvelope>(body.clone()) {
@@ -284,6 +295,15 @@ async fn consume_p06_jobs(batch: &MessageBatch<serde_json::Value>, env: &Env) ->
                     } else {
                         consumers::JobHandler::run(&notifications, &envelope, &now).await
                     };
+                    // One bounded line per delivery: the handler family and the
+                    // outcome name. No job id, org id, subject id or payload.
+                    if let Ok(done) = &outcome {
+                        console_error!(
+                            "p06_job_outcome:{}:{}",
+                            job_family(&job_type),
+                            job_outcome_code(*done)
+                        );
+                    }
                     match outcome {
                         Ok(consumers::JobOutcome::RetryScheduled) => {
                             message.retry();
@@ -320,6 +340,71 @@ async fn consume_p06_jobs(batch: &MessageBatch<serde_json::Value>, env: &Env) ->
         }
     }
     Ok(())
+}
+
+/// What the jobs consumer can say about a declared `job_type`, before routing.
+///
+/// Observability only: routing is unchanged. Each case has one stable, bounded code
+/// that never contains the body, an identifier, or a secret.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JobTypeDisposition {
+    /// No readable string `job_type` in the body.
+    Missing,
+    /// Not a name in the frozen vocabulary.
+    Unknown,
+    /// In the vocabulary, but no handler in this Worker owns it.
+    Unsupported,
+    /// Owned by a handler.
+    Owned,
+}
+
+impl JobTypeDisposition {
+    fn of(job_type: &str) -> Self {
+        match repositories::JobType::parse(job_type) {
+            None => Self::Unknown,
+            Some(repositories::JobType::BillingSync | repositories::JobType::LicenseIssue) => {
+                Self::Unsupported
+            }
+            Some(_) => Self::Owned,
+        }
+    }
+
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Missing => "job_type_missing",
+            Self::Unknown => "job_type_unknown",
+            Self::Unsupported => "job_type_unsupported",
+            Self::Owned => "job_type_owned",
+        }
+    }
+
+    /// The code to log for a type that will not run, or `None` for an owned one.
+    fn rejection_code(self) -> Option<&'static str> {
+        (self != Self::Owned).then_some(self.code())
+    }
+}
+
+/// The handler family a delivery was routed to, for the outcome line.
+fn job_family(job_type: &str) -> &'static str {
+    if is_data_job_type(job_type) {
+        "data"
+    } else if is_automation_job_type(job_type) {
+        "automation"
+    } else if is_webhook_job_type(job_type) {
+        "webhook"
+    } else {
+        "other"
+    }
+}
+
+const fn job_outcome_code(outcome: consumers::JobOutcome) -> &'static str {
+    match outcome {
+        consumers::JobOutcome::Delivered => "delivered",
+        consumers::JobOutcome::Duplicate => "duplicate",
+        consumers::JobOutcome::RetryScheduled => "retry_scheduled",
+        consumers::JobOutcome::DeadLettered => "dead_lettered",
+        consumers::JobOutcome::NotOwned => "not_owned",
+    }
 }
 
 fn is_data_job_type(job_type: &str) -> bool {
@@ -528,28 +613,26 @@ async fn dispatch_due_data_jobs(database: &D1Adapter, env: &Env, now: &str) -> R
         console_error!("p06_job_dispatch_empty:no_due_envelopes");
         return Ok(());
     }
+    let Ok(occurred_at) = crate::core::Timestamp::new(now) else {
+        console_error!("p06_job_dispatch_skipped:clock_invalid");
+        return Ok(());
+    };
     for row in rows {
-        if !is_data_job_type(row.job_type.as_str()) {
-            // Only the data jobs have a producer. The automation and webhook job
-            // types are dispatched by their own subsystems; routing them through
-            // here would double-deliver.
-            continue;
-        }
-        let message = match row.to_message() {
-            Ok(message) => message,
+        // The envelope family is chosen from the declared job type: data jobs and
+        // automation jobs decode as different types on the consumer side. A type
+        // with no producer here (webhook, notification) is left queued.
+        let body = match row.to_queue_body(&occurred_at) {
+            Ok(Some(body)) => body,
+            Ok(None) => continue,
             Err(_) => {
                 console_error!("p06_job_dispatch_skipped:queue_job_envelope_invalid");
                 continue;
             }
         };
-        let body = match serde_json::to_value(&message) {
-            Ok(body) => body,
-            Err(_) => {
-                console_error!("p06_job_dispatch_skipped:queue_job_envelope_invalid");
-                continue;
-            }
-        };
-        if let Err(error) = queue.send(body).await {
+        // The body crosses into JS as a plain object through JSON text. Handing the
+        // generic `Queue` sender a `serde_json::Value` made it a JS `Map`, which the
+        // queue delivers as `{}`: the consumer then saw no `job_type` at all.
+        if let Err(error) = adapters::queues::send_json_object(&queue, &body).await {
             console_error!("p06_job_dispatch_failed:{}", error.to_string().as_str());
         }
     }
@@ -558,4 +641,105 @@ async fn dispatch_due_data_jobs(database: &D1Adapter, env: &Env, now: &str) -> R
 
 fn outbox_retry_policy() -> modules::outbox::RetryPolicy {
     modules::outbox::RetryPolicy::new(6, 30, 900, 25).expect("static outbox retry policy is valid")
+}
+
+#[cfg(test)]
+mod jobs_consumer_observability {
+    //! The jobs consumer acknowledges several kinds of message without doing work. These
+    //! controls pin that each one has its own stable, bounded code, so an
+    //! acknowledgement is never silent.
+    use super::*;
+
+    #[test]
+    fn a_missing_unknown_and_unsupported_type_each_get_their_own_code() {
+        assert_eq!(JobTypeDisposition::Missing.code(), "job_type_missing");
+        assert_eq!(
+            JobTypeDisposition::of("not.a.job").rejection_code(),
+            Some("job_type_unknown")
+        );
+        assert_eq!(
+            JobTypeDisposition::of("").rejection_code(),
+            Some("job_type_unknown")
+        );
+        for unsupported in ["billing.sync", "license.issue"] {
+            assert_eq!(
+                JobTypeDisposition::of(unsupported).rejection_code(),
+                Some("job_type_unsupported"),
+                "{unsupported}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_jobs_producer_never_hands_the_generic_sender_a_value() {
+        // Fault pin for the serialization defect: a `serde_json::Value` given to the
+        // generic `Queue` sender becomes a JS Map and arrives as `{}`. The producer
+        // must go through the JSON boundary instead.
+        let source = include_str!("lib.rs");
+        let start = source
+            .find("async fn dispatch_due_data_jobs")
+            .expect("producer present");
+        let end = source[start..]
+            .find("fn outbox_retry_policy")
+            .expect("end of producer");
+        let producer = &source[start..start + end];
+        assert!(
+            producer.contains("send_json_object("),
+            "the producer must use the JSON object boundary"
+        );
+        assert!(
+            !producer.contains(".send("),
+            "the producer must not call the generic sender with a Value"
+        );
+    }
+
+    #[test]
+    fn an_owned_type_is_not_reported_as_rejected() {
+        for owned in [
+            "export.run",
+            "deletion.run",
+            "automation.generate_occurrence",
+            "automation.dispatch",
+            "automation.expire_lease",
+            "webhook.deliver",
+            "notification.deliver",
+        ] {
+            assert_eq!(
+                JobTypeDisposition::of(owned).rejection_code(),
+                None,
+                "{owned}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_handler_family_follows_the_declared_type() {
+        assert_eq!(job_family("export.run"), "data");
+        assert_eq!(job_family("deletion.run"), "data");
+        assert_eq!(job_family("automation.dispatch"), "automation");
+        assert_eq!(job_family("webhook.deliver"), "webhook");
+        assert_eq!(job_family("notification.deliver"), "other");
+        assert_eq!(job_family("not.a.job"), "other");
+    }
+
+    #[test]
+    fn every_job_outcome_has_a_distinct_code() {
+        let codes = [
+            job_outcome_code(consumers::JobOutcome::Delivered),
+            job_outcome_code(consumers::JobOutcome::Duplicate),
+            job_outcome_code(consumers::JobOutcome::RetryScheduled),
+            job_outcome_code(consumers::JobOutcome::DeadLettered),
+            job_outcome_code(consumers::JobOutcome::NotOwned),
+        ];
+        let mut sorted = codes.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), codes.len());
+        for code in codes {
+            assert!(
+                code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+                "{code}"
+            );
+        }
+    }
 }

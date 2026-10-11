@@ -1,0 +1,9 @@
+{
+  "scope": "actual SQL result CAS and real audit on memory snapshots; not whole HTTP mutation",
+  "mutation": "valid SQL guard cannot abort stale result commit",
+  "baseline_exit": 0,
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "source_unchanged": true,
+  "source_sha256": "d4e70a5f92bd0d90e2328e8ad82a3b26a5a8bd65f3d74b84613d13bb975b666d"
+}

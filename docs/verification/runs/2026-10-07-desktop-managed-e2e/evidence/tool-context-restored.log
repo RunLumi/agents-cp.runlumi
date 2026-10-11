@@ -1,0 +1,18 @@
+✔ turn tool boundary prevents a real file side effect without the managed broker (9.272042ms)
+✔ an explicit local-only context preserves unmanaged execution (0.369ms)
+✔ a managed gate cannot be bypassed by a local allow (0.68825ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.24425ms)
+✔ managed context is preserved when a batch is chunked (0.529125ms)
+✔ managed decision re-evaluates hook-modified input (1.752291ms)
+✔ a changed managed fingerprint is denied (0.359875ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.254917ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.390416ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.302083ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1420.8135

@@ -1,0 +1,37 @@
+✖ turn tool boundary prevents a real file side effect without the managed broker (35.977125ms)
+✔ an explicit local-only context preserves unmanaged execution (1.43825ms)
+✔ a managed gate cannot be bypassed by a local allow (4.479583ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.334083ms)
+✔ managed context is preserved when a batch is chunked (0.770209ms)
+✔ managed decision re-evaluates hook-modified input (6.411041ms)
+✔ a changed managed fingerprint is denied (0.446167ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.329584ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.428958ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.264333ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 9
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1600.389833
+
+✖ failing tests:
+
+test at ../../../../../../../../../..$TMPDIR/lumi-managed-tool-sensitivity/boundary.test.ts:1:1625
+✖ turn tool boundary prevents a real file side effect without the managed broker (35.977125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  true !== false
+
+      at TestContext.<anonymous> ($TMPDIR/lumi-managed-tool-sensitivity/boundary.test.ts:76:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,33 @@
+✔ recovery requires complete exact-project pages before accepting correlation (14.097792ms)
+✔ only faithfully representable schedules are adoptable; everything else stays local (0.43225ms)
+✔ preview candidates and create bodies carry metadata only, never the prompt (56.177042ms)
+✔ zone offset tables are bounded and expose daylight-saving transitions (2.126042ms)
+✔ preview reads the server verdict and refuses a self-contradicting one (0.553208ms)
+✖ whole-automation conflicts with a null subject remain blocked rather than malformed (0.146708ms)
+✔ release readback refuses to treat a still-present managed automation as removed (0.424875ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 317.827959
+
+✖ failing tests:
+
+test at packages/services/src/lumi-account/automationAdoptionTransport.test.ts:1:6706
+✖ whole-automation conflicts with a null subject remain blocked rather than malformed (0.146708ms)
+  Error [LumiAccountError]: lumi_response_invalid
+      at text ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:55:11)
+      at <anonymous> ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:143:18)
+      at Array.map (<anonymous>)
+      at <anonymous> ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:141:40)
+      at Array.map (<anonymous>)
+      at LumiAutomationAdoptionHostTransport.previewImport ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.ts:131:29)
+      at async TestContext.<anonymous> ($LUMI_AGENTS_DIR/packages/services/src/lumi-account/automationAdoptionTransport.test.ts:228:18)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'lumi_response_invalid',
+    status: 0
+  }

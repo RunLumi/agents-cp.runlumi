@@ -1,0 +1,37 @@
+✔ a due adopted occurrence claims, starts, renews and settles through the guard (1.308541ms)
+✔ an occurrence of an automation not adopted here is never claimed (0.113416ms)
+✔ two clients race one occurrence and exactly one executes (0.163417ms)
+✔ a lost lease is terminal: ambiguity stops renewal and settlement and never replays (0.209875ms)
+✔ a superseded holder cannot settle: the server fence is authoritative (0.127375ms)
+✔ a start refusal releases the lease and reports it without side effects (0.1325ms)
+✔ revocation and ineligibility are refusals; stale policy is refused before the claim (0.112833ms)
+✔ a non-executable principal is refused before the claim spends the attempt budget (0.091208ms)
+✔ a guard rejection after a granted claim returns the lease before any side effect (0.136291ms)
+✖ lost start response never attempts a pre-start release (1.176625ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 9
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 642.526375
+
+✖ failing tests:
+
+test at ../../../../../../../../../..$TMPDIR/lumi-lost-start-reproducer.test.ts:2:11777
+✖ lost start response never attempts a pre-start release (1.176625ms)
+  AssertionError [ERR_ASSERTION]: server start committed; release is not a proven pre-start operation
+
+  true !== false
+
+      at TestContext.<anonymous> ($TMPDIR/lumi-lost-start-reproducer.test.ts:361:9)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

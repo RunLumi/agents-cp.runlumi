@@ -1,0 +1,89 @@
+[2026-10-07 15:56:32.187] [pid:82404] [main] [crash-capture] configured remoteCrashReporterEnabled=true stagingDir=/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-tPK7ZJ/home/.zcode/v2/crash/live archiveDir=/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-tPK7ZJ/home/.zcode/v2/crash/archive
+[2026-10-07 15:56:32.204] [pid:82404] [main] [deep-link] 注册协议成功（defaultApp） {
+  scheme: 'zcode',
+  execPath: '$LUMI_AGENTS_DIR/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+  entry: '$LUMI_AGENTS_DIR/packages/desktop'
+}
+
+DevTools listening on ws://127.0.0.1:58387/devtools/browser/3d1098e1-9c8e-4d78-9433-e67bb98cd07d
+[2026-10-07 15:56:32.532] [pid:82404] [main] [finder-open-folder] Finder 服务已安装或更新 {
+  locale: 'zh-CN',
+  workflowPath: '/var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-tPK7ZJ/home/Library/Services/Open in ZCode.workflow'
+}
+[2026-10-07 15:56:32.540] [pid:82404] [main] [desktop-network] renderer proxy mode=direct bypass=disabled customCa=disabled insecureCerts=rejected
+[2026-10-07 15:56:32.541] [pid:82404] [main] [desktop-network] renderer proxy mode=system bypass=disabled customCa=disabled insecureCerts=rejected
+[2026-10-07 15:56:32.546] [pid:82404] [main] [auto-update] disabled for this desktop product flavor
+[2026-10-07 15:56:32.548] [pid:82404] [main] [resource] sampling started interval=10000ms report=60000ms
+[2026-10-07 15:56:32.548] [pid:82404] [main] [network] reporting started interval=60000ms
+[2026-10-07 15:56:32.548] [pid:82404] [main] [force-update] Preview 跳过远端强制升级检查
+[2026-10-07 15:56:32.548] [pid:82404] [main] [startup] 创建主窗口
+[2026-10-07 15:56:32.548] [pid:82404] [main] [primary-window] creating main window (app-ready)
+[2026-10-07 15:56:32.548] [pid:82404] [main] [startup-workspace] using explicit open workspace: /var/folders/zz/jzz3w1rj5lq21d_7c0nkc31m0000gn/T/lumi-electron-account-tPK7ZJ/workspace
+[2026-10-07 15:56:32.803] [pid:82404] [main] [startup] runtime process env prepared asynchronously id=1 in 607ms
+[2026-10-07 15:56:33.181] [pid:82404] [main] [desktop-context-prompt] config refreshed { enabled: true, configVersion: 'desktop-sp-v1' }
+[2026-10-07 15:56:33.192] [pid:82404] [main] [createWindow] dom-ready fired (local-1)
+[2026-10-07 15:56:33.193] [pid:82404] [main] [desktop-context-prompt] first host spawn decision resolved { enabled: true, configVersion: 'desktop-sp-v1' }
+[2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] forked host process for (local-1), pid=undefined
+[2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] host module path: $LUMI_AGENTS_DIR/packages/desktop/out/host/index.js
+[2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] glm binary path: <not found>
+[2026-10-07 15:56:33.194] [pid:82404] [main] [spawnHostProcess] BIGMODEL_OAUTH_APP_SECRET source: fallback
+[2026-10-07 15:56:33.195] [pid:82404] [main] [task-realtime] registered host {
+  hostId: 'e59451e7-0cae-47d7-be72-298ccfb9a433',
+  windowId: 1,
+  workspaceKeyCount: 0,
+  deliveryKind: 'desktop_window'
+}
+node:internal/modules/esm/resolve:276
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '$LUMI_AGENTS_DIR/packages/desktop/out/host/hostDatabaseStartup.js' imported from $LUMI_AGENTS_DIR/packages/desktop/out/host/index.js
+    at finalizeResolution (node:internal/modules/esm/resolve:276:11)
+    at moduleResolve (node:internal/modules/esm/resolve:892:10)
+    at defaultResolve (node:internal/modules/esm/resolve:1019:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)
+    at #resolve (node:internal/modules/esm/loader:687:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file://$LUMI_AGENTS_DIR/packages/desktop/out/host/hostDatabaseStartup.js'
+}
+
+Node.js v24.21.0
+[2026-10-07 15:56:33.251] [pid:82404] [main] [database-startup] terminal {
+  attemptId: '6babfc6a-909e-45ac-b8d0-76211fc185d1',
+  status: 'failed',
+  durationMs: 0,
+  errorCode: 'transport_closed',
+  disk: []
+}
+[2026-10-07 15:56:33.251] [pid:82404] [main] [task-realtime] unregistered host { hostId: 'e59451e7-0cae-47d7-be72-298ccfb9a433', windowId: 1 }
+[2026-10-07 15:56:33.251] [pid:82404] [main] [spawnHostProcess] host process (local-1) exited with code 1
+[2026-10-07 15:56:33.254] [pid:82404] [main] [crash-capture] child-process-gone: {
+  type: 'Utility',
+  reason: 'abnormal-exit',
+  exitCode: 256,
+  serviceName: 'node.mojom.NodeService',
+  name: 'zcode-host-local-1'
+}
+[2026-10-07 15:56:33.255] [pid:82404] [main] [stability] perf_process_exit reported {
+  exit_code: 256,
+  exit_reason: 'abnormal-exit',
+  process_role: 'utility',
+  exit_kind: 'recoverable_child_crash',
+  process_type: 'Utility',
+  process_name: 'node.mojom.NodeService'
+}
+[2026-10-07 15:56:33.409] [pid:82404] [main] [renderer-action-trace] config refreshed { enabled: true, configVersion: 'ttft-2026-09-18' }
+[2026-10-07 15:56:36.397] [pid:82404] [main] [stability] perf_app_start reported
+[2026-10-07 15:57:03.338] [pid:82404] [main] [app-quit] forceQuit enabled (app-before-quit)
+[2026-10-07 15:57:03.341] [pid:82404] [main] [stability] perf_app_exit reported { scene: 'app_quit', exitCode: 0 }
+[2026-10-07 15:57:03.342] [pid:82404] [main] [app-quit] waiting for host process cleanup (app-before-quit), kind=normal, hosts=0, forceKillDelayMs=7500, waitTimeoutMs=9000
+[2026-10-07 15:57:03.342] [pid:82404] [main] [app-quit] host process cleanup completed (app-before-quit)
+[2026-10-07 15:57:03.343] [pid:82404] [main] [app-quit] preparation finished, resuming quit with windows=1
+[2026-10-07 15:57:03.451] [pid:82404] [main] [createWindow] window closed, killing host process (local-1)
+[2026-10-07 15:57:03.452] [pid:82404] [main] [app-quit] all windows closed after preparation, exiting app
+[2026-10-07 15:57:03.452] [pid:82404] [main] [app-quit] exiting prepared app (all-windows-closed-after-preparation)

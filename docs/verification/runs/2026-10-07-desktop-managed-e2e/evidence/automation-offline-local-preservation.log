@@ -1,0 +1,5 @@
+PASS rebuilt Electron app boots and renders with the control plane unreachable
+PASS existing local cron path still claims and dispatches an unmarked due automation
+PASS a due adopted original is not claimed, dispatched or rewritten by the real scheduler
+PASS Main stays up while managed polling cannot reach a control plane
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-automation-local-vqIuK6

@@ -1,0 +1,24 @@
+   Compiling lumi-agents-control-plane-api v0.1.0 ($REPO_ROOT/apps/api)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.08s
+     Running unittests src/lib.rs (target/debug/deps/lumi_agents_control_plane_api-70a99ecb46a025f8)
+
+running 1 test
+test jobs::automations::tests::skip_missed_policy_keeps_the_current_tick_but_drops_offline_backlog ... FAILED
+
+failures:
+
+---- jobs::automations::tests::skip_missed_policy_keeps_the_current_tick_but_drops_offline_backlog stdout ----
+
+thread 'jobs::automations::tests::skip_missed_policy_keeps_the_current_tick_but_drops_offline_backlog' (26586098) panicked at apps/api/src/jobs/automations.rs:1752:13:
+assertion `left == right` failed: current minute must execute, backlog must not
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    jobs::automations::tests::skip_missed_policy_keeps_the_current_tick_but_drops_offline_backlog
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1067 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

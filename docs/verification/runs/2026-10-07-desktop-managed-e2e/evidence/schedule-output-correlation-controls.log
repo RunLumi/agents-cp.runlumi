@@ -1,0 +1,27 @@
+✔ toEpochMs reads epoch ms, epoch seconds, digit strings and ISO text; anything else is NaN (0.431208ms)
+✔ toEpochMs: a 2026 instant is >= 1e11 in ms and < 1e11 in seconds, so the threshold separates them (0.055208ms)
+✔ tasksInWindow attributes only tasks created between claim and settle (0.327041ms)
+✔ tasksInWindow gives the same verdict for epoch ms, epoch seconds, digit-string and ISO created_at (5.919333ms)
+✔ tasksInWindow never guesses: two in-window tasks stay two, an unreadable time is reported (0.126375ms)
+✔ tasksInWindow tolerates only the clock slack at both edges (0.060834ms)
+✔ tasksInWindow: a whole-second created_at truncated below the claim stays inside the slack (0.050916ms)
+✔ describeScope renders the measured tables, text columns and rows without content (0.065667ms)
+✔ positive control: an isolated profile yields the task row and the assistant text from ITS OWN store (14.563666ms)
+✔ a genuinely empty task index is [], a missing one is unavailable (UNPROVEN), never empty (5.458709ms)
+✔ no HOME fallback: a profile without an Agent store is unavailable even when HOME has one (6.633625ms)
+✔ a symlinked or relative profile store that resolves outside the profile is refused (3.972292ms)
+✔ a missing schema, session or malformed JSON is a stable error, never empty (14.6535ms)
+✔ child env: per-profile HOME/XDG/USERPROFILE, no inherited personal paths, supervisor env untouched (5.674333ms)
+✔ a personal home (or an ancestor of it) is refused as a profile (1.251917ms)
+✔ profile guard compares REAL paths: symlink aliases of the personal home or its ancestor are refused (2.752542ms)
+✔ overrides cannot replace isolation roots; origin and app name overrides still work (2.900417ms)
+✔ workspace reader: inside file reads; .., absolute, symlink file/dir and dangling links are refused (1.912666ms)
+✔ old retained profile: has the task row but NO in-profile Agent store, so its output is UNPROVEN (4.408417ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 151.51175

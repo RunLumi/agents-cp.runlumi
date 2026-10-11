@@ -1,0 +1,299 @@
+adoption	Build pinned pair and exercise adoption	﻿2026-10-09T04:01:42.1154124Z ##[group]Run node scripts/integration/lumi-agents.mjs
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1154582Z ^[[36;1mnode scripts/integration/lumi-agents.mjs^[[0m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1218676Z shell: /usr/bin/bash -e {0}
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1218984Z env:
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1219231Z   PNPM_HOME: /home/runner/setup-pnpm
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1219586Z   PNPM_CONFIG_GLOBAL_SHIMS: {"node":false}
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1219918Z   CARGO_INCREMENTAL: 0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1220411Z   CARGO_PROFILE_DEV_DEBUG: 0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1220692Z   CARGO_TERM_COLOR: always
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1220966Z   RUST_BACKTRACE: short
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1221231Z   RUSTFLAGS: -D warnings
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1221521Z   CARGO_UNSTABLE_SPARSE_REGISTRY: true
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1221872Z   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1222217Z   CACHE_ON_FAILURE: true
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1222530Z ##[endgroup]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1639163Z [integration] git submodule update --init -- integrations/lumi-agents
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1888098Z Submodule 'integrations/lumi-agents' (https://github.com/RunLumi/LumiAgents.git) registered for path 'integrations/lumi-agents'
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:42.1914315Z Cloning into '/home/runner/work/agents-cp.runlumi/agents-cp.runlumi/integrations/lumi-agents'...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:44.7454617Z Submodule path 'integrations/lumi-agents': checked out '2a495254f0018644d24c9c1e5c5210bb7a30075c'
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1689695Z {
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1690245Z   "verdict": "BLOCKED",
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1690739Z   "started_at": "2026-10-09T04:01:42.161Z",
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1691255Z   "control_plane": {
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1691750Z     "sha": "b36de9407a5a09240f4f8bc287cf0efa74371212",
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1692319Z     "dirty": false,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1693054Z     "package_manager": "pnpm@12.5.1"
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1693530Z   },
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1694024Z   "lumi_agents": {
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1694488Z     "sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1694931Z     "dirty": false,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1695204Z     "package_manager": "pnpm@10.33.2"
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1695538Z   },
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1695870Z   "pinned_lumi_agents_sha": "2a495254f0018644d24c9c1e5c5210bb7a30075c",
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1696300Z   "override": false,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1696559Z   "reproducible": true
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1696815Z }
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:45.1697659Z [integration] npm install --prefix /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/pnpm-tools/12.5.1 --ignore-scripts --no-audit --no-fund --package-lock=false pnpm@12.5.1
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:48.3771248Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:48.3772169Z added 2 packages in 3s
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:48.4756773Z [integration] npm install --prefix /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/pnpm-tools/10.33.2 --ignore-scripts --no-audit --no-fund --package-lock=false pnpm@10.33.2
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:49.6735298Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:49.6735967Z added 1 package in 1s
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.0708143Z [integration] /home/runner/setup-pnpm/global/v11/99e-18dcc093b5932abe-0/node_modules/.pnpm/node@runtime+24.21.0/node_modules/node/bin/node /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/pnpm-tools/12.5.1/node_modules/pnpm/bin/pnpm.mjs install --frozen-lockfile
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.1283908Z Scope: all 3 workspace projects
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.4519189Z ✓ Lockfile passes supply-chain policies (verified 10d ago)
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.4519739Z Lockfile is up to date, resolution step is skipped
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.5588172Z Downloading @oxlint-tsgolint/linux-x64@7.0.2001: 0.00 B/7.71 MB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.6525689Z Downloading @rolldown/binding-linux-x64-gnu@1.1.5: 0.00 B/7.79 MB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.7874802Z Downloading @typescript/typescript-linux-x64@7.0.2: 0.00 B/9.66 MB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.7962251Z Downloading @cloudflare/workerd-linux-64@1.20260921.1: 0.00 B/39.25 MB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.8150670Z Downloading @oxlint/binding-linux-x64-gnu@1.85.0: 0.00 B/6.53 MB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:50.8514963Z Downloading @img/sharp-libvips-linux-x64@1.3.3: 0.00 B/8.17 MB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:51.8486233Z Progress: resolved 415, reused 0, downloaded 184, added 160
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:52.9085848Z Progress: resolved 415, reused 0, downloaded 410, added 384
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.0757748Z Packages: +415
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.0758425Z ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.1250928Z Progress: resolved 415, reused 0, downloaded 415, added 415, done
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.1309367Z .../node_modules/workerd postinstall$ node install.js
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.1310191Z .../esbuild@0.28.1/node_modules/esbuild postinstall$ node install.js
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.1964384Z .../esbuild@0.28.1/node_modules/esbuild postinstall: Done
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.2056932Z .../node_modules/workerd postinstall: Done
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5738747Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5739461Z devDependencies:
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5740078Z + oxfmt 0.70.0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5740620Z + oxlint 1.85.0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5741159Z + oxlint-tsgolint 7.0.2001
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5741600Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.5852413Z Done in 3.5s using pnpm v12.5.1
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.6037404Z [integration] /home/runner/setup-pnpm/global/v11/99e-18dcc093b5932abe-0/node_modules/.pnpm/node@runtime+24.21.0/node_modules/node/bin/node /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/pnpm-tools/10.33.2/node_modules/pnpm/bin/pnpm.cjs --filter @zcode/contracts... install --frozen-lockfile --ignore-scripts
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.9063683Z apps/zcode-cli                           |  WARN  Unsupported engine: wanted: {"node":"24.14.0"} (current: {"node":"v24.21.0","pnpm":"10.33.2"})
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:53.9445830Z Scope: 3 of 33 workspace projects
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:54.0703921Z Lockfile is up to date, resolution step is skipped
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:54.3595138Z .                                        |    +1845 ++++++++++++++++++++++++++++
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:54.5834171Z Progress: resolved 0, reused 0, downloaded 1, added 0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:55.5842171Z Progress: resolved 0, reused 0, downloaded 113, added 57
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:56.5843780Z Progress: resolved 0, reused 0, downloaded 148, added 92
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:57.6103851Z Progress: resolved 0, reused 0, downloaded 214, added 117
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:58.6067197Z Progress: resolved 0, reused 0, downloaded 298, added 151
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:01:59.6099569Z Progress: resolved 0, reused 0, downloaded 457, added 249
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:00.6087155Z Progress: resolved 0, reused 0, downloaded 563, added 320
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:01.6124059Z Progress: resolved 0, reused 0, downloaded 754, added 543
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:02.6116031Z Progress: resolved 0, reused 0, downloaded 886, added 676
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:03.6119750Z Progress: resolved 0, reused 0, downloaded 1134, added 965
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:04.6203899Z Progress: resolved 0, reused 0, downloaded 1187, added 983
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:05.6269189Z Progress: resolved 0, reused 0, downloaded 1337, added 1173
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:06.6263805Z Progress: resolved 0, reused 0, downloaded 1569, added 1534
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:07.6242264Z Progress: resolved 0, reused 0, downloaded 1672, added 1595
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:08.4647999Z Progress: resolved 0, reused 0, downloaded 1702, added 1845, done
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:08.8221238Z Done in 15.1s using pnpm v10.33.2
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:08.8886450Z [integration] /home/runner/setup-pnpm/global/v11/99e-18dcc093b5932abe-0/node_modules/.pnpm/node@runtime+24.21.0/node_modules/node/bin/node /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/pnpm-tools/12.5.1/node_modules/pnpm/bin/pnpm.mjs build
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:08.9389661Z $ pnpm --filter @runlumi/agents-cp-web build && pnpm --filter @runlumi/agents-cp-api build
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:08.9546872Z $ tsc --noEmit && vite build
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.1704235Z ^[[36mvite v8.1.0 ^[[32mbuilding client environment for production...^[[36m^[[39m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.1900775Z ^[[2K
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.4427081Z transforming...✓ 293 modules transformed.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5058889Z rendering chunks...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5774239Z computing gzip size...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5845825Z dist/index.html                                                   0.72 kB │ gzip:   0.41 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5847265Z dist/assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2        5.81 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5848180Z dist/assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2    6.17 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5849060Z dist/assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2         7.42 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5849619Z dist/assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2      7.69 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5850421Z dist/assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2           8.00 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5850948Z dist/assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2       12.94 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5851480Z dist/assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2      14.69 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5852002Z dist/assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2            15.08 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5852549Z dist/assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2           16.51 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5853849Z dist/assets/geist-mono-latin-wght-normal-XN7g48iV.woff2          23.12 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5854642Z dist/assets/geist-latin-wght-normal-BgDaEnEv.woff2               29.40 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5855403Z dist/assets/index-BOZ3Ut4q.css                                   48.90 kB │ gzip:   9.03 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5856299Z dist/assets/usage-trend-CRnSA0yT.js                               3.83 kB │ gzip:   1.35 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5856944Z dist/assets/helpers-BPqrpGbF.js                                   7.33 kB │ gzip:   2.61 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5857562Z dist/assets/api-CTgD5hJS.js                                       9.25 kB │ gzip:   3.19 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5858163Z dist/assets/event-types-4gKG57o5.js                              13.51 kB │ gzip:   4.14 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5858836Z dist/assets/notification-preferences-DA7tar3F.js                 15.71 kB │ gzip:   5.02 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5859510Z dist/assets/adoption-panel-Cwo9XTzz.js                           37.78 kB │ gzip:  10.33 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5860193Z dist/assets/usage-budgets-panel-BZjOUo9a.js                      44.95 kB │ gzip:  10.24 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5860847Z dist/assets/runs-panel-BsZAhL-W.js                               55.50 kB │ gzip:  12.35 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5861718Z dist/assets/webhooks-panel-DjKohy8H.js                           63.47 kB │ gzip:  16.19 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5862932Z dist/assets/plugins-panel-CiHVv6K4.js                            66.93 kB │ gzip:  16.70 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5863877Z dist/assets/identity-panel-f0uk62lm.js                           70.66 kB │ gzip:  16.55 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5864780Z dist/assets/automation-panel-BTUltDdM.js                         78.29 kB │ gzip:  20.31 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5865668Z dist/assets/billing-panel-CIlklYBe.js                            83.94 kB │ gzip:  20.55 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5866548Z dist/assets/data-panel-CxjaPxMP.js                              124.98 kB │ gzip:  32.41 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5867664Z dist/assets/tools-panel-_BeuhPda.js                             135.63 kB │ gzip:  40.17 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5868549Z dist/assets/index-CYsBVxMa.js                                   375.92 kB │ gzip: 101.36 kB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5868973Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.5869256Z ^[[32m✓ built in 414ms^[[39m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:10.6325109Z $ wrangler deploy --dry-run --env production
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:11.6991142Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:11.6992037Z  ⛅️ wrangler 4.137.0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:11.6992471Z ────────────────────
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:11.7258439Z [custom build] Running: worker-build --release
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:12.4977946Z [custom build] [INFO]: 🎯  Checking for the Wasm target...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:12.4978740Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:12.7282804Z [custom build] [INFO]: ⬇️  Downloading Wasm Bindgen@0.2.128...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:12.7283633Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:13.1197254Z [custom build] [INFO]: 🌀  Compiling to Wasm...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:13.1197936Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:13.5570196Z [custom build] ^[[1m^[[92m   Compiling^[[0m passkey-auth v0.1.3 (/home/runner/work/agents-cp.runlumi/agents-cp.runlumi/vendor/passkey-auth)
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:13.5571903Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:17.2888901Z [custom build] ^[[1m^[[92m   Compiling^[[0m lumi-agents-control-plane-api v0.1.0 (/home/runner/work/agents-cp.runlumi/agents-cp.runlumi/apps/api)
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:02:17.2890136Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:03:42.2531808Z [custom build] ^[[1m^[[92m    Finished^[[0m `release` profile [optimized] target(s) in 1m 29s
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:03:42.2533302Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:03:44.2069698Z [custom build] [INFO]: ⬇️  Downloading Wasm Opt@132...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:03:44.2070629Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:03:46.2055634Z [custom build] [INFO]: Optimizing wasm binaries with `wasm-opt`...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:03:46.2056643Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:06.9568016Z [custom build] [INFO]: ✨  Done in 1m 53s
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:06.9569553Z [custom build] [INFO]: 📦   Your wasm pkg is ready to publish at /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/apps/api/build/.tmp.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:06.9579610Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:06.9695795Z [custom build] [INFO]: ⬇️  Downloading Esbuild@0.28.2...
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:06.9696511Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:07.1043577Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:07.1044335Z [custom build]   index.js  37.1kb
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:07.1046528Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:07.1047189Z [custom build] ⚡ Done in 8ms
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:07.1047647Z [custom build]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:07.7893270Z ✨ Read 32 files from the assets directory /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/apps/web/dist
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0239699Z Total Upload: 10367.99 KiB / gzip: 2590.55 KiB
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0319865Z Your Worker has access to the following bindings:
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0320660Z Binding                                                          Resource
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0321476Z env.EMAIL (unrestricted)                                         Send Email
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0322386Z env.OUTBOX_QUEUE (lumi-agents-outbox)                            Queue
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0323593Z env.JOBS_QUEUE (lumi-agents-jobs)                                Queue
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0324456Z env.DB (lumi-agents-control-plane)                               D1 Database
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0325100Z env.EXPORT_ARTIFACTS (lumi-agents-control-plane-exports)         R2 Bucket
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0325707Z env.CF_VERSION_METADATA                                          Worker Version Metadata
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0326234Z env.ENVIRONMENT ("production")                                   Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0326803Z env.WEBAUTHN_RP_ID ("agents-cp.runlumi.app")                     Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0327363Z env.WEBAUTHN_RP_NAME ("Lumi Agents")                             Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0327946Z env.WEBAUTHN_ORIGINS ("https://agents-cp.runlumi.app")           Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0328536Z env.EMAIL_FROM ("agents@runlumi.app")                            Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0329113Z env.OUTBOX_DLQ_NAME ("lumi-agents-outbox-dlq")                   Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0329705Z env.JOBS_DLQ_NAME ("lumi-agents-jobs-dlq")                       Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0330278Z env.JOBS_QUEUE_NAME ("lumi-agents-jobs")                         Environment Variable
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0330617Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.0330721Z --dry-run: exiting now.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:08.3772485Z [integration] /home/runner/setup-pnpm/global/v11/99e-18dcc093b5932abe-0/node_modules/.pnpm/node@runtime+24.21.0/node_modules/node/bin/node /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/tests/integration/adoption.mjs
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:19.8278866Z   PASS  fresh D1 applies the full migration ledger  — 25 migration rows
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.7091759Z   PASS  development Worker is healthy  — http://127.0.0.1:33805
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.7133939Z   PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-kOdVpK/a22a3f96e7f3f664dfdc513892120fb885e4ee7c-index_bg.wasm is 198s newer than tests/egress_corpus.rs
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.7159729Z PASS Worker build freshness established
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.7583788Z   PASS  signup Integration Owner  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.7786322Z   PASS  verify Integration Owner  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.7976749Z   PASS  login start Integration Owner  — status=202
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8169895Z   PASS  login complete Integration Owner  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8170691Z   PASS  user Integration Owner has an opaque ID  — usr_e3de1501f8dd43aaa3cca2eabd255ed7
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8441563Z   PASS  create Integration Alpha  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8443291Z   PASS  Integration Alpha organization ID  — org_f006ab166b9311345aa16d84f7b40367
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8637023Z   PASS  signup Integration Other  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8793475Z   PASS  verify Integration Other  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.8965532Z   PASS  login start Integration Other  — status=202
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9121336Z   PASS  login complete Integration Other  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9122149Z   PASS  user Integration Other has an opaque ID  — usr_ca93f387047c49d6a38148da9f14d0c7
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9314530Z   PASS  create Integration Bravo  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9315726Z   PASS  Integration Bravo organization ID  — org_d0f45186b1d3c168dace715eccbc1845
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9523713Z PASS create project: HTTP 201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9672001Z PASS begin device fixture: HTTP 201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:44.9976029Z PASS approve device fixture: HTTP 201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0071370Z PASS challenge: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0372117Z PASS complete device: HTTP 201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0372980Z PASS server-issued fixture IDs
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0375115Z PASS local stage zero sends no HTTP
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0494063Z PASS compatibility: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0494659Z PASS same frozen contract
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0495223Z PASS exact v1 protocol/schema ranges
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0500431Z PASS client and server compatibility agree
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0501076Z PASS compatibility does not adopt
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0741696Z PASS record workspace: HTTP 201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0764274Z PASS begin is still local
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.0771284Z PASS client rejects skipped stages before HTTP
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:45.1014959Z PASS advance account_optional: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:46.3563427Z PASS client and D1 agree on account_optional
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:46.3779945Z PASS advance device_enrolled: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:47.6480305Z PASS client and D1 agree on device_enrolled
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:47.6704210Z PASS advance workspace_bound: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:48.9273448Z PASS client and D1 agree on workspace_bound
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:48.9528152Z PASS advance managed_policy: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:50.2403467Z PASS client and D1 agree on managed_policy
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:51.5390403Z PASS foreign organization rollback refused
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:52.7952868Z PASS foreign rollback leaves row identical
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:52.8184333Z PASS rollback: HTTP 200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:54.0883653Z PASS rollback returns client and D1 to local
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:54.0884293Z PASS second workspace stays local
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:55.3477807Z PASS only explicitly selected workspace persisted
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.6403537Z PASS rollback audit persisted
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.6403988Z PASS fixture/runtime assertions passed
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.6907636Z [integration] /home/runner/setup-pnpm/global/v11/99e-18dcc093b5932abe-0/node_modules/.pnpm/node@runtime+24.21.0/node_modules/node/bin/node /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/tests/integration/lumi-account.mjs
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.8883213Z ^[[33m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.8885098Z ^[[1m(!)^[[22m outDir ^[[37m^[[2m/home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/lumi-account-client^[[22m^[[33m is not inside project root and will not be emptied.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.8886497Z Use --emptyOutDir to override.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.8887636Z ^[[39m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.9296522Z ^[[33m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.9298129Z ^[[1m(!)^[[22m outDir ^[[37m^[[2m/home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/lumi-account-client/device^[[22m^[[33m is not inside project root and will not be emptied.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.9299465Z Use --emptyOutDir to override.
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:04:56.9302056Z ^[[39m
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:07.9016266Z   PASS  fresh D1 applies the full migration ledger  — 25 migration rows
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.7952077Z   PASS  development Worker is healthy  — http://127.0.0.1:38947
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.7987883Z   PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-dNZkoH/a22a3f96e7f3f664dfdc513892120fb885e4ee7c-index_bg.wasm is 246s newer than tests/egress_corpus.rs
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.8406589Z   PASS  signup Desktop Account  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.8601663Z   PASS  verify Desktop Account  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.8799562Z   PASS  login start Desktop Account  — status=202
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9054151Z   PASS  login complete Desktop Account  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9055261Z   PASS  user Desktop Account has an opaque ID  — usr_f1709e763aaa408e97ed39ecf5470d2d
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9180462Z PASS actual client starts S256 device authorization
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9354283Z PASS browser-session fixture explicitly approves code
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9713020Z PASS client exchanges real session cookies and reads own safe account
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9727259Z PASS client cannot reuse completed flow
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9929753Z   PASS  create Desktop Device Org  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:32.9930749Z   PASS  Desktop Device Org organization ID  — org_77e4ebad6323969c76df6c725aed39aa
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:34.4624214Z   PASS  CONTROL: one live device token exists before forced expiry  — [{"n":1}]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.1717919Z   PASS  device token is expired in stored D1 state
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.1837496Z   PASS  recovery did not reopen anonymous nonce  — status=401 reason=device_token_expired
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.1924284Z   PASS  expired device token cannot use ordinary refresh nonce  — status=401 reason=device_token_expired
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.1997096Z   PASS  anonymous caller cannot mint a recovery challenge  — status=401 reason=authentication_required
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2198892Z   PASS  signup Recovery Outsider  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2357087Z   PASS  verify Recovery Outsider  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2560477Z   PASS  login start Recovery Outsider  — status=202
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2737246Z   PASS  login complete Recovery Outsider  — status=200
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2738816Z   PASS  user Recovery Outsider has an opaque ID  — usr_26cb4cbf4799401ba76d28dc63329256
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2921615Z   PASS  create Recovery Outsider Org  — status=201
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.2941657Z   PASS  Recovery Outsider Org organization ID  — org_9bf6f11a85a9633b49182835479b32b6
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.3134547Z   PASS  cross-tenant: foreign device id is not found through the caller's own org  — status=404 reason=device_not_found
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:37.3266409Z   PASS  cross-tenant: non-member cannot mint a challenge in the device's org  — status=404 reason=resource_not_found
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:38.5882185Z   PASS  cross-tenant attempts stored no recovery challenge  — [{"n":0}]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:38.6065838Z   PASS  human-authorized challenge is bounded
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:39.8797519Z   PASS  wrong device proof leaves the challenge unconsumed and mints no token  — [{"pending":1,"live":0}]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:42.4017561Z   PASS  challenge expiry is stored in D1
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.6832029Z   PASS  expired recovery challenge mints no token  — [{"n":0}]
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7494945Z node:internal/modules/run_main:107
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7495884Z     triggerUncaughtException(
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7496335Z     ^
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7496524Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7496701Z [TypeError: fetch failed] {
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7497147Z   [cause]: SocketError: other side closed
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7497824Z       at Socket.onHttpSocketEnd (node:internal/deps/undici/undici:7833:26)
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7498864Z       at Socket.emit (node:events:526:24)
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7499456Z       at endReadableNT (node:internal/streams/readable:1764:12)
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7500210Z       at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7500944Z     code: 'UND_ERR_SOCKET',
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7501597Z     socket: {
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7501957Z       localAddress: '127.0.0.1',
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7502397Z       localPort: 47544,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7503112Z       remoteAddress: undefined,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7503566Z       remotePort: undefined,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7503994Z       remoteFamily: undefined,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7504434Z       timeout: undefined,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7504900Z       bytesWritten: 12828,
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7505299Z       bytesRead: 9826
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7505633Z     }
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7505925Z   }
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7506207Z }
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7506428Z
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7506589Z Node.js v24.21.0
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7632879Z FAIL: /home/runner/setup-pnpm/global/v11/99e-18dcc093b5932abe-0/node_modules/.pnpm/node@runtime+24.21.0/node_modules/node/bin/node: 1
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7653978Z FAIL: /home/runner/work/agents-cp.runlumi/agents-cp.runlumi/test-results/lumi-agents/2026-10-09T04-01-42.161Z/result.json
+adoption	Build pinned pair and exercise adoption	2026-10-09T04:05:43.7805752Z ##[error]Process completed with exit code 1.

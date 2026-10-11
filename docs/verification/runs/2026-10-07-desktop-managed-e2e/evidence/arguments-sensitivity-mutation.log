@@ -1,0 +1,51 @@
+✔ managed summary does not export paths, commands, arbitrary names or strings (0.653708ms)
+✔ summary binds nested input, long tails, arrays and fields beyond a display bound (0.365291ms)
+✔ only closed action vocabulary is displayable and summary stays server-canonical (0.452291ms)
+✔ non-JSON, cyclic, excessive-depth and oversized input fails closed (0.537625ms)
+✔ hashing does not invoke input getters and rejects non-JSON array/object shapes (0.138791ms)
+✔ turn tool boundary prevents a real file side effect without the managed broker (11.057083ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (0.979959ms)
+✔ an explicit local-only context preserves unmanaged execution (0.249083ms)
+✔ a managed gate cannot be bypassed by a local allow (0.375625ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.191125ms)
+✔ managed context is preserved when a batch is chunked (0.545666ms)
+✔ managed decision re-evaluates hook-modified input (1.374541ms)
+✔ a changed managed fingerprint is denied (0.309833ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.262625ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.294584ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (2.896667ms)
+✔ a mutation between gate completion and handler admission is refused (0.351375ms)
+✖ an asynchronous managed handler owns an isolated approved input snapshot (0.965625ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (1.418292ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.227125ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 19
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 966.629459
+
+✖ failing tests:
+
+test at apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:1:14194
+✖ an asynchronous managed handler owns an isolated approved input snapshot (0.965625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   operation: 'delete'
+  -   operation: 'write'
+    }
+
+      at TestContext.<anonymous> ($REPO_ROOT/test-results/argument-binding-sensitivity/client/apps/zcode-cli/packages/core/src/tool/executor/managed-decision.test.ts:581:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { operation: 'delete' },
+    expected: { operation: 'write' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

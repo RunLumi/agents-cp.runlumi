@@ -1,0 +1,15 @@
+✔ refuses credentials, insecure remote origins and non-origin URLs (0.407667ms)
+✔ host transport exposes only validated server-owned managed options (14.160625ms)
+✔ real S256 pair and host-private cookies follow the frozen auth contract (1.520166ms)
+✔ cancelled asynchronous sign-in cannot publish a pending flow (0.291958ms)
+✔ exchange missing CSRF cannot establish a session (0.251875ms)
+✔ session restores only from same-origin private persistence and logout clears it (0.206583ms)
+✔ cancel during persistent write clears the stale session before publishing (0.317208ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 449.965

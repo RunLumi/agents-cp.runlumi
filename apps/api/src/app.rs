@@ -10,7 +10,7 @@ use crate::adapters::crypto::DEVELOPMENT_CREDENTIAL_KEY_HEX;
 use crate::adapters::webauthn::{WebAuthnAdapter, WebAuthnConfig};
 
 use crate::{
-    adapters::d1::D1Adapter,
+    adapters::{d1::D1Adapter, execution::BackgroundWork},
     http::{json_body_limit, request_boundary},
     routes::{
         account, agents, ai_catalog, approvals, audit, auth, authenticators, automations, billing,
@@ -36,12 +36,14 @@ pub(crate) struct AppState {
     pub(crate) provider_allowlist: Vec<String>,
     pub(crate) allow_local_provider_endpoints: bool,
     pub(crate) webauthn: Option<WebAuthnAdapter>,
+    /// Request-scoped port for work that must outlive the response body (P04-CR-003).
+    pub(crate) background: BackgroundWork,
 }
 
 /// Construct the HTTP router for one Worker request. Public liveness/meta
 /// routes remain available when a storage binding is unavailable; internal
 /// foundation probes exist only in Wrangler's explicit development env.
-pub fn router(env: Env) -> Router {
+pub fn router(env: Env, background: BackgroundWork) -> Router {
     let is_development = env
         .var("ENVIRONMENT")
         .map(|value| value.to_string() == "development")
@@ -127,6 +129,7 @@ pub fn router(env: Env) -> Router {
         provider_allowlist,
         allow_local_provider_endpoints,
         webauthn,
+        background,
     });
 
     let mut routes = Router::<Arc<AppState>>::new()
@@ -303,6 +306,14 @@ pub fn router(env: Env) -> Router {
             post(devices::complete_enrollment),
         )
         .route("/api/v1/devices/token/nonce", get(devices::token_nonce))
+        .route(
+            "/api/v1/orgs/{org_id}/devices/{device_id}/recovery-challenges",
+            post(devices::create_recovery_challenge),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/devices/{device_id}/recover-token",
+            post(devices::recover_token),
+        )
         .route("/api/v1/devices/token", post(devices::refresh_token))
         .route("/api/v1/devices/heartbeat", post(devices::heartbeat))
         .route("/api/v1/devices/policy", get(devices::fetch_policy))

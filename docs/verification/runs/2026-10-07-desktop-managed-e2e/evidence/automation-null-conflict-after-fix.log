@@ -1,0 +1,24 @@
+✔ recovery requires complete exact-project pages before accepting correlation (12.6945ms)
+✔ only faithfully representable schedules are adoptable; everything else stays local (0.42725ms)
+✔ preview candidates and create bodies carry metadata only, never the prompt (32.062167ms)
+✔ zone offset tables are bounded and expose daylight-saving transitions (2.221917ms)
+✔ preview reads the server verdict and refuses a self-contradicting one (0.472167ms)
+✔ whole-automation conflicts with a null subject remain blocked rather than malformed (0.090917ms)
+✔ release readback refuses to treat a still-present managed automation as removed (0.57375ms)
+✔ opening previews only: the phase is previewing and nothing is chosen or confirmable (0.521666ms)
+✔ a preview becomes ready only for an importable adoptable row, and exposes its revision (0.119625ms)
+✔ conflicts, unsupported shapes and failures have no confirm path (0.09075ms)
+✔ confirm needs a chosen agent and model and the previewed revision (0.083875ms)
+✔ cancel closes from every phase except an in-flight confirm, and drops late results (0.081416ms)
+✔ confirm is a no-op unless the dialog is ready, and results for another request are ignored (0.093708ms)
+✔ a refused confirm reports a stable code and allows closing, never a silent success (0.062625ms)
+✔ known codes map to specific messages and anything else to the generic one (0.048167ms)
+✔ the card badge reflects who runs the original and flags ambiguous occurrences (0.349583ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 220.288292

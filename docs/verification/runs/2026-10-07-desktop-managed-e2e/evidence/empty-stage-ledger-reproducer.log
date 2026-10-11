@@ -1,0 +1,25 @@
+PASS positive control claim
+observed empty stage status PASS
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: a stage with no executed claim must never receive PASS
+
+'PASS' !== 'UNPROVEN'
+
+    at file://$REPO_ROOT/[eval1]:5:8
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async node:internal/modules/esm/loader:224:26
+    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:221:20)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 'PASS',
+  expected: 'UNPROVEN',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.19.0

@@ -1,0 +1,70 @@
+v24.19.0
+Keeping the local D1/R2 state in $REPO_ROOT/test-results/int05-verifier/automation-full-isolated-d1
+  PASS  fresh D1 applies the full migration ledger  — 28 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:50336
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-eqALQh/4a38c3b1f32d10bb6db7f9ba45ddf02a00fc8ea6-index_bg.wasm is 14737s newer than src/jobs/automations.rs
+  PASS  create Automation Journey Org  — status=201
+  PASS  Automation Journey Org organization ID  — org_756ace48f4addfa1bc6bd4a1891ded14
+  PASS  create disposable project  — status=201
+  PASS  create controllable success provider  — status=201
+  PASS  create success model  — status=201
+  PASS  create success credential  — status=201
+  PASS  create success route  — status=201
+  PASS  publish success route  — status=200
+  PASS  create controllable slow provider  — status=201
+  PASS  create slow model  — status=201
+  PASS  create slow credential  — status=201
+  PASS  create slow route  — status=201
+  PASS  publish slow route  — status=200
+  PASS  read organization policy  — status=200
+  PASS  enable managed policy  — status=200
+  PASS  create project-approved agent  — status=201
+  PASS  create bounded budget  — status=201
+PASS disposable organization, project, success route, hanging route, policy, agent and budget exist
+PASS four local automations are stored by the product's own repository before first launch
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+
+Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
+
+PASS actual UI: Lumi sign-in, device enrollment, opaque binding and managed-policy workspace
+DOM after-onboard: ["View","Collapse all","Filter and sort","Archived","Projects","Move Projects section","Add project","Tasks","Move Tasks section","New task","Connect","Mobile remote control","Settings","Resize sidebar","Help","Toggle terminal","Expand side pane","Upgrade","Set","Dismiss error","Remove current project selection","Choose workspace","Switch Git branch","Add context","Switch mode","Manage models","Send","Weekly Summary","Error Fix","PPT Creation","Idle-time task","Toggle sidebar","Go back","Go forward","New task","Back to workspace","Sections","General","Appearance","Model settings","Browser Use","Keyboard Shortcuts","Memory","Subagents","Plugins","MCP Servers","Skills","Commands","Hooks","Usage stats","Onboard","Connect","Back to workspace","Help","Interface mode","Proactive task suggestions","Enhanced Find and Grep","Chrome hardware acceleration","Receive preview updates early","Automatically download and install updates","Keep computer running","Automatically continue questions","Keep complete model I/O","Show reasoning","Show todos","Group exploration tools","Group terminal commands","Group file changes"]
+PASS actual UI lists the seeded local originals, none with a hand-over badge
+PASS real server conflict is shown with no Confirm or stored effects before entitlement
+PASS preview then Cancel: local tasks-index hash, marker table and D1 definition/occurrence/lease/run/link/audit counts are identical
+PASS bounded-run automation previews as not adoptable with its reason, no Confirm action, and no local or server mutation
+PASS explicit Hand over with a chosen agent and model completes in the actual UI
+PASS confirm preserved the local original byte-for-byte and wrote exactly one reversible marker (state managed)
+PASS D1 shows one active managed definition for the chosen project/agent/alias and the prompt body appears in no server table
+PASS the card shows Managed by Lumi only on the adopted original and offers Return instead of a second hand-over
+PASS server generated a due occurrence (its own sweep) and it reached succeeded through the real scheduler, not a test claim
+PASS D1: one lease for the desktop device, attempts claimed>started>succeeded, run link settled, P05 run succeeded (same ids)
+PASS the local managed-occurrence journal settled with the same occurrence and run ids as D1
+PASS real managed run readback: 1 inference request(s), 1 usage event(s), 8 audit row(s) for the same run/occurrence
+PASS the prompt body is in no server table after the managed run (measured 13 tables, 214 text columns, 86 rows)
+PASS the managed occurrence's own Agent task (sole task created in its claim-to-settle window; 0 other task(s) for the original outside it) is completed and its in-profile assistant message holds the mock reply "Hello from Lumi." with a terminal marker; correlation is by time window because task metadata has no occurrence id
+BLOCKED external provider round trip :: only the backend development mock:// provider is configured; no approved provider credential or spending cap
+UNPROVEN renewal during a long run :: the mock provider answers inside one heartbeat; renewal is graded in the restart/fault stages on the slow route
+waiting 392s for the local due time + two scheduler ticks
+PASS past the original's local due time, the unmarked control was dispatched locally while the adopted original stayed untouched: only the managed scheduler ran it
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+PASS client B runs in its own isolated profile with its own enrolled, active device
+PASS eligibility control: the due predicate admits only A while the definition is bound to wsb_2d55b0dda43d4a6b9d534f522e6b9b00, so a marker on B alone would never contend
+PASS owner retargeted the definition through the public PATCH route (eligible_device, no workspace binding, version bumped); the due predicate now admits both active devices
+UNPROVEN client B became a managed owner through a supported UI hand-over :: B's local marker for the shared managed automation is attached by the product's own repository (local test seeding); no UI or route attaches a second device's original to an existing managed automation
+FAIL race: AssertionError [ERR_ASSERTION]: contested occurrence ended failed
++ actual - expected
+
++ 'failed'
+- 'succeeded'
+
+    at raceStage (file://$REPO_ROOT/tests/integration/lib/automation-stage-race.mjs:204:12)
+    at async stage (file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:102:5)
+    at async file://$REPO_ROOT/tests/integration/desktop-automation-electron.mjs:172:3
+UNPROVEN restart: not run (stage race failed)
+UNPROVEN faults: not run (stage race failed)
+VERDICT FAIL; stages onboard=PASS adopt=PASS schedule=UNPROVEN race=FAIL restart=UNPROVEN faults=UNPROVEN
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-automation-a-VPdMKK
+EXIT=1

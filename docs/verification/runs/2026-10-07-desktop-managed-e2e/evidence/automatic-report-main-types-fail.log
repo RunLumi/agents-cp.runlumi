@@ -1,0 +1,173 @@
+packages/desktop/src/main/appARMSBootstrap.ts(177,7): error TS2353: Object literal may only specify known properties, and 'type' does not exist in type '{ name?: string | undefined; version?: string | undefined; env?: string | undefined; }'.
+packages/desktop/src/main/appARMSBootstrap.ts(246,14): error TS2322: Type 'Promise<void> | Promise<LumiTelemetryInitResult>' is not assignable to type 'Promise<void>'.
+  Type 'Promise<LumiTelemetryInitResult>' is not assignable to type 'Promise<void>'.
+    Type 'LumiTelemetryInitResult' is not assignable to type 'void'.
+packages/desktop/src/main/applicationIcons.ts(83,54): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+packages/desktop/src/main/applicationIcons.ts(92,78): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(1953,33): error TS18048: 'running' is possibly 'undefined'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2222,25): error TS2339: Property 'x' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'x' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2222,57): error TS2339: Property 'y' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'y' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2227,19): error TS2339: Property 'x' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'x' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2228,19): error TS2339: Property 'y' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'y' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2229,20): error TS2339: Property 'button' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'button' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2229,46): error TS2339: Property 'button' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'button' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2230,20): error TS2339: Property 'doubleClick' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'doubleClick' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2230,70): error TS2339: Property 'doubleClick' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'doubleClick' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2232,26): error TS2339: Property 'x' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'x' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2233,26): error TS2339: Property 'y' does not exist on type '{ type: "click"; selector?: string | undefined; x?: number | undefined; y?: number | undefined; button?: "left" | "right" | "middle" | undefined; doubleClick?: boolean | undefined; delayAfterMs?: number | undefined; } | { ...; } | { ...; }'.
+  Property 'y' does not exist on type '{ type: "type"; selector: string; text: string; delayAfterMs?: number | undefined; }'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2628,40): error TS18048: 'tab.guest' is possibly 'undefined'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(2779,5): error TS2322: Type '{ lifecycle?: "closed" | "deliverable" | "handoff" | undefined; active?: true | undefined; tabId: string; url: string; title: string; viewport: { width: number; height: number; }; }' is not assignable to type '{ tabId: string; url: string; title: string; viewport: { width: number; height: number; }; active?: boolean | undefined; lifecycle?: "active" | "deliverable" | "handoff" | undefined; }'.
+  Types of property 'lifecycle' are incompatible.
+    Type '"closed" | "deliverable" | "handoff" | undefined' is not assignable to type '"active" | "deliverable" | "handoff" | undefined'.
+      Type '"closed"' is not assignable to type '"active" | "deliverable" | "handoff" | undefined'.
+packages/desktop/src/main/browserView/browserGuestManager.ts(3855,22): error TS2367: This comparison appears to be unintentional because the types '"active" | "deliverable" | "handoff"' and '"closed"' have no overlap.
+packages/desktop/src/main/browserView/browserGuestManager.ts(3856,11): error TS2367: This comparison appears to be unintentional because the types '"active" | "deliverable" | "handoff"' and '"closed"' have no overlap.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(20,16): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(21,35): error TS2304: Cannot find name 'Element'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(31,26): error TS2304: Cannot find name 'Element'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(40,34): error TS2304: Cannot find name 'Element'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(42,10): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(44,14): error TS7006: Parameter 'element' implicitly has an 'any' type.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(45,11): error TS7006: Parameter 'element' implicitly has an 'any' type.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(49,21): error TS2304: Cannot find name 'HTMLElement'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(49,67): error TS2304: Cannot find name 'HTMLInputElement'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(66,3): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(68,16): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(71,25): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(73,17): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(77,17): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightExecutor.ts(80,3): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+packages/desktop/src/main/browserView/browserPlaywrightLocatorExecutor.ts(319,13): error TS2322: Type 'ScrollAlignment | undefined' is not assignable to type 'ScrollAlignment'.
+  Type 'undefined' is not assignable to type 'ScrollAlignment'.
+packages/desktop/src/main/browserView/browserScreenshotSurfaceContracts.ts(5,3): error TS2305: Module '"@zcode/shared"' has no exported member 'BrowserViewSurfaceScaleMode'.
+packages/desktop/src/main/browserView/electronBrowserWebmRecorder.ts(384,33): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type '"console-message"' is not assignable to parameter of type '"zoom-changed"'.
+packages/desktop/src/main/browserView/electronBrowserWebmRecorder.ts(405,47): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type '"console-message"' is not assignable to parameter of type '"zoom-changed"'.
+packages/desktop/src/main/chromeLocalStorageManager.ts(421,56): error TS2345: Argument of type 'ChildProcessByStdio<null, Readable, Readable>' is not assignable to parameter of type 'ChildProcessWithoutNullStreams'.
+  Types of property 'stdin' are incompatible.
+    Type 'null' is not assignable to type 'Writable'.
+packages/desktop/src/main/chromeLocalStorageManager.ts(426,28): error TS2345: Argument of type 'ChildProcessByStdio<null, Readable, Readable>' is not assignable to parameter of type 'ChildProcessWithoutNullStreams'.
+  Types of property 'stdin' are incompatible.
+    Type 'null' is not assignable to type 'Writable'.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(214,13): error TS7006: Parameter '_traceId' implicitly has an 'any' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(214,23): error TS7019: Rest parameter 'args' implicitly has an 'any[]' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(215,12): error TS7006: Parameter '_traceId' implicitly has an 'any' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(215,22): error TS7019: Rest parameter 'args' implicitly has an 'any[]' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(216,12): error TS7006: Parameter '_traceId' implicitly has an 'any' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(216,22): error TS7019: Rest parameter 'args' implicitly has an 'any[]' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(217,13): error TS7006: Parameter '_traceId' implicitly has an 'any' type.
+packages/desktop/src/main/cuaAccessibilitySettings.ts(217,23): error TS7019: Rest parameter 'args' implicitly has an 'any[]' type.
+packages/desktop/src/main/databaseStartupTelemetry.ts(47,29): error TS2345: Argument of type 'FinalArmsCustomEventPayload' is not assignable to parameter of type 'TelemetryCustomEvent'.
+  Index signature for type 'string' is missing in type 'FinalArmsCustomEventPayload'.
+packages/desktop/src/main/desktopCrashCapture.ts(178,24): error TS2345: Argument of type '{ entry: string; path: string; mtimeMs: number; size: number; } | undefined' is not assignable to parameter of type '{ entry: string; path: string; mtimeMs: number; size: number; }'.
+  Type 'undefined' is not assignable to type '{ entry: string; path: string; mtimeMs: number; size: number; }'.
+packages/desktop/src/main/desktopCrashCapture.ts(180,18): error TS18048: 'dump' is possibly 'undefined'.
+packages/desktop/src/main/desktopCronScheduler.ts(13,8): error TS6059: File '$LUMI_AGENTS_DIR/packages/desktop/src/scheduler/schedulerProtocol.ts' is not under 'rootDir' '$LUMI_AGENTS_DIR/packages/desktop/src/main'. 'rootDir' is expected to contain all source files.
+  File is ECMAScript module because '$LUMI_AGENTS_DIR/packages/desktop/package.json' has field "type" with value "module"
+packages/desktop/src/main/desktopCronScheduler.ts(13,8): error TS6307: File '$LUMI_AGENTS_DIR/packages/desktop/src/scheduler/schedulerProtocol.ts' is not listed within the file list of project '$LUMI_AGENTS_DIR/packages/desktop/tsconfig.main.json'. Projects must list all files or use an 'include' pattern.
+  File is ECMAScript module because '$LUMI_AGENTS_DIR/packages/desktop/package.json' has field "type" with value "module"
+packages/desktop/src/main/desktopHelpConfig.ts(14,82): error TS2345: Argument of type 'string | Request | URL' is not assignable to parameter of type 'string | Request'.
+  Type 'URL' is not assignable to type 'string | Request'.
+packages/desktop/src/main/desktopMainIpcPlatform.ts(22,8): error TS2305: Module '"@zcode/shared"' has no exported member 'WindowControlsOverlayReadyPayload'.
+packages/desktop/src/main/desktopMainIpcRemote.ts(220,54): error TS2345: Argument of type 'FinalArmsCustomEventPayload' is not assignable to parameter of type 'TelemetryCustomEvent'.
+  Index signature for type 'string' is missing in type 'FinalArmsCustomEventPayload'.
+packages/desktop/src/main/desktopMainIpcRemote.ts(361,58): error TS2345: Argument of type 'FinalArmsCustomEventPayload' is not assignable to parameter of type 'TelemetryCustomEvent'.
+  Index signature for type 'string' is missing in type 'FinalArmsCustomEventPayload'.
+packages/desktop/src/main/desktopPrintToPdf.ts(26,31): error TS2322: Type 'ArrayBuffer | SharedArrayBuffer' is not assignable to type 'ArrayBuffer | undefined'.
+  Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+packages/desktop/src/main/desktopRemoteSessions.ts(105,10): error TS2678: Type '"server"' is not comparable to type '"ssh" | "wsl" | "docker"'.
+packages/desktop/src/main/desktopRemoteSessions.ts(107,9): error TS2367: This comparison appears to be unintentional because the types '"ssh" | "wsl" | "docker"' and '"server"' have no overlap.
+packages/desktop/src/main/desktopRemoteSessions.ts(108,52): error TS2339: Property 'url' does not exist on type 'never'.
+packages/desktop/src/main/desktopRemoteSessions.ts(109,55): error TS2339: Property 'url' does not exist on type 'never'.
+packages/desktop/src/main/desktopRemoteSessions.ts(122,10): error TS2678: Type '"server"' is not comparable to type '"ssh" | "wsl" | "docker"'.
+packages/desktop/src/main/desktopRemoteSessions.ts(123,69): error TS2339: Property 'url' does not exist on type 'never'.
+packages/desktop/src/main/desktopSaveFile.ts(69,5): error TS2739: Type 'LookupAddress[]' is missing the following properties from type 'LookupAddress': address, family
+packages/desktop/src/main/desktopSaveFile.ts(74,15): error TS2339: Property 'length' does not exist on type 'LookupAddress'.
+packages/desktop/src/main/desktopSaveFile.ts(75,15): error TS2339: Property 'some' does not exist on type 'LookupAddress'.
+packages/desktop/src/main/desktopSaveFile.ts(75,23): error TS7031: Binding element 'address' implicitly has an 'any' type.
+packages/desktop/src/main/desktopSaveFile.ts(75,32): error TS7031: Binding element 'family' implicitly has an 'any' type.
+packages/desktop/src/main/desktopSaveFile.ts(93,24): error TS2345: Argument of type 'LookupAddress' is not assignable to parameter of type 'string | LookupAddress[]'.
+packages/desktop/src/main/desktopSaveFile.ts(96,23): error TS7053: Element implicitly has an 'any' type because expression of type '0' can't be used to index type 'LookupAddress'.
+  Property '0' does not exist on type 'LookupAddress'.
+packages/desktop/src/main/desktopSaveFile.ts(196,22): error TS18048: 'payload.data' is possibly 'undefined'.
+packages/desktop/src/main/desktopSaveFile.ts(199,22): error TS18048: 'payload.data' is possibly 'undefined'.
+packages/desktop/src/main/desktopSaveFile.ts(216,59): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'ArrayBuffer | undefined' is not assignable to parameter of type 'ArrayBuffer | ArrayLike<number>'.
+      Type 'undefined' is not assignable to type 'ArrayBuffer | ArrayLike<number>'.
+packages/desktop/src/main/desktopWindowLifecycle.ts(193,58): error TS2345: Argument of type '{ runtimeProcessEnvPatch: Record<string, string>; agentSpawnFallbackCwd: string; agentWarmupTargets?: StartupWorkspaceWarmupTarget[] | undefined; type: "init-local"; deviceMid: string; workspacePath: string | undefined; workspaceIdentity: string | undefined; }' is not assignable to parameter of type 'HostInitMessage'.
+  Property 'zcodeBuiltinProviderConfigFilePath' is missing in type '{ runtimeProcessEnvPatch: Record<string, string>; agentSpawnFallbackCwd: string; agentWarmupTargets?: StartupWorkspaceWarmupTarget[] | undefined; type: "init-local"; deviceMid: string; workspacePath: string | undefined; workspaceIdentity: string | undefined; }' but required in type 'HostInitMessage'.
+packages/desktop/src/main/index.ts(136,55): error TS7016: Could not find a declaration file for module '../../scripts/desktop-product-identity.mjs'. '$LUMI_AGENTS_DIR/packages/desktop/scripts/desktop-product-identity.mjs' implicitly has an 'any' type.
+packages/desktop/src/main/index.ts(760,42): error TS2345: Argument of type 'Net' is not assignable to parameter of type 'DesktopTelemetryFetchSource'.
+  Types of property 'fetch' are incompatible.
+    Type '(input: string | Request, init?: (RequestInit & { bypassCustomProtocolHandlers?: boolean | undefined; }) | undefined) => Promise<Response>' is not assignable to type '(input: string | URL | Request, init?: RequestInit | undefined) => Promise<Response>'.
+      Types of parameters 'input' and 'input' are incompatible.
+        Type 'string | URL | Request' is not assignable to type 'string | Request'.
+          Type 'URL' is not assignable to type 'string | Request'.
+packages/desktop/src/main/index.ts(1886,5): error TS2322: Type '(webContentsId: number) => (BrowserGuestExecutionContext & { tabId: string; }) | null' is not assignable to type '(webContentsId: number) => { workspaceKey: string; remoteSessionId?: string | undefined; sessionId: string; browserId: string; browserGeneration: number; tabId: string; } | undefined'.
+  Type '(BrowserGuestExecutionContext & { tabId: string; }) | null' is not assignable to type '{ workspaceKey: string; remoteSessionId?: string | undefined; sessionId: string; browserId: string; browserGeneration: number; tabId: string; } | undefined'.
+    Type 'null' is not assignable to type '{ workspaceKey: string; remoteSessionId?: string | undefined; sessionId: string; browserId: string; browserGeneration: number; tabId: string; } | undefined'.
+packages/desktop/src/main/index.ts(2215,5): error TS2322: Type '(patch: Partial<AppSettings>) => void' is not assignable to type '(patch: unknown) => void'.
+  Types of parameters 'patch' and 'patch' are incompatible.
+    Type 'unknown' is not assignable to type 'Partial<AppSettings>'.
+packages/desktop/src/main/index.ts(2358,20): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+packages/desktop/src/main/lumiAccountCommands.test.ts(83,23): error TS2740: Type '{ recoverDevice: (org: string) => Promise<{ status: string; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiAccountCommands.test.ts(92,23): error TS2740: Type '{ recoverDevice: (org: string) => Promise<{ status: string; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiAccountCommands.test.ts(142,23): error TS2740: Type '{ bindWorkspace: (command: { orgId: string; projectId: string; workspacePath: string; displayName: string; confirm: true; }) => Promise<{ status: string; orgId: string; workspaceKey: string; stage: string; ... 6 more ...; displayName: string; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiAccountCommands.test.ts(150,23): error TS2740: Type '{ bindWorkspace: (command: { orgId: string; projectId: string; workspacePath: string; displayName: string; confirm: true; }) => Promise<{ status: string; orgId: string; workspaceKey: string; stage: string; ... 6 more ...; displayName: string; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiAccountCommands.test.ts(158,21): error TS2740: Type '{ bindWorkspace: (command: { orgId: string; projectId: string; workspacePath: string; displayName: string; confirm: true; }) => Promise<{ status: string; orgId: string; workspaceKey: string; stage: string; ... 6 more ...; displayName: string; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiAccountCommands.test.ts(207,23): error TS2740: Type '{ beginManagedRun: (input: { orgId: string; workspaceIdentity: string; agentDefinitionId: string; modelAlias: string; }) => Promise<{ organizationId: string; projectId: string; deviceId: string; agentSessionId: string; ... 6 more ...; policyVersion: number; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiAccountCommands.test.ts(215,21): error TS2740: Type '{ beginManagedRun: (input: { orgId: string; workspaceIdentity: string; agentDefinitionId: string; modelAlias: string; }) => Promise<{ organizationId: string; projectId: string; deviceId: string; agentSessionId: string; ... 6 more ...; policyVersion: number; }>; }' is missing the following properties from type 'AccountOwner': beginSignIn, completeSignIn, cancelSignIn, readAccount, and 2 more.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(168,20): error TS18048: 'input.workspaceIdentity' is possibly 'undefined'.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(212,24): error TS2339: Property 'mappings' does not exist on type 'never'.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(233,26): error TS2339: Property 'stage' does not exist on type 'never'.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(234,26): error TS2339: Property 'ownership' does not exist on type 'never'.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(244,26): error TS2339: Property 'stage' does not exist on type 'never'.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(252,26): error TS2339: Property 'projectId' does not exist on type 'never'.
+packages/desktop/src/main/lumiWorkspaceOwner.test.ts(253,26): error TS2339: Property 'deviceId' does not exist on type 'never'.
+packages/desktop/src/main/manifestUpdateProvider.ts(234,11): error TS2352: Conversion of type 'Record<string, unknown>' to type 'UpdateInfo' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'Record<string, unknown>' is missing the following properties from type 'UpdateInfo': version, files, path, sha512, releaseDate
+packages/desktop/src/main/resourceManagerStorage.ts(16,8): error TS2305: Module '"@zcode/services/node"' has no exported member 'IStorageService'.
+packages/desktop/src/main/resourceManagerStorage.ts(33,27): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+packages/desktop/src/main/storageScanWorker.ts(7,15): error TS2305: Module '"@zcode/services"' has no exported member 'StorageRootSpec'.
+packages/desktop/src/main/storageScanWorkerProtocol.ts(1,15): error TS2305: Module '"@zcode/services"' has no exported member 'StorageRootSpec'.
+packages/desktop/src/main/taskRealtimeBus.ts(251,44): error TS2345: Argument of type '{ eventId: string; workspacePath: string; workspaceKey: string; traceId: string; createdAt: number; reason: "stream_mirror_owner_lost" | "stream_mirror_gap" | "task_created" | "user_message_saved" | ... 9 more ... | "task_deleted"; type: "task_snapshot_invalidated"; taskId: string; workspaceIdentity?: string | undef...' is not assignable to parameter of type 'TaskRealtimeEvent'.
+  Type '{ eventId: string; workspacePath: string; workspaceKey: string; traceId: string; createdAt: number; type: "task_stream_mirror_batch"; taskId: string; runId: string; batchSeq: number; fromSeq: number; ... 5 more ...; ownerDeviceLabel?: string | undefined; }' is not assignable to type 'TaskRealtimeEvent'.
+    Type '{ eventId: string; workspacePath: string; workspaceKey: string; traceId: string; createdAt: number; type: "task_stream_mirror_batch"; taskId: string; runId: string; batchSeq: number; fromSeq: number; ... 5 more ...; ownerDeviceLabel?: string | undefined; }' is not assignable to type 'TaskStreamMirrorBatchEvent'.
+      Types of property 'ops' are incompatible.
+        Type '({ kind: "user_message"; messageId: string; content: string; timestamp: number; seq: number; attachments?: ({ kind: "image"; filename: string; mimeType: string; sizeBytes?: number | undefined; dataBase64?: string | undefined; localPath?: string | undefined; } | { ...; } | { ...; } | { ...; } | { ...; })[] | undefine...' is not assignable to type 'TaskStreamMirrorOp[]'.
+          Type '{ kind: "user_message"; messageId: string; content: string; timestamp: number; seq: number; attachments?: ({ kind: "image"; filename: string; mimeType: string; sizeBytes?: number | undefined; dataBase64?: string | undefined; localPath?: string | undefined; } | { ...; } | { ...; } | { ...; } | { ...; })[] | undefined...' is not assignable to type 'TaskStreamMirrorOp'.
+            Type '{ kind: "stream_event"; event: { [x: string]: unknown; type: string; taskId: string; traceId: string; }; seq: number; }' is not assignable to type 'TaskStreamMirrorOp'.
+              Type '{ kind: "stream_event"; event: { [x: string]: unknown; type: string; taskId: string; traceId: string; }; seq: number; }' is not assignable to type 'TaskStreamMirrorStreamEventOp & { seq: number; }'.
+                Type '{ kind: "stream_event"; event: { [x: string]: unknown; type: string; taskId: string; traceId: string; }; seq: number; }' is not assignable to type 'TaskStreamMirrorStreamEventOp'.
+                  Types of property 'event' are incompatible.
+                    Type '{ [x: string]: unknown; type: string; taskId: string; traceId: string; }' is not assignable to type 'TaskStreamMirrorableEvent'.
+                      Type '{ [x: string]: unknown; type: string; taskId: string; traceId: string; }' is not assignable to type 'ZCodeTaskNetworkDebugStatus & { inputId?: string | undefined; }'.
+                        Type '{ [x: string]: unknown; type: string; taskId: string; traceId: string; }' is missing the following properties from type 'ZCodeTaskNetworkDebugStatus': eventKey, statusType, requestHeaders, responseHeaders, and 2 more.
+packages/desktop/src/main/taskRealtimeBus.ts(260,64): error TS2345: Argument of type '{ kind: "user_message"; messageId: string; content: string; timestamp: number; attachments?: ({ kind: "image"; filename: string; mimeType: string; sizeBytes?: number | undefined; dataBase64?: string | undefined; localPath?: string | undefined; } | { ...; } | { ...; } | { ...; } | { ...; })[] | undefined; } | { ...; }' is not assignable to parameter of type 'TaskStreamMirrorPublishOp'.
+  Type '{ kind: "stream_event"; event: { [x: string]: unknown; type: string; taskId: string; traceId: string; }; }' is not assignable to type 'TaskStreamMirrorPublishOp'.
+    Type '{ kind: "stream_event"; event: { [x: string]: unknown; type: string; taskId: string; traceId: string; }; }' is not assignable to type 'TaskStreamMirrorStreamEventOp'.
+      Types of property 'event' are incompatible.
+        Type '{ [x: string]: unknown; type: string; taskId: string; traceId: string; }' is not assignable to type 'TaskStreamMirrorableEvent'.
+          Type '{ [x: string]: unknown; type: string; taskId: string; traceId: string; }' is not assignable to type 'ZCodeTaskNetworkDebugStatus & { inputId?: string | undefined; }'.
+            Type '{ [x: string]: unknown; type: string; taskId: string; traceId: string; }' is missing the following properties from type 'ZCodeTaskNetworkDebugStatus': eventKey, statusType, requestHeaders, responseHeaders, and 2 more.
+packages/desktop/src/main/taskRealtimeBus.ts(599,50): error TS2339: Property 'event' does not exist on type 'TaskStreamMirrorPublishOp'.
+  Property 'event' does not exist on type 'TaskStreamMirrorUserMessageOp'.
+packages/desktop/src/main/windowsChromeAppBoundKey.ts(364,40): error TS2339: Property 'expectedAppVersion' does not exist on type 'ReadAppBoundKeyOptions'.
+packages/desktop/src/main/windowsChromeAppBoundKey.ts(365,41): error TS2339: Property 'expectedBuildCommit' does not exist on type 'ReadAppBoundKeyOptions'.

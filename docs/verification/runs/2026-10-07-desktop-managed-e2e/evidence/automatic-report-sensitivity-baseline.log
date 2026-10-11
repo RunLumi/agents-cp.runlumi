@@ -1,0 +1,29 @@
+✔ turn tool boundary prevents a real file side effect without the managed broker (12.061833ms)
+✔ an installed reverse broker preserves local tool execution without per-turn managed context (1.408166ms)
+✔ an explicit local-only context preserves unmanaged execution (0.582458ms)
+✔ a managed gate cannot be bypassed by a local allow (0.520083ms)
+✔ unmanaged local execution keeps the existing local allow behavior (0.210208ms)
+✔ managed context is preserved when a batch is chunked (0.589917ms)
+✔ managed decision re-evaluates hook-modified input (2.251292ms)
+✔ a changed managed fingerprint is denied (0.3055ms)
+✔ an unknown privileged tool is denied before a permissive adapter can allow it (0.232083ms)
+✔ a contract-shaped port is adapted and requires an exact bound allow (0.31375ms)
+✔ approval cannot authorize an input object mutated while waiting, with real file effects (2.025833ms)
+✔ a mutation between gate completion and handler admission is refused (0.282375ms)
+✔ an asynchronous managed handler owns an isolated approved input snapshot (0.271167ms)
+✔ a broker resolving after cancellation cannot enter the real file handler (1.753625ms)
+✔ a full managed context cannot be authorized by an unbound allow (0.702ms)
+✔ managed handler completes once but tool success waits for result ACK without sending output (0.391875ms)
+✔ missing required reporter prevents handler and broker admission (0.257875ms)
+✔ handler failure reports failed with no exception text (1.07725ms)
+✔ failed report is unknown delivery and never retries the handler (0.253125ms)
+✔ cancelled managed execution reports cancelled without raw failure detail (0.43675ms)
+✔ late allow after cancellation reports the claimed call cancelled without entering handler (0.242125ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1879.933208

@@ -1,5 +1,16 @@
 # Contract Gate — P05-CG
 
+DE2E additive clarification [P05-CR-003](../change-requests/P05-CR-003.md):
+tool-decision responses include server-computed `arguments_hash` of the canonical
+redacted summary. Approval consumption requirements are unchanged.
+
+[P05-CR-004](../change-requests/P05-CR-004.md) is the accepted repair design for
+the pre-execution consumption/once-only claim. Backend `status: allowed` preflight
+is implemented with migration 0027; scoped Worker/D1 proof is recorded in
+the dated desktop evidence. Client wiring, full hostile/sensitivity/compatibility
+proof and delivery remain pending. Result reporting after execution alone is
+not evidence of the pre-execution gate.
+
 - Phase: P05 — Runs, sessions, tool policy, usage, budgets
 - Owner: P05 coordinator
 - State: frozen
@@ -395,6 +406,28 @@ P05-CR-002 adds the device-token equivalents under `/api/v1/devices/sessions` an
 | POST | `/orgs/{org_id}/approvals/{approval_id}/resolve` | `approvals.resolve` + CSRF + Idempotency-Key | `{decision,reason?,version}` | `200 ApprovalRequest` |
 
 The tool-decision endpoint is a broker boundary, not a client override. It evaluates the current policy and returns no secret. For a privileged action, the execution host must not proceed until it receives a valid `approved` decision tied to the exact call.
+
+### P04 inference correlation (P04-CR-001)
+
+The LumiAgents OpenAI-compatible P04 request may include P05 correlation headers
+for project, device, P05 agent session, run, agent definition/version, and
+`execution_mode=managed`. These are untrusted IDs only. P04 must resolve and
+cross-check each against D1, the authenticated P02 principal, stable alias,
+active P03 binding/device, P05 session/run and current policy before dispatch.
+No header grants org or device authority. The P02 `session_id` remains distinct
+from the P05 `agent_session_id`; P04 generates the canonical `request_id`.
+Legacy requests with no P05 headers keep their P04-only behavior.
+
+### P04 inference correlation (P04-CR-001)
+
+LumiAgents' OpenAI-compatible P04 request may include P05 correlation headers
+for project, device, P05 agent session, run, agent definition/version, and
+`execution_mode=managed`. They are untrusted IDs only. P04 must resolve and
+cross-check each against D1, authenticated P02 principal, stable alias,
+active P03 binding/device, P05 session/run and current policy before dispatch.
+No header grants organization or device authority. The P02 `session_id`
+remains distinct from P05 `agent_session_id`; P04 generates the canonical
+`request_id`. Legacy requests with no P05 headers keep their P04-only behavior.
 
 ### Usage/budget APIs
 

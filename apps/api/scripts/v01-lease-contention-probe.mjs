@@ -190,6 +190,25 @@ await runProbe("V01 automation-lease", async (probe) => {
     return;
   }
 
+  // A binding-less automation runs in the claiming device's OWN workspace for the project, which
+  // the server resolves from that device's live binding. Without one the claim is refused with
+  // `workspace_binding_unresolved`, so each racer needs a real binding (the route a device uses).
+  for (const device of [deviceA, deviceB]) {
+    const bound = await request(
+      anonJar(),
+      "POST",
+      "/api/v1/devices/bindings",
+      {
+        project_id: projectId,
+        workspace_identity: `v01-lease-workspace-${device.deviceId}`,
+        display_name: `V01 ${device.label} workspace`,
+        environment_type: "local",
+      },
+      { Authorization: `DeviceToken ${device.token}` },
+    );
+    expectStatus(`CONTROL: ${device.label} has a workspace binding for the project`, bound, [201]);
+  }
+
   // Try EVERY schedule kind before giving up, because the fault may be kind-specific and
   // "the one kind I happened to choose fails" is not the same finding as "the route is
   // broken". `one_time` and `interval` exercise `plan_next_run` with real inputs where

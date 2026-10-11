@@ -46,16 +46,12 @@ pub fn estimate_text_tokens(text: &str) -> u32 {
 }
 
 pub fn estimate_request_tokens(request: &crate::modules::inference::InferenceRequest) -> u32 {
-    request
-        .messages
-        .iter()
-        .flat_map(|message| message.content.iter())
-        .fold(0_u32, |total, part| {
-            let part_tokens = match part {
-                crate::modules::inference::ContentPart::Text { text } => estimate_text_tokens(text),
-            };
-            total.saturating_add(part_tokens)
-        })
+    request.messages.iter().fold(0_u32, |total, message| {
+        // Tool-call ids, names and arguments are billed request content too.
+        let bytes = message.content_bytes() as u64;
+        let tokens = bytes.div_ceil(4).min(u64::from(u32::MAX)) as u32;
+        total.saturating_add(tokens)
+    })
 }
 
 #[cfg(test)]

@@ -1,0 +1,5 @@
+DETECTED   reread-keeps-projection
+  expected-red workspace.dropped-bind-reread-fails-disables-bind: FAIL — timed out waiting for: bind disabled
+  expected-red workspace.credential-refusal-reread-fails-clears-choice: FAIL — timed out waiting for: absent: credential radios
+
+1/1 mutants detected

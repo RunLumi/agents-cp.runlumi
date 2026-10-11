@@ -213,13 +213,27 @@ WHERE schedule_rule_id = ?1 AND org_id = ?2
 LIMIT 1
 "#;
 
+// Both create and update persist the validated canonical revision. Derive the
+// typed projection here: passing NULL subtype fields used to make every clock
+// schedule fail the immutable schema's CHECK, while manual-only tests passed.
 const INSERT_SCHEDULE_RULE_SQL: &str = r#"
 INSERT INTO automation_schedule_rules (
     schedule_rule_id, org_id, kind, expression, timezone, dom_dow_mode, dst_policy,
     interval_every, interval_unit, anchor_at, scheduled_at, by_weekday_json,
     by_monthday_json, by_month_json, overlap_policy, missed_policy, catch_up_limit,
     canonical_json, version, created_at
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+) VALUES (
+    ?1, ?2, json_extract(?3, '$.rule.kind'),
+    json_extract(?3, '$.rule.expression'), json_extract(?3, '$.rule.timezone'),
+    json_extract(?3, '$.rule.dom_dow_mode'), json_extract(?3, '$.rule.dst_policy'),
+    json_extract(?3, '$.rule.every'), json_extract(?3, '$.rule.unit'),
+    json_extract(?3, '$.rule.anchor_at'), json_extract(?3, '$.rule.scheduled_at'),
+    json_extract(?3, '$.rule.by_weekday'), json_extract(?3, '$.rule.by_monthday'),
+    json_extract(?3, '$.rule.by_month'),
+    COALESCE(json_extract(?3, '$.rule.overlap_policy'), 'skip'),
+    COALESCE(json_extract(?3, '$.rule.missed_policy'), 'run_once'),
+    json_extract(?3, '$.rule.catch_up_limit'), ?3, 1, ?4
+)
 "#;
 
 const INSERT_AUTOMATION_SQL: &str = r#"
@@ -416,16 +430,26 @@ WHERE o.org_id = ?2
   AND o.queued_at IS NULL
   AND (o.scheduled_for_utc IS NULL OR o.scheduled_for_utc <= ?3)
   AND (d.target_kind = 'eligible_device' OR d.target_device_id = ?1)
-  AND (d.target_workspace_binding_id IS NULL OR EXISTS (
-        SELECT 1 FROM workspace_bindings b
-        WHERE b.binding_id = d.target_workspace_binding_id
-          AND b.device_id = ?1 AND b.org_id = o.org_id
-      ))
+  AND (
+        (d.target_workspace_binding_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM workspace_bindings b
+            WHERE b.binding_id = d.target_workspace_binding_id
+              AND b.device_id = ?1 AND b.org_id = o.org_id AND b.removed_at IS NULL
+        ))
+        -- A binding-less target is resolved by the SERVER from this device's own live
+        -- binding for the automation's project. Exactly one is required: zero cannot
+        -- run, and several would make the server guess a workspace for the device.
+        OR (d.target_workspace_binding_id IS NULL AND (
+            SELECT COUNT(*) FROM workspace_bindings b
+            WHERE b.org_id = o.org_id AND b.project_id = o.project_id
+              AND b.device_id = ?1 AND b.removed_at IS NULL
+        ) = 1)
+      )
   AND NOT EXISTS (
       SELECT 1 FROM automation_leases l
       WHERE l.occurrence_id = o.occurrence_id AND l.state = 'active'
   )
-ORDER BY o.scheduled_for_ ASC, o.occurrence_id ASC
+ORDER BY o.scheduled_for_utc ASC, o.occurrence_id ASC
 LIMIT ?4
 "#;
 
@@ -493,8 +517,8 @@ INSERT INTO automation_occurrence_attempts (
 "#;
 
 const ATTEMPTS_SQL: &str = r#"
-SELECT attempt_id, occurrence_id, lease_id, attempt, outcome, run_id, reason_code,
-       lease_version, lease_fence, recorded_at
+SELECT a.attempt_id, a.occurrence_id, a.lease_id, a.attempt, a.outcome, a.run_id, a.reason_code,
+       a.lease_version, a.lease_fence, a.recorded_at
 FROM automation_occurrence_attempts a
 JOIN automation_occurrences o ON o.occurrence_id = a.occurrence_id
 WHERE a.occurrence_id = ?1 AND o.org_id = ?2
@@ -595,6 +619,60 @@ FROM agent_sessions s
 WHERE s.org_id = ?2 AND s.device_id = ?7 AND s.external_id = ?16 AND s.lifecycle = 'active'
 "#;
 
+/// The claiming device's own live bindings, optionally pinned to the definition's binding.
+/// `LIMIT 2` is enough to tell "exactly one" from "ambiguous" without reading the table.
+const DEVICE_WORKSPACE_BINDINGS_SQL: &str = r#"
+SELECT binding_id
+FROM workspace_bindings
+WHERE org_id = ?1
+  AND device_id = ?3
+  AND removed_at IS NULL
+  AND ((?4 IS NULL AND project_id = ?2) OR binding_id = ?4)
+ORDER BY binding_id ASC
+LIMIT 2
+"#;
+
+/// Cancel the P05 run an occurrence created but that never left `queued`. Scoped to the
+/// occurrence AND lease that created it and to the `queued` state, so a run a host already
+/// advanced (or a user already cancelled) is never touched.
+const CANCEL_UNSTARTED_AUTOMATION_RUN_SQL: &str = r#"
+UPDATE runs
+SET state = 'cancelled',
+    failure_code = ?3,
+    finished_at = ?4,
+    cancel_requested_at = COALESCE(cancel_requested_at, ?4),
+    version = version + 1,
+    state_version = state_version + 1,
+    updated_at = ?4
+WHERE run_id = ?1
+  AND org_id = ?2
+  AND automation_occurrence_id = ?5
+  AND automation_lease_id = ?6
+  AND state = 'queued'
+"#;
+
+/// The append-only event for the cancellation above. It only inserts when the run is in the
+/// state THIS settlement just wrote, so a no-op cancel emits nothing.
+const INSERT_UNSTARTED_RUN_CANCEL_EVENT_SQL: &str = r#"
+INSERT INTO run_events (
+    run_event_id, run_id, org_id, project_id, request_id, device_id,
+    agent_session_id, schema_version, sequence, event_type, occurred_at,
+    recorded_at, actor_type, actor_id, correlation_id, tool_call_id,
+    approval_id, payload_json
+)
+SELECT ?1, r.run_id, r.org_id, r.project_id, ?3, r.device_id,
+       r.agent_session_id, 1,
+       (SELECT COALESCE(MAX(e.sequence), 0) + 1 FROM run_events e WHERE e.run_id = r.run_id),
+       'run.cancelled.v1', ?4, ?4, 'system', NULL, ?5, NULL, NULL, ?6
+FROM runs r
+WHERE r.run_id = ?2
+  AND r.org_id = ?7
+  AND r.automation_occurrence_id = ?8
+  AND r.state = 'cancelled'
+  AND r.failure_code = ?9
+  AND r.finished_at = ?4
+"#;
+
 /// The P05 agent session created for one occurrence, discovered by the
 /// occurrence's `external_id`. A repeated `start` must return the SAME session so
 /// the host's grant is idempotent.
@@ -640,6 +718,27 @@ const CURRENT_POLICY_VERSION_SQL: &str = r#"
 SELECT COALESCE(MAX(policy_version), 0) AS policy_version
 FROM policy_snapshots
 WHERE org_id = ?1
+"#;
+
+/// The same row P05 tool admission treats as "the latest snapshot", so the policy
+/// bound at dispatch is exactly what admission later compares a run against.
+const LATEST_POLICY_SNAPSHOT_SQL: &str = r#"
+SELECT policy_id, policy_version
+FROM policy_snapshots
+WHERE org_id = ?1
+ORDER BY policy_version DESC
+LIMIT 1
+"#;
+
+/// Bind the server-resolved policy to a still-`pending` occurrence on the dispatch
+/// edge (P06-CR-007). Limited to `pending` so a claimed, started or terminal
+/// occurrence is never rewritten, and unconditional on the current value so a requeued
+/// occurrence re-binds the policy that is current NOW rather than a stale one.
+const BIND_OCCURRENCE_POLICY_SQL: &str = r#"
+UPDATE automation_occurrences
+SET policy_snapshot_id = ?3,
+    policy_version = ?4
+WHERE occurrence_id = ?1 AND org_id = ?2 AND state = 'pending'
 "#;
 
 // -----------------------------------------------------------------------------
@@ -952,6 +1051,13 @@ pub struct AutomationRunLinkRecord {
     pub updated_at: String,
 }
 
+/// The org's latest published policy snapshot, as read at dispatch time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PolicySnapshotRef {
+    pub policy_id: String,
+    pub policy_version: i64,
+}
+
 /// Current-state facts the dispatcher must re-read at dispatch time. Values
 /// captured when the schedule was created are never authority.
 #[derive(Clone, Debug, Default)]
@@ -959,6 +1065,10 @@ pub struct DispatchEligibility {
     pub organization_state: Option<String>,
     pub principal_membership_active: bool,
     pub current_policy_version: i64,
+    /// The latest published snapshot, which the dispatcher binds to the occurrence so
+    /// due/claim/start (and the P05 run) carry the server-resolved policy. `None` when
+    /// the org has published none: there is then nothing authoritative to bind.
+    pub policy_snapshot: Option<PolicySnapshotRef>,
     pub license_state: Option<String>,
     pub license_grace_expires_at: Option<String>,
     pub max_active_automations: Option<i64>,
@@ -1015,21 +1125,7 @@ pub fn is_guard_violation(error: &worker::Error) -> bool {
 pub struct NewScheduleRuleInput<'a> {
     pub schedule_rule_id: &'a str,
     pub org_id: &'a str,
-    pub kind: &'a str,
-    pub expression: Option<&'a str>,
-    pub timezone: Option<&'a str>,
-    pub dom_dow_mode: Option<&'a str>,
-    pub dst_policy: Option<&'a str>,
-    pub interval_every: Option<i64>,
-    pub interval_unit: Option<&'a str>,
-    pub anchor_at: Option<&'a str>,
-    pub scheduled_at: Option<&'a str>,
-    pub by_weekday_json: Option<&'a str>,
-    pub by_monthday_json: Option<&'a str>,
-    pub by_month_json: Option<&'a str>,
-    pub overlap_policy: &'a str,
-    pub missed_policy: &'a str,
-    pub catch_up_limit: Option<i64>,
+    /// Validated StoredScheduleRevision; sole source for all schedule columns.
     pub canonical_json: &'a str,
 }
 
@@ -1317,31 +1413,7 @@ impl<'a> AutomationsRepository<'a> {
             &[
                 BindValue::Text(input.schedule_rule_id),
                 BindValue::Text(input.org_id),
-                BindValue::Text(input.kind),
-                input.expression.map_or(BindValue::Null, BindValue::Text),
-                input.timezone.map_or(BindValue::Null, BindValue::Text),
-                input.dom_dow_mode.map_or(BindValue::Null, BindValue::Text),
-                input.dst_policy.map_or(BindValue::Null, BindValue::Text),
-                input
-                    .interval_every
-                    .map_or(BindValue::Null, BindValue::Int64),
-                input.interval_unit.map_or(BindValue::Null, BindValue::Text),
-                input.anchor_at.map_or(BindValue::Null, BindValue::Text),
-                input.scheduled_at.map_or(BindValue::Null, BindValue::Text),
-                input
-                    .by_weekday_json
-                    .map_or(BindValue::Null, BindValue::Text),
-                input
-                    .by_monthday_json
-                    .map_or(BindValue::Null, BindValue::Text),
-                input.by_month_json.map_or(BindValue::Null, BindValue::Text),
-                BindValue::Text(input.overlap_policy),
-                BindValue::Text(input.missed_policy),
-                input
-                    .catch_up_limit
-                    .map_or(BindValue::Null, BindValue::Int64),
                 BindValue::Text(input.canonical_json),
-                BindValue::Int64(1),
                 BindValue::Text(now.as_str()),
             ],
         )
@@ -2088,6 +2160,108 @@ WHERE automation_id = ?1 AND org_id = ?2
         )
     }
 
+    /// Resolve the workspace binding a run on `device_id` executes against, from SERVER rows only.
+    ///
+    /// A definition pinned to a binding keeps it, but only if that binding is the claiming
+    /// device's own live one. A binding-less definition resolves to the device's single live
+    /// binding for `project_id`. Nothing the client sends participates.
+    pub async fn resolve_device_workspace_binding(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        device_id: &str,
+        pinned_binding_id: Option<&str>,
+    ) -> worker::Result<DeviceBindingResolution> {
+        let rows = self
+            .database
+            .prepare(
+                DEVICE_WORKSPACE_BINDINGS_SQL,
+                &[
+                    BindValue::Text(org_id),
+                    BindValue::Text(project_id),
+                    BindValue::Text(device_id),
+                    pinned_binding_id.map_or(BindValue::Null, BindValue::Text),
+                ],
+            )?
+            .all()
+            .await?
+            .results::<DeviceBindingRow>()?;
+        Ok(classify_device_bindings(
+            rows.into_iter().map(|row| row.binding_id).collect(),
+        ))
+    }
+
+    /// Batch guard: the binding written into the run is still the device's live binding.
+    pub fn assert_device_binding_current_statement(
+        &self,
+        org_id: &str,
+        device_id: &str,
+        binding_id: &str,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            guard!(
+                "SELECT 1 FROM workspace_bindings
+                   WHERE binding_id = ?1 AND org_id = ?2 AND device_id = ?3
+                     AND removed_at IS NULL"
+            ),
+            &[
+                BindValue::Text(binding_id),
+                BindValue::Text(org_id),
+                BindValue::Text(device_id),
+            ],
+        )
+    }
+
+    /// Cancel the occurrence's P05 run if (and only if) it is still `queued`, plus the event
+    /// that records it. Both are no-ops for a run that already advanced, so they are safe to
+    /// append to any failed settlement.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cancel_unstarted_run_statements(
+        &self,
+        org_id: &str,
+        run_id: &str,
+        occurrence_id: &str,
+        lease_id: &str,
+        request_id: &str,
+        correlation_id: &str,
+        event_id: &str,
+        now: &str,
+    ) -> worker::Result<[D1PreparedStatement; 2]> {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "state": "cancelled",
+            "previous_state": "queued",
+            "reason": UNSTARTED_RUN_FAILURE_CODE,
+            "actor": "automation_settlement",
+        }))
+        .map_err(|_| worker::Error::RustError("run event payload is invalid".into()))?;
+        let cancel = self.database.prepare(
+            CANCEL_UNSTARTED_AUTOMATION_RUN_SQL,
+            &[
+                BindValue::Text(run_id),
+                BindValue::Text(org_id),
+                BindValue::Text(UNSTARTED_RUN_FAILURE_CODE),
+                BindValue::Text(now),
+                BindValue::Text(occurrence_id),
+                BindValue::Text(lease_id),
+            ],
+        )?;
+        let event = self.database.prepare(
+            INSERT_UNSTARTED_RUN_CANCEL_EVENT_SQL,
+            &[
+                BindValue::Text(event_id),
+                BindValue::Text(run_id),
+                BindValue::Text(request_id),
+                BindValue::Text(now),
+                BindValue::Text(correlation_id),
+                BindValue::Text(&payload),
+                BindValue::Text(org_id),
+                BindValue::Text(occurrence_id),
+                BindValue::Text(UNSTARTED_RUN_FAILURE_CODE),
+            ],
+        )?;
+        Ok([cancel, event])
+    }
+
     // -- dispatch-time eligibility reads -------------------------------------
 
     pub async fn license_state(
@@ -2145,6 +2319,44 @@ WHERE automation_id = ?1 AND org_id = ?2
             return Ok(None);
         };
         Ok(serde_json::from_str::<i64>(raw).ok())
+    }
+
+    /// The org's latest published policy snapshot, or `None` when it has published none.
+    pub async fn latest_policy_snapshot(
+        &self,
+        org_id: &str,
+    ) -> worker::Result<Option<PolicySnapshotRef>> {
+        let row = self
+            .database
+            .prepare(LATEST_POLICY_SNAPSHOT_SQL, &[BindValue::Text(org_id)])?
+            .first::<Value>(None)
+            .await?;
+        Ok(row.and_then(|row| {
+            let policy_id = row.get("policy_id")?.as_str()?.to_owned();
+            let policy_version = row.get("policy_version")?.as_i64()?;
+            (policy_version > 0).then_some(PolicySnapshotRef {
+                policy_id,
+                policy_version,
+            })
+        }))
+    }
+
+    /// See [`BIND_OCCURRENCE_POLICY_SQL`]. Same batch as the dispatch transition.
+    pub fn bind_occurrence_policy_statement(
+        &self,
+        occurrence_id: &str,
+        org_id: &str,
+        snapshot: &PolicySnapshotRef,
+    ) -> worker::Result<D1PreparedStatement> {
+        self.database.prepare(
+            BIND_OCCURRENCE_POLICY_SQL,
+            &[
+                BindValue::Text(occurrence_id),
+                BindValue::Text(org_id),
+                BindValue::Text(&snapshot.policy_id),
+                BindValue::Int64(snapshot.policy_version),
+            ],
+        )
     }
 
     pub async fn current_policy_version(&self, org_id: &str) -> worker::Result<i64> {
@@ -2412,6 +2624,35 @@ struct AutomationSessionRow {
     agent_session_id: String,
 }
 
+#[derive(Deserialize)]
+struct DeviceBindingRow {
+    binding_id: String,
+}
+
+/// Failure code on a P05 run the server cancelled because its occurrence failed before the
+/// run ever started. Stable and short: it is stored in `runs.failure_code` (<= 96 chars).
+pub const UNSTARTED_RUN_FAILURE_CODE: &str = "automation_run_not_started";
+
+/// What the server could resolve for "which workspace does this device run this automation in".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceBindingResolution {
+    /// Exactly one live binding: the only value a run may carry.
+    Resolved(String),
+    /// The device has no live binding for the project (or the pinned binding is not its own).
+    Unresolved,
+    /// Several live bindings: the server will not guess which workspace the device meant.
+    Ambiguous,
+}
+
+/// Collapse the (at most two) rows the resolver reads into a decision.
+pub fn classify_device_bindings(mut binding_ids: Vec<String>) -> DeviceBindingResolution {
+    match binding_ids.len() {
+        0 => DeviceBindingResolution::Unresolved,
+        1 => DeviceBindingResolution::Resolved(binding_ids.remove(0)),
+        _ => DeviceBindingResolution::Ambiguous,
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Domain delegation
 // -----------------------------------------------------------------------------
@@ -2503,6 +2744,42 @@ pub fn predecessor_view(
 mod tests {
     use super::*;
     use crate::modules::automations::OverlapPolicy;
+
+    #[test]
+    fn the_policy_bind_is_pre_start_only_and_rebinds_a_requeued_slot() {
+        // P06-CR-007, pinned on the statement text since D1 is not reachable from a
+        // unit test. The runtime replay is what proves the write actually lands.
+        let sql = BIND_OCCURRENCE_POLICY_SQL;
+        assert!(
+            sql.contains("state = 'pending'"),
+            "a claimed or terminal occurrence must never be rewritten"
+        );
+        assert!(
+            sql.contains("policy_snapshot_id = ?3") && sql.contains("policy_version = ?4"),
+            "both columns are bound together"
+        );
+        assert!(
+            !sql.contains("IS NULL"),
+            "a requeued occurrence must re-bind the CURRENT policy, not keep a stale one"
+        );
+        assert!(
+            sql.contains("org_id = ?2"),
+            "tenant scope is part of the predicate"
+        );
+        // Placeholder arithmetic: four distinct binds, none reused across columns.
+        for placeholder in ["?1", "?2", "?3", "?4"] {
+            assert_eq!(sql.matches(placeholder).count(), 1, "{placeholder}");
+        }
+    }
+
+    #[test]
+    fn the_latest_snapshot_query_matches_what_p05_admission_calls_latest() {
+        // Admission compares a run against the highest `policy_version` row for the
+        // org; binding anything else at dispatch would make every run fail admission.
+        assert!(LATEST_POLICY_SNAPSHOT_SQL.contains("ORDER BY policy_version DESC"));
+        assert!(LATEST_POLICY_SNAPSHOT_SQL.contains("LIMIT 1"));
+        assert!(LATEST_POLICY_SNAPSHOT_SQL.contains("org_id = ?1"));
+    }
 
     #[test]
     fn frozen_event_names_are_versioned_and_complete() {
@@ -2737,23 +3014,78 @@ mod v01_011_statement_shape {
             .filter(|c| !c.is_empty())
             .map(str::to_ascii_lowercase)
             .collect::<Vec<_>>();
-        let values = body[values_at + ") VALUES (".len()..]
+        let values_body = body[values_at + ") VALUES (".len()..]
             .trim_end()
-            .trim_end_matches(')')
-            .split(',')
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(str::to_ascii_lowercase)
-            .collect::<Vec<_>>();
+            .strip_suffix(')')?;
+        let values = split_values(values_body)?;
         Some((columns, values))
+    }
+
+    // Function arguments and quoted commas are part of ONE SQL value. The old
+    // split(',') counted json_extract's arguments as extra INSERT columns.
+    fn split_values(body: &str) -> Option<Vec<String>> {
+        let mut values = Vec::new();
+        let mut depth = 0usize;
+        let mut quote = None;
+        let mut start = 0;
+        let mut chars = body.char_indices().peekable();
+        while let Some((index, ch)) = chars.next() {
+            if let Some(delimiter) = quote {
+                if ch == delimiter {
+                    if chars.peek().is_some_and(|(_, next)| *next == delimiter) {
+                        chars.next();
+                    } else {
+                        quote = None;
+                    }
+                }
+                continue;
+            }
+            match ch {
+                '\'' | '"' => quote = Some(ch),
+                '(' => depth += 1,
+                ')' => depth = depth.checked_sub(1)?,
+                ',' if depth == 0 => {
+                    values.push(body[start..index].trim().to_ascii_lowercase());
+                    start = index + 1;
+                }
+                _ => {}
+            }
+        }
+        if depth != 0 || quote.is_some() {
+            return None;
+        }
+        values.push(body[start..].trim().to_ascii_lowercase());
+        if values.iter().any(String::is_empty) {
+            return None;
+        }
+        Some(values)
+    }
+
+    #[test]
+    fn value_parser_preserves_nested_functions_and_still_detects_missing_columns() {
+        let valid = "INSERT INTO t (a, b, c) VALUES (?1, coalesce(json_extract(?2, '$.a,b'), 'it''s,ok'), 1)";
+        let (columns, values) = split_insert(valid).expect("nested SQL values parse");
+        assert_eq!(columns.len(), values.len());
+        assert_eq!(values.len(), 3);
+        let (columns, values) =
+            split_insert("INSERT INTO t (a, b, c) VALUES (?1, json_extract(?2, '$.a,b'))")
+                .expect("a syntactically valid but incomplete list parses");
+        assert_ne!(
+            columns.len(),
+            values.len(),
+            "an omitted value must still be detected"
+        );
+        assert!(split_values("?1, coalesce(?2, 'unterminated)").is_none());
+        assert!(split_values("?1, coalesce(?2, 1").is_none());
     }
 
     #[test]
     fn every_insert_binds_one_value_per_column() {
         for (name, text) in insert_statements() {
-            let Some((columns, values)) = split_insert(text) else {
-                continue; // A statement with no VALUES clause is not this shape.
-            };
+            if !text.to_ascii_uppercase().contains(") VALUES (") {
+                continue; // INSERT ... SELECT has no VALUES list.
+            }
+            let (columns, values) = split_insert(text).expect("VALUES list must parse");
             assert_eq!(
                 columns.len(),
                 values.len(),
@@ -2768,9 +3100,10 @@ mod v01_011_statement_shape {
     #[test]
     fn no_placeholder_is_reused_across_columns() {
         for (name, text) in insert_statements() {
-            let Some((columns, values)) = split_insert(text) else {
+            if !text.to_ascii_uppercase().contains(") VALUES (") {
                 continue;
-            };
+            }
+            let (columns, values) = split_insert(text).expect("VALUES list must parse");
             let mut seen: Vec<(&str, &str)> = Vec::new();
             for (column, value) in columns.iter().zip(values.iter()) {
                 if let Some(placeholder) = value.strip_prefix('?') {
@@ -2917,5 +3250,96 @@ mod v01_013_attempt_counter {
              release, and the expiry sweep. Found {declared}."
         );
         assert_eq!(some_sites, 1, "and exactly one of them may be a `Some`.");
+    }
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_device_resolves_a_binding_only_when_exactly_one_is_live() {
+        assert_eq!(
+            classify_device_bindings(ids(&[])),
+            DeviceBindingResolution::Unresolved
+        );
+        assert_eq!(
+            classify_device_bindings(ids(&["wsb_a"])),
+            DeviceBindingResolution::Resolved("wsb_a".to_owned())
+        );
+        // Two live workspaces for one project on one device: the server must not pick one.
+        assert_eq!(
+            classify_device_bindings(ids(&["wsb_a", "wsb_b"])),
+            DeviceBindingResolution::Ambiguous
+        );
+    }
+
+    /// The race the full verifier found: a binding-less eligible target admitted every active
+    /// device, `start` then wrote a NULL binding, and Main (rightly) refused the run. The due
+    /// predicate must agree with what `start` can resolve, so a device that could never start
+    /// the run is never offered it.
+    #[test]
+    fn due_work_without_a_pinned_binding_is_offered_only_to_a_device_that_can_resolve_one() {
+        let sql = DEVICE_DUE_OCCURRENCES_SQL;
+        assert!(
+            !sql.contains("d.target_workspace_binding_id IS NULL OR EXISTS"),
+            "a binding-less target must not admit every active device"
+        );
+        assert!(
+            sql.contains("d.target_workspace_binding_id IS NULL AND ("),
+            "the binding-less branch must be explicit"
+        );
+        assert!(
+            sql.contains("b.project_id = o.project_id")
+                && sql.contains("b.device_id = ?1")
+                && sql.contains("b.removed_at IS NULL")
+                && sql.contains(") = 1)"),
+            "the binding-less branch must require exactly one live binding of THIS device for \
+             the occurrence's project"
+        );
+        // The resolver and the predicate must apply the same rules.
+        assert!(DEVICE_WORKSPACE_BINDINGS_SQL.contains("removed_at IS NULL"));
+        assert!(DEVICE_WORKSPACE_BINDINGS_SQL.contains("device_id = ?3"));
+        assert!(DEVICE_WORKSPACE_BINDINGS_SQL.contains("LIMIT 2"));
+    }
+
+    /// `start` must bind the run to the SERVER-resolved binding of the authenticated device, never
+    /// to the raw definition column (NULL for an eligible-device target), and must guard it in the
+    /// same batch so a binding removed in between cannot be written.
+    #[test]
+    fn start_binds_the_run_to_the_resolved_binding_and_claim_refuses_an_unresolvable_device() {
+        assert!(
+            !ROUTES.contains("workspace_binding_id: automation.target_workspace_binding_id"),
+            "start must not copy the definition's (possibly NULL) binding into the run"
+        );
+        assert!(ROUTES.contains("workspace_binding_id: Some(&workspace_binding_id),"));
+        assert!(ROUTES.contains("assert_device_binding_current_statement"));
+        assert_eq!(
+            ROUTES.matches("resolve_run_binding(&context").count(),
+            2,
+            "claim (before the attempt is spent) and start (authoritatively) must both resolve"
+        );
+        assert!(ROUTES.contains("workspace_binding_unresolved"));
+        assert!(ROUTES.contains("workspace_binding_ambiguous"));
+    }
+
+    /// Cleanup may only ever cancel the run THIS occurrence and lease created while it is still
+    /// `queued`; a run a host advanced, or any other run, is out of reach of the statement.
+    #[test]
+    fn failed_settlement_cancels_only_the_unstarted_run_it_created() {
+        let sql = CANCEL_UNSTARTED_AUTOMATION_RUN_SQL;
+        assert!(sql.contains("state = 'queued'"));
+        assert!(sql.contains("automation_occurrence_id = ?5"));
+        assert!(sql.contains("automation_lease_id = ?6"));
+        assert!(sql.contains("org_id = ?2"));
+        let event = INSERT_UNSTARTED_RUN_CANCEL_EVENT_SQL;
+        assert!(event.contains("r.state = 'cancelled'") && event.contains("r.finished_at = ?4"));
+        assert!(event.contains("r.automation_occurrence_id = ?8"));
+        assert!(UNSTARTED_RUN_FAILURE_CODE.len() <= 96);
+        // Only a FAILED settlement cleans up; a success never reaches the statement.
+        assert!(
+            ROUTES.contains("if next == OccurrenceState::Failed")
+                && ROUTES.contains("cancel_unstarted_run_statements"),
+            "settlement must cancel the unstarted run only on the failed edge"
+        );
     }
 }

@@ -34,6 +34,19 @@ server-stored device/key/audit readback. Local workspace stays local. Provider
 login unchanged. Static/unit tests support but do not replace actual IPC/runtime.
 
 ## Resume checkpoint
+
+2026-10-07 continuation: client recovery command remains host-owned and UI
+requires explicit confirmation. Focused client typecheck PASS; full lint exits 0
+with 70 pre-existing warnings. Architecture changed-module check PASS (0
+violations). Parent Worker/D1 `tests/integration/lumi-account.mjs` PASS on fresh 25-migration D1:
+exact returned-token hash present before expiry; expired token and anonymous
+nonce refused; anonymous human-challenge mint refused; bad key proof refused;
+expired/replayed challenges refused; successful rotation stored exactly one live
+token and audit event; revoked policy/refresh refused; logout refused account
+reads. This proves backend/client transport only; actual Electron recovery button,
+workspace binding, managed inference/tool broker, scheduler, and full goal remain
+unproven. Next: inspect guarded module context for per-workspace identity and
+frozen P08/P05 contracts, then implement one explicit workspace binding slice.
 2026-10-07: account Electron→browser→Worker→OS-vault→restart→logout PASS in
 preceding packet. Begin by reading exact device route response shapes and
 host-only public transport surface; pending key must be persisted before network
@@ -72,3 +85,12 @@ workspace adoption/rollback, managed inference/tools/automation, primary passkey
 provider account matrix, negative IPC runtime/fault sensitivity and full type
 baseline. Next first unmet slice: expiry recovery contract decision + heartbeat,
 then actual workspace/project binding through frozen P03/P08 resources.
+
+P03-CR-002 backend implementation started in isolated parent worktree. Added
+0025 migration (challenge hash/org/device/requester/expiry/consume only), repo
+statements, two org-scoped session+CSRF routes, D1 batch guard/consume/token
+rotation/audit and route registration. Routine authenticated nonce endpoint
+unchanged. First cargo check found seconds type i64/u32 and String/&str time
+comparison; exact compiler fixes applied, repair check running. Next prove
+challenge/expiry/replay/role/revoke guards with real Worker/D1, including fault
+sensitivity, before client recovery wiring. No PR/merge yet.

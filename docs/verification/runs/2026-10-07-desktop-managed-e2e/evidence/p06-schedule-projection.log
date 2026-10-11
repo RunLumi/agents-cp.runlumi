@@ -1,0 +1,5 @@
+PASS manual: actual SQL persists required fields and canonical revision
+PASS one_time: actual SQL persists required fields and canonical revision
+PASS cron: actual SQL persists required fields and canonical revision
+PASS interval: actual SQL persists required fields and canonical revision
+PASS malformed cron refused by unchanged CHECK; prior rows preserved

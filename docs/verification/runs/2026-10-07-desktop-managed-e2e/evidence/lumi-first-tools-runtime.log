@@ -1,0 +1,282 @@
+  PASS  fresh D1 applies the full migration ledger  — 28 migration rows
+  PASS  development Worker is healthy  — http://127.0.0.1:53930
+  PASS  the Worker under test was built from the current source  — newest artifact .wrangler/tmp/dev-6CdTd9/b17055f75c06b0826e60507dc4f817c8ce634433-index_bg.wasm is 3978s newer than src/adapters/mock_tool.rs
+  PASS  create Electron Device Org  — status=201
+  PASS  Electron Device Org organization ID  — org_83f3d905e7f1c69b5b80ad98751e9038
+  PASS  create disposable Electron workspace project  — status=201
+  PASS  read P04 catalog for Electron managed run  — status=200
+  PASS  create organization-owned controllable provider  — status=201
+  PASS  create tool-capable mock model with an Agent-sized context  — status=201
+  PASS  create controllable managed provider credential  — status=201
+  PASS  create Electron managed route  — status=201
+  PASS  publish Electron managed route  — status=200
+  PASS  create development-only controlled tool provider  — status=201
+  PASS  create tool-capable controlled model  — status=201
+  PASS  create controlled tool provider credential  — status=201
+  PASS  create controlled tool route  — status=201
+  PASS  publish controlled tool route  — status=200
+  PASS  read Electron organization policy  — status=200
+  PASS  enable Electron managed policy  — status=200
+  PASS  create project-approved managed agent  — status=201
+  PASS  review the exact runtime Write descriptor  — status=201
+  PASS  allow Write only with per-use approval  — status=200
+  PASS  create agent allowed to use only the reviewed Write tool  — status=201
+  PASS  create bounded Electron managed budget  — status=201
+PASS actual Lumi-first startup offers explicit local continuation without provider login
+PASS actual Electron UI begins PKCE
+The request id "$REPO_ROOT/node_modules/.pnpm/@fontsource-variable+geist@5.3.0/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2" is outside of Vite serving allow list.
+
+- $REPO_ROOT
+- $REPO_ROOT/node_modules/.pnpm/vite@8.1.0_@types+node@24.13.6_esbuild@0.28.1_jiti@2.7.0/node_modules/vite/dist/client
+
+Refer to docs https://vite.dev/config/server-options.html#server-fs-allow for configurations and more details.
+
+PASS Electron IPC/Worker login after real browser approval
+PASS Electron enrollment/proof/policy/refresh; D1 active device
+PASS actual Electron task sends one confirmed managed turn and renders streamed provider output
+PASS Worker D1 attributes request/usage, closes the one-shot P05 session, and stores no prompt text
+PASS actual Electron UI binds only the selected opaque workspace and preserves local data
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  resolve approval approved  — status=200
+PASS actual Electron model-driven Write: exact reviewed descriptor, public approval, one claim, real file effect, stored result and audit
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+  PASS  list pending approvals for the managed tool run  — status=200
+diagnose: fixture file exists=false localAllow=0
+diagnose audit=[{"action":"session.closed.v1","outcome":"success"},{"action":"run.completed.v1","outcome":"success"},{"action":"inference.completed.v1","outcome":"success"},{"action":"usage.recorded.v1","outcome":"success"},{"action":"inference.requested.v1","outcome":"success"},{"action":"inference.completed.v1","outcome":"success"},{"action":"usage.recorded.v1","outcome":"success"},{"action":"inference.requested.v1","outcome":"success"},{"action":"run.started.v1","outcome":"success"},{"action":"run.created.v1","outcome":"success"},{"action":"session.created.v1","outcome":"success"},{"action":"session.closed.v1","outcome":"success"}] run_events=[{"event_type":"run.created.v1"},{"event_type":"run.state_changed.v1"},{"event_type":"run.started.v1"},{"event_type":"run.completed.v1"}]
+diagnose catalog=[{"tool_id":"tool_b836cb99e02dc6e014fe23b5e7545040","name":"Write","source":"built_in","risk_class":"filesystem_write","lifecycle":"active","fingerprint":"afeff00b59538f8536f9a45837fb2efb90296be429d7fe478310329019eaf877","capability_ids_json":"[\"cap_2fd038c370f05abe4025d375c70a2aa1\"]"}] runtimeIdentity={"toolId":"tool_7b74a711ad0d7b9ceb4fdaa358d56d86","name":"Write","fingerprint":"afeff00b59538f8536f9a45837fb2efb90296be429d7fe478310329019eaf877","source":"built_in","riskClass":"filesystem_write","capabilityIds":["cap_2fd038c370f05abe4025d375c70a2aa1"],"catalogued":false} device=[{"capabilities":"{}"}]
+Profile/evidence retained: $REPO_ROOT/test-results/t/lumi-electron-account-bfsZ0L
+file://$REPO_ROOT/tests/integration/lib/electron-tool-flow.mjs:283
+  throw new Error(
+        ^
+
+Error: no pending approval appeared for the managed tool call; renderer shows: {"runs":[{"state":"succeeded"}],"requests":[{"response_state":"completed","error_code":null},{"response_state":"completed","error_code":null}],"calls":[],"codes":"","screen":{"alerts":[],"codes":[],"fixture":["The mock fixture received the tool result. Result: Managed tool decision denied: managed_decision_unavailable"],"toolText":"Worked for 2s\nWrite\nlumi-e2e-fixture-denied-muzd2w3ehwc4.txt\n+\n1\nFailed\n\nThe mock fixture received the tool result. Result: Managed tool decision denied: managed_decision_unavailable\n\nCopy\nLike\nDislike\nFork\n04:57 PM\n\n\n\n\nAsk for follow-up changes\nAdd context\nAsk before changes\nManage models\nSend"}}
+    at waitForPendingApproval (file://$REPO_ROOT/tests/integration/lib/electron-tool-flow.mjs:283:9)
+    at async runManagedTool (file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:779:22)
+    at async file://$REPO_ROOT/tests/integration/desktop-account-electron.mjs:936:22
+
+Node.js v24.19.0
