@@ -56,24 +56,21 @@ const FAULTS = [
   },
   {
     id: "S2-revocation",
-    boundary: "device revocation (token removal and status checks)",
+    boundary: "device revocation takes effect (status and live tokens)",
     repo: "parent",
+    // Every device route checks status independently (defense in depth), so the faithful fault is
+    // the revocation itself: the route still answers 204, but the device stays active with tokens.
     edits: [
+      {
+        file: "apps/api/src/repositories/devices.rs",
+        find: "SET status = 'revoked', revoked_at = ?2, revoked_by_user_id = ?3, updated_at = ?2\nWHERE device_id = ?1 AND status = 'active'",
+        replace:
+          "SET status = status, revoked_at = ?2, revoked_by_user_id = ?3, updated_at = ?2\nWHERE device_id = ?1 AND status = 'active'",
+      },
       {
         file: "apps/api/src/repositories/devices.rs",
         find: "DELETE FROM device_tokens WHERE device_id = ?1\n",
         replace: "DELETE FROM device_tokens WHERE device_id = ?1 AND 0 = 1\n",
-      },
-      {
-        file: "apps/api/src/routes/authorization.rs",
-        find: '    if device.status != "active" {',
-        replace: '    if device.status != "active" && device.status != "revoked" {',
-      },
-      {
-        file: "apps/api/src/routes/devices.rs",
-        find: "    if DeviceStatus::parse(&device.status) == Some(DeviceStatus::Revoked) {",
-        replace:
-          "    if false && DeviceStatus::parse(&device.status) == Some(DeviceStatus::Revoked) {",
       },
     ],
     journey: "revocation",
@@ -99,12 +96,14 @@ const FAULTS = [
     id: "S4-budget-settlement",
     boundary: "reservation release when a managed request fails or is cancelled",
     repo: "parent",
+    // Managed runs settle through the reconcile statement; a release becomes a no-op while the
+    // commit path, SQL validity and binds stay intact.
     edits: [
       {
-        file: "apps/api/src/repositories/ai.rs",
-        find: "SET committed_minor = ?3, status = ?4, updated_at = ?5\nWHERE reservation_id = ?1 AND org_id = ?2 AND request_id = ?6 AND status = 'reserved'",
+        file: "apps/api/src/repositories/budgets.rs",
+        find: "SET committed_minor = CASE WHEN ?6 = 'committed' THEN ?5 ELSE committed_minor END,\n    status = ?6,",
         replace:
-          "SET committed_minor = ?3, status = CASE WHEN ?4 = 'released' THEN status ELSE ?4 END, updated_at = ?5\nWHERE reservation_id = ?1 AND org_id = ?2 AND request_id = ?6 AND status = 'reserved'",
+          "SET committed_minor = CASE WHEN ?6 = 'committed' THEN ?5 ELSE committed_minor END,\n    status = CASE WHEN ?6 = 'released' THEN status ELSE ?6 END,",
       },
     ],
     journey: "managed-faults",
