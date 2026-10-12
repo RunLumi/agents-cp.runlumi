@@ -462,6 +462,7 @@ await runProbe("V01 automation-lease", async (probe) => {
   // Case 1 — EIGHT SIMULTANEOUS claims from ONE device
   // =========================================================================
   probe.stage = "eight-claims-one-device";
+  let winnerClaim;
   const occ1 = await newOccurrence("eight-claims");
   if (occ1) {
     const before = (await occurrenceRow(occ1))[0];
@@ -548,6 +549,7 @@ await runProbe("V01 automation-lease", async (probe) => {
 
     // The losers must learn nothing about the winner.
     const winner = winners[0];
+    winnerClaim = winner;
     const winnerLeaseId = winner?.payload?.lease_id;
     const winnerToken = winner?.payload?.lease_token;
     const lossyLeak = losers
@@ -603,6 +605,67 @@ await runProbe("V01 automation-lease", async (probe) => {
         ? `attempt=${attempts[0].attempt} outcome=${attempts[0].outcome}`
         : `${attempts.length} attempt rows: ${probe.brief(attempts, 300)}`,
     );
+  }
+
+  // =========================================================================
+  // Case 1b — a STALE FENCE presented while the lease is still live (P06-CG fencing)
+  //
+  // The real desktop never exposes the raw lease token, so this is the only place the case can be
+  // driven. The winner's own token with a wrong fence must be refused without touching the lease;
+  // the untampered renew afterwards is the positive control.
+  // =========================================================================
+  probe.stage = "stale-fence-live-lease";
+  if (occ1) {
+    const [live] = await activeLeases(occ1);
+    const claimBody = winnerClaim?.payload;
+    if (live && claimBody?.lease_token) {
+      const renew = (body) =>
+        request(
+          anonJar(),
+          "POST",
+          `/api/v1/devices/automation-leases/${claimBody.lease_id}/renew`,
+          body,
+          { Authorization: `DeviceToken ${deviceA.token}` },
+        );
+      const current = {
+        lease_id: claimBody.lease_id,
+        lease_version: Number(live.lease_version),
+        lease_fence: Number(live.lease_fence),
+        lease_token: claimBody.lease_token,
+      };
+      const stale = await renew({ ...current, lease_fence: current.lease_fence + 1 });
+      const afterStale = (await activeLeases(occ1)).find(
+        (lease) => lease.lease_id === current.lease_id,
+      );
+      expect(
+        "a renew with a STALE FENCE while the lease is live is refused 409 lease_fence_invalid",
+        stale.status === 409 && probe.reasonOf(stale) === "lease_fence_invalid",
+        `status=${stale.status} reason=${probe.reasonOf(stale)}`,
+      );
+      expect(
+        "the refused stale-fence renew changed nothing: the lease is still active at the same version and fence",
+        afterStale?.state === "active" &&
+          Number(afterStale.lease_version) === current.lease_version &&
+          Number(afterStale.lease_fence) === current.lease_fence,
+        `state=${afterStale?.state} version=${afterStale?.lease_version} fence=${afterStale?.lease_fence}`,
+      );
+      const control = await renew(current);
+      const afterControl = (await activeLeases(occ1)).find(
+        (lease) => lease.lease_id === current.lease_id,
+      );
+      expect(
+        "CONTROL: the same renew with the current fence succeeds and advances the lease version",
+        control.status >= 200 &&
+          control.status < 300 &&
+          Number(afterControl?.lease_version) === current.lease_version + 1,
+        `status=${control.status} version=${afterControl?.lease_version}`,
+      );
+    } else
+      expect(
+        "a live lease and the winner's token exist for the stale-fence case",
+        false,
+        "case 1 left no active lease or token, so the stale-fence case could not run",
+      );
   }
 
   // =========================================================================
