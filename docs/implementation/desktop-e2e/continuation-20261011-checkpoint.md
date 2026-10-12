@@ -12,7 +12,7 @@ Updated 2026-10-12 (UTC).
 | DE2E-SRV-01 race loser, device-audit project, web audit log | agents-cp.runlumi | [#62](https://github.com/RunLumi/agents-cp.runlumi/pull/62) | **Merged** `fd6b75771235f6889245d041f4083a6f0ca0600c`; main pipeline quality + migrations + deploy + production smoke succeeded |
 | DE2E-QA-01 Linux gate, journeys, sensitivity | agents-cp.runlumi | [#63](https://github.com/RunLumi/agents-cp.runlumi/pull/63) | **Merged** `f73e3efae62be0f82ad2dc25f8fcee88d868e11d`; pipeline deploy + smoke succeeded |
 | DE2E-QA-02 journey E fixes, revoked-state UI, evidence record | agents-cp.runlumi | branch `codex/de2e-journey-e-evidence` | this PR |
-| DE2E-CLI-01..05 desktop fixes (incl. token rotation) | LumiAgents | [#49](https://github.com/RunLumi/LumiAgents/pull/49) | open at `f3d31d5589d8d066b56d61f3ef534ab473e25d81`; **DCO red until a human signs off** (CONTRIBUTING forbids tool sign-off) |
+| DE2E-CLI-01..05 desktop fixes (incl. token rotation) | LumiAgents | [#49](https://github.com/RunLumi/LumiAgents/pull/49) | open at `e9c1ffc2f7e98bfe5034d982ff306d5f0f71404e`; **DCO red until a human signs off** (CONTRIBUTING forbids tool sign-off) |
 | Pin merged client + clean paired evidence | agents-cp.runlumi | pending | after #49 merges |
 
 Old-machine artifacts (supervisor resume, run20/21/22 logs, three-way reports) are unavailable
@@ -41,7 +41,7 @@ The root submodule is detached at the client PR head `f3d31d55` and built for lo
 | adoption-policy | PASS (8) |
 | multi-org | PASS (3) |
 | mcp | PASS (7) standalone; one gate run hit an unexplained `lumi_request_refused` under parallel load |
-| browser | **FAIL**: org browser domain policy not enforced (P05-CR-005); controls PASS |
+| browser | PASS (fail closed) on LumiAgents `e9c1ffc2` via the gate; FAIL on `f3d31d55` (P05-CR-005) |
 | non-stream (D2) | UNPROVEN: no user-reachable managed non-stream path in the app |
 | automation (journey E) | no FAIL on `f3d31d55`; verdict UNPROVEN for explicit gaps (off-peak runtime, fence entropy/stale fence at HTTP, external provider BLOCKED) |
 | account, revocation (revoked-state UI) | PASS |
