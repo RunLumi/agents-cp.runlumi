@@ -204,13 +204,15 @@ export async function until(
 /** Compact, redacted occurrence/lease state for diagnostics: ids shortened, no tokens or bodies. */
 export const compactOccurrences = (value) =>
   value.occurrences.slice(-10).map((row) => ({
-    id: row.occurrence_id.slice(-8),
+    id: row.occurrence_id,
     state: row.state,
     reason: row.reason_code ?? null,
     at: row.scheduled_for,
+    // A settled occurrence keeps its lease row with completed_at (P06-CG); show it so history is
+    // not mistaken for a live lease.
     leases: value.leases
       .filter((lease) => lease.occurrence_id === row.occurrence_id)
-      .map((lease) => lease.state),
+      .map((lease) => `${lease.state}${lease.completed_at ? "/completed" : ""}`),
   }));
 
 export const localJournal = (profile) =>
