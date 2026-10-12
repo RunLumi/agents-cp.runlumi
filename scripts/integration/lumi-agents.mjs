@@ -253,6 +253,8 @@ try {
       ],
       ["automation", "desktop-automation-electron.mjs", "LUMI_AUTOMATION_REPORT"],
     ];
+    // Harness self-tests that need the installed client run here, where it exists.
+    await rootPnpm(["test:integration-lib:client"]);
     const selected = process.env.LUMI_DESKTOP_JOURNEYS?.split(",").filter(Boolean);
     evidence.desktop_scope = selected ?? journeys.map(([name]) => name);
     evidence.desktop_integration = {};

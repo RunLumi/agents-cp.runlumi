@@ -61,7 +61,8 @@
     "perf:budgets": "pnpm --filter @runlumi/agents-cp-web perf:budgets",
     "verify:observability": "pnpm --filter @runlumi/agents-cp-api verify:observability",
     "verify:tool-policy-deny": "pnpm --filter @runlumi/agents-cp-api verify:tool-policy-deny",
-    "test:integration-lib": "node --test --test-timeout=60000 tests/integration/lib/*.test.mjs",
+    "test:integration-lib": "node --test --test-timeout=60000 tests/integration/lib/automation-claim-console.test.mjs tests/integration/lib/automation-ledger.test.mjs tests/integration/lib/automation-race-binding.test.mjs tests/integration/lib/automation-stage-race.test.mjs tests/integration/lib/automation-stage-schedule.test.mjs tests/integration/lib/automation-state-reader.test.mjs tests/integration/lib/automation-task-output.test.mjs tests/integration/lib/claim-recording-proxy.test.mjs",
+    "test:integration-lib:client": "node --test --test-timeout=60000 tests/integration/lib/local-personal-provider.test.mjs tests/integration/lib/mcp-stub-server.test.mjs",
     "test:integration:lumi": "node scripts/integration/lumi-agents.mjs"
   },
   "devDependencies": {
