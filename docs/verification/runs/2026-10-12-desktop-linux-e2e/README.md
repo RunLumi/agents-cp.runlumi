@@ -43,7 +43,7 @@ re-certified here. Every claim below was exercised through the **actual Electron
 | C4 | Credential choices recorded exactly; metadata-only sends no secret | PASS | adoption-policy; revocation wire sweep |
 | C5 | No history sync / bulk upload; adoption traffic carries no local path | PASS | revocation wire sweep (path allowed only in managed inference model context) |
 | D1 | Streamed managed turn, usage attributed, prompt not stored | PASS | account, managed-faults |
-| D2 | Non-streaming managed inference through the desktop | UNPROVEN | the desktop Agent always streams; Worker non-stream path covered by `pnpm smoke:p05`/P04 probes only |
+| D2 | Non-streaming managed inference through the desktop | UNPROVEN | desktop non-stream call sites exist (compaction summary, memory agent, completion verification) but no journey drives one; the Worker non-stream path is covered by `pnpm smoke:p05`/P04 probes only |
 | D3 | Failure before/after output, timeout, user cancel; bounded attempts; reservations settled | PASS | managed-faults (cancel settles via Worker watchdog ≈107 s) |
 | D4 | Tool allow / deny / exact per-use approval; changed arguments cannot reuse approval | PASS | account (Write), `p05-smoke` changed-arguments attack |
 | D5 | MCP enforcement | PASS | mcp journey (approved once; org deny, approval deny, revocation → no effect) |
