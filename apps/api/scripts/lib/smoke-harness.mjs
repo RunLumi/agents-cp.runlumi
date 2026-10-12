@@ -74,6 +74,10 @@ const wranglerBin = process.env.PROBE_WRANGLER ?? join(apiDir, "node_modules", "
  * same process could not read each other's passes -- which is the failure a
  * shared harness is most likely to introduce.
  */
+/** The Miniflare local-D1 read flake: retried only inside bounded read-only polls. */
+const TRANSIENT_D1_READ =
+  /Failed to parse body as JSON, got: Error: internal error|D1DatabaseObject\.queryExecute/;
+
 export class SmokeHarness {
   constructor({ name, workerLogTail = 24_000 } = {}) {
     this.name = name;
@@ -528,7 +532,16 @@ export class SmokeHarness {
     let last = [];
     let swept = false;
     while (Date.now() < deadline) {
-      last = await this.d1Rows(sql, label);
+      try {
+        last = await this.d1Rows(sql, label);
+      } catch (error) {
+        // Miniflare intermittently answers a local read with a bare internal error (run20). In this
+        // read-only poll that one signature means "not observed yet"; anything else still fails.
+        if (!TRANSIENT_D1_READ.test(String(error?.message ?? error))) throw error;
+        this.transientD1Reads = (this.transientD1Reads ?? 0) + 1;
+        await delay(1_000);
+        continue;
+      }
       if (predicate(last)) return last;
       if (!swept) {
         swept = true;
