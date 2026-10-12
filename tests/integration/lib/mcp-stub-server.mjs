@@ -9,6 +9,7 @@
 // The MCP SDK server is loaded from the already-installed LumiAgents client by absolute path
 // (read-only; nothing is installed or built there).
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,19 +22,30 @@ export const MCP_TOOL_MODEL_NAME = `mcp__${MCP_SERVER_NAME}__${MCP_TOOL_NAME}`;
 export const MCP_TOOL_STABLE_NAME = `mcp:${MCP_SERVER_NAME}:${MCP_TOOL_NAME}`;
 export const MCP_EFFECT_PREFIX = "lumi-mcp-effect";
 
-/** Locate `@modelcontextprotocol/server` (+ its zod) inside the client's pnpm store. */
+/**
+ * Locate the client's own `@modelcontextprotocol/server` and the zod it resolves. The client's
+ * layout is hoisted (its `.npmrc`); an isolated `.pnpm` store is accepted as a fallback.
+ */
 export function locateMcpServerSdk(client) {
-  const store = join(client, "node_modules/.pnpm");
-  const candidates = readdirSync(store)
-    .filter((name) => /^@modelcontextprotocol\+server@\d/.test(name))
-    .sort();
-  assert.ok(candidates.length >= 1, "client ships @modelcontextprotocol/server");
-  const modules = join(store, candidates.at(-1), "node_modules");
-  const server = join(modules, "@modelcontextprotocol/server/dist/index.mjs");
-  const stdio = join(modules, "@modelcontextprotocol/server/dist/stdio.mjs");
-  const zod = join(modules, "zod/index.js");
+  const hoisted = join(client, "node_modules/@modelcontextprotocol/server");
+  let packageDir = hoisted;
+  if (!existsSync(join(hoisted, "package.json"))) {
+    const store = join(client, "node_modules/.pnpm");
+    const candidates = existsSync(store)
+      ? readdirSync(store)
+          .filter((name) => /^@modelcontextprotocol\+server@\d/.test(name))
+          .sort()
+      : [];
+    assert.ok(candidates.length >= 1, "client ships @modelcontextprotocol/server");
+    packageDir = join(store, candidates.at(-1), "node_modules/@modelcontextprotocol/server");
+  }
+  const server = join(packageDir, "dist/index.mjs");
+  const stdio = join(packageDir, "dist/stdio.mjs");
+  // The zod the SDK itself would load, resolved from the SDK's own location.
+  const zod = createRequire(join(packageDir, "package.json")).resolve("zod");
   for (const path of [server, stdio, zod]) assert.ok(existsSync(path), `missing ${path}`);
-  return { server, stdio, zod, version: candidates.at(-1) };
+  const version = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).version;
+  return { server, stdio, zod, version: `@modelcontextprotocol/server@${version}` };
 }
 
 /** Write the stub server script into `dir` and return its path. */
