@@ -15,7 +15,15 @@ export const MOCK_CALL_MARKER = "lumi-mock-call:";
  * Bundle the client's real Core + MCP adapter (from source, read-only) and derive the identity of
  * `mcp__<server>__<tool>` by connecting the product adapter to the same stub server.
  */
-export async function buildMcpIdentity({ root, outDir, serverName, config }) {
+export async function buildMcpIdentity({
+  root,
+  outDir,
+  serverName,
+  config,
+  toolModelName = MCP_TOOL_MODEL_NAME,
+  stableName = MCP_TOOL_STABLE_NAME,
+  stringProperties = ["note"],
+}) {
   const client = join(root, "integrations/lumi-agents");
   const packages = join(client, "apps/zcode-cli/packages");
   const requireClient = createRequire(join(client, "package.json"));
@@ -66,26 +74,30 @@ export async function buildMcpIdentity({ root, outDir, serverName, config }) {
   });
   const loaded = createRequire(import.meta.url)(join(outDir, "mcp-tool-identity.cjs"));
   const derived = await loaded.deriveMcpIdentity(serverName, config);
-  const entry = derived.entries.find((item) => item.name === MCP_TOOL_MODEL_NAME);
+  const entry = derived.entries.find((item) => item.name === toolModelName);
   assert.ok(
     entry,
-    `real adapter registered ${MCP_TOOL_MODEL_NAME}: ${JSON.stringify(derived.entries.map((e) => e.name))} status=${derived.status}`,
+    `real adapter registered ${toolModelName}: ${JSON.stringify(derived.entries.map((e) => e.name))} status=${derived.status}`,
   );
   const { identity } = entry;
-  assert.equal(identity.name, MCP_TOOL_STABLE_NAME);
+  assert.equal(identity.name, stableName);
   assert.equal(identity.source, "custom");
   assert.equal(identity.riskClass, "mcp");
   assert.deepEqual([...identity.capabilityIds], [MCP_CAPABILITY_ID]);
   assert.equal(identity.catalogued, false, "an unreviewed MCP tool is uncatalogued locally");
-  assert.equal(
-    entry.inputSchema?.properties?.note?.type,
-    "string",
-    "model-facing schema declares a string note",
+  for (const property of stringProperties)
+    assert.equal(
+      entry.inputSchema?.properties?.[property]?.type,
+      "string",
+      `model-facing schema declares a string ${property}`,
+    );
+  const descriptor = derived.descriptors.find(
+    (item) => `mcp__${item.serverName}__${item.toolName}` === toolModelName,
   );
-  return { identity, descriptor: derived.descriptors[0], inputSchema: entry.inputSchema };
+  return { identity, descriptor, inputSchema: entry.inputSchema };
 }
 
-const BROWSER_POLICY = {
+export const BROWSER_POLICY = {
   allowed_domains: [],
   blocked_domains: [],
   allow_download: false,
@@ -130,7 +142,15 @@ function orgRequest(probe, fixture, orgId) {
  * Review the exact runtime MCP tool descriptor, register its stdio server, approve the server, and
  * create an agent allowed to use only that tool. Policy is set separately per stage.
  */
-export async function provisionMcpPlane({ probe, fixture, orgId, projectId, identity, script }) {
+export async function provisionMcpPlane({
+  probe,
+  fixture,
+  orgId,
+  projectId,
+  identity,
+  script,
+  agentName = "Electron managed MCP agent",
+}) {
   const request = orgRequest(probe, fixture, orgId);
   const tool = await request(
     "POST",
@@ -177,7 +197,7 @@ export async function provisionMcpPlane({ probe, fixture, orgId, projectId, iden
     "POST",
     "/agents",
     {
-      name: "Electron managed MCP agent",
+      name: agentName,
       project_id: projectId,
       default_model_alias: "coding-tools",
       allowed_tool_ids: [toolId],
@@ -191,7 +211,16 @@ export async function provisionMcpPlane({ probe, fixture, orgId, projectId, iden
 }
 
 /** Replace the organization tool policy through the public route; returns the stored policy. */
-export async function putToolPolicy({ probe, fixture, orgId, toolId, mcpId, mode, label }) {
+export async function putToolPolicy({
+  probe,
+  fixture,
+  orgId,
+  toolId,
+  mcpId,
+  mode,
+  label,
+  browser = BROWSER_POLICY,
+}) {
   const request = orgRequest(probe, fixture, orgId);
   const current = await request("GET", "/policy/tools", undefined, "", "read tool policy", 200);
   const version = current?.version ?? current?.policy?.version ?? 0;
@@ -204,7 +233,7 @@ export async function putToolPolicy({ probe, fixture, orgId, toolId, mcpId, mode
     mcp_ids: allow ? [mcpId] : [],
     denied_mcp_ids: allow ? [] : [mcpId],
     tool_approval_modes: { [toolId]: mode === "per_use" ? "per_use" : "none" },
-    browser: BROWSER_POLICY,
+    browser,
     computer: COMPUTER_POLICY,
     version,
   };

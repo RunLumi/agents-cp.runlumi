@@ -43,11 +43,11 @@ re-certified here. Every claim below was exercised through the **actual Electron
 | C4 | Credential choices recorded exactly; metadata-only sends no secret | PASS | adoption-policy; revocation wire sweep |
 | C5 | No history sync / bulk upload; adoption traffic carries no local path | PASS | revocation wire sweep (path allowed only in managed inference model context) |
 | D1 | Streamed managed turn, usage attributed, prompt not stored | PASS | account, managed-faults |
-| D2 | Non-streaming managed inference through the desktop | UNPROVEN | the desktop Agent always streams; Worker non-stream path covered by `pnpm smoke:p05`/P04 probes only |
+| D2 | Non-streaming managed inference through the desktop | UNPROVEN (not reachable from the app) | managed authority is attached to the single prompt sent from "Run with managed policy" (`LumiManagedRunSection` → `sendPrompt({managedContext})`); Core's non-stream call sites (compaction summary, memory agent, completion verification) do not fire inside that one-shot run, and a composer `/compact` afterwards carries no managed context (send stays disabled; a wire probe recording only the stream flag saw 1 streamed request and 0 requests in the following 120 s). The Worker non-stream path is covered by `pnpm smoke:p05`/P04 probes only |
 | D3 | Failure before/after output, timeout, user cancel; bounded attempts; reservations settled | PASS | managed-faults (cancel settles via Worker watchdog ≈107 s) |
 | D4 | Tool allow / deny / exact per-use approval; changed arguments cannot reuse approval | PASS | account (Write), `p05-smoke` changed-arguments attack |
 | D5 | MCP enforcement | PASS | mcp journey (approved once; org deny, approval deny, revocation → no effect) |
-| D6 | Browser enforcement | UNPROVEN at full runtime | component proof LumiAgents `c261135a`; mock cannot drive the `js` tool |
+| D6 | Browser enforcement | **FAIL** (org browser policy not enforced) | browser journey (`desktop-browser-electron.mjs`): the shipped `mcp__node_repl__js` opens a loopback page that counts hits. Agent allowlist refusal (0 hits), reviewed + allowed + org-approved positive control (exactly 1 hit, claimed by the device) and denied approval (0 hits) PASS; **with the tool approved but the org browser policy blocking `127.0.0.1`, the page was still visited once** — browser commands carry no managed context, so the agent broker treats them as local-personal (P05-INT-04 limitation "concrete gate adapter … not wired"); see `P05-CR-005` |
 | D7 | Computer use | NOT_APPLICABLE | device reports `computer_use: false`; `packages/zcode-cua` placeholder |
 | D8 | Web runs/usage/audit show the desktop run; other tenant sees nothing | PASS | managed-faults web observation |
 | E1 | Preview/cancel writes nothing; explicit adoption | PASS | automation (adopt stage) |
@@ -56,7 +56,7 @@ re-certified here. Every claim below was exercised through the **actual Electron
 | E4 | Restart, lost start → ambiguous, needs reconciliation | PASS | automation restart stage |
 | E5 | Entitlement loss blocks with no lease/attempt/run | PASS | automation faults |
 | E6 | After entitlement restore the automation executes again | PASS after fix | FAILed twice: the device token was never rotated, so each client stopped polling 15 min after enrollment (LumiAgents `f3d31d55` fixes it; rotation tests 2/4 → 4/4); passes on the rotating client |
-| E7 | Off-peak refusal | UNPROVEN at runtime | component: LumiAgents `17a86027`; the journey never makes an occurrence off-peak |
+| E7 | Off-peak refusal | NOT_APPLICABLE (runtime, this backend) / PASS (component) | the Worker only creates `off_peak_mode: "normal"` occurrences (`jobs/automations.rs` 787/1834/2427, `routes/automations.rs` 2244), so no off-peak occurrence can reach a desktop; the desktop refusal is proven in LumiAgents `17a86027` |
 | E9 | Expired/stale lease after thaw; lease loss stops the handler | PASS | automation faults (late renew/settle change nothing; journal `lease_lost`) |
 | E10 | Stale fence with a live lease; fence entropy/monotonicity | PASS (Worker HTTP) / UNPROVEN (through the app) | `verify:lease-contention` case 1b: wrong fence on a live lease → `409 lease_fence_invalid`, lease unchanged, untampered renew advances (72/72); the raw lease token never leaves Main, so the desktop cannot present one |
 | E8 | Local scheduler never runs adopted originals; originals preserved | PASS | local-preservation, automation |
@@ -82,6 +82,12 @@ were repaired (shared client reinstall, socket path length, D1 flake).
 
 - **Fixed defect:** the desktop never rotated its 15-minute device token; managed scheduling
   stopped silently 15 minutes after enrollment or recovery (LumiAgents `f3d31d55`).
+- **Security defect (open, P05-CR-005):** FR-F13-005 browser controls are not enforced for managed
+  desktop browser use; an approved Browser Use call can visit an org-blocked domain. Fail-closed
+  client fix and the gate contract are proposed in `docs/implementation/change-requests/P05-CR-005.md`.
+- **Observed design behaviour:** a tool policy change reaches a device only at its next policy
+  snapshot refresh (enrollment, token refresh ≤10 min, binding or budget change); the snapshot only
+  narrows, so tightening is immediate and loosening waits for the refresh.
 - **Spec gap (not fixed here):** an unclaimed `dispatching` occurrence has no claim deadline, so
   under `overlap_policy=skip` it blocks successors until a device claims it (P06-CG allows
   `dispatching → missed` but defines no deadline) — candidate P06 change request.
