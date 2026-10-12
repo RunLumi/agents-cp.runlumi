@@ -56,7 +56,7 @@ re-certified here. Every claim below was exercised through the **actual Electron
 | E4 | Restart, lost start → ambiguous, needs reconciliation | PASS | automation restart stage |
 | E5 | Entitlement loss blocks with no lease/attempt/run | PASS | automation faults |
 | E6 | After entitlement restore the automation executes again | PASS after fix | FAILed twice: the device token was never rotated, so each client stopped polling 15 min after enrollment (LumiAgents `f3d31d55` fixes it; rotation tests 2/4 → 4/4); passes on the rotating client |
-| E7 | Off-peak refusal | UNPROVEN at runtime | component: LumiAgents `17a86027`; the journey never makes an occurrence off-peak |
+| E7 | Off-peak refusal | NOT_APPLICABLE (runtime, this backend) / PASS (component) | the Worker only creates `off_peak_mode: "normal"` occurrences (`jobs/automations.rs` 787/1834/2427, `routes/automations.rs` 2244), so no off-peak occurrence can reach a desktop; the desktop refusal is proven in LumiAgents `17a86027` |
 | E9 | Expired/stale lease after thaw; lease loss stops the handler | PASS | automation faults (late renew/settle change nothing; journal `lease_lost`) |
 | E10 | Stale fence with a live lease; fence entropy/monotonicity | PASS (Worker HTTP) / UNPROVEN (through the app) | `verify:lease-contention` case 1b: wrong fence on a live lease → `409 lease_fence_invalid`, lease unchanged, untampered renew advances (72/72); the raw lease token never leaves Main, so the desktop cannot present one |
 | E8 | Local scheduler never runs adopted originals; originals preserved | PASS | local-preservation, automation |
