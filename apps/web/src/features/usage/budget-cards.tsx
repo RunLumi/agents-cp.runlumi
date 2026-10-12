@@ -605,6 +605,13 @@ export function UsageEventsTable({ events }: { events: readonly UsageEvent[] }) 
                       {event.project_id
                         ? `Project · ${formatShortId(event.project_id)}`
                         : "Organization"}
+                      {/* The run is what ties a usage event to a desktop managed run, its
+                          device and its audit trail; the API already returns it. */}
+                      {event.run_id ? (
+                        <p className="mt-0.5 text-[var(--muted)]">
+                          Run · {formatShortId(event.run_id)}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-xs font-medium text-[var(--civic-navy)]">

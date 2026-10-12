@@ -107,6 +107,36 @@ export interface SecurityEvent {
   created_at: string;
 }
 
+/**
+ * One row of the organization audit trail (`GET /api/v1/orgs/{org_id}/audit`,
+ * F16 FR-F16-001/003). The org route adds run correlation to the account-level
+ * security event. `metadata` is server-bounded; the web surface reads only the
+ * project id from it and never renders the object.
+ */
+export interface OrgAuditEvent extends SecurityEvent {
+  run_id: string | null;
+  agent_session_id: string | null;
+  tool_call_id: string | null;
+}
+
+/** Filters the audit route accepts, by their wire names. Empty values are omitted. */
+export interface OrgAuditQuery {
+  limit?: number;
+  cursor?: string;
+  actor?: string;
+  action?: string;
+  resource_type?: string;
+  resource_id?: string;
+  outcome?: "success" | "denied" | "failure";
+  correlation_id?: string;
+  run_id?: string;
+  request_id?: string;
+  device_id?: string;
+  project_id?: string;
+  from?: string;
+  to?: string;
+}
+
 export interface Page<T> {
   items: T[];
   next_cursor: string | null;
@@ -897,6 +927,18 @@ export async function listSecurityEvents(signal?: AbortSignal): Promise<Page<Sec
     "/api/v1/account/security-events",
     signal ? { signal } : {},
     isSecurityEventPage,
+  );
+}
+
+export async function listOrgAudit(
+  orgId: string,
+  query: OrgAuditQuery,
+  signal?: AbortSignal,
+): Promise<Page<OrgAuditEvent>> {
+  return requestJson(
+    withP05Query(p05OrgPath(orgId, "audit"), query),
+    signal ? { signal } : {},
+    isOrgAuditPage,
   );
 }
 
@@ -1843,6 +1885,22 @@ function isSessionPage(value: unknown): value is Page<SessionSummary> {
 }
 function isSecurityEventPage(value: unknown): value is Page<SecurityEvent> {
   return isPage(value, isSecurityEvent);
+}
+
+function isOrgAuditEvent(value: unknown): value is OrgAuditEvent {
+  return (
+    isSecurityEvent(value) &&
+    typeof value.request_id === "string" &&
+    typeof value.correlation_id === "string" &&
+    typeof value.actor_type === "string" &&
+    typeof value.resource_type === "string" &&
+    isNullableString((value as unknown as JsonObject).run_id) &&
+    isNullableString((value as unknown as JsonObject).device_id)
+  );
+}
+
+function isOrgAuditPage(value: unknown): value is Page<OrgAuditEvent> {
+  return isPage(value, isOrgAuditEvent);
 }
 
 function isDeliveryStatus(value: unknown): value is DeliveryStatus {
