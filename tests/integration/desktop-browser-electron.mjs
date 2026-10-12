@@ -4,12 +4,13 @@
 // documented bootstrap + one navigation) to a disposable loopback page that counts hits; each
 // stage has its own page path, so the effect is graded on hits and D1, never on status codes:
 //   1. agent control: the agent definition does not allow the tool -> refused, 0 hits;
-//   2. positive control: the org reviewed the exact runtime descriptor (derived by the real Core
+//   2. managed session: the org reviewed the exact runtime descriptor (derived by the real Core
 //      MCP adapter from the node_repl bundle this build ships), approved the node_repl server,
 //      allowed the tool and the 127.0.0.1 domain; the MCP risk floor requires per-use approval;
-//      after the org approves, exactly one hit, a completed call claimed by this device;
+//      after the org approves, the call is claimed and runs, but its browser command has no
+//      managed decision and is refused by the agent broker (fail closed, P05-CR-005) -> 0 hits;
 //   3. browser policy: the tool stays allowed and the call is approved, but the org's browser
-//      policy blocks 127.0.0.1 (FR-F13-005 allowed/blocked domains) -> the page must not be hit;
+//      policy blocks 127.0.0.1 (FR-F13-005 allowed/blocked domains) -> the page is not hit;
 //   4. approval denied: the org denies the per-use approval -> 0 hits, never claimed.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -34,7 +35,8 @@ import {
 
 const TOOL_ALIAS = "coding-tools";
 const JS_TOOL = "mcp__node_repl__js";
-const FIXTURE_RESULT = "lumi-browser-fixture-opened";
+/** The agent broker's managed refusal, as the mock reports the tool result back. */
+const MANAGED_BROWSER_REFUSAL = /not authorized to run managed browser actions|policy_denied/;
 const TERMINAL = ["succeeded", "failed", "cancelled"];
 const root = resolve(import.meta.dirname, "../..");
 const client = join(root, "integrations/lumi-agents");
@@ -270,25 +272,26 @@ try {
     `agent control: ${JS_TOOL} outside the agent allowlist refused before execution (${notAllowed.screen}), 0 page hits, run ${notAllowed.state}`,
   );
 
-  // 2. Positive control.
-
+  // 2. Approved call in a managed session. The org reviewed, allowed and approved the tool and
+  //    the 127.0.0.1 domain, so the `js` call itself is claimed and executes; its browser command
+  //    carries no managed decision yet (P05-CR-005 steps 2-3), so the agent broker refuses it
+  //    (fail closed, step 1) and the page is never visited. Before that fix this exact stage
+  //    visited the page once: the positive control showing the refusal is the gate's, not a
+  //    broken browser path, is the result recorded for LumiAgents f3d31d55 in the evidence run.
   const allowed = await browserTurn("allow", plane.agentId, () => "approved");
-  observations.toolRows = await rows(
-    `SELECT * FROM tool_definitions WHERE org_id = '${org.orgId}'`,
-    "org tool catalog",
-  ).catch((error) => String(error));
   assert.equal(allowed.approvals.length, 1, "one per-use org approval (MCP risk floor)");
   assert.equal(allowed.approvals[0].tool_id, plane.toolId);
   assert.equal(allowed.hitsWhilePending, 0, "no page hit while the approval is pending");
-  assert.equal(allowed.hits, 1, "exactly one page hit after approval");
   assert.equal(allowed.state, "succeeded");
   assert.equal(allowed.calls.length, 1);
-  assert.equal(allowed.calls[0].status, "completed");
+  assert.equal(allowed.calls[0].status, "completed", "the approved js call executed");
   assert.equal(allowed.calls[0].execution_device_id, deviceId, "claimed by this device");
-  assert.match(allowed.screen ?? "", new RegExp(FIXTURE_RESULT));
-  claims.allow = "PASS";
+  assert.equal(allowed.hits, 0, "a managed browser command without a decision never navigates");
+  assert.match(allowed.screen ?? "", MANAGED_BROWSER_REFUSAL, "refused by the managed gate");
+  claims.managed_browser_fail_closed = "PASS";
+  claims.managed_browser_capability = "UNAVAILABLE (P05-CR-005 steps 2-3)";
   pass(
-    `positive control: reviewed ${identity.name} (fingerprint ${identity.fingerprint.slice(0, 12)}), allowed with domain 127.0.0.1, per-use org approval -> exactly 1 page hit, call completed and claimed by ${deviceId}, audit ${JSON.stringify(allowed.audit)}`,
+    `managed session: reviewed ${identity.name} (fingerprint ${identity.fingerprint.slice(0, 12)}) allowed, org-approved per use and claimed by ${deviceId}; its browser command is refused by the agent broker (${allowed.screen}) -> 0 page hits, audit ${JSON.stringify(allowed.audit)}`,
   );
 
   // 3. Browser policy blocks the domain; the tool itself stays allowed and approved.
@@ -303,16 +306,12 @@ try {
     browser: { ...BROWSER_POLICY, allowed_domains: [], blocked_domains: ["127.0.0.1"] },
   });
   const blocked = await browserTurn("domain-blocked", plane.agentId, () => "approved");
-  observations.domainPolicy = { hits: blocked.hits, calls: blocked.calls, screen: blocked.screen };
-  claims.domain_policy = blocked.hits === 0 ? "PASS" : "FAIL";
-  if (blocked.hits === 0)
-    pass(
-      `browser policy: a blocked domain is not visited although the tool call was approved (${blocked.screen})`,
-    );
-  else
-    console.log(
-      `FAIL browser policy: blocked domain 127.0.0.1 was visited ${blocked.hits}x after the org blocked it (calls ${JSON.stringify(blocked.calls)}; ${blocked.screen})`,
-    );
+  assert.equal(blocked.hits, 0, "an org-blocked domain is never visited");
+  assert.match(blocked.screen ?? "", MANAGED_BROWSER_REFUSAL);
+  claims.domain_policy_bypass = "PASS";
+  pass(
+    `browser policy: with the tool approved and 127.0.0.1 blocked, the page is not visited (${blocked.screen})`,
+  );
 
   // 4. Approval denied.
   await putToolPolicy({
@@ -337,7 +336,6 @@ try {
     `approval denied: the org denied the per-use approval -> 0 page hits, never claimed (${deniedApproval.screen})`,
   );
 
-  assert.equal(claims.domain_policy, "PASS", "org browser domain policy is enforced");
   assert.equal(probe.failures.length, 0);
   completed = true;
 } catch (error) {
