@@ -135,9 +135,10 @@ const FAULTS = [
       {
         file: "packages/services/src/session/automationManagedAdoption.ts",
         find: "export const NOT_MANAGED_ADOPTED_SQL = `NOT EXISTS (\n  SELECT 1 FROM automation_managed_adoptions m WHERE m.local_automation_id = automations.automation_id\n)`;",
-        replace: "export const NOT_MANAGED_ADOPTED_SQL = `1 = 1`;",
+        replace: "export const NOT_MANAGED_ADOPTED_SQL = `1 = 1 /* lumi-sensitivity-S5 */`;",
       },
     ],
+    artifactMarker: "lumi-sensitivity-S5",
     journey: "local-preservation",
     expect: /adopted original|not claimed|byte-identical|no run history/,
   },
@@ -266,6 +267,21 @@ for (const fault of FAULTS) {
         );
         if (step.code !== 0)
           throw new Error(`INVALID: ${label} failed (build failure is not detection)`);
+      }
+      // The fault must be in the artifact the journey runs, not only in source.
+      if (fault.artifactMarker) {
+        const found = await run(
+          "grep",
+          ["-rl", fault.artifactMarker, join(childPath, "packages/desktop/out")],
+          childPath,
+          clientEnv,
+        );
+        if (found.code !== 0)
+          throw new Error("INVALID: fault marker absent from the built desktop");
+        result.artifact = found.log
+          .trim()
+          .split("\n")
+          .map((path) => path.slice(childPath.length + 1));
       }
       const electron = await run(
         process.execPath,
