@@ -2664,6 +2664,9 @@ pub fn classify_device_bindings(mut binding_ids: Vec<String>) -> DeviceBindingRe
 /// invents a state the domain did not decide, and the claim response can tell a
 /// device whether this claim was also the dispatch.
 pub fn claim_target_state(current: OccurrenceState) -> Result<OccurrenceState, DomainError> {
+    if matches!(current, OccurrenceState::Leased | OccurrenceState::Started) {
+        return Err(DomainError::OccurrenceAlreadyClaimed);
+    }
     let dispatched = match current {
         OccurrenceState::Pending => transition(
             current,
@@ -2809,9 +2812,19 @@ mod tests {
     }
 
     #[test]
-    fn a_started_or_ambiguous_occurrence_can_never_be_claimed_again() {
+    fn a_leased_or_started_occurrence_is_refused_as_already_claimed() {
+        for state in [OccurrenceState::Leased, OccurrenceState::Started] {
+            assert_eq!(
+                claim_target_state(state),
+                Err(DomainError::OccurrenceAlreadyClaimed),
+                "{state:?} race loser must see the frozen refusal"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ambiguous_or_terminal_occurrence_can_never_be_claimed_again() {
         for state in [
-            OccurrenceState::Started,
             OccurrenceState::Ambiguous,
             OccurrenceState::Succeeded,
             OccurrenceState::Cancelled,

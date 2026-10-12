@@ -66,6 +66,11 @@ await runProbe("V01 automation-lease", async (probe) => {
   const { request, expect, expectStatus, d1Rows, browserMutation, browserHeaders } = probe;
 
   console.log("");
+  // Without this the probe dies on `fetch failed` at the first request after the burst: every
+  // `d1Rows` blocked the event loop in `spawnSync` and the pooled keep-alive socket was dead when
+  // case 2 reused it (the docs/verification/ci-socket-handoff.md failure shape, reproduced here on
+  // three consecutive local runs). The async path changes no argument and no assertion.
+  probe.useAsyncSubprocesses(true);
   await probe.setup({ persistEnvVar: "V01_LEASE_PERSIST_TO", portEnvVar: "V01_LEASE_PORT" });
 
   // --- a real device identity: ed25519 keypair, real signature ---------------
@@ -383,6 +388,49 @@ await runProbe("V01 automation-lease", async (probe) => {
       { Authorization: `DeviceToken ${device.token}` },
     );
 
+  // THE FROZEN LOSER ENVELOPE (P06-CG lease semantics, `p06-contracts-v1.json`
+  // `concurrent_claim.loser_reason`): "A second device receives the existing lease projection or a
+  // stable `occurrence_already_claimed` response; it cannot receive the raw lease token."
+  //
+  // So a losing claim is graded on four things, none of which is the status alone:
+  //   1. `409` with `details.reason = occurrence_already_claimed` -- not `automation_invalid_state`,
+  //      which a desktop classifies as a generic refusal instead of a lost race (DE2E-SRV-01);
+  //   2. the raw lease token appears NOWHERE in the body;
+  //   3. the winner's lease id appears ONLY as `details.existing_lease_id`, the one projection the
+  //      contract permits, and only when it equals the same-org winner's lease;
+  //   4. no other winner material: no token/fence/version keys, no run id, no winning device id.
+  //
+  // This replaces an earlier, stricter-than-contract rule that NO loser body could carry the lease
+  // id at all. That rule contradicted the frozen "existing lease projection" and was satisfied only
+  // because sequential losers were refused with the wrong reason before the projection was built.
+  const loserEnvelopeProblems = (response, winner) => {
+    const problems = [];
+    const reason = probe.reasonOf(response);
+    if (response.status !== 409) problems.push(`status=${response.status}`);
+    if (reason !== "occurrence_already_claimed") problems.push(`reason=${reason}`);
+    const body = JSON.stringify(response.payload ?? null);
+    if (winner.token && body.includes(winner.token)) problems.push("raw lease token disclosed");
+    const details = response.payload?.error?.details ?? {};
+    const existing = details.existing_lease_id;
+    if (existing !== undefined && existing !== winner.leaseId) {
+      problems.push(`existing_lease_id=${existing} is not the same-org winner's lease`);
+    }
+    const { existing_lease_id: _projection, ...rest } = details;
+    const remainder = JSON.stringify({
+      ...(response.payload ?? {}),
+      error: { ...(response.payload?.error ?? {}), details: rest },
+    });
+    if (winner.leaseId && remainder.includes(winner.leaseId)) {
+      problems.push("lease id disclosed outside details.existing_lease_id");
+    }
+    for (const key of ["lease_token", "lease_fence", "lease_version", "run_id", "device_id"]) {
+      if (body.includes(`"${key}"`)) problems.push(`carries ${key}`);
+    }
+    if (winner.deviceId && body.includes(winner.deviceId))
+      problems.push("winning device id disclosed");
+    return problems;
+  };
+
   // A fresh occurrence per case, so each race starts from a genuinely claimable state and one
   // case's winner cannot make the next case's precondition false.
   const newOccurrence = async (label) => {
@@ -502,17 +550,22 @@ await runProbe("V01 automation-lease", async (probe) => {
     const winner = winners[0];
     const winnerLeaseId = winner?.payload?.lease_id;
     const winnerToken = winner?.payload?.lease_token;
-    const lossyLeak = losers.filter(
-      (r) =>
-        (winnerLeaseId && JSON.stringify(r.payload ?? null).includes(winnerLeaseId)) ||
-        (winnerToken && JSON.stringify(r.payload ?? null).includes(winnerToken)),
-    );
+    const lossyLeak = losers
+      .map((r) => ({
+        r,
+        problems: loserEnvelopeProblems(r, {
+          token: winnerToken,
+          leaseId: winnerLeaseId,
+          deviceId: leases[0]?.device_id,
+        }),
+      }))
+      .filter(({ problems }) => problems.length > 0);
     expect(
-      "NO losing response contains the winner's lease id or its raw lease token — the conflict re-reads a projection, it does not hand over the lease",
+      "EVERY losing response is the frozen 409 occurrence_already_claimed envelope: no raw lease token, the lease id only as the contract's existing_lease_id projection, no other winner material",
       lossyLeak.length === 0,
       lossyLeak.length === 0
-        ? `${losers.length} loser(s) answered ${[...new Set(losers.map((r) => r.status))].join(" ")} with no winner lease material`
-        : `${lossyLeak.length} loser response(s) carried the winner's lease: ${probe.brief(lossyLeak[0].payload, 300)}`,
+        ? `${losers.length} loser(s) answered 409 occurrence_already_claimed with no token and no winner material`
+        : `${lossyLeak.length} loser response(s) broke the envelope (${lossyLeak[0].problems.join("; ")}): ${probe.brief(lossyLeak[0].r.payload, 300)}`,
     );
     expect(
       "every losing response is an explicit refusal with a stable reason, never a 2xx and never a bare 500",
@@ -583,17 +636,22 @@ await runProbe("V01 automation-lease", async (probe) => {
     );
     const winnerToken = winners[0]?.payload?.lease_token;
     const winnerLeaseId = winners[0]?.payload?.lease_id;
-    const otherDeviceLeak = losers.filter(
-      (r) =>
-        (winnerLeaseId && JSON.stringify(r.payload ?? null).includes(winnerLeaseId)) ||
-        (winnerToken && JSON.stringify(r.payload ?? null).includes(winnerToken)),
-    );
+    const otherDeviceLeak = losers
+      .map((r) => ({
+        r,
+        problems: loserEnvelopeProblems(r, {
+          token: winnerToken,
+          leaseId: winnerLeaseId,
+          deviceId: leases[0]?.device_id,
+        }),
+      }))
+      .filter(({ problems }) => problems.length > 0);
     expect(
-      "the losing DEVICE is told nothing about the winning device's lease",
+      "the losing DEVICE gets the frozen occurrence_already_claimed envelope and never the winning device's token, fence or identity",
       otherDeviceLeak.length === 0,
       otherDeviceLeak.length === 0
-        ? `the loser answered ${losers[0]?.status} with no winner lease material`
-        : `${otherDeviceLeak.length} losing device response(s) carried the winner's lease`,
+        ? `the loser answered ${losers[0]?.status} ${probe.reasonOf(losers[0] ?? {}) ?? ""} with no winner token or device material`
+        : `${otherDeviceLeak.length} losing device response(s) broke the envelope (${otherDeviceLeak[0].problems.join("; ")})`,
     );
   }
 
@@ -624,6 +682,32 @@ await runProbe("V01 automation-lease", async (probe) => {
       `second=${second.status} third=${third.status}`,
     );
     const leases = await activeLeases(occ3);
+    // DE2E-SRV-01: the SEQUENTIAL loser. The winner's batch has committed before these requests
+    // are sent, so the route's early state read sees `leased`. Before the fix that read answered
+    // `409 automation_invalid_state`; only a loser rejected by the D1 guard got the frozen reason.
+    const winner3 = {
+      token: first.payload?.lease_token,
+      leaseId: first.payload?.lease_id,
+      deviceId: leases[0]?.device_id,
+    };
+    for (const [label, response] of [
+      ["second (other device)", second],
+      ["third (winning device again)", third],
+    ]) {
+      const problems = loserEnvelopeProblems(response, winner3);
+      expect(
+        `the SEQUENTIAL ${label} claim after the winner committed is 409 occurrence_already_claimed, never automation_invalid_state, with no lease_token and only the same-org existing_lease_id`,
+        problems.length === 0,
+        problems.length === 0
+          ? `status=${response.status} reason=${probe.reasonOf(response)} existing_lease_id=${response.payload?.error?.details?.existing_lease_id ?? "absent"}`
+          : `${problems.join("; ")} -- ${probe.brief(response.payload, 300)}`,
+      );
+    }
+    expect(
+      "the sequential loser's existing_lease_id is the winner's same-org lease (the contract's existing lease projection)",
+      second.payload?.error?.details?.existing_lease_id === first.payload?.lease_id,
+      `existing_lease_id=${second.payload?.error?.details?.existing_lease_id ?? "absent"} winner=${first.payload?.lease_id ?? "none"}`,
+    );
     expect(
       "still exactly ONE active lease after three sequential claims",
       leases.length === 1,
@@ -690,6 +774,27 @@ await runProbe("V01 automation-lease", async (probe) => {
       );
       // And the existence of the occurrence must not be distinguishable from a missing one.
       const missing = await claim(intruder, "occ_00000000000000000000000000000000");
+
+      // DE2E-SRV-01: a foreign device against a LEASED occurrence. The same-org loser now receives
+      // `existing_lease_id`; another tenant's device must not, and must still get the plain
+      // non-disclosing not-found envelope.
+      const owner = await claim(deviceA, occ4);
+      expect(
+        "CONTROL: the owning org's device can lease the occurrence the intruder was refused",
+        owner.status === 201 && typeof owner.payload?.lease_id === "string",
+        `status=${owner.status}`,
+      );
+      const leasedAttack = await claim(intruder, occ4);
+      const leasedBody = JSON.stringify(leasedAttack.payload ?? null);
+      expect(
+        "another org's device claiming a LEASED occurrence gets the absent-occurrence answer and never existing_lease_id, the lease id, or the token",
+        String(leasedAttack.status) === String(missing.status) &&
+          probe.reasonOf(leasedAttack) === probe.reasonOf(missing) &&
+          !leasedBody.includes("existing_lease_id") &&
+          !(owner.payload?.lease_id && leasedBody.includes(owner.payload.lease_id)) &&
+          !(owner.payload?.lease_token && leasedBody.includes(owner.payload.lease_token)),
+        `leased -> ${leasedAttack.status} ${probe.reasonOf(leasedAttack)}; absent -> ${missing.status} ${probe.reasonOf(missing)}; body=${probe.brief(leasedAttack.payload, 200)}`,
+      );
       expect(
         "another org's device gets the SAME answer for a real occurrence it does not own as for one that does not exist, so the refusal does not confirm existence",
         String(attack.status) === String(missing.status) &&

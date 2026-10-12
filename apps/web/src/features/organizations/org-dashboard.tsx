@@ -11,6 +11,7 @@ import {
 
 import { LumiWordmark } from "@/components/brand";
 import {
+  IconAuditLog,
   IconHome,
   IconLogout,
   IconMenu,
@@ -105,6 +106,13 @@ const PluginsPanel = lazy(() =>
   })),
 );
 
+// F22 "Audit Log" / F16 FR-F16-003. Lazy like every other substantive surface.
+const AuditPanel = lazy(() =>
+  import("@/features/audit/audit-panel").then((module) => ({
+    default: module.AuditPanel,
+  })),
+);
+
 interface OrgDashboardProps {
   me: MeResponse;
   onSignOut: () => void;
@@ -122,6 +130,7 @@ type Section =
   | "devices"
   | "adoption"
   | "policy"
+  | "audit"
   | "models"
   | "automations"
   | "webhooks"
@@ -150,6 +159,8 @@ const sections: { id: Section; label: string; icon: ComponentType<{ className?: 
   // and F22's tree has no separate home for it.
   { id: "adoption", label: "Adoption", icon: IconRoute },
   { id: "policy", label: "Policy", icon: IconShieldLock },
+  // F22 places Audit Log directly above Settings, as do the screen references.
+  { id: "audit", label: "Audit log", icon: IconAuditLog },
   { id: "settings", label: "Settings", icon: IconShieldLock },
 ];
 
@@ -724,6 +735,14 @@ export function OrgDashboard({ me, onSignOut, onOrganizationsChanged }: OrgDashb
                   </Suspense>
                 ) : null}
                 {section === "policy" ? <PolicyPanel orgId={load.organization.org_id} /> : null}
+                {section === "audit" ? (
+                  <Suspense fallback={<LoadingPanel label="Loading audit log…" />}>
+                    {/* Keyed by organization so a switch never shows the previous
+                        organization's events or cursor (FR-F22-001). The server
+                        re-checks `audit.read` and scopes the query to the path org. */}
+                    <AuditPanel key={load.organization.org_id} orgId={load.organization.org_id} />
+                  </Suspense>
+                ) : null}
                 {section === "models" ? (
                   <ModelsRoutingPanel orgId={load.organization.org_id} membership={selected} />
                 ) : null}
