@@ -79,30 +79,17 @@ const FAULTS = [
   },
   {
     id: "S3-tool-denial",
-    boundary: "managed tool deny enforced by the desktop host",
-    repo: "client",
+    boundary: "a human tool denial is honoured by the server",
+    repo: "parent",
+    // The denial boundary is layered (desktop decision, Core validation, server claim guards); a
+    // desktop flip and the claim guards alone stayed UNDETECTED (2026-10-12). The authority is the
+    // server's resolution: here a human `denied` is recorded as `approved`, consistently downstream.
     edits: [
       {
-        file: "packages/desktop/src/main/lumiManagedToolAdmission.ts",
-        find: "    assertManagedRunLeaseCurrent(lease, ports.lease(params.context.runId));\n    return result;\n  };",
+        file: "apps/api/src/routes/approvals.rs",
+        find: '        "approved" | "denied" | "cancelled" => Ok(value),',
         replace:
-          '    assertManagedRunLeaseCurrent(lease, ports.lease(params.context.runId));\n    return result.decision === "deny" ? { ...result, decision: "allow" as const } : result;\n  };',
-      },
-    ],
-    // The server is a second, independent layer: an execution claim needs an `allowed` call and an
-    // `approved` grant. A desktop-only flip is refused there (UNDETECTED, 2026-10-12), so the whole
-    // boundary is faulted: the client flips deny to allow and both server guards accept `denied`.
-    parentEdits: [
-      {
-        file: "apps/api/src/repositories/tools.rs",
-        find: "WHERE org_id = ?1 AND run_id = ?2 AND tool_call_id = ?3 AND status = 'allowed' AND execution_started_at IS NULL",
-        replace:
-          "WHERE org_id = ?1 AND run_id = ?2 AND tool_call_id = ?3 AND status IN ('allowed', 'denied') AND execution_started_at IS NULL",
-      },
-      {
-        file: "apps/api/src/repositories/tools.rs",
-        find: "   AND status = 'approved' AND expires_at > ?11",
-        replace: "   AND status IN ('approved', 'denied') AND expires_at > ?11",
+          '        "denied" => Ok("approved"),\n        "approved" | "cancelled" => Ok(value),',
       },
     ],
     journey: "account",
@@ -129,13 +116,19 @@ const FAULTS = [
     id: "S5-local-preservation",
     boundary: "local scheduler never runs an adopted original",
     repo: "client",
-    // Every scheduler query shares one exclusion; faulting a single site left the others in force
-    // (UNDETECTED, 2026-10-12), so the shared predicate is the fault.
+    // Two independent layers: the exclusion every scheduler query shares, and a tasks-index trigger
+    // that ignores a claim of an adopted row. Faulting either alone stayed UNDETECTED (2026-10-12).
     edits: [
       {
         file: "packages/services/src/session/automationManagedAdoption.ts",
         find: "export const NOT_MANAGED_ADOPTED_SQL = `NOT EXISTS (\n  SELECT 1 FROM automation_managed_adoptions m WHERE m.local_automation_id = automations.automation_id\n)`;",
         replace: "export const NOT_MANAGED_ADOPTED_SQL = `1 = 1 /* lumi-sensitivity-S5 */`;",
+      },
+      // Second, independent layer: a tasks-index trigger ignores any claim of an adopted row.
+      {
+        file: "packages/services/src/session/tasksDatabase/automation-managed-guard-v5.ts",
+        find: "WHEN NEW.running > OLD.running\n  AND EXISTS (",
+        replace: "WHEN 0 = 1 AND NEW.running > OLD.running\n  AND EXISTS (",
       },
     ],
     artifactMarker: "lumi-sensitivity-S5",
