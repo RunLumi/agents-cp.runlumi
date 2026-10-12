@@ -93,7 +93,8 @@ const FAULTS = [
       },
     ],
     journey: "account",
-    expect: /denial leaves the file untouched|a denied call is never claimed/,
+    expect:
+      /denied tool call is settled without execution|denial leaves the file untouched|a denied call is never claimed/,
   },
   {
     id: "S4-budget-settlement",
