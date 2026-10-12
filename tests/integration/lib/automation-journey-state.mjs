@@ -2,7 +2,7 @@
 // tasks-index SQLite (read-only); server state from the Worker's local D1. Nothing here mutates either.
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -54,7 +54,9 @@ export function readTable(profile, sql, ...params) {
 
 /** Seed local automations with the product's own repository (see seed-local-automations.mts). */
 export async function seedLocalAutomations({ root, profile, specs }) {
-  const client = join(root, "integrations/lumi-agents");
+  // Real path: a sensitivity worktree may link the client in, and pnpm would otherwise resolve
+  // the enclosing parent workspace instead of the client's own.
+  const client = realpathSync(join(root, "integrations/lumi-agents"));
   const { stdout } = await run(
     "pnpm",
     [
