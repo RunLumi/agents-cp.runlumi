@@ -245,6 +245,7 @@ try {
       ["managed-faults", "desktop-managed-faults-electron.mjs", "LUMI_FAULTS_REPORT"],
       ["adoption-policy", "desktop-adoption-policy-electron.mjs", "LUMI_ADOPTION_REPORT"],
       ["multi-org", "desktop-multi-org-electron.mjs", "LUMI_MULTI_ORG_REPORT"],
+      ["mcp", "desktop-mcp-electron.mjs", "LUMI_MCP_REPORT"],
       [
         "local-preservation",
         "desktop-automation-local-preservation.mjs",
