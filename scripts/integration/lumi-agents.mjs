@@ -244,6 +244,7 @@ try {
       ["revocation", "desktop-revocation-electron.mjs", "LUMI_REVOCATION_REPORT"],
       ["managed-faults", "desktop-managed-faults-electron.mjs", "LUMI_FAULTS_REPORT"],
       ["adoption-policy", "desktop-adoption-policy-electron.mjs", "LUMI_ADOPTION_REPORT"],
+      ["multi-org", "desktop-multi-org-electron.mjs", "LUMI_MULTI_ORG_REPORT"],
       [
         "local-preservation",
         "desktop-automation-local-preservation.mjs",

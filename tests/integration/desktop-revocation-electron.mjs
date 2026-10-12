@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { SmokeHarness } from "../../apps/api/scripts/lib/smoke-harness.mjs";
 import { createDesktopApp, uiHelpers } from "./lib/lumi-desktop-app.mjs";
+import { startSecretSweepProxy } from "./lib/secret-sweep-proxy.mjs";
 import {
   onboardToManagedPolicy,
   reachAccountSection,
@@ -63,6 +64,7 @@ const LOCAL_DUE_MS = Number(process.env.DE2E_REVOCATION_LOCAL_DUE_MS ?? 300_000)
 let app;
 let web;
 let stub;
+let sweep;
 let stage = "setup";
 let completed = false;
 process.on("exit", () => probe.cleanup());
@@ -107,7 +109,21 @@ try {
   });
   const personalBefore = personalConfigHash(profile);
   web = await startApprovalWeb({ root, probe });
-  app = createDesktopApp({ binary, desktop, probe, profile, workspacePath, name: "revocation" });
+  // Wire/at-rest sweep: every desktop request goes through a recording proxy that keeps issued
+  // secrets in memory only and flags request bodies carrying the local path or local prompt.
+  sweep = await startSecretSweepProxy({
+    target: probe.baseUrl,
+    forbiddenInBodies: [workspacePath, LOCAL_PROMPT],
+  });
+  app = createDesktopApp({
+    binary,
+    desktop,
+    probe,
+    profile,
+    workspacePath,
+    name: "revocation",
+    origin: sweep.origin,
+  });
   stage = "runtime";
   await app.start();
   const { deviceId } = await onboardToManagedPolicy({
@@ -252,6 +268,21 @@ try {
   pass(
     `local personal work still completes after revocation (local run ${local.run.run_id}); no managed run created`,
   );
+  // Secret sweep, after the whole lifecycle and a restart. Controls first: secrets were captured,
+  // and the scanner finds a planted copy, so "no hits" means absent rather than incapable.
+  assert.ok(sweep.secretCount() >= 2, `issued secrets captured: ${sweep.secretCount()}`);
+  assert.equal(sweep.selfTest(), true, "the scanner finds a planted copy of a captured secret");
+  const hits = sweep.scan(profile);
+  assert.deepEqual(hits, [], `plaintext session/device/lease secrets found at rest: ${hits}`);
+  assert.deepEqual(
+    sweep.bodyLeaks(),
+    [],
+    `local path or prompt sent on the wire: ${sweep.bodyLeaks()}`,
+  );
+  writeFileSync(join(evidence, "wire-routes.json"), JSON.stringify(sweep.routeShapes(), null, 2));
+  pass(
+    `no issued session/device/lease secret (${sweep.secretCount()} captured) appears in plaintext anywhere in the profile, Agent home or logs; no request carried the workspace path or local prompt (${sweep.routeShapes().length} route shapes recorded)`,
+  );
   assert.equal(
     personalConfigHash(profile),
     personalBefore,
@@ -269,6 +300,7 @@ try {
   await app?.stop();
   await web?.close();
   await stub?.close?.();
+  await sweep?.close();
   const git = (cwd, ...args) =>
     execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
   const report = {
