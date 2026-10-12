@@ -12,8 +12,9 @@ Updated 2026-10-12 (UTC).
 | DE2E-SRV-01 race loser, device-audit project, web audit log | agents-cp.runlumi | [#62](https://github.com/RunLumi/agents-cp.runlumi/pull/62) | **Merged** `fd6b75771235f6889245d041f4083a6f0ca0600c`; main pipeline quality + migrations + deploy + production smoke succeeded |
 | DE2E-QA-01 Linux gate, journeys, sensitivity | agents-cp.runlumi | [#63](https://github.com/RunLumi/agents-cp.runlumi/pull/63) | **Merged** `f73e3efae62be0f82ad2dc25f8fcee88d868e11d`; pipeline deploy + smoke succeeded |
 | DE2E-QA-02 journey E fixes, revoked-state UI, evidence record | agents-cp.runlumi | branch `codex/de2e-journey-e-evidence` | this PR |
-| DE2E-CLI-01..05 desktop fixes (incl. token rotation) | LumiAgents | [#49](https://github.com/RunLumi/LumiAgents/pull/49) | open at `e9c1ffc2f7e98bfe5034d982ff306d5f0f71404e`; **DCO red until a human signs off** (CONTRIBUTING forbids tool sign-off) |
-| Pin merged client + clean paired evidence | agents-cp.runlumi | pending | after #49 merges |
+| DE2E-CLI-01..05 desktop fixes (incl. token rotation) | LumiAgents | [#49](https://github.com/RunLumi/LumiAgents/pull/49) | **Merged** `a1c6dde87573260f83bc94dad15615a841e116b1` (head `e9c1ffc2`) with DCO red on the owner's instruction; DCO job disabled by LumiAgents#50 (`d97e39e2`) |
+| Browser runtime proof + fail-closed journey | agents-cp.runlumi | #66, #67, #68 | **Merged** (`797b198`, `f9cc427`, `4c0b705`); deployed |
+| Pin merged client + clean paired evidence | agents-cp.runlumi | [#69](https://github.com/RunLumi/agents-cp.runlumi/pull/69) | **Merged** `9dfef1b`; main gitlink read back `a1c6dde8`; clean gate: all journeys PASS except automation UNPROVEN (documented gaps) |
 
 Old-machine artifacts (supervisor resume, run20/21/22 logs, three-way reports) are unavailable
 here; historical verdicts in `docs/verification/runs/2026-10-07-desktop-managed-e2e/` stand.

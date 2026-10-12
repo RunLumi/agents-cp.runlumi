@@ -75,73 +75,117 @@ system exists to catch.
     boundary and actor attribution the spec will build on.
   - Related contracts: [ADR 0007 — three actor kinds](adr/0007-three-actor-kinds.md), [F24 — Admin, Support, Abuse & Feature Rollouts](specs/f24-admin-support-abuse-feature-rollouts.md), [F16 — Audit Logs, Security Events & Support Access](specs/f16-audit-security-events-support-access.md).
 
-## Desktop ↔ control-plane E2E (goal `docs/prompts/goal-desktop-backend-e2e.md`)
+## Desktop ↔ control-plane E2E — human hand-off (2026-10-12)
 
-State on 2026-10-12: LumiAgents#49 merged as `a1c6dde8`. Pin PR
-[#69](https://github.com/RunLumi/agents-cp.runlumi/pull/69) pins it, and the clean paired
-one-command gate is running on parent `36bf777` + client `a1c6dde8`. Claim matrix:
-[2026-10-12 evidence record](verification/runs/2026-10-12-desktop-linux-e2e/README.md).
-Resume notes: [checkpoint](implementation/desktop-e2e/continuation-20261011-checkpoint.md).
+Authority: [goal prompt](prompts/goal-desktop-backend-e2e.md). Claim matrix and evidence:
+[2026-10-12 evidence record](verification/runs/2026-10-12-desktop-linux-e2e/README.md). Resume
+state: [checkpoint](implementation/desktop-e2e/continuation-20261011-checkpoint.md).
 
-- [ ] **Finish the pin and record the final paired evidence**
-  - Read the gate result (`test-results/lumi-agents/<run>/result.json`) and rerun
-    `node scripts/integration/desktop-sensitivity.mjs` on the same pair. Use Node 24 on
-    PATH; the gate refuses other versions.
-  - Record both in the evidence record and the checkpoint; merge #69 after hosted CI
-    on its exact head; read back the `main` SHA and the deploy job.
-  - Command: `LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs`.
+### Where things stand
 
-- [ ] **Restore the LumiAgents DCO check (owner decision, 2026-10-12)**
-  - #49 merged with its `dco` check red on the owner's instruction to disable DCO.
-    LumiAgents `main` has no branch protection, so nothing blocked the merge.
-  - The workflow change that turns the job off is committed (`6c5c5cc8`, branch
-    `codex/dco-temporarily-off`) but not pushed: the GitHub token needs the `workflow`
-    scope (`gh auth refresh -h github.com -s workflow`, then complete the device login).
-  - Before re-enabling, the human author adds a verified same-author retrospective
-    attestation (`docs/licensing/dco-attestations.json`) for each unsigned commit merged
-    while it was off: `1433897a 17a86027 53568365 df54988e c261135a d5372225 06e2483a
-    f3d31d55 91db7fb4 e9c1ffc2` (plus any later ones). Otherwise the `main` push check
-    stays red. Commits should be authored under a real identity, not the machine's
-    `Ubuntu` git user.
+- **Merged and deployed (agents-cp):** #62 (server fixes), #63 (Linux gate + journeys), #65
+  (stale-fence probe), #66–#68 (browser proof, fail-closed journey, D2 evidence), #69 (pin).
+  `main` pins LumiAgents `a1c6dde8`; every `main` merge passed quality and `Deploy production`.
+- **Merged (LumiAgents):** #49 → `a1c6dde8` (Linux desktop fixes, revoked state, token rotation,
+  managed browser fail-closed); #50 → `d97e39e2` (DCO job temporarily disabled).
+- **Clean paired gate** on parent `36bf777` + client `a1c6dde8` (`reproducible: true`): every
+  Electron journey PASS except **automation = UNPROVEN** (items below). Gate verdict FAIL
+  because it requires PASS for every journey.
+- **Not done:** external-provider proof, managed browser as a working feature, D2, the open
+  automation items, a sensitivity rerun on the final pair, and any desktop release.
+  **Do not call the E2E complete until every item marked "required" below is closed.**
 
-- [ ] **Decide P05-CR-005 steps 2–3: make managed browser use work (security, HIGH)**
-  - Today (client `e9c1ffc2`) browser commands in a managed session fail closed, so the
-    org browser policy cannot be bypassed — but managed desktop browser use is unavailable.
-  - Needs the P05 contract owner: a child tool-decision per browser command under the
-    parent call's grant, plus a concrete Main gate adapter.
-  - Proposal: [P05-CR-005](implementation/change-requests/P05-CR-005.md); proof:
-    `tests/integration/desktop-browser-electron.mjs`.
+### How to run the proof
 
-- [ ] **Decide how D2 (non-streaming managed inference) should be reachable**
-  - Neither tried path produced a non-streaming managed request at runtime: composer
-    `/compact` after a managed run, and Workspace Memory extraction (also after a
-    restart). Managed authority covers only the single prompt from the managed run
-    panel. The Worker non-stream path is covered by `pnpm smoke:p05`/P04 probes only.
-  - Product/spec decision: whether follow-up turns, compaction or memory extraction
-    should run under managed authority; then add a journey.
+Linux needs Xvfb, dbus, gnome-keyring and secret-tool, plus Node 24 on PATH (the gate refuses
+other Node versions). macOS needs a logged-in session with Keychain.
 
-- [ ] **External provider round trip (X1) — BLOCKED**
-  - Needs an approved provider credential and spend cap (separate authorization), then a
-    journey against the real provider instead of `mock://`.
+```sh
+git submodule update --init --recursive
+LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs   # full clean pair
+LUMI_INTEGRATION_DESKTOP=1 LUMI_DESKTOP_JOURNEYS=browser,mcp node scripts/integration/lumi-agents.mjs  # subset
+node scripts/integration/desktop-sensitivity.mjs                     # fault injection
+```
 
-- [ ] **P06 change request: claim deadline for `dispatching` occurrences**
-  - An unclaimed `dispatching` occurrence has no claim deadline, so under
-    `overlap_policy=skip` it blocks successors until a device claims it. P06-CG allows
-    `dispatching → missed` but defines no deadline.
+A submodule HEAD that differs from the gitlink is refused unless `LUMI_AGENTS_DIR` is set. That
+is a local override and gives `reproducible: false`, which is not release evidence.
 
-- [ ] **Decide whether a tool-policy change should refresh the device policy snapshot**
-  - A tool policy PUT does not issue a new snapshot. The snapshot only narrows, so
-    tightening applies at once, but loosening (a newly reviewed tool) waits for the
-    device's next refresh (token rotation ≤10 min, enrollment, binding or budget change).
+### Required to complete the E2E (in order)
 
-- [ ] **Investigate the MCP journey flake under load**
-  - One full-gate run hit an unexplained `lumi_request_refused`; standalone runs pass
-    (7/7). Journeys run sequentially in the gate.
+- [ ] **1. Restore DCO in LumiAgents** (owner, licensing — ADR 0001, `CONTRIBUTING.md`)
+  - Set a real git identity first; the commits so far use the machine's `Ubuntu` user.
+  - The human author adds a verified same-author retrospective attestation in
+    `docs/licensing/dco-attestations.json` for each unsigned commit merged while DCO was off:
+    `1433897a 17a86027 53568365 df54988e c261135a d5372225 06e2483a f3d31d55 91db7fb4 e9c1ffc2`
+    (#49) and `6c5c5cc8` (#50), plus any later ones.
+  - Then delete the `if: ${{ false }}` line on the `dco` job in
+    `.github/workflows/dco-license.yml`. Done when the `main` push check is green.
+  - Also consider branch protection with required checks on LumiAgents `main`. There is none
+    today, which is why a red `dco` check could not block a merge
+    (`docs/licensing/COMPLIANCE.md` §9).
 
-- [ ] **Fix the pre-existing Linux failure in `desktopResourceTelemetry.test.ts`**
-  - 22/27 fail on Linux at the untouched LumiAgents base; it also makes the client's
-    pre-push hook fail, so pushes used `--no-verify`.
+- [ ] **2. Decide and build P05-CR-005 steps 2–3: managed browser use that works** (P05 contract owner)
+  - Today browser commands in a managed session fail closed: the org policy cannot be bypassed,
+    but managed desktop browser use is unavailable.
+  - Proposal: [P05-CR-005](implementation/change-requests/P05-CR-005.md). It covers a child tool
+    decision per browser command under the parent call's grant, a Main gate adapter over the device
+    transport, and server evaluation that only narrows.
+  - Done when `tests/integration/desktop-browser-electron.mjs` is changed back to require
+    **1 hit when allowed** and **0 hits when the domain is blocked**, and it passes on the gate.
+    `f3d31d55` vs `e9c1ffc2` is the existing fault/control pair.
 
-Not applicable on this build (no action unless the product changes): runtime off-peak
-refusal (the Worker only creates `normal` occurrences) and computer use (`zcode-cua` is a
-fail-closed placeholder).
+- [ ] **3. Decide how D2 (non-streaming managed inference) is reachable** (product/spec)
+  - Two runtime attempts sent no non-stream managed request: composer `/compact`, and Workspace
+    Memory extraction, including after a restart. Managed authority covers only the single prompt
+    from the managed-run panel.
+  - Decide whether follow-up turns, compaction or memory extraction should run under managed
+    authority. Then add a journey that grades the `stream` flag on the wire plus D1 settlement.
+    The draft probe was not committed: route the app through `startSecretSweepProxy` and record
+    only `{stream}` for `POST /api/v1/inference/*`.
+
+- [ ] **4. External provider round trip (X1)** (needs separate authorization)
+  - Approve one provider credential with a hard spend cap and secure custody. Run the managed turn
+    and the automation schedule stage against it instead of `mock://` and the loopback stub.
+  - Never commit or log the credential. Record cost and request ids.
+
+- [ ] **5. Close the automation (journey E) UNPROVEN items**
+  - *Renewal during a long run:* PASS on earlier runs, not observed on the final pair. Rerun the
+    automation journey; if it is timing-dependent, lengthen the slow route or assert renewal
+    explicitly.
+  - *Off-peak refusal:* the Worker only creates `off_peak_mode: "normal"` occurrences, so it is
+    unreachable at runtime. Either decide off-peak is out of scope (record NOT_APPLICABLE in the
+    spec) or build off-peak scheduling, then extend the journey.
+  - *Fence entropy/monotonicity and stale fence through the app:* proven at Worker HTTP
+    (`verify:lease-contention` 72/72). The raw lease token never leaves Main, so decide whether that
+    Worker-level proof is accepted for the claim, or add a test-only Main hook (harness only, never
+    production).
+
+- [ ] **6. Rerun sensitivity on the final pair**
+  - `node scripts/integration/desktop-sensitivity.mjs` with the pinned client. S1–S6 must be
+    DETECTED for the intended reason; a build failure is not detection. Record the result in the
+    evidence record.
+
+- [ ] **7. Final certification run**
+  - After 1–6, run the full gate on the new pinned pair from a clean checkout. Record the SHAs,
+    versions, command and verdict, and split the proof into local, hosted CI, merged, deployed and
+    release.
+  - A desktop release or store submission needs its own authorization and runbook; it is not part
+    of this proof.
+
+### Follow-ups (not blocking the E2E claim)
+
+- [ ] **P06 change request: claim deadline for `dispatching` occurrences.** An unclaimed
+  `dispatching` occurrence never expires, so under `overlap_policy=skip` it blocks successors.
+  P06-CG allows `dispatching → missed` but defines no deadline.
+- [ ] **Tool-policy change → device policy snapshot.** A tool policy PUT issues no new snapshot.
+  Tightening applies at once; loosening (a newly reviewed tool) waits for the device's next
+  refresh (token rotation ≤10 min). Decide whether the PUT should refresh snapshots.
+- [ ] **MCP journey flake under load.** One gate run hit an unexplained `lumi_request_refused`;
+  standalone runs pass 7/7, and the gate runs journeys sequentially.
+- [ ] **`desktopResourceTelemetry.test.ts` fails 22/27 on Linux** at the untouched LumiAgents base.
+  It also breaks the client pre-push hook, so pushes used `--no-verify`.
+- [ ] **Housekeeping:** remove local worktrees under `../de2e-worktrees/` (client, gate, mcp,
+  dco-off, todo) and merged `codex/de2e-*` branches once nothing references them.
+
+Not applicable on this build (no action unless the product changes): computer use
+(`packages/zcode-cua` is a fail-closed placeholder; the device reports `computer_use: false`).

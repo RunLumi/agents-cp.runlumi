@@ -15,8 +15,8 @@ re-certified here. Every claim below was exercised through the **actual Electron
   coordinator branch commits listed in the pin PR. Client: LumiAgents PR #49 head
   `f3d31d5589d8d066b56d61f3ef534ab473e25d81` (earlier journeys ran on `06e2483a`/`df54988e`;
   the full-gate run on the final candidate is recorded below).
-- These are **local runs on a candidate pair** (submodule override, so `reproducible: false`).
-  The clean exact-pair replay is recorded in the pin PR after LumiAgents#49 merges.
+- Earlier rows were local runs on candidate pairs (submodule override). The **clean exact-pair
+  replay** is recorded in "Final paired gate" below.
 - No external provider was called; inference used the Worker's development-only `mock://`
   routes and a loopback personal-provider stub. External-provider proof is **BLOCKED** (no
   approved credential or spend cap).
@@ -61,6 +61,28 @@ re-certified here. Every claim below was exercised through the **actual Electron
 | E10 | Stale fence with a live lease; fence entropy/monotonicity | PASS (Worker HTTP) / UNPROVEN (through the app) | `verify:lease-contention` case 1b: wrong fence on a live lease → `409 lease_fence_invalid`, lease unchanged, untampered renew advances (72/72); the raw lease token never leaves Main, so the desktop cannot present one |
 | E8 | Local scheduler never runs adopted originals; originals preserved | PASS | local-preservation, automation |
 | X1 | External provider round trip | BLOCKED | no approved credential/spend cap |
+
+## Final paired gate (clean, exact pair)
+
+`LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs` (Node 24.14.0, no override,
+`reproducible: true`, both trees clean). Parent `36bf777ab544390f9551c36ed3d40f6d62084462`
+(merged to main as `9dfef1b129e677d548431e941349f2c3f9c409df`, PR #69), client LumiAgents main
+`a1c6dde87573260f83bc94dad15615a841e116b1` (merge of LumiAgents#49). Local run
+`test-results/lumi-agents/2026-10-12T21-09-52.375Z` (not committed).
+
+| Journey | Verdict |
+|---|---|
+| module adoption + account/device | PASS (account 50 assertions) |
+| account / account-failures / revocation / managed-faults | PASS (17 / 7 / 9 / 9) |
+| adoption-policy / multi-org / mcp / browser / local-preservation | PASS (8 / 3 / 7 / 4 / PASS) |
+| automation (journey E) | **UNPROVEN**: onboard, adopt, race, restart PASS; schedule has external provider BLOCKED and renewal during a long run UNPROVEN in this run; faults have off-peak, fence entropy/monotonicity and stale fence through the app UNPROVEN |
+
+The gate verdict is therefore **FAIL** (it requires PASS for every journey); every other journey
+passed on the exact pair. The sensitivity campaign below ran on the earlier candidate pair and was
+not rerun on this pair.
+
+DCO: LumiAgents#49 merged with its `dco` check red on the repository owner's instruction; LumiAgents#50
+(`d97e39e2`) then disabled the `dco` job temporarily. See `docs/todo.md` for restoring it.
 
 ## Sensitivity (disposable worktrees, `scripts/integration/desktop-sensitivity.mjs`)
 
