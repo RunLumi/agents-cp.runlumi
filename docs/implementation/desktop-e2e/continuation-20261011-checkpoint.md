@@ -1,49 +1,58 @@
-# Desktop E2E continuation — resume checkpoint (2026-10-11, Claude coordinator)
+# Desktop E2E continuation — resume checkpoint (Claude coordinator)
 
-Authority: `docs/prompts/goal-desktop-backend-e2e.md`. This checkpoint records current state;
-it does not certify any claim. Verify every line below before trusting it on resume.
+Authority: `docs/prompts/goal-desktop-backend-e2e.md`. This checkpoint records state; it does
+not certify any claim. Verify every line before trusting it on resume.
 
-## Baseline (read back from remotes on 2026-10-11)
+Updated 2026-10-12 (UTC).
+
+## Baseline read back from remotes (2026-10-11)
 
 - Parent main `febc39dbadfb9421fb5fd903c93fcaac0af65386` (#59, #60 merged); gitlink
   `ac011fce8d6273a1218022de17fdeafec7a59ba9` = LumiAgents main (#48 merged).
-- Old-machine artifacts (`supervisor-current-resume.md`, run20/21/22 logs, three-way
-  reports) are **unavailable** on this machine. Historical verdicts in
+- Old-machine artifacts (`supervisor-current-resume.md`, run20/21/22 logs, three-way reports)
+  are **unavailable** here. Historical verdicts in
   `docs/verification/runs/2026-10-07-desktop-managed-e2e/` stay as recorded.
 
-## Branches and worktrees
+## Branches, worktrees and owners
 
-| Repo | Branch | Path | Owner | Head |
+| Repo | Branch | Location (relative to the parent root) | Owner | Content |
 |---|---|---|---|---|
-| parent | `codex/desktop-e2e-linux-gate` | repository root | coordinator (harness, docs, pin) | Linux gate commit |
-| parent | `codex/de2e-race-loser-refusal` | `../de2e-worktrees/server` (sibling of the root) | server/web worker (DE2E-SRV-01) | race fix `7df0fee` + worker commits |
-| child | `codex/desktop-e2e-continuation` | `../de2e-worktrees/client` | client worker (DE2E-CLI-01) | `1433897a` + worker commits |
+| parent | `codex/desktop-e2e-linux-gate` | root (switchable) | coordinator | Linux gate first commit |
+| parent | `codex/de2e-integration` | root (current) | coordinator | gate + journeys + sensitivity, merges server branch for local runs |
+| parent | `codex/de2e-race-loser-refusal` | `../de2e-worktrees/server` | server/web worker DE2E-SRV-01 | race fix, sequential-loser probe, audit view (in progress) |
+| child | `codex/desktop-e2e-continuation` | `../de2e-worktrees/client` | client worker DE2E-CLI-01 (done) | lazy updater, pre-start refusal list, off-peak owner, revocation/fresh-entry tests |
 
-The submodule checkout in the root is detached at `1433897a` for coordinator runs.
+The root submodule is detached at the client branch head for coordinator runs. Child commits
+carry **no** `Signed-off-by`: CONTRIBUTING requires a human sign-off; the tool never adds one.
 
 ## Environment (Linux, Ubuntu 22.04)
 
-Node 24.14.0 (nvm), pinned pnpm under `test-results/pnpm-tools`, Rust stable + wasm32,
-worker-build 0.8.7, Xvfb, dbus-run-session, gnome-keyring + libsecret, Google Chrome stable.
-A user-level pnpm rc sets `ignore-scripts=true`; desktop mode opts into the client's
-`allowBuilds` hooks explicitly.
+Node 24.14.0, pinned pnpm in `test-results/pnpm-tools`, Rust stable + wasm32, worker-build
+0.8.7, Xvfb, dbus-run-session, gnome-keyring + libsecret-tools, Google Chrome stable. A
+user-level pnpm rc sets `ignore-scripts=true`; desktop mode opts into the client's
+`allowBuilds` hooks. Electron 44 downloads lazily via `require('electron')`.
 
-## Evidence so far (local, dirty or branch heads; not CI, not merged)
+## Local evidence so far (dirty or unpublished heads: not CI, not merged)
 
-- Module gate PASS on the clean pinned pair (`febc39d` + `ac011fce`).
-- Actual Electron account journey (`desktop-account-electron.mjs`) PASS on Linux with the
-  owned keystore after two repairs: lazy electron-updater (child `1433897a`) and explicit
-  `gnome-libsecret` selection (parent harness). Parent was dirty (race fix) for that run.
-- Independent review matrix: 17 ranked journey gaps; race loser FAIL (fixed on branch,
-  runtime proof pending); client pre-start refusal misclassification; web audit view missing.
+| Journey | Latest local verdict | Notes |
+|---|---|---|
+| module adoption/account/device | PASS | clean pinned pair and candidate pair |
+| account (Electron) | PASS | Linux, owned keystore |
+| account-failures | PASS (7 claims) | cancel/unapproved/expired/wrong code, killed enrollment, session expiry |
+| revocation | PASS (7 claims) | UI + host seam refusal, restart, local work continues |
+| managed-faults | PASS for fail/partial/timeout; cancel repaired to wait for Worker watchdog (deadline+grace) | Agent retries a retryable failure ≤10 times (observed 7) |
+| adoption-policy | in progress | min-version enforced at token exchange per P03-CG; journey adjusted |
+| automation (E) | not yet run on Linux to completion | |
+| sensitivity S1–S5 | runner committed; S1 running | INVALID ≠ detected |
 
 ## Next commands
 
 ```sh
-LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs   # Linux re-enters an owned session
-scripts/integration/linux-desktop-session.sh <state-dir> node tests/integration/desktop-automation-electron.mjs
+LUMI_AGENTS_DIR=$PWD/integrations/lumi-agents LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs
+node scripts/integration/desktop-sensitivity.mjs            # after a desktop gate run
 ```
 
-Open: journeys E (automation) on Linux, revocation-after-revoke turn + restart, policy
-mutations, failure/cancel modes, provider preservation, web observation, wire/secret sweep,
-all-stage rollback, sensitivity faults, CI desktop job, PRs and paired pin.
+Open: web observation journey (after audit view), tool exact-approval/argument reuse,
+MCP/browser enforcement or NOT_APPLICABLE evidence, wire/secret sweep, offline/legacy/multi-org,
+journey E full run, sensitivity results, PRs (server first), child DCO sign-off by a human,
+merge, pin, clean paired replay.

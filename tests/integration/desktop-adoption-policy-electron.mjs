@@ -172,18 +172,37 @@ try {
     assert.equal(result.status, 200, `device policy ${key}: ${result.text?.slice(0, 200)}`);
   };
   await devicePolicy("999.0.0", "raise-min-version");
-  const tooOld = await managedTurn("below minimum client version", { expect: "refused" });
-  await ui.clickText("Sync policy");
+  // P03-CG / P03-CR-001: the floor is enforced at device-token exchange (staged, not a surprise
+  // brick). Refresh and policy sync must be refused now; once the current short-lived token is due,
+  // the execution seam cannot obtain authority and the managed turn is refused.
+  await ui.clickText("Refresh device token");
   await ui.wait(
     () => document.body.innerText.includes("Device action failed"),
-    "policy sync refused below minimum version",
+    "token refresh refused below minimum version",
   );
+  // Policy sync still succeeds: the snapshot carries the floor, and P03-CG enforces it at the
+  // token exchange above, not at policy read. The decisive runtime proof follows.
+
+  await probe.d1Execute(
+    `UPDATE device_tokens SET expires_at = '2000-01-01T00:00:00.000Z' WHERE device_id = '${deviceId}'`,
+    "current device token reaches its expiry",
+  );
+  const tooOld = await managedTurn("below minimum client version", { expect: "refused" });
   pass(
-    `device minimum client version above this app refuses managed execution and policy sync (UI ${tooOld.uiState}${tooOld.uiCode ? ` ${tooOld.uiCode}` : ""}); no completed request or usage`,
+    `minimum client version above this app: token refresh refused (policy read still carries the floor); once the current token expires the managed turn is refused (UI ${tooOld.uiState}${tooOld.uiCode ? ` ${tooOld.uiCode}` : ""}); no completed request or usage`,
   );
   await devicePolicy(null, "clear-min-version");
+  // The expired token cannot refresh itself; the user renews through human-authorized recovery
+  // (P03-CR-002) when the app offers it, otherwise through an ordinary refresh.
+  const recover = await page.evaluate(() =>
+    [...document.querySelectorAll("button")].some(
+      (b) => b.innerText.trim() === "Approve recovery and renew this device",
+    ),
+  );
+  await ui.clickText(recover ? "Approve recovery and renew this device" : "Refresh device token");
+  await delay(3_000);
   await managedTurn("control after clearing minimum version", { expect: "success" });
-  pass("clearing the minimum client version restores managed execution");
+  pass("clearing the minimum client version lets the device exchange a token and execute again");
 
   // 2. Credential choices are recorded exactly as chosen.
   for (const mode of ["metadata_only", "org_managed_credential", "local_credential"]) {
