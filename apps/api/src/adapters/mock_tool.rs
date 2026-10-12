@@ -30,6 +30,12 @@ const NO_WRITE_TOOL_TEXT: &str = "The mock fixture was offered no usable Write t
 const PATH_KEYS: [&str; 2] = ["file_path", "path"];
 const CONTENT_KEYS: [&str; 2] = ["content", "text"];
 const PROVIDER_ID: &str = "mock-tool";
+/// `lumi-mock-call:<tool name>` asks the fixture to call that exact offered tool once with a
+/// fixed synthetic `note`, so a harness can drive a non-Write tool (e.g. a custom MCP tool)
+/// through the real managed gate. Only a tool whose schema declares a string `note` qualifies.
+pub const MOCK_CALL_MARKER: &str = "lumi-mock-call:";
+pub const MOCK_CALL_NOTE: &str = "lumi mock tool call fixture";
+const MAX_MOCK_TOOL_NAME_BYTES: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MockToolTurn {
@@ -120,6 +126,27 @@ fn requested_path(request: &InferenceRequest) -> Option<String> {
 
 /// The real descriptor the model was offered: a function named `Write` with a
 /// path and a content property.
+/// The exact offered tool named after [`MOCK_CALL_MARKER`], if it declares a string `note`.
+fn requested_call(request: &InferenceRequest) -> Option<String> {
+    let user = request
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::User)?;
+    let text = message_text(&user.content);
+    let start = text.find(MOCK_CALL_MARKER)? + MOCK_CALL_MARKER.len();
+    let wanted = text[start..]
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | '`'))
+        .next()
+        .filter(|name| !name.is_empty() && name.len() <= MAX_MOCK_TOOL_NAME_BYTES)?;
+    request.tools.iter().find_map(|tool| {
+        let function = tool.get("function")?;
+        let name = function.get("name")?.as_str()?;
+        let note = function.get("parameters")?.get("properties")?.get("note")?;
+        (name == wanted && note.get("type")?.as_str()? == "string").then(|| name.to_owned())
+    })
+}
+
 fn write_descriptor(tools: &[Value]) -> Option<(String, &'static str, &'static str)> {
     tools.iter().find_map(|tool| {
         let function = tool.get("function")?;
@@ -151,6 +178,18 @@ pub fn plan_turn(request: &InferenceRequest) -> MockToolTurn {
             .is_some_and(|message| message.role == MessageRole::Tool)
     {
         return observed_reply(request);
+    }
+    if let Some(name) = requested_call(request) {
+        let issued = request
+            .messages
+            .iter()
+            .map(|message| message.tool_calls.len())
+            .sum::<usize>();
+        return MockToolTurn::Call {
+            id: format!("call_mock_{}", issued + 1),
+            name,
+            arguments: json!({ "note": MOCK_CALL_NOTE }).to_string(),
+        };
     }
     // Distinct fixed texts so a harness can tell why no call was made without
     // the fixture ever echoing request content.
@@ -340,6 +379,46 @@ mod tests {
             }],
             tool_calls: Vec::new(),
             tool_call_id: Some(id.to_owned()),
+        }
+    }
+
+    fn note_tool(name: &str) -> Value {
+        json!({"type": "function", "function": {"name": name, "description": "n",
+            "parameters": {"type": "object", "properties": {"note": {"type": "string"}}}}})
+    }
+
+    #[test]
+    fn calls_the_exact_named_tool_with_the_fixed_note() {
+        let prompt = InferenceMessage::user(format!("run {MOCK_CALL_MARKER}mcp__e2e__echo now"));
+        let MockToolTurn::Call {
+            name, arguments, ..
+        } = plan_turn(&request(
+            vec![prompt],
+            vec![write_tool(), note_tool("mcp__e2e__echo")],
+        ))
+        else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(name, "mcp__e2e__echo");
+        let arguments: Value = serde_json::from_str(&arguments).unwrap();
+        assert_eq!(arguments, json!({ "note": MOCK_CALL_NOTE }));
+    }
+
+    #[test]
+    fn a_named_tool_that_is_not_offered_or_lacks_a_note_is_never_called() {
+        for tools in [
+            vec![write_tool()],
+            vec![write_tool(), {
+                let mut tool = note_tool("mcp__e2e__echo");
+                tool["function"]["parameters"]["properties"] = json!({"other": {"type": "string"}});
+                tool
+            }],
+        ] {
+            let prompt = InferenceMessage::user(format!("run {MOCK_CALL_MARKER}mcp__e2e__echo"));
+            assert!(!matches!(
+                plan_turn(&request(vec![prompt], tools)),
+                MockToolTurn::Call { .. }
+            ));
         }
     }
 
