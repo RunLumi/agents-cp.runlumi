@@ -36,7 +36,12 @@ export async function buildMcpIdentity({ root, outDir, serverName, config }) {
           if (source.startsWith(".") || source.startsWith("/")) return null;
           if (source.startsWith("node:")) return { id: source, external: true };
           const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
-          if (resolved && !resolved.external && resolved.id.includes("/node_modules/") && !resolved.id.includes("/node_modules/@zcode/"))
+          if (
+            resolved &&
+            !resolved.external &&
+            resolved.id.includes("/node_modules/") &&
+            !resolved.id.includes("/node_modules/@zcode/")
+          )
             return { id: resolved.id, external: "absolute" };
           return null;
         },

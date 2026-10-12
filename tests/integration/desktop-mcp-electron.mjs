@@ -166,8 +166,8 @@ async function startMcpTurn({ page, orgId, agentId, label }) {
 async function renderedDenial(page, label) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    const code = await page.evaluate(
-      () => document.body.innerText.match(/Managed tool decision denied: ([a-z_]+)/g)?.at(-1),
+    const code = await page.evaluate(() =>
+      document.body.innerText.match(/Managed tool decision denied: ([a-z_]+)/g)?.at(-1),
     );
     if (code) return code.split(": ")[1];
     await answerLocalPrompt(page).catch(() => false);
@@ -396,7 +396,10 @@ try {
     denied.value.calls.every((call) => call.execution_started_at === null),
     "a denied call is never claimed",
   );
-  assert.ok(denied.value.calls.every((call) => call.status === "denied"), JSON.stringify(denied));
+  assert.ok(
+    denied.value.calls.every((call) => call.status === "denied"),
+    JSON.stringify(denied),
+  );
   const denyAudit = await auditFor(denyRun.run_id);
   assert.ok(
     denyAudit.some((row) => row.action === "tool.denied.v1"),
@@ -527,7 +530,7 @@ try {
   assert.equal(seam.ok, false, `revoked seam must refuse: ${JSON.stringify(seam)}`);
   claims.mcp_revocation = "PASS";
   pass(
-    `device revoked while the MCP call awaited approval; org approval afterwards answered ${lateApprove.status}; Agent result denied (${revokedDenial ?? 'not rendered within 30s'})${lateApprove.payload?.error?.reason ? ` (${lateApprove.payload.error.reason})` : ""}: no effect line, tool_call_refs ${JSON.stringify(revokeCalls.map((c) => ({ status: c.status, approval: c.approval_status, claimed: c.execution_started_at })))}, device revoked with 0 tokens, new managed execution refused at the host seam (${seam.code}), run ${await runState(revokeRun.run_id)}`,
+    `device revoked while the MCP call awaited approval; org approval afterwards answered ${lateApprove.status}; Agent result denied (${revokedDenial ?? "not rendered within 30s"})${lateApprove.payload?.error?.reason ? ` (${lateApprove.payload.error.reason})` : ""}: no effect line, tool_call_refs ${JSON.stringify(revokeCalls.map((c) => ({ status: c.status, approval: c.approval_status, claimed: c.execution_started_at })))}, device revoked with 0 tokens, new managed execution refused at the host seam (${seam.code}), run ${await runState(revokeRun.run_id)}`,
   );
 
   // 5. Browser / computer use: the runtime capability report.
