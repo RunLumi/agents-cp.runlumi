@@ -2,7 +2,7 @@
 // tasks-index SQLite (read-only); server state from the Worker's local D1. Nothing here mutates either.
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -54,19 +54,20 @@ export function readTable(profile, sql, ...params) {
 
 /** Seed local automations with the product's own repository (see seed-local-automations.mts). */
 export async function seedLocalAutomations({ root, profile, specs }) {
-  const client = join(root, "integrations/lumi-agents");
+  // Run the client's own tsx with Node directly. `pnpm exec` from whichever pnpm is on PATH could
+  // decide to (re)install the client with the wrong package manager version; the real path keeps a
+  // linked client from resolving the enclosing parent workspace.
+  const client = realpathSync(join(root, "integrations/lumi-agents"));
+  const tsx = createRequire(join(client, "package.json")).resolve("tsx/cli");
   const { stdout } = await run(
-    "pnpm",
+    process.execPath,
     [
-      "--dir",
-      client,
-      "exec",
-      "tsx",
+      tsx,
       join(root, "tests/integration/lib/seed-local-automations.mts"),
       tasksIndexPath(profile),
       JSON.stringify(specs),
     ],
-    { maxBuffer: 16 * 1024 * 1024 },
+    { cwd: client, maxBuffer: 16 * 1024 * 1024 },
   );
   const text = stdout.slice(stdout.indexOf("["));
   return JSON.parse(text);

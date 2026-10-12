@@ -38,7 +38,7 @@
     "format:check": "oxfmt --check apps/web/src apps/web/scripts apps/web/vite.config.ts apps/web/index.html apps/web/package.json apps/web/components.json apps/web/tsconfig.json apps/api/package.json apps/api/scripts apps/api/wrangler.jsonc package.json pnpm-workspace.yaml .github/workflows/checks.yml scripts/integration tests/integration .github/workflows/lumi-agents-integration.yml && cargo fmt --all -- --check",
     "lint": "oxlint --type-aware apps/web/src apps/web/vite.config.ts",
     "typecheck": "pnpm --filter @runlumi/agents-cp-web typecheck",
-    "test": "pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09 && pnpm test:sentry-bridge && pnpm test:request-boundary && pnpm test:sensitivity-harness && pnpm schema:null-check && pnpm guard:probe && pnpm verify:campaign-selftest && pnpm schema:bind-count",
+    "test": "pnpm --filter @runlumi/agents-cp-web test && cargo test --workspace && pnpm schema:p07 && pnpm canary:p09 && pnpm test:sentry-bridge && pnpm test:request-boundary && pnpm test:sensitivity-harness && pnpm schema:null-check && pnpm guard:probe && pnpm verify:campaign-selftest && pnpm schema:bind-count && pnpm test:integration-lib",
     "schema:p07": "node apps/api/scripts/p07-schema-invariants.mjs",
     "canary:p09": "node apps/api/scripts/p09-secret-canary.mjs",
     "rust:check": "cargo clippy --workspace --all-targets -- -D warnings && cargo check --workspace --target wasm32-unknown-unknown",
@@ -61,6 +61,8 @@
     "perf:budgets": "pnpm --filter @runlumi/agents-cp-web perf:budgets",
     "verify:observability": "pnpm --filter @runlumi/agents-cp-api verify:observability",
     "verify:tool-policy-deny": "pnpm --filter @runlumi/agents-cp-api verify:tool-policy-deny",
+    "test:integration-lib": "node --test --test-timeout=60000 tests/integration/lib/automation-claim-console.test.mjs tests/integration/lib/automation-ledger.test.mjs tests/integration/lib/automation-race-binding.test.mjs tests/integration/lib/automation-stage-race.test.mjs tests/integration/lib/automation-stage-schedule.test.mjs tests/integration/lib/automation-state-reader.test.mjs tests/integration/lib/automation-task-output.test.mjs tests/integration/lib/claim-recording-proxy.test.mjs",
+    "test:integration-lib:client": "node --test --test-timeout=60000 tests/integration/lib/local-personal-provider.test.mjs tests/integration/lib/mcp-stub-server.test.mjs",
     "test:integration:lumi": "node scripts/integration/lumi-agents.mjs"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,7 +17,7 @@ const git = (cwd, ...args) =>
 const evidence = { verdict: "BLOCKED", started_at: new Date().toISOString() };
 const desktopMode = process.env.LUMI_INTEGRATION_DESKTOP === "1";
 evidence.scope = desktopMode
-  ? "adoption-account-device-plus-electron-managed-stream-rollback-rebind"
+  ? "adoption-account-device-plus-electron-journeys"
   : "adoption-account-device";
 const env = {
   ...process.env,
@@ -63,6 +63,22 @@ function snapshot(cwd) {
     dirty: git(cwd, "status", "--porcelain", "--untracked-files=normal") !== "",
     package_manager: JSON.parse(readFileSync(join(cwd, "package.json"))).packageManager,
   };
+}
+if (desktopMode && process.platform === "linux" && process.env.LUMI_DESKTOP_SESSION !== "1") {
+  // Re-enter inside an owned headless session: private D-Bus bus, Xvfb display and an
+  // isolated, unlocked gnome-keyring under this run's output. Personal sessions are never used.
+  const state = join(output, "desktop-session");
+  const code = await new Promise((done) => {
+    const session = spawn(
+      join(root, "scripts/integration/linux-desktop-session.sh"),
+      [state, process.execPath, fileURLToPath(import.meta.url)],
+      { stdio: "inherit", env: { ...process.env, LUMI_DESKTOP_SESSION: "1" } },
+    );
+    session.once("error", () => done(2));
+    session.once("exit", (exitCode) => done(exitCode ?? 2));
+  });
+  rmSync(state, { recursive: true, force: true });
+  process.exit(code);
 }
 try {
   if (Number(process.versions.node.split(".")[0]) !== 24) throw new Error("Use Node.js 24");
@@ -125,13 +141,22 @@ try {
   const offlineArgs = process.env.LUMI_INTEGRATION_OFFLINE === "1" ? ["--offline"] : [];
   await rootPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
   if (desktopMode) {
-    if (process.platform !== "darwin")
+    if (process.platform !== "darwin" && process.platform !== "linux")
       throw new Error(
-        "Desktop runner currently requires macOS native runtime, display and keychain",
+        "Desktop runner requires macOS or Linux native runtime, display and keystore",
       );
     // The actual desktop requires its native/Electron install hooks. A failed
     // hook stays BLOCKED; the contract-only runner intentionally omits them.
-    await clientPnpm(["install", "--frozen-lockfile", ...offlineArgs]);
+    // Enable only the client's own `allowBuilds` hooks, even where a user-level
+    // pnpm config disables lifecycle scripts, and let pnpm replace the module
+    // gate's isolated layout without an interactive prompt.
+    await clientPnpm([
+      "install",
+      "--frozen-lockfile",
+      "--config.ignore-scripts=false",
+      "--config.confirm-modules-purge=false",
+      ...offlineArgs,
+    ]);
   } else {
     // The module gate consumes only this dependency closure. pnpm 10's hoisted
     // linker can race while copying nested esbuild paths (pnpm/pnpm#12880,
@@ -156,6 +181,19 @@ try {
       ZCODE_SKIP_REMOTE_ASSETS: "1",
     });
     await clientPnpm(["--filter", "@zcode/desktop", "build:no-runtime-assets"]);
+    // Electron 44 has no postinstall: its package downloads the pinned binary lazily when its
+    // path is first resolved. Resolve it here through the package's own API, then verify.
+    const electronPath = execFileSync(process.execPath, ["-p", "require('electron')"], {
+      cwd: client,
+      env,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .at(-1); // a first-time download prints a progress line before the path
+    if (!existsSync(electronPath))
+      throw new Error(`Pinned Electron binary missing: ${electronPath}`);
+    evidence.electron_binary = electronPath.slice(client.length + 1);
   }
   const requireWeb = createRequire(join(root, "apps/web/package.json"));
   const { build } = await import(pathToFileURL(requireWeb.resolve("vite")).href);
@@ -198,18 +236,51 @@ try {
     throw new Error("Missing exact-head account/device runtime PASS");
   evidence.account_integration = accountResult;
   if (desktopMode) {
-    env.LUMI_ELECTRON_REPORT = join(output, "electron-report.json");
-    await run(process.execPath, [join(root, "tests/integration/desktop-account-electron.mjs")]);
-    const desktopResult = JSON.parse(readFileSync(env.LUMI_ELECTRON_REPORT, "utf8"));
-    if (
-      desktopResult.verdict !== "PASS" ||
-      desktopResult.control_plane_sha !== evidence.control_plane.sha ||
-      desktopResult.lumi_agents_sha !== evidence.lumi_agents.sha ||
-      !desktopResult.desktop_assertions?.some((claim) => claim.includes("renders streamed")) ||
-      !desktopResult.desktop_assertions?.some((claim) => claim.includes("explicit rebind"))
-    )
-      throw new Error("Missing paired Electron managed-runtime PASS");
-    evidence.desktop_integration = desktopResult;
+    // Every actual-Electron journey runs, even after a failure, so one run preserves all evidence.
+    // Each must PASS for exactly this source pair; the selected scope is recorded, never widened.
+    const journeys = [
+      ["account", "desktop-account-electron.mjs", "LUMI_ELECTRON_REPORT"],
+      ["account-failures", "desktop-account-failures-electron.mjs", "LUMI_ACCOUNT_FAILURES_REPORT"],
+      ["revocation", "desktop-revocation-electron.mjs", "LUMI_REVOCATION_REPORT"],
+      ["managed-faults", "desktop-managed-faults-electron.mjs", "LUMI_FAULTS_REPORT"],
+      ["adoption-policy", "desktop-adoption-policy-electron.mjs", "LUMI_ADOPTION_REPORT"],
+      ["multi-org", "desktop-multi-org-electron.mjs", "LUMI_MULTI_ORG_REPORT"],
+      ["mcp", "desktop-mcp-electron.mjs", "LUMI_MCP_REPORT"],
+      [
+        "local-preservation",
+        "desktop-automation-local-preservation.mjs",
+        "LUMI_LOCAL_PRESERVATION_REPORT",
+      ],
+      ["automation", "desktop-automation-electron.mjs", "LUMI_AUTOMATION_REPORT"],
+    ];
+    // Harness self-tests that need the installed client run here, where it exists.
+    await rootPnpm(["test:integration-lib:client"]);
+    const selected = process.env.LUMI_DESKTOP_JOURNEYS?.split(",").filter(Boolean);
+    evidence.desktop_scope = selected ?? journeys.map(([name]) => name);
+    evidence.desktop_integration = {};
+    const failures = [];
+    for (const [name, file, reportVar] of journeys) {
+      if (selected && !selected.includes(name)) continue;
+      const report = join(output, `electron-${name}.json`);
+      env[reportVar] = report;
+      try {
+        await run(process.execPath, [join(root, "tests/integration", file)]);
+      } catch (error) {
+        failures.push(`${name}: ${error.message}`);
+      }
+      const result = existsSync(report) ? JSON.parse(readFileSync(report, "utf8")) : undefined;
+      const parentSha = result?.control_plane_sha ?? result?.provenance?.parentHead;
+      const clientSha = result?.lumi_agents_sha ?? result?.provenance?.clientHead;
+      evidence.desktop_integration[name] = result ?? { verdict: "MISSING" };
+      if (
+        result?.verdict !== "PASS" ||
+        parentSha !== evidence.control_plane.sha ||
+        clientSha !== evidence.lumi_agents.sha
+      )
+        failures.push(`${name}: verdict ${result?.verdict ?? "missing"} for the exact pair`);
+    }
+    if (selected) evidence.scope += `; desktop journeys limited to ${selected.join(",")}`;
+    if (failures.length) throw new Error(`Desktop journeys failed: ${failures.join("; ")}`);
   }
   for (const [path, before] of [
     [root, evidence.control_plane],

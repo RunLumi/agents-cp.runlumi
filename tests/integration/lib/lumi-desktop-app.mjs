@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { attachPage, connect } from "../../../apps/web/scripts/cdp.mjs";
-import { isolatedChildEnv, prepareIsolatedHome } from "./lumi-child-env.mjs";
+import { isolatedChildEnv, nativeKeystoreArgs, prepareIsolatedHome } from "./lumi-child-env.mjs";
 
 /** The renderer-side helpers shared by every journey. */
 export function uiHelpers(page) {
@@ -81,7 +81,12 @@ export function createDesktopApp({ binary, desktop, probe, profile, workspacePat
     const debugPort = port ?? (await probe.availablePort());
     app = spawn(
       binary,
-      [desktop, `--open-workspace=${workspacePath}`, `--remote-debugging-port=${debugPort}`],
+      [
+        desktop,
+        `--open-workspace=${workspacePath}`,
+        `--remote-debugging-port=${debugPort}`,
+        ...nativeKeystoreArgs(),
+      ],
       {
         detached: true,
         // Main keeps the OS HOME (native keystore); Host/Agent HOME and app data roots are profile-owned.

@@ -68,7 +68,10 @@ export const SLOW_ALIAS = "coding-slow";
  * @param probe       a started SmokeHarness
  * @param options.slowTimeoutMs   upper bound for the hanging provider route (backend max 120000)
  */
-export async function provisionOrganization(probe, { slowTimeoutMs = 110_000 } = {}) {
+export async function provisionOrganization(
+  probe,
+  { slowTimeoutMs = 110_000, extraRoutes = [] } = {},
+) {
   const fixture = probe.client();
   const email = `automation-${probe.nonce}@example.com`;
   const password = `Lumi-e2e-${randomBytes(18).toString("hex")}!`;
@@ -222,6 +225,10 @@ export async function provisionOrganization(probe, { slowTimeoutMs = 110_000 } =
     timeoutMs: slowTimeoutMs,
   });
 
+  // Optional controllable routes (e.g. mock fail/post-output/timeout) published like the defaults.
+  const extras = [];
+  for (const spec of extraRoutes) extras.push(await route(spec));
+
   const current = await probe.request(fixture, "GET", `/api/v1/orgs/${org.orgId}/policy`);
   probe.expectStatus("read organization policy", current, 200);
   const policy = await probe.request(
@@ -229,9 +236,13 @@ export async function provisionOrganization(probe, { slowTimeoutMs = 110_000 } =
     "PUT",
     `/api/v1/orgs/${org.orgId}/policy`,
     {
-      allowed_aliases: [SUCCESS_ALIAS, SLOW_ALIAS],
-      allowed_models: [success.modelId, slow.modelId],
-      allowed_providers: [success.providerId, slow.providerId],
+      allowed_aliases: [SUCCESS_ALIAS, SLOW_ALIAS, ...extras.map((item) => item.alias)],
+      allowed_models: [success.modelId, slow.modelId, ...extras.map((item) => item.modelId)],
+      allowed_providers: [
+        success.providerId,
+        slow.providerId,
+        ...extras.map((item) => item.providerId),
+      ],
       credential_mode: "organization_only",
       managed_route_enabled: true,
       version: current.payload?.version ?? 0,
@@ -264,5 +275,5 @@ export async function provisionOrganization(probe, { slowTimeoutMs = 110_000 } =
     "automation-budget",
     "create bounded budget",
   );
-  return { fixture, email, password, org, projectId, agentId: agent.id, success, slow };
+  return { fixture, email, password, org, projectId, agentId: agent.id, success, slow, extras };
 }

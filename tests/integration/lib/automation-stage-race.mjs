@@ -577,13 +577,16 @@ export async function raceStage(ctx) {
       ledger.pass(
         `round ${round}: the loser's claim response (captured at the proxy) is a stable 409 error envelope with reason ${reasons.join("/")} and carries no winner device, run, workspace binding, lease token or fence${refusals.some(disclosesLeaseId) ? " (it names the winner's lease ID by design, never the token)" : ""}`,
       );
-      if (reasons.some((reason) => reason !== "occurrence_already_claimed"))
-        ledger.gap(
-          "race",
-          `round ${round}: the loser's refusal carries the frozen loser_reason occurrence_already_claimed`,
-          "UNPROVEN",
-          `the captured refusal reason was ${reasons.join("/")}; the frozen p06-contracts fixture names occurrence_already_claimed for a concurrent-claim loser, so this late-loser path needs a contract decision (retained body in result.json race[].refusalBodies)`,
-        );
+      // P06-CG: every loser (concurrent guard or a late read of the committed lease) receives the
+      // frozen `occurrence_already_claimed`. Any other reason is a contract failure, not a gap.
+      assert.deepEqual(
+        reasons,
+        ["occurrence_already_claimed"],
+        `round ${round}: loser reason must be the frozen occurrence_already_claimed, got ${reasons.join("/")}`,
+      );
+      ledger.pass(
+        `round ${round}: the loser's refusal carries the frozen occurrence_already_claimed`,
+      );
     }
     if (claims.accepted === 0)
       ledger.gap(

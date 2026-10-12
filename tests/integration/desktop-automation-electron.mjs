@@ -363,6 +363,8 @@ try {
   };
   try {
     writeFileSync(join(evidenceDir, "result.json"), JSON.stringify(report, null, 2) + "\n");
+    if (process.env.LUMI_AUTOMATION_REPORT)
+      writeFileSync(process.env.LUMI_AUTOMATION_REPORT, JSON.stringify(report, null, 2) + "\n");
     writeFileSync(
       join(evidenceDir, "proxy-requests.json"),
       JSON.stringify(ctx.claimProxy?.requestLog() ?? [], null, 1),
