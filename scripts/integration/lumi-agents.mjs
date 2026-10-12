@@ -181,6 +181,19 @@ try {
       ZCODE_SKIP_REMOTE_ASSETS: "1",
     });
     await clientPnpm(["--filter", "@zcode/desktop", "build:no-runtime-assets"]);
+    // Electron 44 has no postinstall: its package downloads the pinned binary lazily when its
+    // path is first resolved. Resolve it here through the package's own API, then verify.
+    const electronPath = execFileSync(process.execPath, ["-p", "require('electron')"], {
+      cwd: client,
+      env,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .at(-1); // a first-time download prints a progress line before the path
+    if (!existsSync(electronPath))
+      throw new Error(`Pinned Electron binary missing: ${electronPath}`);
+    evidence.electron_binary = electronPath.slice(client.length + 1);
   }
   const requireWeb = createRequire(join(root, "apps/web/package.json"));
   const { build } = await import(pathToFileURL(requireWeb.resolve("vite")).href);
@@ -230,6 +243,7 @@ try {
       ["account-failures", "desktop-account-failures-electron.mjs", "LUMI_ACCOUNT_FAILURES_REPORT"],
       ["revocation", "desktop-revocation-electron.mjs", "LUMI_REVOCATION_REPORT"],
       ["managed-faults", "desktop-managed-faults-electron.mjs", "LUMI_FAULTS_REPORT"],
+      ["adoption-policy", "desktop-adoption-policy-electron.mjs", "LUMI_ADOPTION_REPORT"],
       [
         "local-preservation",
         "desktop-automation-local-preservation.mjs",

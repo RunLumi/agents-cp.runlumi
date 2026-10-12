@@ -40,7 +40,13 @@ export async function openManagedControls(page, { timeout = 30_000 } = {}) {
         .match(new RegExp(pattern))?.[0],
     LUMI_CODE.source,
   );
-  return code ? { state: "refused", code } : { state: "ready" };
+  // Listed options mean the section is usable; a code beside them is the previous attempt's.
+  const listed = await page.evaluate(
+    () =>
+      document.querySelectorAll("#lumi-managed-agent option").length > 1 &&
+      document.querySelectorAll("#lumi-managed-model option").length > 1,
+  );
+  return listed ? { state: "ready", staleCode: code } : { state: "refused", code };
 }
 
 /** Select agent/model, type the prompt and press Run. Requires the controls to be ready. */

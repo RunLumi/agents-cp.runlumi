@@ -163,16 +163,9 @@ try {
     probe.browserMutation(fixture, "revoke-running-desktop"),
   );
   assert.equal(revoke.status, 204);
-  const revoked = await managedCounts(org.orgId, deviceId);
-  assert.equal(revoked.status, "revoked");
-  const tokens = await readRowsWithRetry(
-    probe,
-    `SELECT COUNT(*) AS n FROM device_tokens WHERE device_id = '${deviceId}'`,
-    "live device tokens after revoke",
-  );
-  assert.equal(tokens[0].n, 0);
-  pass("control plane revokes the device: D1 status revoked and zero live device tokens");
-
+  // Runtime enforcement is asserted first, so a fault in it is detected by the refusal itself
+  // rather than by the bookkeeping readback below.
+  const revokedCounts = await managedCounts(org.orgId, deviceId);
   const seamRefusal = await beginManagedRun(page, {
     orgId: org.orgId,
     workspaceIdentity,
@@ -198,11 +191,25 @@ try {
   assert.match(uiCode ?? "", /^lumi_[a-z_]+$/, "UI shows a stable refusal code");
   await page.screenshot(join(evidence, "revoked-managed-refusal.png"));
   const afterRevoke = await managedCounts(org.orgId, deviceId);
-  assert.equal(afterRevoke.runs, revoked.runs, "no run created after revocation");
-  assert.equal(afterRevoke.requests, revoked.requests, "no inference request after revocation");
+  assert.equal(afterRevoke.runs, revokedCounts.runs, "no run created after revocation");
+  assert.equal(
+    afterRevoke.requests,
+    revokedCounts.requests,
+    "no inference request after revocation",
+  );
   pass(
     `running app refuses new managed execution after revocation at the host seam (${seamRefusal.code}) and in the UI at ${uiPoint} (${uiCode}); D1 runs/requests unchanged`,
   );
+  const revoked = await managedCounts(org.orgId, deviceId);
+  assert.equal(revoked.status, "revoked");
+  const tokens = await readRowsWithRetry(
+    probe,
+    `SELECT COUNT(*) AS n FROM device_tokens WHERE device_id = '${deviceId}'`,
+    "live device tokens after revoke",
+  );
+  assert.equal(tokens[0].n, 0);
+  pass("control plane revokes the device: D1 status revoked and zero live device tokens");
+
   await reachAccountSection(app, { expectRestoredAccount: true });
   await ui.clickText("Sync policy");
   await ui.wait(
