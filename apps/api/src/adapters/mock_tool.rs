@@ -35,6 +35,15 @@ const PROVIDER_ID: &str = "mock-tool";
 /// through the real managed gate. Only a tool whose schema declares a string `note` qualifies.
 pub const MOCK_CALL_MARKER: &str = "lumi-mock-call:";
 pub const MOCK_CALL_NOTE: &str = "lumi mock tool call fixture";
+/// A named tool declaring string `code` and `title` (the Browser Use `js` contract) instead
+/// receives a fixed snippet that opens the disposable loopback page named by
+/// `lumi-mock-url:http://127.0.0.1:<port>/lumi-e2e-browser-<token>` (or `localhost`) in the
+/// same user message. Without such a URL no call is made.
+pub const MOCK_URL_MARKER: &str = "lumi-mock-url:";
+pub const MOCK_BROWSER_PATH_PREFIX: &str = "/lumi-e2e-browser-";
+pub const MOCK_BROWSER_TITLE: &str = "Open the fixture page";
+pub const MOCK_BROWSER_RESULT: &str = "lumi-browser-fixture-opened";
+const MAX_MOCK_URL_BYTES: usize = 160;
 const MAX_MOCK_TOOL_NAME_BYTES: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,8 +135,9 @@ fn requested_path(request: &InferenceRequest) -> Option<String> {
 
 /// The real descriptor the model was offered: a function named `Write` with a
 /// path and a content property.
-/// The exact offered tool named after [`MOCK_CALL_MARKER`], if it declares a string `note`.
-fn requested_call(request: &InferenceRequest) -> Option<String> {
+/// The exact offered tool named after [`MOCK_CALL_MARKER`] and its fixed arguments, if it
+/// declares a string `note` or the Browser Use `code` + `title` pair.
+fn requested_call(request: &InferenceRequest) -> Option<(String, Value)> {
     let user = request
         .messages
         .iter()
@@ -135,6 +145,7 @@ fn requested_call(request: &InferenceRequest) -> Option<String> {
         .find(|message| message.role == MessageRole::User)?;
     let text = message_text(&user.content);
     let start = text.find(MOCK_CALL_MARKER)? + MOCK_CALL_MARKER.len();
+    let url = requested_browser_url(&text);
     let wanted = text[start..]
         .split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | '`'))
         .next()
@@ -142,9 +153,59 @@ fn requested_call(request: &InferenceRequest) -> Option<String> {
     request.tools.iter().find_map(|tool| {
         let function = tool.get("function")?;
         let name = function.get("name")?.as_str()?;
-        let note = function.get("parameters")?.get("properties")?.get("note")?;
-        (name == wanted && note.get("type")?.as_str()? == "string").then(|| name.to_owned())
+        if name != wanted {
+            return None;
+        }
+        let properties = function.get("parameters")?.get("properties")?;
+        let is_string =
+            |key: &str| properties.get(key).and_then(|p| p.get("type")?.as_str()) == Some("string");
+        if is_string("note") {
+            Some((name.to_owned(), json!({ "note": MOCK_CALL_NOTE })))
+        } else if is_string("code") && is_string("title") {
+            let url = url.as_deref()?;
+            Some((
+                name.to_owned(),
+                json!({ "code": browser_code(url), "title": MOCK_BROWSER_TITLE }),
+            ))
+        } else {
+            None
+        }
     })
+}
+
+/// A disposable loopback fixture URL: `http`, host `127.0.0.1` or `localhost`, a numeric
+/// port, and a `/lumi-e2e-browser-` path of URL-safe characters only, so the snippet built
+/// from it can never carry script or reach another host.
+fn requested_browser_url(text: &str) -> Option<String> {
+    let start = text.find(MOCK_URL_MARKER)? + MOCK_URL_MARKER.len();
+    let url = text[start..].split(char::is_whitespace).next()?;
+    let rest = url.strip_prefix("http://")?;
+    let (authority, path) = rest.split_at(rest.find('/')?);
+    let (host, port) = authority.split_once(':')?;
+    let valid = url.len() <= MAX_MOCK_URL_BYTES
+        && matches!(host, "127.0.0.1" | "localhost")
+        && !port.is_empty()
+        && port.len() <= 5
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && path.len() > MOCK_BROWSER_PATH_PREFIX.len()
+        && path.starts_with(MOCK_BROWSER_PATH_PREFIX)
+        && path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'/'));
+    valid.then(|| url.to_owned())
+}
+
+/// The documented Browser Use bootstrap (control-browser skill), then one navigation.
+const BROWSER_BOOTSTRAP: &str = "const { join } = await import(\"node:path\"); \
+const { pathToFileURL } = await import(\"node:url\"); \
+const { setupBrowserRuntime } = await import(pathToFileURL(join(process.env.ZCODE_PLUGIN_ROOT, \
+\"scripts\", \"browser-client.mjs\")).href); \
+await setupBrowserRuntime({ globals: globalThis }); ";
+
+fn browser_code(url: &str) -> String {
+    format!(
+        "{BROWSER_BOOTSTRAP}await agent.browsers.open(\"{url}\"); return \"{MOCK_BROWSER_RESULT}\";"
+    )
 }
 
 fn write_descriptor(tools: &[Value]) -> Option<(String, &'static str, &'static str)> {
@@ -179,7 +240,7 @@ pub fn plan_turn(request: &InferenceRequest) -> MockToolTurn {
     {
         return observed_reply(request);
     }
-    if let Some(name) = requested_call(request) {
+    if let Some((name, arguments)) = requested_call(request) {
         let issued = request
             .messages
             .iter()
@@ -188,7 +249,7 @@ pub fn plan_turn(request: &InferenceRequest) -> MockToolTurn {
         return MockToolTurn::Call {
             id: format!("call_mock_{}", issued + 1),
             name,
-            arguments: json!({ "note": MOCK_CALL_NOTE }).to_string(),
+            arguments: arguments.to_string(),
         };
     }
     // Distinct fixed texts so a harness can tell why no call was made without
@@ -402,6 +463,56 @@ mod tests {
         assert_eq!(name, "mcp__e2e__echo");
         let arguments: Value = serde_json::from_str(&arguments).unwrap();
         assert_eq!(arguments, json!({ "note": MOCK_CALL_NOTE }));
+    }
+
+    fn js_tool() -> Value {
+        let mut js = note_tool("mcp__node_repl__js");
+        js["function"]["parameters"]["properties"] =
+            json!({"code": {"type": "string"}, "title": {"type": "string"}});
+        js
+    }
+
+    #[test]
+    fn a_browser_use_js_tool_opens_only_the_loopback_fixture_page() {
+        let url = "http://127.0.0.1:4321/lumi-e2e-browser-abc123";
+        let prompt = InferenceMessage::user(format!(
+            "{MOCK_CALL_MARKER}mcp__node_repl__js {MOCK_URL_MARKER}{url} now"
+        ));
+        let MockToolTurn::Call {
+            name, arguments, ..
+        } = plan_turn(&request(vec![prompt], vec![write_tool(), js_tool()]))
+        else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(name, "mcp__node_repl__js");
+        let arguments: Value = serde_json::from_str(&arguments).unwrap();
+        assert_eq!(arguments["title"], MOCK_BROWSER_TITLE);
+        assert_eq!(arguments["code"], browser_code(url));
+    }
+
+    #[test]
+    fn a_browser_use_call_without_a_safe_loopback_url_is_never_made() {
+        for url in [
+            "",
+            "https://127.0.0.1:4321/lumi-e2e-browser-a",
+            "http://example.com:80/lumi-e2e-browser-a",
+            "http://127.0.0.1/lumi-e2e-browser-a",
+            "http://127.0.0.1:4321/other",
+            "http://127.0.0.1:4321/lumi-e2e-browser-",
+            "http://127.0.0.1:4321/lumi-e2e-browser-a\");alert(1);//",
+            "http://127.0.0.1:4321/lumi-e2e-browser-a?x=1",
+        ] {
+            let prompt = InferenceMessage::user(format!(
+                "{MOCK_CALL_MARKER}mcp__node_repl__js {MOCK_URL_MARKER}{url}"
+            ));
+            assert!(
+                !matches!(
+                    plan_turn(&request(vec![prompt], vec![write_tool(), js_tool()])),
+                    MockToolTurn::Call { .. }
+                ),
+                "{url}"
+            );
+        }
     }
 
     #[test]
