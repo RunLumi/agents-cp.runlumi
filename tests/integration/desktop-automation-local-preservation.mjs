@@ -7,6 +7,7 @@
 // control plane. It does NOT prove managed scheduling, lease/fence behaviour, two-client races or any
 // Worker route; those need the Worker (see the checkpoint).
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -123,14 +124,22 @@ try {
   failed = false;
 } finally {
   await app.stop();
-  writeFileSync(
-    join(profile, "evidence", "result.json"),
-    JSON.stringify(
-      { verdict: failed ? "FAIL" : "PASS", scope: "no Worker; local preservation only", results },
-      null,
-      2,
-    ),
+  const git = (cwd, ...args) =>
+    execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+  const report = JSON.stringify(
+    {
+      verdict: failed ? "FAIL" : "PASS",
+      scope: "no Worker; local preservation only",
+      control_plane_sha: git(root, "rev-parse", "HEAD"),
+      lumi_agents_sha: git(client, "rev-parse", "HEAD"),
+      results,
+    },
+    null,
+    2,
   );
+  writeFileSync(join(profile, "evidence", "result.json"), report);
+  if (process.env.LUMI_LOCAL_PRESERVATION_REPORT)
+    writeFileSync(process.env.LUMI_LOCAL_PRESERVATION_REPORT, report);
   console.log(`Profile/evidence retained: ${profile}`);
 }
 process.exit(failed ? 1 : 0);

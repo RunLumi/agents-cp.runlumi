@@ -46,21 +46,46 @@ pnpm to rebuild the ignored dependency layout; preserve source changes.
 
 ## Desktop bootstrap entrypoint
 
-On macOS with native build tools, a display/keychain, Node 24, Rust/WASM and
-worker-build 0.8.x, the desktop mode installs both frozen lockfiles, enables
-required Electron/native hooks, builds current-host runtime assets and both
-apps, then runs the contract, account/device and actual Electron journeys:
+Desktop mode installs both frozen lockfiles, enables the client's own `allowBuilds`
+Electron/native hooks (even when a user-level pnpm config sets `ignore-scripts`),
+builds current-host runtime assets and both apps, then runs the contract and
+account/device gates followed by every actual Electron journey:
 
 ```sh
 LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs
 ```
 
-Every nested build receives its repository's pinned pnpm binary. Remote-platform
-release archives are outside this local gate. Missing native prerequisites
-produce BLOCKED rather than a skip/PASS. electron-report.json joins the paired
-SHA report. This command's current journey scope is explicit in result.json;
-full A–E tool/fault/automation/compatibility proof remains required by the goal.
-This entrypoint is implemented but clean-install validation is still pending.
+| Journey | Script | Claims (each after its positive control) |
+|---|---|---|
+| account | `desktop-account-electron.mjs` | Lumi-first entry, PKCE + browser approval, enrollment, streamed managed turn, tool allow/deny, bind/rollback/rebind, restart, revoked sync, logout |
+| account-failures | `desktop-account-failures-electron.mjs` | cancelled/unapproved/expired/wrong-code sign-in, killed enrollment resumes without duplicates, server session expiry across restart |
+| revocation | `desktop-revocation-electron.mjs` | revoke refuses new managed execution at the UI and host seam, restart cannot restore authority, local work continues |
+| managed-faults | `desktop-managed-faults-electron.mjs` | failure before/after output, timeout, user cancel, bounded attempts, settled reservations, recovery |
+| local-preservation | `desktop-automation-local-preservation.mjs` | scheduler keeps local automations, leaves adopted originals untouched, offline control plane |
+| automation | `desktop-automation-electron.mjs` | journey E preview/adopt/schedule/race/restart/faults |
+
+`LUMI_DESKTOP_JOURNEYS=account,revocation` limits a diagnostic run; the report
+records the narrowed scope and it is not a full-gate result. Every journey must
+report PASS for exactly the recorded parent and client SHAs.
+
+Prerequisites: Node 24, Rust stable with `wasm32-unknown-unknown`, worker-build
+0.8.x, Google Chrome (browser approval), and a native display plus keystore.
+
+- **macOS:** a logged-in desktop session and the login Keychain.
+- **Linux (validated on Ubuntu 22.04):** `xvfb`, `dbus` (`dbus-run-session`),
+  `gnome-keyring`, `libsecret-tools` and the Electron runtime libraries (`libgtk-3-0`,
+  `libnss3`, `libgbm1`, `libasound2`); `libssl-dev`/`pkg-config` to build
+  worker-build. The runner re-enters itself through
+  `scripts/integration/linux-desktop-session.sh`, which starts a private D-Bus bus,
+  an Xvfb display and a gnome-keyring Secret Service whose data lives only under the
+  run's output, unlocked with a synthetic password, health-checked and removed
+  afterwards. Electron selects `--password-store=gnome-libsecret`; the product
+  refuses `basic_text`, and so does the gate. Personal keyrings, displays and
+  session buses are never used.
+
+Missing native prerequisites produce BLOCKED rather than a skip/PASS. Remote-platform
+release archives are outside this local gate. Older dated evidence remains in
+the verification run directory; it is not current proof.
 
 For the scoped actual Electron managed-run/rollback/rebind proof, see
 [2026-10-07 evidence](../verification/runs/2026-10-07-desktop-managed-e2e/README.md).

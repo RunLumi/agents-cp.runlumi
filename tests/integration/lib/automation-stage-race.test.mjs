@@ -15,7 +15,7 @@ test("race stage never seeds a managed marker for client B", () => {
     /carries no managed marker before launch/,
     "unmarked-original fixture assertion present",
   );
-  assert.match(code, /origin, "attached"/, "the marker is asserted to come from a UI attach");
+  assert.match(code, /origin,\s*"attached"/, "the marker is asserted to come from a UI attach");
 });
 
 test("every function that reads orgId binds it first", () => {

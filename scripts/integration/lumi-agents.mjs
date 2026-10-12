@@ -17,7 +17,7 @@ const git = (cwd, ...args) =>
 const evidence = { verdict: "BLOCKED", started_at: new Date().toISOString() };
 const desktopMode = process.env.LUMI_INTEGRATION_DESKTOP === "1";
 evidence.scope = desktopMode
-  ? "adoption-account-device-plus-electron-managed-stream-rollback-rebind"
+  ? "adoption-account-device-plus-electron-journeys"
   : "adoption-account-device";
 const env = {
   ...process.env,
@@ -223,18 +223,46 @@ try {
     throw new Error("Missing exact-head account/device runtime PASS");
   evidence.account_integration = accountResult;
   if (desktopMode) {
-    env.LUMI_ELECTRON_REPORT = join(output, "electron-report.json");
-    await run(process.execPath, [join(root, "tests/integration/desktop-account-electron.mjs")]);
-    const desktopResult = JSON.parse(readFileSync(env.LUMI_ELECTRON_REPORT, "utf8"));
-    if (
-      desktopResult.verdict !== "PASS" ||
-      desktopResult.control_plane_sha !== evidence.control_plane.sha ||
-      desktopResult.lumi_agents_sha !== evidence.lumi_agents.sha ||
-      !desktopResult.desktop_assertions?.some((claim) => claim.includes("renders streamed")) ||
-      !desktopResult.desktop_assertions?.some((claim) => claim.includes("explicit rebind"))
-    )
-      throw new Error("Missing paired Electron managed-runtime PASS");
-    evidence.desktop_integration = desktopResult;
+    // Every actual-Electron journey runs, even after a failure, so one run preserves all evidence.
+    // Each must PASS for exactly this source pair; the selected scope is recorded, never widened.
+    const journeys = [
+      ["account", "desktop-account-electron.mjs", "LUMI_ELECTRON_REPORT"],
+      ["account-failures", "desktop-account-failures-electron.mjs", "LUMI_ACCOUNT_FAILURES_REPORT"],
+      ["revocation", "desktop-revocation-electron.mjs", "LUMI_REVOCATION_REPORT"],
+      ["managed-faults", "desktop-managed-faults-electron.mjs", "LUMI_FAULTS_REPORT"],
+      [
+        "local-preservation",
+        "desktop-automation-local-preservation.mjs",
+        "LUMI_LOCAL_PRESERVATION_REPORT",
+      ],
+      ["automation", "desktop-automation-electron.mjs", "LUMI_AUTOMATION_REPORT"],
+    ];
+    const selected = process.env.LUMI_DESKTOP_JOURNEYS?.split(",").filter(Boolean);
+    evidence.desktop_scope = selected ?? journeys.map(([name]) => name);
+    evidence.desktop_integration = {};
+    const failures = [];
+    for (const [name, file, reportVar] of journeys) {
+      if (selected && !selected.includes(name)) continue;
+      const report = join(output, `electron-${name}.json`);
+      env[reportVar] = report;
+      try {
+        await run(process.execPath, [join(root, "tests/integration", file)]);
+      } catch (error) {
+        failures.push(`${name}: ${error.message}`);
+      }
+      const result = existsSync(report) ? JSON.parse(readFileSync(report, "utf8")) : undefined;
+      const parentSha = result?.control_plane_sha ?? result?.provenance?.parentHead;
+      const clientSha = result?.lumi_agents_sha ?? result?.provenance?.clientHead;
+      evidence.desktop_integration[name] = result ?? { verdict: "MISSING" };
+      if (
+        result?.verdict !== "PASS" ||
+        parentSha !== evidence.control_plane.sha ||
+        clientSha !== evidence.lumi_agents.sha
+      )
+        failures.push(`${name}: verdict ${result?.verdict ?? "missing"} for the exact pair`);
+    }
+    if (selected) evidence.scope += `; desktop journeys limited to ${selected.join(",")}`;
+    if (failures.length) throw new Error(`Desktop journeys failed: ${failures.join("; ")}`);
   }
   for (const [path, before] of [
     [root, evidence.control_plane],
