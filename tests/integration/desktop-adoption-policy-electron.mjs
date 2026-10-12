@@ -192,15 +192,30 @@ try {
     `minimum client version above this app: token refresh refused (policy read still carries the floor); once the current token expires the managed turn is refused (UI ${tooOld.uiState}${tooOld.uiCode ? ` ${tooOld.uiCode}` : ""}); no completed request or usage`,
   );
   await devicePolicy(null, "clear-min-version");
-  // The expired token cannot refresh itself; the user renews through human-authorized recovery
-  // (P03-CR-002) when the app offers it, otherwise through an ordinary refresh.
-  const recover = await page.evaluate(() =>
-    [...document.querySelectorAll("button")].some(
-      (b) => b.innerText.trim() === "Approve recovery and renew this device",
-    ),
+  // The expired token cannot refresh itself. A refused refresh reveals that the Worker expired it,
+  // and the app then offers human-authorized recovery (P03-CR-002), which renews the same device.
+  await ui.clickText("Refresh device token");
+  await ui.wait(
+    () =>
+      [...document.querySelectorAll("button")].some(
+        (b) => b.innerText.trim() === "Approve recovery and renew this device" && !b.disabled,
+      ),
+    "recovery offered for the Worker-expired token",
   );
-  await ui.clickText(recover ? "Approve recovery and renew this device" : "Refresh device token");
-  await delay(3_000);
+  await ui.clickText("Approve recovery and renew this device");
+  await ui.wait(
+    () =>
+      [...document.querySelectorAll("button")].some(
+        (b) => b.innerText.trim() === "Sync policy" && !b.disabled,
+      ),
+    "device renewed by recovery",
+    { timeout: 60_000 },
+  );
+  const renewed = await rows(
+    `SELECT COUNT(*) AS n FROM devices WHERE org_id = '${org.orgId}'`,
+    "same device after recovery",
+  );
+  assert.equal(renewed[0].n, 1, "recovery renews the same device, never re-enrolls");
   await managedTurn("control after clearing minimum version", { expect: "success" });
   pass("clearing the minimum client version lets the device exchange a token and execute again");
 
