@@ -32,9 +32,13 @@ export async function startSecretSweepProxy({ target, forbiddenInBodies = [] }) 
       const text = body.toString("utf8");
       const shape = `${req.method} ${routeShape(req.url)}`;
       routes.push(shape);
-      for (const needle of forbiddenInBodies)
-        if (needle && (text.includes(needle) || decodeURIComponent(req.url ?? "").includes(needle)))
-          bodyLeaks.push(shape);
+      // Each rule: { label, needle, allowedRoutes? } — a needle may be legitimate on some routes
+      // (e.g. model context on managed inference) and forbidden on every other route.
+      for (const rule of forbiddenInBodies) {
+        if (!rule.needle || rule.allowedRoutes?.some((pattern) => pattern.test(shape))) continue;
+        if (text.includes(rule.needle) || decodeURIComponent(req.url ?? "").includes(rule.needle))
+          bodyLeaks.push(`${rule.label} in ${shape}`);
+      }
       const forward = httpRequest(
         {
           host: upstream.hostname,

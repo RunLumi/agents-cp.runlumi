@@ -113,7 +113,17 @@ try {
   // secrets in memory only and flags request bodies carrying the local path or local prompt.
   sweep = await startSecretSweepProxy({
     target: probe.baseUrl,
-    forbiddenInBodies: [workspacePath, LOCAL_PROMPT],
+    forbiddenInBodies: [
+      // Managed inference carries the model's context (which names the working directory) by
+      // design; adoption, binding, device, policy and every other route must not.
+      {
+        label: "workspace path",
+        needle: workspacePath,
+        allowedRoutes: [/^POST \/api\/v1\/inference\//],
+      },
+      // Local personal work never reaches the control plane on any route.
+      { label: "local automation prompt", needle: LOCAL_PROMPT },
+    ],
   });
   app = createDesktopApp({
     binary,
@@ -281,7 +291,7 @@ try {
   );
   writeFileSync(join(evidence, "wire-routes.json"), JSON.stringify(sweep.routeShapes(), null, 2));
   pass(
-    `no issued session/device/lease secret (${sweep.secretCount()} captured) appears in plaintext anywhere in the profile, Agent home or logs; no request carried the workspace path or local prompt (${sweep.routeShapes().length} route shapes recorded)`,
+    `no issued session/device/lease secret (${sweep.secretCount()} captured) appears in plaintext anywhere in the profile, Agent home or logs; no non-inference request carried the workspace path and no request carried the local prompt (${sweep.routeShapes().length} route shapes recorded)`,
   );
   assert.equal(
     personalConfigHash(profile),

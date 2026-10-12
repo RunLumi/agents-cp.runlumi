@@ -211,7 +211,7 @@ for (const fault of FAULTS) {
       symlinkSync(mainClient, childPath);
     }
     const install = await run(
-      "pnpm",
+      join(pnpmBin("12.5.1"), "pnpm"),
       ["install", "--frozen-lockfile"],
       wt,
       baseEnv,
@@ -229,14 +229,17 @@ for (const fault of FAULTS) {
         ZCODE_SKIP_REMOTE_ASSETS: "1",
       };
       for (const [label, args] of [
-        [
-          "client-install",
-          ["install", "--frozen-lockfile", "--config.ignore-scripts=false"],
-        ],
+        ["client-install", ["install", "--frozen-lockfile", "--config.ignore-scripts=false"]],
         ["client-assets", ["--filter", "@zcode/desktop", "prepare:runtime-assets"]],
         ["client-build", ["--filter", "@zcode/desktop", "build:no-runtime-assets"]],
       ]) {
-        const step = await run("pnpm", args, childPath, clientEnv, join(dir, `${label}.log`));
+        const step = await run(
+          join(pnpmBin("10.33.2"), "pnpm"),
+          args,
+          childPath,
+          clientEnv,
+          join(dir, `${label}.log`),
+        );
         if (step.code !== 0)
           throw new Error(`INVALID: ${label} failed (build failure is not detection)`);
       }

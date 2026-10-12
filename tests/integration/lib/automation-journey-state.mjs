@@ -54,21 +54,20 @@ export function readTable(profile, sql, ...params) {
 
 /** Seed local automations with the product's own repository (see seed-local-automations.mts). */
 export async function seedLocalAutomations({ root, profile, specs }) {
-  // Real path: a sensitivity worktree may link the client in, and pnpm would otherwise resolve
-  // the enclosing parent workspace instead of the client's own.
+  // Run the client's own tsx with Node directly. `pnpm exec` from whichever pnpm is on PATH could
+  // decide to (re)install the client with the wrong package manager version; the real path keeps a
+  // linked client from resolving the enclosing parent workspace.
   const client = realpathSync(join(root, "integrations/lumi-agents"));
+  const tsx = createRequire(join(client, "package.json")).resolve("tsx/cli");
   const { stdout } = await run(
-    "pnpm",
+    process.execPath,
     [
-      "--dir",
-      client,
-      "exec",
-      "tsx",
+      tsx,
       join(root, "tests/integration/lib/seed-local-automations.mts"),
       tasksIndexPath(profile),
       JSON.stringify(specs),
     ],
-    { maxBuffer: 16 * 1024 * 1024 },
+    { cwd: client, maxBuffer: 16 * 1024 * 1024 },
   );
   const text = stdout.slice(stdout.indexOf("["));
   return JSON.parse(text);
