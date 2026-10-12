@@ -47,7 +47,7 @@ re-certified here. Every claim below was exercised through the **actual Electron
 | D3 | Failure before/after output, timeout, user cancel; bounded attempts; reservations settled | PASS | managed-faults (cancel settles via Worker watchdog ≈107 s) |
 | D4 | Tool allow / deny / exact per-use approval; changed arguments cannot reuse approval | PASS | account (Write), `p05-smoke` changed-arguments attack |
 | D5 | MCP enforcement | PASS | mcp journey (approved once; org deny, approval deny, revocation → no effect) |
-| D6 | Browser enforcement | UNPROVEN at full runtime | component proof LumiAgents `c261135a`; mock cannot drive the `js` tool |
+| D6 | Browser enforcement | **FAIL** (org browser policy not enforced) | browser journey (`desktop-browser-electron.mjs`): the shipped `mcp__node_repl__js` opens a loopback page that counts hits. Agent allowlist refusal (0 hits), reviewed + allowed + org-approved positive control (exactly 1 hit, claimed by the device) and denied approval (0 hits) PASS; **with the tool approved but the org browser policy blocking `127.0.0.1`, the page was still visited once** — browser commands carry no managed context, so the agent broker treats them as local-personal (P05-INT-04 limitation "concrete gate adapter … not wired"); see `P05-CR-005` |
 | D7 | Computer use | NOT_APPLICABLE | device reports `computer_use: false`; `packages/zcode-cua` placeholder |
 | D8 | Web runs/usage/audit show the desktop run; other tenant sees nothing | PASS | managed-faults web observation |
 | E1 | Preview/cancel writes nothing; explicit adoption | PASS | automation (adopt stage) |
@@ -82,6 +82,12 @@ were repaired (shared client reinstall, socket path length, D1 flake).
 
 - **Fixed defect:** the desktop never rotated its 15-minute device token; managed scheduling
   stopped silently 15 minutes after enrollment or recovery (LumiAgents `f3d31d55`).
+- **Security defect (open, P05-CR-005):** FR-F13-005 browser controls are not enforced for managed
+  desktop browser use; an approved Browser Use call can visit an org-blocked domain. Fail-closed
+  client fix and the gate contract are proposed in `docs/implementation/change-requests/P05-CR-005.md`.
+- **Observed design behaviour:** a tool policy change reaches a device only at its next policy
+  snapshot refresh (enrollment, token refresh ≤10 min, binding or budget change); the snapshot only
+  narrows, so tightening is immediate and loosening waits for the refresh.
 - **Spec gap (not fixed here):** an unclaimed `dispatching` occurrence has no claim deadline, so
   under `overlap_policy=skip` it blocks successors until a device claims it (P06-CG allows
   `dispatching → missed` but defines no deadline) — candidate P06 change request.
