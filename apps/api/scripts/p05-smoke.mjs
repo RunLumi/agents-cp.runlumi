@@ -1857,6 +1857,31 @@ async function main() {
       deviceHeaders(state.deviceA),
     );
     expectStatus("acknowledge current policy before execution", ack, 204);
+    // An approval binds the exact arguments: the same approved call with changed arguments must be
+    // refused and must not consume the grant (the legitimate claim below is the positive control).
+    const changed = await request(
+      new CookieJar(),
+      "POST",
+      `/api/v1/devices/runs/${runId}/tool-calls/${callId}/result`,
+      {
+        ...startBody,
+        arguments_hash: createHash("sha256").update(`${summary}-changed`).digest("hex"),
+      },
+      { ...deviceHeaders(state.deviceA), "Idempotency-Key": idempotencyKey("claim-changed-args") },
+    );
+    assertDenied(changed, "an approval cannot be reused with changed arguments", 409, [
+      "tool_execution_refused",
+    ]);
+    const afterChanged = await d1(
+      `SELECT c.execution_started_at, a.consumed_at FROM tool_call_refs c JOIN approval_requests a ON a.tool_call_id=c.tool_call_id WHERE c.run_id='${runId}' AND c.tool_call_id='${callId}'`,
+      "changed-argument attempt leaves the grant unconsumed",
+    );
+    expect(
+      "changed-argument attempt neither claims the call nor consumes the grant",
+      afterChanged.length === 1 &&
+        afterChanged[0].execution_started_at === null &&
+        afterChanged[0].consumed_at === null,
+    );
     const sameKey = idempotencyKey("claim-one"),
       otherKey = idempotencyKey("claim-two");
     const results = await Promise.all([start(sameKey), start(otherKey)]);

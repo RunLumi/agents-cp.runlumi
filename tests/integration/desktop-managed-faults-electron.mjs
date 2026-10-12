@@ -23,6 +23,7 @@ import {
 import { provisionOrganization, SLOW_ALIAS, SUCCESS_ALIAS } from "./lib/lumi-org-fixture.mjs";
 import { readRowsWithRetry } from "./lib/automation-journey-state.mjs";
 import { submitManagedTurn } from "./lib/lumi-managed-turn.mjs";
+import { observeRunInWeb } from "./lib/web-observation.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const client = join(root, "integrations/lumi-agents");
@@ -256,6 +257,22 @@ try {
   assert.equal(recovered.run.state, "succeeded");
   assertSettled("recovery", recovered, deviceId);
   pass("recovery: a later ordinary managed turn succeeds after every fault");
+
+  // The same desktop run is visible to its owner in the web control plane, and only to them.
+  const webClaims = await observeRunInWeb({
+    probe,
+    web,
+    ownerJar: fixtureOrg.fixture,
+    org,
+    ids: {
+      runId: recovered.run.run_id,
+      requestId: recovered.requests[0].request_id,
+      deviceId,
+      projectId,
+    },
+    evidenceDir: evidence,
+  });
+  for (const claim of webClaims) pass(claim);
 
   const stuck = await readRowsWithRetry(
     probe,
