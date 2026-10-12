@@ -181,7 +181,12 @@ export async function managedEvidence(server, orgId, managedAutomationId) {
 }
 
 /** Poll `read` until `done(value)`; the last value is returned in the failure so evidence is kept. */
-export async function until(label, read, done, { timeout = 240_000, every = 5_000, tick } = {}) {
+export async function until(
+  label,
+  read,
+  done,
+  { timeout = 240_000, every = 5_000, tick, describe } = {},
+) {
   const deadline = Date.now() + timeout;
   let last;
   while (Date.now() < deadline) {
@@ -191,11 +196,25 @@ export async function until(label, read, done, { timeout = 240_000, every = 5_00
     await delay(every);
   }
   throw new Error(
-    `${label}: not reached within ${timeout}ms; last=${JSON.stringify(last).slice(0, 1_200)}`,
+    `${label}: not reached within ${timeout}ms; last=${JSON.stringify(describe ? describe(last) : last).slice(0, 1_200)}`,
   );
 }
 
 /** Local managed-occurrence journal and adoption markers (tables from migrations 0004/0005). */
+/** Compact, redacted occurrence/lease state for diagnostics: ids shortened, no tokens or bodies. */
+export const compactOccurrences = (value) =>
+  value.occurrences.slice(-10).map((row) => ({
+    id: row.occurrence_id,
+    state: row.state,
+    reason: row.reason_code ?? null,
+    at: row.scheduled_for,
+    // A settled occurrence keeps its lease row with completed_at (P06-CG); show it so history is
+    // not mistaken for a live lease.
+    leases: value.leases
+      .filter((lease) => lease.occurrence_id === row.occurrence_id)
+      .map((lease) => `${lease.state}${lease.completed_at ? "/completed" : ""}`),
+  }));
+
 export const localJournal = (profile) =>
   readTable(profile, "SELECT * FROM automation_managed_occurrences ORDER BY created_at");
 export const localMarkers = (profile) =>

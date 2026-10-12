@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { SmokeHarness } from "../../apps/api/scripts/lib/smoke-harness.mjs";
 import { createDesktopApp, uiHelpers } from "./lib/lumi-desktop-app.mjs";
 import { startSecretSweepProxy } from "./lib/secret-sweep-proxy.mjs";
+import { confirmRevokedInUi } from "./lib/lumi-device-revoked.mjs";
 import {
   onboardToManagedPolicy,
   reachAccountSection,
@@ -237,12 +238,12 @@ try {
   pass("control plane revokes the device: D1 status revoked and zero live device tokens");
 
   await reachAccountSection(app, { expectRestoredAccount: true });
-  await ui.clickText("Sync policy");
-  await ui.wait(
-    () => document.body.innerText.includes("Device action failed"),
-    "revoked policy sync refusal",
+  const revokedPath = await confirmRevokedInUi(page);
+  const devicesAfterUi = await managedCounts(org.orgId, deviceId);
+  assert.equal(devicesAfterUi.devices, 1, "no new device after the revoked recovery attempt");
+  pass(
+    `the running app shows the device as revoked (${revokedPath}): no recovery, no sync, no re-enrollment, one device row`,
   );
-  pass("running app policy sync is refused after revocation");
 
   // 3. Restart: the human session restores; device authority does not.
   await app.stop();

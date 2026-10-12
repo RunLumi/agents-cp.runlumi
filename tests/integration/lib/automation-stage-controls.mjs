@@ -2,7 +2,12 @@
 // reuse the real apps, the real Worker and the real scheduler; the only test-owned parts are the synthetic billing
 // fixture (grant revoked / restored) and the recording proxy dropping ONE response after the Worker committed it.
 import assert from "node:assert/strict";
-import { localJournal, managedEvidence, until } from "./automation-evidence.mjs";
+import {
+  compactOccurrences,
+  localJournal,
+  managedEvidence,
+  until,
+} from "./automation-evidence.mjs";
 import {
   grantAutomationFixtureEntitlement,
   revokeAutomationFixtureEntitlement,
@@ -31,7 +36,12 @@ export async function entitlementLossControl(ctx) {
       () => managedEvidence(server, orgId, managedId),
       (value) =>
         value.occurrences.some((row) => !seen.has(row.occurrence_id) && row.state !== "pending"),
-      { timeout: 4 * 60_000, every: 5_000, tick: () => probe.triggerSweep() },
+      {
+        timeout: 4 * 60_000,
+        every: 5_000,
+        tick: () => probe.triggerSweep(),
+        describe: compactOccurrences,
+      },
     );
   } finally {
     await grantAutomationFixtureEntitlement(probe, orgId, "automations.max_active", 5);
@@ -55,15 +65,35 @@ export async function entitlementLossControl(ctx) {
   ledger.pass(
     `entitlement loss: after ${revoked} automations.max_active grant(s) lapsed, ${decided.length} slot(s) ended ${decided.map((row) => `${row.state}/${row.reason_code}`).join(", ")} with no lease, attempt or run (no client executed anything)`,
   );
-  const restoredSeen = occurrenceIds(await managedEvidence(server, orgId, managedId));
+  const atRestore = await managedEvidence(server, orgId, managedId);
+  const restoredSeen = occurrenceIds(atRestore);
+  // An occurrence still undecided when the grant came back (e.g. dispatching) that then succeeds
+  // also proves execution after the restore.
+  const openAtRestore = new Set(
+    atRestore.occurrences
+      .filter(
+        (row) =>
+          !["succeeded", "failed", "skipped", "cancelled", "missed", "ambiguous"].includes(
+            row.state,
+          ),
+      )
+      .map((row) => row.occurrence_id),
+  );
   await until(
     "after the grant is restored a new slot executes (positive control for the block)",
     () => managedEvidence(server, orgId, managedId),
     (value) =>
       value.occurrences.some(
-        (row) => !restoredSeen.has(row.occurrence_id) && row.state === "succeeded",
+        (row) =>
+          (!restoredSeen.has(row.occurrence_id) || openAtRestore.has(row.occurrence_id)) &&
+          row.state === "succeeded",
       ),
-    { timeout: 6 * 60_000, every: 6_000, tick: () => probe.triggerSweep() },
+    {
+      timeout: 6 * 60_000,
+      every: 6_000,
+      tick: () => probe.triggerSweep(),
+      describe: compactOccurrences,
+    },
   );
   ledger.pass(
     "entitlement restored: the same automation executed a fresh slot to succeeded, so the earlier block was the entitlement and nothing else",

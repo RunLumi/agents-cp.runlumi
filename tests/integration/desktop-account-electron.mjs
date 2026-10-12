@@ -13,6 +13,7 @@ import {
   nativeKeystoreArgs,
   prepareIsolatedHome,
 } from "./lib/lumi-child-env.mjs";
+import { confirmRevokedInUi } from "./lib/lumi-device-revoked.mjs";
 import { SmokeHarness } from "../../apps/api/scripts/lib/smoke-harness.mjs";
 import { launch, newPage, connect, attachPage } from "../../apps/web/scripts/cdp.mjs";
 import {
@@ -1172,13 +1173,10 @@ try {
     probe.browserMutation(fixture, "revoke-electron"),
   );
   assert.equal(revoke.status, 204);
-  await click(page, "Sync policy");
-  await wait(
-    page,
-    () => document.body.innerText.includes("Device action failed"),
-    "revoked policy refusal",
+  const revokedPath = await confirmRevokedInUi(page);
+  console.log(
+    `PASS revoked Electron device shows the revoked state (${revokedPath}): no recovery, sync or re-enrollment`,
   );
-  console.log("PASS revoked Electron policy sync refused");
 
   await click(page, "Sign out of Lumi");
   await wait(page, () => document.body.innerText.includes("Sign in to Lumi"), "logout");

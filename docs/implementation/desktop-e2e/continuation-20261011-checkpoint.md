@@ -5,54 +5,55 @@ not certify any claim. Verify every line before trusting it on resume.
 
 Updated 2026-10-12 (UTC).
 
-## Baseline read back from remotes (2026-10-11)
+## Delivery ledger
 
-- Parent main `febc39dbadfb9421fb5fd903c93fcaac0af65386` (#59, #60 merged); gitlink
-  `ac011fce8d6273a1218022de17fdeafec7a59ba9` = LumiAgents main (#48 merged).
-- Old-machine artifacts (`supervisor-current-resume.md`, run20/21/22 logs, three-way reports)
-  are **unavailable** here. Historical verdicts in
-  `docs/verification/runs/2026-10-07-desktop-managed-e2e/` stay as recorded.
+| Phase | Repository | PR | State |
+|---|---|---|---|
+| DE2E-SRV-01 race loser, device-audit project, web audit log | agents-cp.runlumi | [#62](https://github.com/RunLumi/agents-cp.runlumi/pull/62) | **Merged** `fd6b75771235f6889245d041f4083a6f0ca0600c`; main pipeline quality + migrations + deploy + production smoke succeeded |
+| DE2E-QA-01 Linux gate, journeys, sensitivity | agents-cp.runlumi | [#63](https://github.com/RunLumi/agents-cp.runlumi/pull/63) | **Merged** `f73e3efae62be0f82ad2dc25f8fcee88d868e11d`; pipeline deploy + smoke succeeded |
+| DE2E-QA-02 journey E fixes, revoked-state UI, evidence record | agents-cp.runlumi | branch `codex/de2e-journey-e-evidence` | this PR |
+| DE2E-CLI-01..05 desktop fixes (incl. token rotation) | LumiAgents | [#49](https://github.com/RunLumi/LumiAgents/pull/49) | open at `f3d31d5589d8d066b56d61f3ef534ab473e25d81`; **DCO red until a human signs off** (CONTRIBUTING forbids tool sign-off) |
+| Pin merged client + clean paired evidence | agents-cp.runlumi | pending | after #49 merges |
 
-## Branches, worktrees and owners
+Old-machine artifacts (supervisor resume, run20/21/22 logs, three-way reports) are unavailable
+here; historical verdicts in `docs/verification/runs/2026-10-07-desktop-managed-e2e/` stand.
 
-| Repo | Branch | Location (relative to the parent root) | Owner | Content |
-|---|---|---|---|---|
-| parent | `codex/desktop-e2e-linux-gate` | root (switchable) | coordinator | Linux gate first commit |
-| parent | `codex/de2e-integration` | root (current) | coordinator | gate + journeys + sensitivity, merges server branch for local runs |
-| parent | `codex/de2e-race-loser-refusal` | `../de2e-worktrees/server` | server/web worker DE2E-SRV-01 | race fix, sequential-loser probe, audit view (in progress) |
-| child | `codex/desktop-e2e-continuation` | `../de2e-worktrees/client` | client worker DE2E-CLI-01 (done) | lazy updater, pre-start refusal list, off-peak owner, revocation/fresh-entry tests |
+## Branches and worktrees (relative to the parent root's parent directory)
 
-The root submodule is detached at the client branch head for coordinator runs. Child commits
-carry **no** `Signed-off-by`: CONTRIBUTING requires a human sign-off; the tool never adds one.
+| Repo | Branch | Location | Purpose |
+|---|---|---|---|
+| parent | `codex/de2e-integration` | root | local integration candidate (merges, all harness commits) |
+| parent | `codex/de2e-desktop-gate` | `de2e-worktrees/gate` | PR #63 head (cherry-picks, no gitlink change) |
+| parent | `codex/de2e-mcp-journey` | `de2e-worktrees/mcp` | MCP journey (merged into integration) |
+| child | `codex/desktop-e2e-continuation` | `de2e-worktrees/client` | PR #49 head |
 
-## Environment (Linux, Ubuntu 22.04)
+The root submodule is detached at the client PR head `f3d31d55` and built for local runs.
 
-Node 24.14.0, pinned pnpm in `test-results/pnpm-tools`, Rust stable + wasm32, worker-build
-0.8.7, Xvfb, dbus-run-session, gnome-keyring + libsecret-tools, Google Chrome stable. A
-user-level pnpm rc sets `ignore-scripts=true`; desktop mode opts into the client's
-`allowBuilds` hooks. Electron 44 downloads lazily via `require('electron')`.
+## Local evidence (dirty integration candidates; not certification)
 
-## Local evidence so far (dirty or unpublished heads: not CI, not merged)
+| Journey | Latest local verdict |
+|---|---|
+| module adoption/account/device | PASS |
+| account | PASS |
+| account-failures | PASS (7) |
+| revocation incl. secret sweep + BYOK preservation | PASS (9) |
+| managed-faults incl. web observation + tenant non-disclosure | PASS (9) |
+| adoption-policy | PASS (8) |
+| multi-org | PASS (3) |
+| mcp | PASS (7) standalone; one gate run hit an unexplained `lumi_request_refused` under parallel load |
+| automation (journey E) | no FAIL on `f3d31d55`; verdict UNPROVEN for explicit gaps (off-peak runtime, fence entropy/stale fence at HTTP, external provider BLOCKED) |
+| account, revocation (revoked-state UI) | PASS |
 
-| Journey | Latest local verdict | Notes |
-|---|---|---|
-| module adoption/account/device | PASS | clean pinned pair and candidate pair |
-| account (Electron) | PASS | Linux, owned keystore |
-| account-failures | PASS (7 claims) | cancel/unapproved/expired/wrong code, killed enrollment, session expiry |
-| revocation | PASS (7 claims) | UI + host seam refusal, restart, local work continues |
-| managed-faults | PASS for fail/partial/timeout; cancel repaired to wait for Worker watchdog (deadline+grace) | Agent retries a retryable failure ≤10 times (observed 7) |
-| adoption-policy | in progress | min-version enforced at token exchange per P03-CG; journey adjusted |
-| automation (E) | not yet run on Linux to completion | |
-| sensitivity S1–S5 | runner committed; S1 running | INVALID ≠ detected |
+Sensitivity (disposable worktrees): S1 tenant, S2 revocation, S3 tool denial (server resolution),
+S4 budget settlement (reconcile release), S5 local preservation (query exclusion + trigger) all
+DETECTED for the intended reason on the candidate pair (`test-results/sensitivity/2026-10-12T08-19-32.798Z`).
 
 ## Next commands
 
 ```sh
-LUMI_AGENTS_DIR=$PWD/integrations/lumi-agents LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs
-node scripts/integration/desktop-sensitivity.mjs            # after a desktop gate run
+node scripts/integration/desktop-sensitivity.mjs        # final pair
+LUMI_INTEGRATION_DESKTOP=1 node scripts/integration/lumi-agents.mjs   # after the pin (clean pair)
 ```
 
-Open: web observation journey (after audit view), tool exact-approval/argument reuse,
-MCP/browser enforcement or NOT_APPLICABLE evidence, wire/secret sweep, offline/legacy/multi-org,
-journey E full run, sensitivity results, PRs (server first), child DCO sign-off by a human,
-merge, pin, clean paired replay.
+Blockers: human DCO sign-off for LumiAgents#49; external-provider proof BLOCKED (no approved
+credential/spend cap).
