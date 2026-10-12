@@ -185,6 +185,9 @@ const baseEnv = {
   ...process.env,
   PATH: [dirname(process.execPath), pnpmBin("12.5.1"), process.env.PATH].join(delimiter),
   WRANGLER_SEND_METRICS: "false",
+  // Same tool home/store as the integration gate, so a worktree install reuses its cache.
+  PNPM_HOME: join(root, "test-results/pnpm-tools"),
+  npm_config_manage_package_manager_versions: "false",
 };
 
 for (const fault of FAULTS) {
@@ -209,7 +212,7 @@ for (const fault of FAULTS) {
     }
     const install = await run(
       "pnpm",
-      ["install", "--frozen-lockfile", "--offline"],
+      ["install", "--frozen-lockfile"],
       wt,
       baseEnv,
       join(dir, "parent-install.log"),
@@ -228,7 +231,7 @@ for (const fault of FAULTS) {
       for (const [label, args] of [
         [
           "client-install",
-          ["install", "--frozen-lockfile", "--offline", "--config.ignore-scripts=false"],
+          ["install", "--frozen-lockfile", "--config.ignore-scripts=false"],
         ],
         ["client-assets", ["--filter", "@zcode/desktop", "prepare:runtime-assets"]],
         ["client-build", ["--filter", "@zcode/desktop", "build:no-runtime-assets"]],
