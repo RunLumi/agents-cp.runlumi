@@ -2649,8 +2649,8 @@ pub async fn claim_occurrence(
         database,
         &access,
         "automation.occurrence.claimed.v1",
-        "automation_occurrence",
-        &occurrence.occurrence_id,
+        &occurrence,
+        ("automation_occurrence", &occurrence.occurrence_id),
         &json!({ "lease_id": lease_id, "attempt": attempt, "state": "leased" }),
     )?);
     match database.batch(writes).await {
@@ -2823,8 +2823,8 @@ pub async fn renew_lease(
         database,
         &access,
         "automation.lease.renewed.v1",
-        "automation_lease",
-        &lease.lease_id,
+        &occurrence,
+        ("automation_lease", &lease.lease_id),
         &json!({ "lease_version": body.lease_version + 1 }),
     )?;
     match database
@@ -3106,8 +3106,8 @@ pub async fn start_occurrence(
         database,
         &access,
         "automation.occurrence.started.v1",
-        "automation_occurrence",
-        &occurrence.occurrence_id,
+        &occurrence,
+        ("automation_occurrence", &occurrence.occurrence_id),
         &json!({ "run_id": run_id, "link_id": link_id, "attempt": lease.attempt }),
     )?;
     match database
@@ -3397,8 +3397,8 @@ pub async fn settle_occurrence(
         database,
         &access,
         "automation.occurrence.settled.v1",
-        "automation_occurrence",
-        &occurrence.occurrence_id,
+        &occurrence,
+        ("automation_occurrence", &occurrence.occurrence_id),
         &json!({
             "state": next.as_str(),
             "attempt": lease.attempt,
@@ -3553,8 +3553,8 @@ pub async fn release_occurrence(
         database,
         &access,
         "automation.lease.released.v1",
-        "automation_lease",
-        &lease.lease_id,
+        &occurrence,
+        ("automation_lease", &lease.lease_id),
         &json!({ "occurrence_id": occurrence.occurrence_id, "state": next.as_str() }),
     )?;
     match database
@@ -3744,15 +3744,22 @@ fn security_statement(
     )
 }
 
+/// A device-actor audit row for one occurrence transition.
+///
+/// The occurrence's project is added to the bounded metadata because the org
+/// audit route filters `project_id` from metadata (F16 FR-F16-003): without it a
+/// desktop's claim/start/settle rows could not be found by project, and the web
+/// audit view could not show the tenant context of a managed run.
 fn device_audit(
     context: &RequestContext,
     database: &crate::adapters::d1::D1Adapter,
     access: &DeviceAccess,
     action: &str,
-    resource_type: &str,
-    resource_id: &str,
+    occurrence: &AutomationOccurrenceRecord,
+    (resource_type, resource_id): (&str, &str),
     metadata: &Value,
 ) -> Result<D1PreparedStatement, ApiError> {
+    let metadata = with_project(metadata, occurrence.project_id.as_deref());
     crate::routes::support::security_event_statement_with_context(
         database,
         context,
@@ -3764,12 +3771,20 @@ fn device_audit(
         resource_type,
         Some(resource_id),
         "success",
-        metadata,
+        &metadata,
         Some(&access.device.device_id),
         None,
         None,
         None,
     )
+}
+
+fn with_project(metadata: &Value, project_id: Option<&str>) -> Value {
+    let mut metadata = metadata.clone();
+    if let (Some(project_id), Value::Object(object)) = (project_id, &mut metadata) {
+        object.insert("project_id".to_owned(), json!(project_id));
+    }
+    metadata
 }
 
 async fn resume_next_run(
@@ -3790,6 +3805,22 @@ async fn resume_next_run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_audit_metadata_carries_the_occurrence_project_without_dropping_fields() {
+        let metadata = with_project(
+            &json!({ "run_id": "run_0123456789abcdef0123456789abcdef", "attempt": 1 }),
+            Some("prj_0123456789abcdef0123456789abcdef"),
+        );
+        assert_eq!(
+            metadata["project_id"],
+            "prj_0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(metadata["run_id"], "run_0123456789abcdef0123456789abcdef");
+        assert_eq!(metadata["attempt"], 1);
+        let unscoped = with_project(&json!({ "attempt": 1 }), None);
+        assert!(unscoped.get("project_id").is_none());
+    }
 
     fn context() -> RequestContext {
         RequestContext::new(
