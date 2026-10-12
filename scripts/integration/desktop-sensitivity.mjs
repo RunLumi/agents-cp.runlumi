@@ -89,6 +89,22 @@ const FAULTS = [
           '    assertManagedRunLeaseCurrent(lease, ports.lease(params.context.runId));\n    return result.decision === "deny" ? { ...result, decision: "allow" as const } : result;\n  };',
       },
     ],
+    // The server is a second, independent layer: an execution claim needs an `allowed` call and an
+    // `approved` grant. A desktop-only flip is refused there (UNDETECTED, 2026-10-12), so the whole
+    // boundary is faulted: the client flips deny to allow and both server guards accept `denied`.
+    parentEdits: [
+      {
+        file: "apps/api/src/repositories/tools.rs",
+        find: "WHERE org_id = ?1 AND run_id = ?2 AND tool_call_id = ?3 AND status = 'allowed' AND execution_started_at IS NULL",
+        replace:
+          "WHERE org_id = ?1 AND run_id = ?2 AND tool_call_id = ?3 AND status IN ('allowed', 'denied') AND execution_started_at IS NULL",
+      },
+      {
+        file: "apps/api/src/repositories/tools.rs",
+        find: "   AND status = 'approved' AND expires_at > ?11",
+        replace: "   AND status IN ('approved', 'denied') AND expires_at > ?11",
+      },
+    ],
     journey: "account",
     expect: /denial leaves the file untouched|a denied call is never claimed/,
   },
@@ -113,11 +129,13 @@ const FAULTS = [
     id: "S5-local-preservation",
     boundary: "local scheduler never runs an adopted original",
     repo: "client",
+    // Every scheduler query shares one exclusion; faulting a single site left the others in force
+    // (UNDETECTED, 2026-10-12), so the shared predicate is the fault.
     edits: [
       {
-        file: "packages/services/src/session/automationRepo.ts",
-        find: "          WHERE enabled = 1 AND running = 0\n            AND ${NOT_MANAGED_ADOPTED_SQL}\n",
-        replace: "          WHERE enabled = 1 AND running = 0\n            AND 1 = 1\n",
+        file: "packages/services/src/session/automationManagedAdoption.ts",
+        find: "export const NOT_MANAGED_ADOPTED_SQL = `NOT EXISTS (\n  SELECT 1 FROM automation_managed_adoptions m WHERE m.local_automation_id = automations.automation_id\n)`;",
+        replace: "export const NOT_MANAGED_ADOPTED_SQL = `1 = 1`;",
       },
     ],
     journey: "local-preservation",
@@ -217,9 +235,16 @@ for (const fault of FAULTS) {
       join(dir, "parent-install.log"),
     );
     if (install.code !== 0) throw new Error("INVALID: parent install failed");
-    const anchor = applyEdits(fault.repo === "client" ? childPath : wt, fault.edits);
+    const anchor =
+      applyEdits(fault.repo === "client" ? childPath : wt, fault.edits) ??
+      (fault.parentEdits ? applyEdits(wt, fault.parentEdits) : null);
     if (anchor) throw new Error(`INVALID: ${anchor}`);
-    result.diff = git(fault.repo === "client" ? childPath : wt, "diff", "--stat");
+    result.diff = [
+      git(wt, "diff", "--stat"),
+      fault.repo === "client" ? git(childPath, "diff", "--stat") : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
     if (fault.repo === "client") {
       const clientEnv = {
         ...baseEnv,
