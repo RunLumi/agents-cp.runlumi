@@ -6,6 +6,21 @@ Build the Lumi Agents control plane so it feels immediate, calm, and dependable.
 
 This file is the operating contract for coding agents in this repository.
 
+## Ambition with evidence
+
+**Raise the quality of the verified outcome, not the size of the platform.** For non-trivial work, apply these lenses inside the existing work packet; do not add a parallel planning system.
+
+- **Altitude:** identify the operator outcome behind the requested endpoint or screen. Set observable acceptance, constraints and a stop condition using the owning spec and current phase. Propose a better bounded approach when justified; frozen contracts, packet ownership and dependencies still apply.
+- **Depth:** inspect source, redacted runtime evidence and actual Worker/browser behavior. Use professional methods: threat modeling, reproduction, measured baselines and fault-sensitive verification. Challenge the assumed bottleneck. Treat a demanding target as a bounded experiment, not an achieved performance or security claim.
+- **Range:** apply useful techniques from distributed systems, security, usability and operational reliability. Produce the corresponding check or evidence rather than role-playing experts. More agents, abstractions or dependencies are not proof of progress.
+- **Speed:** shorten the verified feedback loop with existing tools and the smallest complete authorized integration slice. Continue through verification and in-scope root-cause repair, not just scaffolding or a mock UI. Stop at proven acceptance or a specific blocker; do not weaken the verifier to finish.
+
+**Here:** improve an operator's ability to control a real, authorized agent action and understand its outcome. For permission/policy changes, trace the actual UI/API/runtime path and inspect stored state, side effects, audit evidence and cross-tenant denial; include revocation, retry and budget cases when required by the owning contract. Prove a relevant positive control before interpreting refusal, and demonstrate that a load-bearing verifier detects a deliberate fault in a disposable environment. Route detailed proof through `docs/verification/`, not a new checklist.
+
+**Evidence and authority:** preserve PASS/FAIL/UNPROVEN/BLOCKED/NOT_APPLICABLE and exact revision/environment evidence. Compilation, mocks and an implementer's confidence cannot establish runtime success. Keep specs, Rust/Worker boundaries, device/security policy, secrets and deployment approvals authoritative. Larger opportunities remain proposals. Use the existing independent evaluation protocol before claiming these instructions improve outcomes.
+
+**Credit:** adapted from [Felix Rieseberg, “How to be more ambitious: A tutorial for humans with models”](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/) (13 October 2026). Speed, Altitude, Depth and Range are his framework; control-plane examples and authority safeguards are Lumi's adaptation.
+
 ## Functional specifications
 
 `docs/specs/` is the authoritative functional contract for the control plane.
